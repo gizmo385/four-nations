@@ -131,6 +131,11 @@ pub struct RunRecord {
     pub care: CareSummary,
     pub first_death_minute: Option<f32>,
     pub deaths: u32,
+    /// How many deals and requests were completed, by what they were paid in (a one-item `give`'s
+    /// item id; "food" for the any-food side), in item order: `wares` and `scroll_copy` say
+    /// whether the opening trades what phase 3 makes (#713). Absent from an older record.
+    #[serde(default)]
+    pub paid_in: Vec<(String, u32)>,
     /// Living settlers when the run ended.
     pub population: u32,
     /// An autopsy per death, oldest first.
@@ -221,7 +226,10 @@ fn run_world_observed(
 
     let reachable: Vec<BuildingId> =
         endeavor::reachable_buildings(spec.nation, &defs.techs, &defs.buildings).collect();
-    let mut first_built: Vec<Option<f32>> = vec![None; reachable.len()];
+    // The ones the opening raises (`autoplay::raised_buildings`): the reachable kinds plus the
+    // optional horizon buildings, which the endeavor doesn't count (#713).
+    let raised = autoplay::raised_buildings(spec.nation, defs);
+    let mut first_built: Vec<Option<f32>> = vec![None; raised.len()];
     // One `(idle, total)` tally per 15-minute window (`EconomyReport::idle_share`), grown as the
     // run reaches a later window.
     let mut idle_windows: Vec<(u32, u32)> = Vec::new();
@@ -252,7 +260,7 @@ fn run_world_observed(
             spec.player.step(&mut world, defs);
             if first_built.iter().any(Option::is_none) {
                 let standing: BTreeSet<BuildingId> = world.buildings().map(|b| b.id).collect();
-                for (slot, b) in first_built.iter_mut().zip(&reachable) {
+                for (slot, b) in first_built.iter_mut().zip(&raised) {
                     if slot.is_none() && standing.contains(b) {
                         *slot = Some(ticks_to_minutes(world.tick));
                     }
@@ -289,7 +297,7 @@ fn run_world_observed(
         })
         .collect();
 
-    let first_built = reachable
+    let first_built = raised
         .iter()
         .zip(first_built)
         .map(|(&b, minute)| (defs.building(b).id.clone(), minute))
@@ -342,6 +350,7 @@ fn run_world_observed(
         care: CareSummary::of(&world),
         first_death_minute: world.deaths().next().map(|d| ticks_to_minutes(d.tick)),
         deaths: world.deaths().count() as u32,
+        paid_in: paid_in(&world, defs),
         population: world.population() as u32,
         autopsies,
         flags: watch.raised(),
@@ -351,3 +360,35 @@ fn run_world_observed(
 
 #[cfg(test)]
 mod tests;
+
+/// `RunRecord::paid_in`: the completed deals and requests of the run, by the good each paid in.
+fn paid_in(world: &World, defs: &Defs) -> Vec<(String, u32)> {
+    use crate::world::CaravanEventKind;
+    let mut paid: std::collections::BTreeMap<String, u32> = Default::default();
+    for e in world.caravan_events() {
+        let give = match &e.kind {
+            CaravanEventKind::DealDone { nation, deal } => {
+                let Some(c) = defs.trade.caravans.iter().find(|c| c.nation == *nation) else {
+                    continue;
+                };
+                &c.deals[usize::from(*deal)].give
+            }
+            CaravanEventKind::RequestDone { nation, request } => {
+                let Some(c) = defs.trade.caravans.iter().find(|c| c.nation == *nation) else {
+                    continue;
+                };
+                &c.requests[usize::from(*request)].give
+            }
+            _ => continue,
+        };
+        for g in give {
+            let name = if g.any_food {
+                "food".to_owned()
+            } else {
+                g.items.first().map_or_else(String::new, |&i| defs.item(i).id.clone())
+            };
+            *paid.entry(name).or_default() += 1;
+        }
+    }
+    paid.into_iter().collect()
+}

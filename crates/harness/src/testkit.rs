@@ -62,6 +62,7 @@ pub fn record(nation: Nation, seed: u64) -> RunRecord {
             lowest_health: Some(100.0),
         },
         first_death_minute: None,
+        paid_in: Vec::new(),
         deaths: 0,
         population: 12,
         autopsies: Vec::new(),

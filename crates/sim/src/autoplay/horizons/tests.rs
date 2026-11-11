@@ -1,5 +1,5 @@
 use super::*;
-use crate::autoplay::Economy;
+use crate::autoplay::{Economy, HERB_GARDEN};
 use crate::mapgen::MapGenConfig;
 use crate::nation::Nation;
 
@@ -63,7 +63,7 @@ fn play(w: &mut World, defs: &Defs, minutes: u64) {
 /// Plays a minute at a time until `done`, for at most `limit` minutes: what the opening does
 /// with a tech lands at a different minute as its other choices change (campfires, deals and
 /// newcomers all move the crew around), so these tests wait for the thing, not for a minute.
-fn play_until(w: &mut World, defs: &Defs, limit: u64, done: impl Fn(&World) -> bool) {
+fn play_until(w: &mut World, defs: &Defs, limit: u64, mut done: impl FnMut(&World) -> bool) {
     for _ in 0..limit {
         if done(w) {
             return;
@@ -258,4 +258,99 @@ fn the_phase_2_opening_is_deterministic() {
         w.command_log().to_vec()
     };
     assert_eq!(run(), run());
+}
+
+/// The anchors of the finished buildings of `id`.
+fn finished(w: &World, defs: &Defs, id: &str) -> Vec<Pos> {
+    let building = defs.building_id(id).unwrap();
+    w.buildings().filter(|b| b.id == building).map(|b| b.anchor).collect()
+}
+
+#[test]
+fn a_tea_house_goes_beside_the_stockpile_once_a_herb_garden_stands() {
+    use crate::autoplay::{HealingPolicy, Opening};
+    let (mut w, defs) = founded(Nation::Water, 1, &["herbalism", "pottery", "tea_ceremony"]);
+    // The careful player sows its garden, so there are herbs for the house to cost.
+    let economy = Economy::new(6).with_healing(HealingPolicy::Planned);
+    let mut gardens = 0;
+    for tick in 0..150 * 600 {
+        if Opening::due(tick) {
+            economy.step(&mut w, &defs);
+        }
+        w.tick(&defs);
+        if !of(&w, &defs, "tea_house").is_empty() {
+            gardens = finished(&w, &defs, HERB_GARDEN).len();
+            break;
+        }
+    }
+    let houses = of(&w, &defs, "tea_house");
+    assert_eq!(houses.len(), 1, "one Tea House");
+    assert!(gardens > 0, "the house was designated before any Herb Garden stood");
+    assert!(
+        gap_to_stores(&w, houses[0]) <= 8,
+        "{} tiles from stores",
+        gap_to_stores(&w, houses[0])
+    );
+    for tick in 0..30 * 600 {
+        if Opening::due(tick) {
+            economy.step(&mut w, &defs);
+        }
+        w.tick(&defs);
+    }
+    assert_eq!(of(&w, &defs, "tea_house").len(), 1, "once");
+}
+
+#[test]
+fn no_tea_house_without_the_tech() {
+    let (mut w, defs) = founded(Nation::Water, 1, &["herbalism", "pottery"]);
+    play(&mut w, &defs, 90);
+    assert!(of(&w, &defs, "tea_house").is_empty());
+}
+
+#[test]
+fn a_second_workshop_goes_on_wares_and_the_first_stays_on_tools() {
+    let (mut w, defs) = founded(Nation::Earth, 1, &["carpentry", "trade_wares"]);
+    play_until(&mut w, &defs, 150, |w| finished(w, &defs, "workshop").len() >= 2);
+    play(&mut w, &defs, 3);
+    let shops = finished(&w, &defs, "workshop");
+    assert_eq!(shops.len(), 2, "one more Workshop");
+    let on_wares: Vec<bool> =
+        shops.iter().map(|&p| w.recipe_choice_at(p, &defs).is_some()).collect();
+    assert_eq!(on_wares.iter().filter(|&&on| on).count(), 1, "one on wares: {on_wares:?}");
+    play(&mut w, &defs, 20);
+    assert_eq!(finished(&w, &defs, "workshop").len(), 2, "no third");
+}
+
+#[test]
+fn no_extra_workshop_before_wares_is_known() {
+    let (mut w, defs) = founded(Nation::Earth, 1, &["carpentry"]);
+    play(&mut w, &defs, 60);
+    assert_eq!(of(&w, &defs, "workshop").len(), 1);
+}
+
+#[test]
+fn fire_puts_every_workshop_on_wares_once_its_forge_stands() {
+    let (mut w, defs) = founded(Nation::Fire, 1, &["carpentry", "trade_wares", "forging"]);
+    play_until(&mut w, &defs, 150, |w| {
+        finished(w, &defs, "workshop").len() >= 2 && !finished(w, &defs, "forge").is_empty()
+    });
+    play(&mut w, &defs, 3);
+    let shops = finished(&w, &defs, "workshop");
+    assert_eq!(shops.len(), 2);
+    for p in shops {
+        assert!(w.recipe_choice_at(p, &defs).is_some(), "the Workshop at {p:?} is on tools");
+    }
+}
+
+#[test]
+fn the_archive_stands_within_reach_of_the_study_hall() {
+    let (mut w, defs) = founded(Nation::Earth, 1, &["writing", "archives"]);
+    play_until(&mut w, &defs, 150, |w| !of(w, &defs, "archive").is_empty());
+    let archives = of(&w, &defs, "archive");
+    assert_eq!(archives.len(), 1, "one Archive");
+    let halls = of(&w, &defs, "study_hall");
+    let reach = defs.building(defs.building_id("archive").unwrap()).archive.unwrap().radius as i32;
+    assert!(halls.iter().any(|h| h.gap(archives[0]) <= reach), "no study hall in its reach");
+    play(&mut w, &defs, 30);
+    assert_eq!(of(&w, &defs, "archive").len(), 1, "once");
 }

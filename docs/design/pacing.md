@@ -138,7 +138,8 @@ nations, Small, Normal, 180 minutes, on main at `c2e3cdf`, through `balance verd
   spared. The thresholds are constants in code, not data: 8 food a settler (at least a newcomer's
   30, and the food sign's 150 once the population sign is met) and 150 wood. A request or sign deal
   may dip to half of that while the settlement is still growing. Stone and everything else is never
-  paid.
+  paid, except the phase-3 trade goods (wares and scroll copies, #713): those have no threshold,
+  so any deal that takes them goes ahead of the rest whenever stores hold them.
 - **Data nudge.** `arrival_minutes` goes from 10 to 12. An opening that keeps all three bonuses
   and takes every request draws at 120% to 140%, and with 10 it reached 16 people at minute 85 to
   100, before the window. At 12 the economy opening is near the window's middle (median 108 for

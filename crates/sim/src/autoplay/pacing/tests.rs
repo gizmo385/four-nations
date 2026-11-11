@@ -130,3 +130,29 @@ fn the_opening_is_deterministic() {
     };
     assert_eq!(run(), run());
 }
+
+/// Wares and scroll copies are spared in full (no threshold), unlike wood and food, and what the
+/// camp is already owed doesn't count twice.
+#[test]
+fn trade_goods_are_paid_whenever_stores_hold_them() {
+    let defs = Defs::bundled();
+    let wares = defs.item_id("wares").unwrap();
+    let copy = defs.item_id("scroll_copy").unwrap();
+    let goods = |item, count| [crate::trade::Goods { items: vec![item], any_food: false, count }];
+    let stock = Stock {
+        food: 0,
+        food_keep: 100,
+        wood: 0,
+        wood_keep: 150,
+        wood_item: defs.item_id("wood"),
+        goods: vec![(wares, 6), (copy, 0)],
+        growing: false,
+    };
+    assert!(stock.can_pay(&goods(wares, 6), 2), "all six wares can go");
+    assert!(!stock.can_pay(&goods(wares, 7), 2), "but not seven");
+    assert!(!stock.can_pay(&goods(copy, 1), 1), "no copies to give");
+    assert!(
+        stock.over(&goods(wares, 6)) > stock.over(&goods(defs.item_id("wood").unwrap(), 1)),
+        "a trade good goes ahead of any threshold good"
+    );
+}

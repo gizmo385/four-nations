@@ -291,7 +291,7 @@ text above was loose:
   the most demanding wants (`first_seeds`: the full tier's Hard and Sandbox at 12 seeds). A
   `--styles` or `--presets` filter leaves the other targets at "no data".
 - **A metric reads a record.** `sign_minute.ID`, `ready_minute`, `first_death`, `deaths`,
-  `deaths_by.M`, `pop_at.M`, `wood_at.M`, `food_at.M`, `food_per_head.winter.N`, `longest_gap`,
+  `deaths_by.M`, `pop_at.M`, `wood_at.M`, `food_at.M`, `herbs_at.M`, `copies_by.M`, `food_per_head.winter.N`, `longest_gap`,
   `gaps_over_15` and the care rates (`crates/harness/src/metric.rs` lists them). An event that
   never happened reads as infinity, so "no death in 3 h" is `at_least = 180`. A reading the run
   is too short for is no data, not a miss.

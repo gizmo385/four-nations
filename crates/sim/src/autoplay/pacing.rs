@@ -33,7 +33,10 @@
 //! for wood `WOOD_KEPT`. While the settlement is still short of that size, a request or a sign
 //! deal may dip to `GROWING_KEPT` percent of the threshold. These are plain constants
 //! here, not data: they say how much a *player* holds back, which is the opening's business, not
-//! the sim's. Nothing else is ever paid: stone and the rest are the gate's.
+//! the sim's. The trade goods of phase 3 (`TRADE_GOODS`: wares and scroll copies, made for the
+//! caravans and good for nothing else, #713) have no threshold: whatever stores hold, less what
+//! taken deals still owe the camp, is spared, and a deal that pays in them goes ahead of the
+//! rest. Nothing else is ever paid: stone and the rest are the gate's.
 
 use crate::building::BuildingId;
 use crate::defs::Defs;
@@ -76,6 +79,9 @@ const GROWING_KEPT: u32 = 50;
 /// Wood a deal or request leaves in stores (module doc): a bed is 5 and a building about 20 to
 /// 60, so this is a few buildings in hand, well under `wood_at_120`'s 300.
 const WOOD_KEPT: u32 = 150;
+
+/// The items made for the caravans, by id (module doc): paid whenever stores hold them.
+const TRADE_GOODS: &[&str] = &["wares", "scroll_copy"];
 
 fn campfire(defs: &Defs) -> Option<BuildingId> {
     defs.building_id("campfire")
@@ -249,6 +255,8 @@ pub(super) fn forage_missing_kinds(world: &mut World, defs: &Defs, anchor: Pos) 
 struct Owed {
     food: u32,
     wood: u32,
+    /// What the camp is owed of each trade good.
+    goods: Vec<(ItemId, u32)>,
 }
 
 /// What one side of a deal is, for the spare test.
@@ -276,6 +284,8 @@ struct Stock {
     wood: u32,
     wood_keep: u32,
     wood_item: Option<ItemId>,
+    /// Each trade good in stores, less what the camp is owed (`TRADE_GOODS`): spared in full.
+    goods: Vec<(ItemId, u32)>,
     /// Still short of the "population" sign: a request or a sign deal may then dip to
     /// `GROWING_KEPT` percent of the threshold (module doc).
     growing: bool,
@@ -284,6 +294,7 @@ struct Stock {
 impl Stock {
     fn read(world: &World, defs: &Defs) -> Self {
         let wood_item = defs.item_id("wood");
+        let trade_goods: Vec<ItemId> = TRADE_GOODS.iter().filter_map(|g| defs.item_id(g)).collect();
         let mut owed = Owed::default();
         let slots = world.caravan().map_or(0, |v| v.offers.len() as u8);
         for slot in 0..slots {
@@ -291,7 +302,13 @@ impl Stock {
                 match pay_of(g) {
                     Some(Pay::Food) => owed.food += left,
                     Some(Pay::Item(i)) if Some(i) == wood_item => owed.wood += left,
-                    // Only food and wood are ever paid, so only they can be owed.
+                    Some(Pay::Item(i)) if trade_goods.contains(&i) => {
+                        match owed.goods.iter_mut().find(|(g, _)| *g == i) {
+                            Some((_, n)) => *n += left,
+                            None => owed.goods.push((i, left)),
+                        }
+                    }
+                    // Only food, wood and the trade goods are ever paid, so only they can be owed.
                     Some(Pay::Item(_)) | None => {}
                 }
             }
@@ -317,6 +334,13 @@ impl Stock {
             wood: wood_item.map_or(0, |w| world.stored_total(w)).saturating_sub(owed.wood),
             wood_keep: WOOD_KEPT,
             wood_item,
+            goods: trade_goods
+                .iter()
+                .map(|&g| {
+                    let owed = owed.goods.iter().find(|(i, _)| *i == g).map_or(0, |&(_, n)| n);
+                    (g, world.stored_total(g).saturating_sub(owed))
+                })
+                .collect(),
             growing,
         }
     }
@@ -326,7 +350,7 @@ impl Stock {
         match pay {
             Pay::Food => Some((self.food, self.food_keep)),
             Pay::Item(i) if Some(i) == self.wood_item => Some((self.wood, self.wood_keep)),
-            Pay::Item(_) => None,
+            Pay::Item(i) => self.goods.iter().find(|&&(g, _)| g == i).map(|&(_, have)| (have, 0)),
         }
     }
 
