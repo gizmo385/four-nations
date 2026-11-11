@@ -200,6 +200,29 @@ pub fn chute_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     lines
 }
 
+/// A pair building's partner and, for a Wind Gate, its crossings (docs/design/horizons-phase-2.md,
+/// "Shared sim work, 1. Paired links" and "`wind_gates`"): `Partner: (31, 18), 25 tiles` (or `No
+/// partner`, `Partner unbuilt`, `Cut off`), then `Crossings: 12`, the hops that left or landed
+/// there.
+pub fn pair_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    use fn_sim::world::PairStatus;
+    let Some(b) = world.building_at(anchor) else { return Vec::new() };
+    let def = defs.building(b);
+    let Some(status) = world.pair_status(anchor, defs) else { return Vec::new() };
+    let mut lines = vec![match status {
+        PairStatus::NoPartner => "No partner".to_owned(),
+        PairStatus::PartnerUnbuilt => "Partner unbuilt".to_owned(),
+        PairStatus::CutOff => "Cut off".to_owned(),
+        PairStatus::Linked { partner, distance } => {
+            format!("Partner: ({}, {}), {distance} tiles", partner.x, partner.y)
+        }
+    }];
+    if def.glide.is_some() {
+        lines.push(format!("Crossings: {}", world.crossings_at(anchor)));
+    }
+    lines
+}
+
 /// The tooltip for what is under the cursor at `tile`: up to 4 lines (name, context, a yield or
 /// reason, then an action hint). `None` when `tile` is off the map.
 ///
@@ -327,6 +350,7 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
             lines.extend(power_lines(world, defs, at, building).into_iter().map(Line::Detail));
         }
         lines.extend(chute_lines(world, defs, at).into_iter().map(Line::Detail));
+        lines.extend(pair_lines(world, defs, at).into_iter().map(Line::Detail));
         return Some(lines);
     }
     let biome = &defs.biome(t.biome).name;
@@ -1005,6 +1029,38 @@ mod tests {
         s.apply(fn_sim::world::Command::SetLink { pos, to: foot }).unwrap();
         let want = format!("Foot: ({}, {}), 3 tiles, drop 30", foot.x, foot.y);
         assert_eq!(details(&s, pos)[1..], [want]);
+    }
+
+    /// The Wind Gate (#691): its partner, and a tally of the hops through it.
+    #[test]
+    fn a_wind_gate_says_who_its_partner_is_and_how_many_crossed() {
+        let mut s = Session::new(7, Nation::Air, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "wind_gate", pos);
+        assert_eq!(details(&s, pos)[1..], ["No partner".to_owned(), "Crossings: 0".to_owned()]);
+        // The nearest free tile at least 12 away that the gate may link to.
+        let bed = s.defs.building_id("bed").unwrap();
+        let mut tiles: Vec<Pos> = s.world.map.iter().map(|(p, _)| p).collect();
+        tiles.sort_by_key(|p| (p.chebyshev(pos), p.x, p.y));
+        let candidates: Vec<Pos> = tiles
+            .into_iter()
+            .filter(|p| p.chebyshev(pos) >= 12 && s.world.check_build(*p, bed, &s.defs).is_ok())
+            .collect();
+        let mut linked = None;
+        for p in candidates {
+            put(&mut s, "wind_gate", p);
+            if s.apply(fn_sim::world::Command::SetLink { pos, to: p }).is_ok() {
+                linked = Some(p);
+                break;
+            }
+            let key = s.world.map[p].building.unwrap().key();
+            s.world.remove_building(key, &s.defs);
+        }
+        let other = linked.expect("somewhere to put the other gate");
+        let tiles = pos.chebyshev(other);
+        let want = format!("Partner: ({}, {}), {tiles} tiles", other.x, other.y);
+        assert_eq!(details(&s, pos)[1..], [want, "Crossings: 0".to_owned()]);
+        assert!(tooltip_lines(&s, Tool::Select, pos).unwrap().len() <= 4);
     }
 
     /// The Hothouse (#680, #682): out of wood, else idle outside winter, with its fuel.

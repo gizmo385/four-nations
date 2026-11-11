@@ -588,6 +588,9 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
             effects.push(format!("Must be {} tiles from any stockpile", o.far_from_stores));
         }
     }
+    if let (Some(p), Some(_)) = (&def.pair, &def.glide) {
+        effects.push(format!("Built in pairs: people glide between them, up to {} tiles", p.reach));
+    }
     if let Some(h) = &def.hothouse {
         effects.push(format!("Plots within {} tiles grow through winter", h.radius));
     }

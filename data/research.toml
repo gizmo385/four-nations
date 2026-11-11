@@ -633,3 +633,14 @@ prereqs = ["irrigation", "water_travel"]
 # Carve Canal (#695, docs/design/horizons-phase-2.md): a permanent canal tile beside fresh water.
 [tech.unlocks]
 abilities = ["carve_canal"]
+
+[[tech]]
+id = "wind_gates"
+name = "Wind Gates"
+description = "Paired towers where airbenders ride the wind from one to the other."
+nation = "air"
+cost = 250
+prereqs = ["gliders", "windmills"]
+# The Wind Gate (docs/design/horizons-phase-2.md, "`wind_gates`"): people glide between a pair.
+[tech.unlocks]
+buildings = ["wind_gate"]

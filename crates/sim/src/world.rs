@@ -39,6 +39,7 @@ mod forge;
 mod found;
 mod fuel;
 mod gate;
+mod glide;
 mod harm;
 mod heat;
 mod hothouse;
@@ -46,6 +47,7 @@ mod injury;
 mod inside;
 #[cfg(any(test, debug_assertions))]
 mod invariants;
+mod linkfield;
 mod orchard;
 mod outpost;
 mod pair;
@@ -82,6 +84,7 @@ pub use events::Event;
 pub use farm::PlotStage;
 use forge::CraftState;
 pub use gate::{EndeavorError, GateSite, GateTask};
+use glide::Glider;
 pub use harm::{HarmEvent, HarmEventKind, HarmKind};
 pub use heat::{Aura, Flame, Glow, HeatSource};
 pub use outpost::Pantry;
@@ -239,6 +242,10 @@ pub struct Unit {
     /// the three needs `need_retry_at` covers either.
     #[serde(default)]
     remedy_retry_at: u64,
+    /// A hop through a Wind Gate in progress, and the route last looked over for one
+    /// (`glide.rs`). Idle, and not written, for a unit that never rides a gate.
+    #[serde(default, skip_serializing_if = "Glider::is_idle")]
+    glider: Glider,
 }
 
 impl Unit {
@@ -440,6 +447,9 @@ pub struct World {
     /// Each chute's walks from its foot to stores (`chute.rs`).
     #[serde(skip)]
     chute_walks: BTreeMap<Pos, chute::ChuteWalks>,
+    /// The walking cost from each pair end to every tile, per map revision (`linkfield.rs`).
+    #[serde(skip)]
+    link_fields: linkfield::LinkFields,
     /// A v1 to v3 save's bends (#605): merged into `events` on load, never written.
     #[serde(default, skip_serializing, rename = "bend_events")]
     v3_bend_events: Vec<BendEvent>,
@@ -621,6 +631,7 @@ impl World {
             cut_memo: build::CutMemo::default(),
             step_grids: work::StepGrids::default(),
             chute_walks: BTreeMap::new(),
+            link_fields: linkfield::LinkFields::default(),
             v3_bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),
@@ -871,6 +882,7 @@ impl World {
                 exposed_alerted: false,
                 sick_until: None,
                 remedy_retry_at: 0,
+                glider: Glider::default(),
             });
         }
     }

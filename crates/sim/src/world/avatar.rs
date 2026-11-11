@@ -118,6 +118,7 @@ impl World {
             exposed_alerted: false,
             sick_until: None,
             remedy_retry_at: 0,
+            glider: Glider::default(),
         });
     }
 

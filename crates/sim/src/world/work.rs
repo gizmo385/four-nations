@@ -925,6 +925,16 @@ impl World {
     /// One tick of walking along the route. True once the unit is at the end of it (or the
     /// route is empty to begin with); arriving costs the tick the last step landed on.
     pub(super) fn walk(&mut self, i: usize, defs: &Defs) -> bool {
+        // A gate may make the route shorter (`glide.rs`), and its hop is a step to a tile that
+        // isn't a neighbour.
+        self.consider_gate(i, defs);
+        let u = &self.units[i];
+        if let Some(&next) = u.route.as_ref().and_then(|r| r.last())
+            && u.pos.chebyshev(next) > 1
+        {
+            self.begin_hop(i, next, defs);
+            return false;
+        }
         let id = self.units[i].id;
         let speed =
             self.modifiers_for(&self.units[i], defs).move_speed * self.scooter_multiplier(id);
@@ -947,6 +957,10 @@ impl World {
 
     /// One unit's turn: meet a need if one is low, else carry on with its job, else find one.
     pub(super) fn act(&mut self, i: usize, defs: &Defs) {
+        // A hop through a gate isn't interrupted by a need, or anything else (`glide.rs`).
+        if self.units[i].glider.hopping() {
+            return self.glide_tick(i);
+        }
         self.consider_needs(i, defs);
         let u = &self.units[i];
         match (u.need_task, u.job_task) {
@@ -2020,7 +2034,11 @@ impl World {
 /// The one place rail is decided (#135). Every unit runs along rail, loaded or not (owner,
 /// 2026-10-25: rail is a road, not only a freight line). To make it a freight line again, return
 /// `cart` only when `_u.carrying.is_some()` and `_on_foot` otherwise.
-fn rules_for<'a>(_on_foot: &'a MoveRules, cart: &'a MoveRules, _u: &Unit) -> &'a MoveRules {
+pub(super) fn rules_for<'a>(
+    _on_foot: &'a MoveRules,
+    cart: &'a MoveRules,
+    _u: &Unit,
+) -> &'a MoveRules {
     cart
 }
 

@@ -247,6 +247,7 @@ impl World {
             exposed_alerted: false,
             sick_until: None,
             remedy_retry_at: 0,
+            glider: Glider::default(),
         });
         self.log_event(Arrival { tick: self.tick, unit: id, name });
         true

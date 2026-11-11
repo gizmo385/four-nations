@@ -72,6 +72,11 @@
 #             the other's link. The doors of both ends must be in one walkable region, or the link
 #             is refused ("not reachable on foot"); a pair that a map change later splits is "Cut
 #             off" and does nothing. Not with `chute`, which uses the same link one-way.
+# - glide:    people ride a pair across the gap (docs/design/horizons-phase-2.md, "Routes through
+#             links"; needs `pair`). A unit carrying nothing compares its walk with walk to this
+#             end, plus a hop of `seconds + seconds_per_tile x distance`, plus its partner's walk
+#             to where it is going, and takes the gate when that is faster (ties walk). Needs
+#             don't interrupt a hop; a unit with a load walks.
 # - orchard:  plants and tends a renewable resource around itself (issue #142, docs/design/
 #             research.md, "The orchard"). Every `plant_seconds` it plants one `plants` (a
 #             renewable resource) on a free tile of its own mapgen terrain within `radius` (a
@@ -937,3 +942,29 @@ count = 10
 [[building.cost]]
 item = "stone"
 count = 4
+
+# --- Air: wind gates (issue #691) ---
+# Unlocked by `wind_gates` (docs/design/horizons-phase-2.md): a tower built in pairs. A unit
+# carrying nothing glides from one to the other when that beats walking: it walks to the gate,
+# stands for the hop (2 s plus 0.1 s a tile) and lands at its partner. Loads still walk.
+[[building]]
+id = "wind_gate"
+name = "Wind Gate"
+verb = "Raise"
+work = 50.0
+passable = true        # the unit steps onto it to launch
+[building.pair]
+reach = 48
+min_tiles = 12
+[building.glide]
+seconds = 2.0          # the hop takes 2 s plus 0.1 s a tile
+seconds_per_tile = 0.1
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "stone"         # brick stands in, as for any stone cost
+count = 2
+[[building.cost]]
+item = "tool"
+count = 1

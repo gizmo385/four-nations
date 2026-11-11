@@ -234,6 +234,12 @@ glyph = "▼"
 ascii = "v"
 fg = [176, 150, 110]
 
+# Air's Wind Gate (horizons phase 2): a tower the wind rises from.
+[building.wind_gate]
+glyph = "Λ"
+ascii = "^"
+fg = [190, 225, 235]
+
 # Hothouses' Hothouse (Fire, horizons phase 1): glass panes.
 [building.hothouse]
 glyph = "⊞"
