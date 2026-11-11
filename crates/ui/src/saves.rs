@@ -135,7 +135,7 @@ impl Slot {
                 "{}, seed {}, {} (tick {})",
                 defs.nation(info.nation).name,
                 info.seed,
-                clock_text_at(defs, info.tick),
+                clock_text_at(defs, info.tick, info.seasons.unwrap_or(true)),
                 info.tick
             ),
             SlotState::Unloadable(why) => format!("can't load: {why}"),
@@ -374,9 +374,11 @@ mod tests {
 
         let SlotState::Ready(info) = &get("save-1").state else { panic!("save-1 loads") };
         assert_eq!((info.nation, info.seed, info.tick), (Nation::Water, 3, 40));
+        // `Session::new` plays with no difficulty, so no seasons: the slot reads "Day N".
+        assert_eq!(info.seasons, Some(false));
         assert_eq!(
             get("save-1").describe(&defs),
-            "Water Tribes, seed 3, Spring Y1 - 14:56 left (tick 40)"
+            "Water Tribes, seed 3, Day 1 - 4:56 left (tick 40)"
         );
         assert!(get("quicksave").loadable());
         assert!(get("modded").loadable(), "the data hash doesn't gate loading");
@@ -390,6 +392,31 @@ mod tests {
             let text = slot.describe(&defs);
             assert!(text.starts_with("can't load: ") && text.contains(why), "{name}: {text}");
         }
+    }
+
+    #[test]
+    fn a_slot_words_its_clock_as_the_game_did_when_saved() {
+        let tmp = TempDir::new("clock");
+        let defs = Defs::bundled();
+        // Seasons off (the identity knobs): a day count.
+        let off = session().world.save(&defs).unwrap();
+        assert!(off.contains("seasons:Some(false)"), "the header records it");
+        fs::write(tmp.0.join("off.ron"), &off).unwrap();
+        // Seasons on, and a save from before the field existed: both name the season.
+        let on = off.replacen("seasons:Some(false)", "seasons:Some(true)", 1);
+        fs::write(tmp.0.join("on.ron"), &on).unwrap();
+        let old = off.replacen(",seasons:Some(false)", "", 1);
+        assert!(!old.contains("seasons:Some"));
+        fs::write(tmp.0.join("old.ron"), &old).unwrap();
+
+        let slots = list(&tmp.0).unwrap();
+        let said = |n: &str| slots.iter().find(|s| s.name == n).unwrap().describe(&defs);
+        assert_eq!(said("off"), "Water Tribes, seed 3, Day 1 - 4:56 left (tick 40)");
+        assert_eq!(said("on"), "Water Tribes, seed 3, Spring Y1 - 14:56 left (tick 40)");
+        assert_eq!(said("old"), said("on"));
+        // And the same words as the game's own clock, bar the ASCII separator.
+        let game = crate::time::clock_text(&session()).replace('·', "-");
+        assert!(said("off").contains(&game), "{game}");
     }
 
     #[test]

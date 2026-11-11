@@ -249,7 +249,7 @@ fn a_name_already_taken_asks_before_writing_over_it() {
     assert!(text(&mut a, SIZE).contains("Save over the base slot?"));
     // Declining leaves the old save, with the saves screen still open.
     run(&mut a, "<esc> <f6> <f6>");
-    assert!(text(&mut a, SIZE).contains("14:56 left"), "still tick 40");
+    assert!(text(&mut a, SIZE).contains("4:56 left"), "still tick 40");
     // Another case of the same name asks too (a case-blind file system would clobber it).
     run(&mut a, "n B A S E <enter>");
     assert_eq!(a.ui.prompt, Some(fn_tui::state::Prompt::SaveOver("base".to_owned())));
@@ -373,7 +373,7 @@ fn esc_keeps_the_slot_on_a_save_over_box() {
     assert_eq!(a.ui.status, "", "Esc answered the box, not a fresh key");
     run(&mut a, "<f6> <f6>"); // re-reads save-1 from disk
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("14:56 left"), "{frame}"); // tick 40, not 100
+    assert!(frame.contains("4:56 left"), "{frame}"); // tick 40, not 100
 }
 
 #[test]
@@ -400,7 +400,7 @@ fn the_saves_screen_lists_a_loadable_and_an_unloadable_slot() {
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("▸ junk  can't load: not a Four Nations save"), "{frame}");
     assert!(
-        frame.contains("save-1  Earth Kingdom, seed 7, Spring Y1 - 14:56 left (tick 40)"),
+        frame.contains("save-1  Earth Kingdom, seed 7, Day 1 - 4:56 left (tick 40)"),
         "{frame}"
     );
 }

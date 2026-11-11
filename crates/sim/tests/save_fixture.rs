@@ -323,7 +323,9 @@ fn saving_an_old_save_again_gives_the_same_text() {
         // body's shape can only be compared here while the tables match.
         return;
     }
-    assert_eq!(header, old_header.replacen("version:1", &format!("version:{SAVE_VERSION}"), 1));
+    // The header also records the seasons knob (#766), which the old one had no field for.
+    let old_header = old_header.replacen("version:1", &format!("version:{SAVE_VERSION}"), 1);
+    assert_eq!(header, old_header.replacen(')', ",seasons:Some(false))", 1));
     // Not byte for byte (the buildings are records now, #604): compare the two as data, setting
     // aside the fields listed above.
     let (mut old, mut new) = (

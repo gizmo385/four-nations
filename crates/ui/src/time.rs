@@ -106,11 +106,11 @@ pub fn clock_text(session: &Session) -> String {
     session_time(session).text()
 }
 
-/// The clock text at `tick` against `defs` alone, for a save slot (which knows no difficulty, so
-/// it names the season). The halves are joined with a plain `-`, since a slot's description is
-/// plain ASCII for every frontend.
-pub fn clock_text_at(defs: &Defs, tick: u64) -> String {
-    game_time(defs, tick, true).text_with("-")
+/// The clock text at `tick` against `defs` alone, for a save slot: by season when `seasons` is
+/// on, else by day, as the game's panel read when it was saved (#766). The halves are joined with
+/// a plain `-`, since a slot's description is plain ASCII for every frontend.
+pub fn clock_text_at(defs: &Defs, tick: u64, seasons: bool) -> String {
+    game_time(defs, tick, seasons).text_with("-")
 }
 
 #[cfg(test)]
