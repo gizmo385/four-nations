@@ -107,9 +107,12 @@ pub struct UiState {
     /// The last rectangle's result ("designate harvest: 12 done, 3 skipped"), shown in the Tool
     /// section until the tool changes.
     pub notice: String,
-    /// A save or load result ("Quicksaved (tick 40)"): it takes the status line's key hints
-    /// until the next key.
+    /// A save or load result ("Quicksaved (tick 40)"), or a gate one (#643): it takes the status
+    /// line's key hints until the next key.
     pub status: String,
+    /// The status line's badge for `status`: `None` for a save or load (" SAVE "), or the
+    /// badge of whatever else set it (" GATE ", #643). Cleared with `status`.
+    pub status_badge: Option<&'static str>,
     pub prompt: Option<Prompt>,
     pub quit: bool,
     /// The unit the selection bar is about, if the bar is open.
@@ -170,6 +173,7 @@ impl UiState {
             anchor: None,
             notice: String::new(),
             status: String::new(),
+            status_badge: None,
             prompt: None,
             quit: false,
             selected: None,
@@ -308,6 +312,11 @@ impl UiState {
     /// with no corner set, or one per stamp of the rectangle being dragged. Empty outside the
     /// Build tool, or with nothing chosen yet.
     pub fn ghosts(&self, session: &Session) -> Vec<Placement> {
+        // The Gate tool's one ghost (#643): the gate centred on the cursor, judged by the
+        // endeavor's own placement check.
+        if self.tool == Tool::Gate {
+            return fn_ui::gate::placement(session, self.cursor).into_iter().collect();
+        }
         match self.ghost_building(session) {
             Some(b) => fn_ui::build::ghosts(session, self.anchor, self.cursor, b),
             None => Vec::new(),

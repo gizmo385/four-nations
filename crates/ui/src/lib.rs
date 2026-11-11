@@ -24,6 +24,7 @@ pub mod build;
 pub mod clock;
 pub mod code;
 pub mod endeavor;
+pub mod gate;
 pub mod inspect;
 pub mod research;
 pub mod saves;

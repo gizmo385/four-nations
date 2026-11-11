@@ -41,7 +41,7 @@
 
 use fn_sim::Pos;
 use fn_sim::building::BuildingId;
-use fn_sim::world::{CommandError, Unit};
+use fn_sim::world::{BuildError, CommandError, EndeavorError, Unit};
 use fn_ui::bend;
 use fn_ui::build;
 use fn_ui::endeavor::EndeavorStatus;
@@ -80,6 +80,10 @@ pub fn rect_hint(ui: &UiState) -> Option<String> {
     if ui.tool == Tool::Select {
         return None;
     }
+    // The gate has no rectangle (#643): one `Enter` places it.
+    if ui.tool == Tool::Gate {
+        return Some("Enter: place the gate".to_owned());
+    }
     Some(match ui.rect_size() {
         None => "Enter: set a corner".to_owned(),
         Some((w, h)) => format!("Enter: {} {w}x{h}", apply_verb(ui.tool)),
@@ -94,6 +98,7 @@ fn apply_verb(tool: Tool) -> &'static str {
         Tool::Clear | Tool::Deconstruct => "clear",
         Tool::Bend => "bend",
         Tool::Build => "build",
+        Tool::Gate => "place",
         Tool::Select => "select",
     }
 }
@@ -463,6 +468,23 @@ fn placement_rows(
     }
 }
 
+/// Whether the gate fits with the cursor on `pos` (#643, `fn_ui::gate::placement`), or why not,
+/// as [`placement_rows`] says it for the Build tool's choice.
+fn gate_placement_rows(session: &Session, pos: Pos, width: usize, ellipsis: char) -> Vec<Row> {
+    let Some(placement) = fn_ui::gate::placement(session, pos) else { return Vec::new() };
+    let why = match placement.refused {
+        None => return vec![Row::text("Can place the gate here", Tone::Ok)],
+        Some(BuildError::CannotBuild { at, why }) => {
+            fn_ui::gate::describe_error(session, EndeavorError::CannotBuild { at, why })
+        }
+        Some(_) => fn_ui::gate::describe_error(session, EndeavorError::NotReady),
+    };
+    wrap(&format!("Can't place the gate here: {why}"), width, HERE_DETAIL_LINES, ellipsis)
+        .into_iter()
+        .map(|l| Row::text(l, Tone::Warn))
+        .collect()
+}
+
 /// What is under the cursor: whether the Build tool's choice would fit there, then the tile's
 /// own tooltip, then anything else lying on it. What `Enter` does next in a tool is the active
 /// tool banner's own line now (#307, `crate::banner`), not repeated here.
@@ -488,6 +510,9 @@ fn cursor_rows(
     let mut rows = Vec::new();
     if ui.tool == Tool::Build {
         rows.extend(placement_rows(session, pos, choice, width, ellipsis));
+    }
+    if ui.tool == Tool::Gate {
+        rows.extend(gate_placement_rows(session, pos, width, ellipsis));
     }
     let unit_here = session.world.units_at(pos).next();
     let selected_here = unit_here.is_some_and(|u| Some(u.id) == ui.selected);

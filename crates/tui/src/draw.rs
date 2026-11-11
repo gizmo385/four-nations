@@ -104,7 +104,7 @@ const KEYS_SELECTED: &str = "Enter next here  Tab/Shift+Tab units  F follow  Esc
 const KEYS_SCREEN: &str =
     "arrows/W S scroll  PgUp/PgDn page  Esc close  L log  ? keys  Space pause";
 const KEYS_ENDEAVOR: &str =
-    "arrows/W S scroll  PgUp/PgDn page  Esc/G close  L log  ? keys  Space pause";
+    "arrows/W S scroll  Enter place gate  X withdraw  Esc/G close  L log  ? keys  Space pause";
 const KEYS_RESEARCH: &str = "arrows/WASD choose  Enter set target  Esc/T close  L log  ? keys";
 const KEYS_SAVES: &str =
     "arrows/W S choose  Enter load  Shift+S save over  N new  Esc/F6 close  ? keys";
@@ -172,8 +172,9 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
             (text.len() as u16, format!("Press y to {question}, any other key to stay."))
         }
         None if !ui.status.is_empty() => {
-            let text = " SAVE ";
-            let bg = if ui.status.contains("failed") { theme.warn } else { theme.accent };
+            let text = ui.status_badge.unwrap_or(" SAVE ");
+            let refused = ui.status.contains("failed") || ui.status.starts_with("Can't");
+            let bg = if refused { theme.warn } else { theme.accent };
             buf.set_string(area.x, area.y, text, badge(theme.on_accent, bg));
             (text.len() as u16, ui.status.clone())
         }

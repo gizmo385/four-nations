@@ -105,7 +105,10 @@ pub fn list() -> Vec<Value> {
                              press: designate {tool: harvest|cancel|clear|stockpile|bend|sow, \
                              from, to, standing?, teardown?, ability?}, build {building, from, \
                              to}, select {x,y} or {name}, research {tech}, cursor {x,y}, keys \
-                             {script}. `standing` (harvest only) re-queues the designation when \
+                             {script}, gate {x,y}, cancel_gate. `gate` places the endeavor's \
+                             gate with its top-left tile on (x,y) once the endeavor is Ready \
+                             (screen endeavor's `action` says so); `cancel_gate` withdraws its \
+                             site before work on it starts. `standing` (harvest only) re-queues the designation when \
                              the resource ripens again. `teardown` (cancel only) also withdraws \
                              a build site or a stockpile tile; without it a cancel withdraws \
                              only job designations (a harvest, a bend, a sow or a clear mark) \
@@ -137,7 +140,7 @@ pub fn list() -> Vec<Value> {
                                     "type": "string",
                                     "enum": [
                                         "designate", "build", "select", "research", "cursor",
-                                        "keys",
+                                        "keys", "gate", "cancel_gate",
                                     ],
                                 },
                                 "tool": {
@@ -301,7 +304,7 @@ fn sdk_reference_tool() -> Value {
                          each porcelain entry is #{name, params, doc}, doc straight from the \
                          function's own /// comment. action_steps names every shape act's own \
                          steps argument accepts (designate, build, select, research, cursor, \
-                         keys), each a #{step, fields, example}. Probes (inline run_script code) \
+                         keys, gate, cancel_gate), each a #{step, fields, example}. Probes (inline run_script code) \
                          may call only the reads -- observe, look, inspect, cells, can_build, \
                          screen, events, plan, log, find, store, idle, need -- and never act, \
                          keys, wait or the helpers built on them; those need a saved script.",

@@ -73,6 +73,19 @@ const ACTION_STEP_DOCS: &[ActionStepDoc] = &[
                  (wait(turns) is how a script spends game time).",
         example: "act([#{step: \"keys\", script: \"h <right*2> <enter>\"}])",
     },
+    ActionStepDoc {
+        step: "gate",
+        fields: "{x, y}: places the endeavor's gate with its top-left tile on (x, y), once the \
+                 endeavor is Ready (screen(\"endeavor\")'s action says so). Refused with the \
+                 reason before then; a blocked site comes back as the step's notice.",
+        example: "act([#{step: \"gate\", x: 40, y: 22}], \"raise the gate east of camp\")",
+    },
+    ActionStepDoc {
+        step: "cancel_gate",
+        fields: "{}: withdraws the gate's site before work on it starts. Refused when there is \
+                 no site or work has started.",
+        example: "act([#{step: \"cancel_gate\"}])",
+    },
 ];
 
 /// `sdk_reference`'s own action-step half: `ACTION_STEP_DOCS` as `#{step, fields, example}`
@@ -100,6 +113,8 @@ mod tests {
             ActionStep::Research { .. } => "research",
             ActionStep::Cursor { .. } => "cursor",
             ActionStep::Keys { .. } => "keys",
+            ActionStep::Gate { .. } => "gate",
+            ActionStep::CancelGate => "cancel_gate",
         }
     }
 
@@ -124,6 +139,8 @@ mod tests {
             ActionStep::Research { tech: "Irrigation".into() },
             ActionStep::Cursor { x: 0, y: 0 },
             ActionStep::Keys { script: "h".into() },
+            ActionStep::Gate { x: 0, y: 0 },
+            ActionStep::CancelGate,
         ]
     }
 

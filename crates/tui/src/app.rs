@@ -76,6 +76,7 @@ impl App {
         }
         self.dirty = true;
         self.ui.status.clear();
+        self.ui.status_badge = None;
         if let Some(prompt) = self.ui.prompt.take() {
             // Only a plain y confirms; anything else (Esc, n, a stray key) stays.
             if matches!(key.code, KeyCode::Char('y' | 'Y')) {
@@ -170,6 +171,15 @@ impl App {
             match action {
                 Action::Move { dy, .. } => return self.move_save_cursor(dy),
                 Action::Confirm => return self.ask_load_save(),
+                _ => {}
+            }
+        }
+        if self.ui.screen == Some(Screen::Endeavor) {
+            // The gate (#643): Enter chooses a site once the endeavor is Ready, `X` withdraws a
+            // site no work has started on. Both say why when there's nothing to do.
+            match action {
+                Action::Confirm => return self.start_gate(),
+                Action::PickTool(Tool::CancelHarvest) => return self.withdraw_gate(),
                 _ => {}
             }
         }
@@ -583,13 +593,59 @@ impl App {
         }
     }
 
+    /// `Enter` in the Endeavor screen (#643): once the endeavor is Ready, closes the screen and
+    /// arms the Gate tool, whose ghost shows where the site would go; otherwise says why not in
+    /// the status line ("Can't place The Harmony Gate: 5 of 9 signs met").
+    fn start_gate(&mut self) {
+        match fn_ui::gate::place_refusal(&self.session) {
+            None => {
+                self.ui.screen = None;
+                self.ui.set_tool(Tool::Gate);
+            }
+            Some(why) => self.gate_status(why),
+        }
+    }
+
+    /// Shows a gate outcome in the status line, under its own badge (#643).
+    fn gate_status(&mut self, text: String) {
+        self.ui.status = text;
+        self.ui.status_badge = Some(" GATE ");
+    }
+
+    /// `X` in the Endeavor screen (#643): withdraws the gate's site while no work on it has
+    /// started (`fn_ui::gate::withdraw`). The screen stays open; the outcome is both the status
+    /// line and the Tool section's notice.
+    fn withdraw_gate(&mut self) {
+        let text = fn_ui::gate::withdraw(&mut self.session).unwrap_or_else(|why| why);
+        self.gate_status(text.clone());
+        self.ui.notice = text;
+    }
+
+    /// `Enter` with the Gate tool (#643): places the site centred on the cursor. Placed, the
+    /// tool goes back to Select (there is only one gate); refused, it stays for another try.
+    /// Either way the notice says what happened.
+    fn place_gate(&mut self) {
+        match fn_ui::gate::place(&mut self.session, self.ui.cursor) {
+            Ok(text) => {
+                self.ui.set_tool(Tool::Select);
+                self.gate_status(text.clone());
+                self.ui.notice = text;
+            }
+            Err(why) => self.ui.notice = why,
+        }
+    }
+
     /// `Enter`. In Select mode it selects the unit under the cursor (again: the next one on that
     /// tile). In a tool the first sets a corner, the second applies the tool to every tile of the
-    /// rectangle through `fn_ui`'s shared logic, and the tool stays active for the next one.
+    /// rectangle through `fn_ui`'s shared logic, and the tool stays active for the next one. The
+    /// Gate tool has no rectangle: one `Enter` places it.
     fn confirm(&mut self) {
         if self.ui.tool == Tool::Select {
             self.ui.select_here(&self.session);
             return;
+        }
+        if self.ui.tool == Tool::Gate {
+            return self.place_gate();
         }
         match self.ui.anchor.take() {
             None => self.ui.anchor = Some(self.ui.cursor),

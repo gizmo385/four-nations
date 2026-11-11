@@ -149,7 +149,9 @@ pub fn draw_screen(
     let (title, footer) = match screen {
         Screen::Log => ("MESSAGE LOG", "Arrows W S scroll  PgUp PgDn page  Esc close  ? keys"),
         Screen::Help => ("KEY HELP", "Arrows W S scroll  PgUp PgDn page  Esc close  L log"),
-        Screen::Endeavor => ("ENDEAVOR", "Arrows W S scroll  PgUp PgDn page  Esc/G close"),
+        Screen::Endeavor => {
+            ("ENDEAVOR", "Arrows W S scroll  Enter place gate  X withdraw  Esc/G close")
+        }
         Screen::Research => ("RESEARCH", "Arrows WASD choose  Enter target  Esc/T close"),
         Screen::Saves => {
             ("SAVES", "Arrows W S choose  Enter load  Shift+S save over  N new  Esc/F6 close")

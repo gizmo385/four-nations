@@ -49,6 +49,10 @@ pub enum Tool {
     /// Sow an empty farm plot (issue #198). A ripe one is reaped on its own; there's no tool
     /// for that.
     Sow,
+    /// Place the endeavor's gate (#643): armed from the Endeavor screen once the endeavor is
+    /// Ready, never by a letter key of its own, so it isn't in [`Tool::ALL`]. One `Enter` places
+    /// the site centred on the cursor (`crate::gate::place`); there is no rectangle.
+    Gate,
 }
 
 /// What a tool needs besides the tile to decide on a command.
@@ -125,6 +129,7 @@ impl Tool {
             Self::Bend => "Bend",
             Self::Build => "Build",
             Self::Sow => "Sow",
+            Self::Gate => "Gate",
         }
     }
 
@@ -139,13 +144,15 @@ impl Tool {
             Self::Bend => "B",
             Self::Build => "U",
             Self::Sow => "C",
+            Self::Gate => "G Enter",
         }
     }
 
-    /// The letter key that picks the tool; `None` for `Select`, which is `Esc`. Always upper case.
+    /// The letter key that picks the tool; `None` for `Select`, which is `Esc`, and for `Gate`,
+    /// which the Endeavor screen arms. Always upper case.
     pub fn letter(self) -> Option<char> {
         match self {
-            Self::Select => None,
+            Self::Select | Self::Gate => None,
             other => other.key().chars().next(),
         }
     }
@@ -172,6 +179,7 @@ impl Tool {
             Self::Bend => "channel the nation's ability",
             Self::Build => "place the chosen building (U: next building)",
             Self::Sow => "sow an empty farm plot",
+            Self::Gate => "place the gate",
         }
     }
 
@@ -188,7 +196,8 @@ impl Tool {
             | Self::Stockpile
             | Self::Bend
             | Self::Build
-            | Self::Sow => "",
+            | Self::Sow
+            | Self::Gate => "",
             Self::Harvest => "chop, mine, gather",
             Self::CancelHarvest => "harvest, bend, sow or clear mark (O: also stockpile/site)",
         }
@@ -204,6 +213,9 @@ impl Tool {
             let def = session.defs.ability(id);
             let more = if usable_abilities(session).len() > 1 { " (B: next ability)" } else { "" };
             return format!("{}: {}{more}", def.verb, def.description);
+        }
+        if self == Self::Gate {
+            return format!("place {}: Enter at the cursor", session.defs.endeavor.name);
         }
         self.label().to_owned()
     }
@@ -232,6 +244,9 @@ impl Tool {
             Self::Bend => Some(Command::Bend { ability: pick.ability?, pos }),
             Self::Build => Some(Command::DesignateBuild { pos, building: pick.building? }),
             Self::Sow => Some(Command::Sow { pos }),
+            // The gate's anchor depends on its footprint, which `command` has no data for:
+            // `apply_rect` hands it to `crate::gate::place` instead.
+            Self::Gate => None,
         }
     }
 }
@@ -432,6 +447,10 @@ pub fn apply_rect(
 ) -> String {
     if tool == Tool::Select {
         return String::new();
+    }
+    // One site, centred where the rectangle ends: the gate has no rectangle of its own.
+    if tool == Tool::Gate {
+        return crate::gate::place(session, to).unwrap_or_else(|why| why);
     }
     let rows = build::picker_rows(session);
     let building = build::valid_choice(&rows, choice);

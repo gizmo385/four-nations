@@ -915,6 +915,7 @@ impl Host {
             name: v.name,
             count: v.count,
             stage: v.stage,
+            action: v.action,
             groups: v
                 .groups
                 .into_iter()
@@ -1034,7 +1035,13 @@ impl Host {
                         pressed.push(key);
                     }
                     labels.push(step_label(step));
-                    if matches!(step, ActionStep::Designate { .. } | ActionStep::Build { .. }) {
+                    if matches!(
+                        step,
+                        ActionStep::Designate { .. }
+                            | ActionStep::Build { .. }
+                            | ActionStep::Gate { .. }
+                            | ActionStep::CancelGate
+                    ) {
                         let notice = self.app().ui.notice.clone();
                         if !notice.is_empty() {
                             notices.push(StepNotice { step: index, notice });
@@ -1090,7 +1097,47 @@ impl Host {
             ActionStep::Research { tech } => self.plan_research(tech),
             ActionStep::Cursor { x, y } => self.plan_cursor(Pos::new(*x, *y)),
             ActionStep::Keys { script } => self.plan_keys(script),
+            ActionStep::Gate { x, y } => self.plan_gate(Pos::new(*x, *y)),
+            ActionStep::CancelGate => self.plan_cancel_gate(),
         }
+    }
+
+    /// `gate {x, y}` (#643): `G` for the Endeavor screen, `Enter` there to arm the Gate tool, a
+    /// cursor walk to the tile that centres the gate's footprint on `anchor`, `Enter`. Refused
+    /// before anything is pressed while the endeavor isn't Ready, with the same reason the
+    /// screen's own `Enter` gives; a blocked site is pressed anyway and comes back as the
+    /// step's notice ("Can't place The Harmony Gate: an oak tree is in the way"), as a `build`
+    /// step's does.
+    fn plan_gate(&self, anchor: Pos) -> Result<Vec<KeyEvent>, String> {
+        let session = &self.app().session;
+        let cursor = fn_ui::gate::cursor_for(session, anchor)
+            .ok_or_else(|| "gate: there is nothing to build".to_owned())?;
+        if !self.in_bounds(anchor) || !self.in_bounds(cursor) {
+            return Err(format!("gate: ({},{}) isn't on the map", anchor.x, anchor.y));
+        }
+        if let Some(why) = fn_ui::gate::place_refusal(session) {
+            return Err(format!("gate: {why}"));
+        }
+        let mut keys = self.close_overlay_keys();
+        keys.push(char_key('g'));
+        keys.push(enter_key());
+        keys.extend(walk_keys(self.app().ui.cursor, cursor));
+        keys.push(enter_key());
+        Ok(keys)
+    }
+
+    /// `cancel_gate` (#643): `G`, `X` there to withdraw the site, `Esc` back to the map. Refused
+    /// before anything is pressed when there's no site, or work on it has started.
+    fn plan_cancel_gate(&self) -> Result<Vec<KeyEvent>, String> {
+        let session = &self.app().session;
+        if let Some(why) = fn_ui::gate::withdraw_refusal(session) {
+            return Err(format!("cancel_gate: {why}"));
+        }
+        let mut keys = self.close_overlay_keys();
+        keys.push(char_key('g'));
+        keys.push(char_key('x'));
+        keys.push(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        Ok(keys)
     }
 
     /// `designate`: Esc to close any open screen or modal (the tool's letter and `o` wouldn't
@@ -1562,6 +1609,14 @@ pub enum ActionStep {
     /// `{script}`: `--keys` syntax, without `<tick N>` (`Host::end_turn` is how an agent spends
     /// game time).
     Keys { script: String },
+    /// `{x, y}` (#643): place the endeavor's gate with its top-left tile on `(x, y)`, once the
+    /// endeavor is Ready, the Endeavor screen's own way (`G`, `Enter`, the cursor, `Enter`). Its
+    /// footprint is the gate building's own (`screen {"endeavor"}`'s `action` says when it can be
+    /// placed). Refused with the reason while the endeavor isn't Ready.
+    Gate { x: i32, y: i32 },
+    /// `{}` (#643): withdraw the gate's site before work on it starts (`G`, `X`, `Esc`). Refused
+    /// when there is no site or work has started.
+    CancelGate,
 }
 
 /// A tile, for [`ActionStep::Designate`] and [`ActionStep::Build`]'s `from` and `to`.
@@ -1751,6 +1806,8 @@ fn step_label(step: &ActionStep) -> String {
         ActionStep::Research { tech } => format!("research {tech}"),
         ActionStep::Cursor { x, y } => format!("cursor ({x},{y})"),
         ActionStep::Keys { script } => format!("keys {script}"),
+        ActionStep::Gate { x, y } => format!("place gate at ({x},{y})"),
+        ActionStep::CancelGate => "withdraw gate site".to_owned(),
     }
 }
 
@@ -2085,6 +2142,11 @@ pub struct EndeavorScreenView {
     pub name: String,
     pub count: String,
     pub stage: String,
+    /// What can be done with the gate now (#643), as the screen's own hint line: "Enter: choose a
+    /// site for the gate" once Ready (the `gate` step), "X: withdraw the site" until work on it
+    /// starts (the `cancel_gate` step). Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
     pub groups: Vec<EndeavorGroupView>,
 }
 
@@ -4223,6 +4285,123 @@ mod tests {
         let want_id = unlocked[1].id;
         assert_eq!(h.app().ui.choice, Some(want_id));
         assert_same_as_key_script(&mut h, Nation::Earth, &result.keys.join(" "));
+    }
+
+    /// `h`'s world with the endeavor latched Ready (#643), as if every sign had been met: a save
+    /// round trip with the state spliced in, since meeting every sign takes a whole settlement.
+    fn make_ready(h: &mut Host) {
+        let s = &mut h.app_mut().session;
+        let text = s.world.save(&s.defs).unwrap().replacen("Dormant", "Ready(tick:0)", 1);
+        s.world = fn_sim::World::load(&text, &s.defs).unwrap();
+    }
+
+    /// A top-left tile near the first settler where the gate fits.
+    fn free_gate_anchor(h: &Host) -> Pos {
+        let s = &h.app().session;
+        let home = s.world.units[0].pos;
+        (1..30)
+            .flat_map(|r| (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy))))
+            .map(|(dx, dy)| Pos::new(home.x + dx, home.y + dy))
+            .find(|&a| {
+                let cursor = fn_ui::gate::cursor_for(s, a).unwrap();
+                fn_ui::gate::placement(s, cursor).is_some_and(|p| p.ok())
+            })
+            .unwrap()
+    }
+
+    /// #643: a `gate` step on a Ready settlement opens the Endeavor screen, arms the Gate tool,
+    /// walks the cursor and places the site, leaving the endeavor Building on its first stage,
+    /// the map back in Select mode, and the placement as the step's notice.
+    #[test]
+    fn act_gate_places_the_gate_once_ready() {
+        let mut h = host(Nation::Earth);
+        make_ready(&mut h);
+        assert_eq!(
+            h.screen("endeavor").map(|v| match v {
+                ScreenView::Endeavor(e) => e.action,
+                _ => None,
+            }),
+            Ok(Some("Enter: choose a site for the gate".to_owned()))
+        );
+        let anchor = free_gate_anchor(&h);
+        let result = h.act(&[ActionStep::Gate { x: anchor.x, y: anchor.y }], None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert_eq!(result.keys[..2], ["g".to_owned(), "<enter>".to_owned()]);
+        let s = &h.app().session;
+        let fn_sim::world::EndeavorState::Building(g) = s.world.endeavor() else {
+            panic!("{:?}", s.world.endeavor())
+        };
+        assert_eq!(g.anchor, anchor);
+        assert_eq!(
+            s.world.gate_stage(&s.defs).map(|(n, st)| (n, st.id.as_str())),
+            Some((0, "foundation"))
+        );
+        assert_eq!(h.observe().tool, "Select");
+        assert_eq!(result.notices.len(), 1, "{result:?}");
+        assert_eq!(result.notices[0].notice, "The Harmony Gate: site placed");
+        assert_eq!(
+            result.label.as_deref(),
+            Some(&*format!("place gate at ({},{})", anchor.x, anchor.y))
+        );
+
+        // And withdrawn again, before anyone has worked on it.
+        let result = h.act(&[ActionStep::CancelGate], None);
+        assert!(result.error.is_none(), "{result:?}");
+        assert!(matches!(
+            h.app().session.world.endeavor(),
+            fn_sim::world::EndeavorState::Ready { .. }
+        ));
+        assert_eq!(result.notices[0].notice, "The Harmony Gate: site withdrawn");
+        assert!(h.app().ui.screen.is_none(), "back on the map");
+    }
+
+    /// #643: before Ready, `gate` is refused with the reason and presses nothing; so is
+    /// `cancel_gate` with no site.
+    #[test]
+    fn act_gate_before_ready_is_refused_and_presses_nothing() {
+        let mut h = host(Nation::Earth);
+        let total = h.app().session.defs.endeavor.signs.len();
+        let result = h.act(&[ActionStep::Gate { x: 10, y: 10 }], None);
+        let err = result.error.unwrap();
+        assert!(err.reason.starts_with("gate: Can't place The Harmony Gate: "), "{}", err.reason);
+        assert!(err.reason.ends_with(&format!(" of {total} signs met")), "{}", err.reason);
+        assert!(result.keys.is_empty());
+        let result = h.act(&[ActionStep::CancelGate], None);
+        assert_eq!(
+            result.error.unwrap().reason,
+            "cancel_gate: Can't withdraw the site: no site to withdraw"
+        );
+        assert!(result.keys.is_empty());
+    }
+
+    /// #643: the player's own way in -- `G`, `Enter`, the cursor, `Enter` -- with the ghost on
+    /// the map while the Gate tool is armed, and the stage's own look on the map after.
+    #[test]
+    fn the_endeavor_screen_arms_the_gate_tool_and_enter_places_it() {
+        let mut h = host(Nation::Earth);
+        // Before Ready, Enter on the screen only says why.
+        h.press_keys("g <enter>", None, None).unwrap();
+        assert_eq!(h.app().ui.tool, Tool::Select);
+        assert!(h.app().ui.status.contains("signs met"), "{}", h.app().ui.status);
+        h.press_keys("<esc>", None, None).unwrap();
+
+        make_ready(&mut h);
+        h.press_keys("g <enter>", None, None).unwrap();
+        assert!(h.app().ui.screen.is_none());
+        assert_eq!(h.app().ui.tool, Tool::Gate);
+        let anchor = free_gate_anchor(&h);
+        let cursor = fn_ui::gate::cursor_for(&h.app().session, anchor).unwrap();
+        h.app_mut().ui.cursor = cursor;
+        let ghosts = h.app().ui.ghosts(&h.app().session);
+        assert_eq!(ghosts.len(), 1);
+        assert!(ghosts[0].ok());
+        assert_eq!(ghosts[0].footprint.anchor, anchor);
+        h.press_keys("<enter>", None, None).unwrap();
+        assert!(matches!(
+            h.app().session.world.endeavor(),
+            fn_sim::world::EndeavorState::Building(_)
+        ));
+        assert_eq!(h.app().ui.tool, Tool::Select);
     }
 
     #[test]
