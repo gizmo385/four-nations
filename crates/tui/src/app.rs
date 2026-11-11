@@ -16,7 +16,7 @@ use crate::menu::{MenuPage, MenuRow};
 use crate::research;
 use crate::saves as saves_screen;
 use crate::screens;
-use crate::state::{Modal, PINNED, Prompt, Screen, UiState};
+use crate::state::{HelpTab, Modal, PINNED, Prompt, Screen, UiState};
 
 /// What `F5`, `F9` and `F6` say when there is no save directory.
 const NO_SAVE_DIR: &str = "Save failed: this platform has no data directory (set FN_SAVE_DIR)";
@@ -195,6 +195,10 @@ impl App {
             }
         }
         match action {
+            // `Tab` flips the key help between its keys and its legend (#662).
+            Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Help) => {
+                self.ui.switch_help_tab();
+            }
             Action::Move { dy, tiles, .. } => self.scroll_by(dy * tiles),
             Action::Jump { dy, .. } => {
                 let page = self.screen_rows();
@@ -238,6 +242,7 @@ impl App {
             self.ui.screen = Some(screen);
             // The log opens at its newest line, the help at its top, the tree on its target.
             self.ui.scroll = if screen == Screen::Log { PINNED } else { 0 };
+            self.ui.help_tab = HelpTab::default();
             if screen == Screen::Research {
                 let view = screen_view(&self.session);
                 self.ui.tech = research::initial_cursor(&self.session, &view);
@@ -289,7 +294,7 @@ impl App {
 
     /// How many rows of text the open screen shows at once.
     fn screen_rows(&self) -> i32 {
-        screens::text_size(self.ui.page()).1 as i32
+        self.ui.screen.map_or(0, |s| screens::body_rows(s, self.ui.page())) as i32
     }
 
     /// Scrolls the open screen `lines` down (negative: up), within its text.
@@ -299,8 +304,9 @@ impl App {
         else {
             return;
         };
-        let (width, rows) = screens::text_size(self.ui.page());
-        let total = screens::line_count(screen, &self.session, &self.ui.alerts, width);
+        let width = screens::text_size(self.ui.page()).0;
+        let rows = screens::body_rows(screen, self.ui.page());
+        let total = screens::row_count(&self.session, &self.ui, screen, width);
         let max = total.saturating_sub(rows);
         let now = self.ui.scroll.min(max) as i64;
         let to = (now + i64::from(lines)).clamp(0, max as i64) as usize;

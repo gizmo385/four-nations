@@ -1850,7 +1850,7 @@ fn describe_thing(session: &Session, thing: &Thing, pos: Pos) -> String {
 }
 
 /// `ground` in a few words: the biome's name, or the terrain's own.
-fn describe_ground(session: &Session, ground: Ground) -> String {
+pub(crate) fn describe_ground(session: &Session, ground: Ground) -> String {
     match ground {
         Ground::Terrain(t) => format!("{t:?}").to_lowercase(),
         Ground::Biome(id) => session.defs.biome(id).name.clone(),
@@ -1859,7 +1859,7 @@ fn describe_ground(session: &Session, ground: Ground) -> String {
 
 /// One mark's kind, as [`Host::look`]'s `marks` names it (this crate's `map` module doc comment
 /// lists every kind).
-fn describe_mark(mark: &Mark) -> String {
+pub(crate) fn describe_mark(mark: &Mark) -> String {
     match mark {
         Mark::Cursor => "cursor",
         Mark::Harvest => "harvest",

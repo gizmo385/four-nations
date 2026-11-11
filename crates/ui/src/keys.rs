@@ -96,18 +96,22 @@ pub enum Group {
     Tools,
     Time,
     Game,
+    /// The keys that mean something else once a designation tool is up.
+    InTool,
 }
 
 impl Group {
-    pub const ALL: [Group; 5] = [Self::Cursor, Self::Units, Self::Tools, Self::Time, Self::Game];
+    pub const ALL: [Group; 6] =
+        [Self::Cursor, Self::Units, Self::Tools, Self::Time, Self::Game, Self::InTool];
 
     pub fn title(self) -> &'static str {
         match self {
             Self::Cursor => "Cursor and view",
-            Self::Units => "Units",
+            Self::Units => "Settlers",
             Self::Tools => "Designating",
             Self::Time => "Time",
             Self::Game => "Screens and game",
+            Self::InTool => "In a tool",
         }
     }
 }
@@ -299,6 +303,7 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Help], &[step], "Up/Down", "scroll", None);
     add(&[Mode::Help], &[Action::Cancel, Action::ShowHelp], "Esc or ?", "close", None);
     add(&[Mode::Help], &[jump], "PgUp/PgDn", "page", None);
+    add(&[Mode::Help], &[Action::NextUnit, Action::PrevUnit], "Tab", "switch tab", None);
 
     add(&[Mode::Saves], &[step], "Up/Down", "choose", None);
     add(&[Mode::Saves], &[Action::Confirm], "Enter", "load", None);
@@ -324,99 +329,66 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Ask], &[], "Enter", "answer", None);
     add(&[Mode::Ask], &[], "Esc", "cancel", None);
 
-    // The key help's own rows, in its order. Their keys are the whole spelling (WASD too).
+    // The key help's own rows, in its order: one row per key, short enough for half a screen
+    // (anything that needs a paragraph is left to the screen it is about). Their keys are the
+    // whole spelling (WASD too).
     let cursor = Some(Group::Cursor);
     let units = Some(Group::Units);
+    let in_tool = Some(Group::InTool);
     let help = |g: Option<Group>, what| g.map(|g| (g, what));
-    add(
-        &[Mode::Map],
-        &[step],
-        "Arrows or WASD",
-        "move",
-        help(cursor, "Move the cursor 1 tile (Shift: 10)"),
-    );
-    add(
-        &[Mode::Map],
-        &[jump],
-        "Ctrl+Arrows or PgUp/PgDn",
-        "jump",
-        help(cursor, "Jump the view a quarter screen"),
-    );
+    add(&[Mode::Map], &[step], "Arrows or WASD", "move", help(cursor, "Move 1 tile (Shift: 10)"));
+    add(&[Mode::Map], &[jump], "Ctrl+Arrows", "jump", help(cursor, "Jump a quarter screen"));
+    add(&[Mode::Map], &[jump], "PgUp/PgDn", "jump", help(cursor, "Jump a quarter screen"));
     add(
         &[Mode::Map],
         &[Action::Confirm],
         "Enter",
         "select",
-        help(
-            units,
-            "Select the unit under the cursor; again: the next one there. In a tool: set a \
-             corner, then apply",
-        ),
+        help(units, "Select what is under the cursor"),
     );
-    add(
-        &[Mode::Anywhere],
-        &[Action::Cancel],
-        "Esc",
-        "close",
-        help(
-            units,
-            "Close the screen, a modal or the bar. In a tool: drop the corner, then leave the \
-             tool. With nothing to close: the game menu (Resume, Save…, Load…, Key help, New \
-             map…, Switch nation…, Quit…), where the actions that end the game live; each asks \
-             in a box first, and Esc there is the safe answer",
-        ),
-    );
-    add(
-        &[Mode::Map],
-        &[Action::NextUnit],
-        "Tab",
-        "next unit",
-        help(units, "Select the next unit (Select mode)"),
-    );
+    add(&[Mode::Map], &[Action::NextUnit], "Tab", "next unit", help(units, "Next settler"));
     add(
         &[Mode::Map],
         &[Action::PrevUnit],
         "Shift+Tab",
         "previous unit",
-        help(units, "Select the previous unit (Select mode)"),
+        help(units, "Previous settler"),
     );
-    add(
-        &[Mode::Map],
-        &[Action::Follow],
-        "F",
-        "follow",
-        help(units, "Follow the selected unit (Select mode)"),
-    );
+    add(&[Mode::Map], &[Action::Follow], "F", "follow", help(units, "Follow the selected settler"));
+    add(&[Mode::Map], &[Action::Cancel], "Esc", "close", help(units, "Deselect, or open the menu"));
     for tool in Tool::ALL {
         // Select is Esc; every other tool has a letter.
         if tool.letter().is_none() {
             continue;
         }
-        // `Tool::label`'s own wording for Build is generic ("U: next building", #111); the TUI's
-        // own `U` opens the Build modal instead (#285), so it gets its own words here.
-        let what = if tool == Tool::Build {
-            format!("{} tool: place the chosen building (U: pick one)", tool.name())
-        } else {
-            format!("{} tool: {}", tool.name(), tool.label())
-        };
         add(
             &[Mode::Map],
             &[Action::PickTool(tool)],
             tool.key(),
             "tool",
-            Some((Group::Tools, &what)),
+            Some((Group::Tools, tool_help(tool))),
         );
     }
+    add(
+        &[Mode::Map],
+        &[Action::Confirm],
+        "Enter",
+        "set corner",
+        help(in_tool, "Set a corner, then apply"),
+    );
     add(
         &[Mode::Map],
         &[Action::ToggleRepeat],
         "O",
         "repeat",
-        Some((
-            Group::Tools,
-            "Harvest tool: toggle a standing order (re-designates when ripe again); Cancel tool: \
-             toggle withdrawing a build site or stockpile too (#335)",
-        )),
+        help(in_tool, "Standing order (Harvest)"),
+    );
+    add(
+        &[Mode::Map],
+        &[Action::Cancel],
+        "Esc",
+        "drop corner",
+        help(in_tool, "Drop the corner, then leave"),
     );
 
     let time = Some(Group::Time);
@@ -426,33 +398,11 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Anywhere], &[Action::Step], ".", "one tick", help(time, "One tick, while paused"));
 
     let game = Some(Group::Game);
-    add(
-        &[Mode::Anywhere],
-        &[Action::ShowResearch],
-        "T",
-        "research",
-        help(game, "Research: arrows W A S D choose a tech, Enter sets it as the target"),
-    );
+    add(&[Mode::Anywhere], &[Action::ShowNation], "N", "nation", help(game, "Nation"));
+    add(&[Mode::Anywhere], &[Action::ShowResearch], "T", "research", help(game, "Research"));
+    add(&[Mode::Anywhere], &[Action::ShowEndeavor], "G", "endeavor", help(game, "Endeavor"));
     add(&[Mode::Anywhere], &[Action::ShowLog], "L", "log", help(game, "Message log"));
-    add(&[Mode::Anywhere], &[Action::ShowHelp], "?", "keys", help(game, "Key help"));
-    add(
-        &[Mode::Anywhere],
-        &[Action::ShowEndeavor],
-        "G",
-        "endeavor",
-        help(
-            game,
-            "Endeavor: the Harmony Gate's progress; once Ready, Enter places the gate, X \
-             withdraws the site until work starts",
-        ),
-    );
-    add(
-        &[Mode::Anywhere],
-        &[Action::ShowNation],
-        "N",
-        "nation",
-        help(game, "Nation: every settler, every store and the nation's traits"),
-    );
+    add(&[Mode::Anywhere], &[Action::ShowHelp], "?", "keys", help(game, "Key help and legend"));
     add(&[Mode::Anywhere], &[Action::QuickSave], "F5", "quicksave", help(game, "Quicksave"));
     add(
         &[Mode::Anywhere],
@@ -461,16 +411,13 @@ fn build() -> Vec<Entry> {
         "quickload",
         help(game, "Quickload (asks first)"),
     );
+    add(&[Mode::Anywhere], &[Action::ShowSaves], "F6", "saves", help(game, "Saves"));
     add(
         &[Mode::Anywhere],
-        &[Action::ShowSaves],
-        "F6",
-        "saves",
-        help(
-            game,
-            "Saves: arrows/W S choose a slot, Enter loads it, Shift+S saves over it (both ask \
-             first), N a new one",
-        ),
+        &[Action::Cancel],
+        "Esc",
+        "close",
+        help(game, "Game menu: save, load, new map, quit"),
     );
     add(
         &[Mode::Anywhere],
@@ -480,6 +427,20 @@ fn build() -> Vec<Entry> {
         help(game, "Quit at once, without asking"),
     );
     t
+}
+
+/// What a tool's key does, as the key help words it: a few words, one row.
+fn tool_help(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Select | Tool::Gate => "",
+        Tool::Harvest => "Harvest: chop, mine, gather",
+        Tool::CancelHarvest => "Cancel a mark",
+        Tool::Clear | Tool::Deconstruct => "Clear the ground",
+        Tool::Stockpile => "Stockpile",
+        Tool::Bend => "Bend: channel the nation's ability",
+        Tool::Build => "Build",
+        Tool::Sow => "Sow a farm plot",
+    }
 }
 
 /// The hint bar's items for `mode`, in the table's order. Leaves out the tail ([`tail`]).

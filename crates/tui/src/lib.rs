@@ -28,6 +28,7 @@ pub mod input;
 pub mod keyev;
 pub mod keys;
 pub mod layout;
+pub mod legend;
 pub mod map;
 pub mod menu;
 pub mod modal;

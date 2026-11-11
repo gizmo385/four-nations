@@ -21,6 +21,10 @@ pub struct Look {
     pub ascii: char,
     pub fg: Rgb8,
     pub bg: Option<Rgb8>,
+    /// A living plant (a tree, a crop): the legend (#662) lists it under Plants, not Terrain.
+    /// Only a resource says so.
+    #[serde(default)]
+    pub plant: bool,
 }
 
 impl Look {

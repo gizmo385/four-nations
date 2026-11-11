@@ -140,12 +140,14 @@ fn a_long_screen_shows_its_position_on_the_bottom_edge() {
     let bottom = text.lines().nth(22).unwrap();
     let total =
         fn_tui::screens::line_count(fn_tui::state::Screen::Help, &a.session, &a.ui.alerts, 76);
-    assert!(total > 21, "the help is longer than a page at 80x24");
-    assert!(bottom.ends_with(&format!(" 1-21 of {total} ─┛")), "{bottom}");
+    // The tab strip and a blank row take two of the 21 rows.
+    assert!(total > 19, "the help is longer than a page at 80x24");
+    assert!(bottom.ends_with(&format!(" 1-19 of {total} ─┛")), "{bottom}");
     run(&mut a, "<pgdn>");
     let text = to_text(&render(&mut a, (80, 24)));
     let bottom = text.lines().nth(22).unwrap();
-    assert!(bottom.contains(&format!(" 22-42 of {total} ")), "{bottom}");
+    let first = 20.min(total - 18);
+    assert!(bottom.contains(&format!(" {first}-{} of {total} ", first + 18)), "{bottom}");
 }
 
 /// The Nation screen's selected row: the pointer, a quiet background under every cell, brighter

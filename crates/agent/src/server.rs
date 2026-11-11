@@ -311,7 +311,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|r| r["what"].as_str().unwrap().starts_with("Move the cursor"))
+                .any(|r| r["what"].as_str().unwrap().starts_with("Move 1 tile"))
         );
     }
 
@@ -326,7 +326,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|r| r["what"].as_str().unwrap().starts_with("Bend tool"))
+            .find(|r| r["what"].as_str().unwrap().starts_with("Bend:"))
             .expect("the key help lists the Bend tool");
         assert_eq!(bend["keys"], "B");
         assert!(
