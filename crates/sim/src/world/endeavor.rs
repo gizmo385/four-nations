@@ -144,7 +144,7 @@ impl World {
     }
 
     fn sign_progress<'d>(&self, sign: &'d SignDef, defs: &Defs) -> SignProgress<'d> {
-        let population = self.units.len() as u32;
+        let population = self.population() as u32;
         let stored = |items: &[ItemId]| items.iter().map(|&i| self.stored_total(i)).sum::<u32>();
         let (value, target) = match &sign.kind {
             SignKind::Population => (population, None),

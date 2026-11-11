@@ -1,0 +1,37 @@
+# Beasts (docs/design/horizons-phase-2.md, "Shared sim work, 3. Beasts"): one row per beast, read
+# by `Defs::with_beasts` (crates/sim/src/beast.rs). A beast is a unit that is not a person: no
+# hunger, thirst, energy, chi, health or exposure, and it is not counted in population, growth,
+# signs or score.
+#
+# - id, name:  the row's id, and what the player reads.
+# - nation:    the settlement nation whose `home` buildings house it.
+# - home:      the building that houses one of it. Each finished home building puts one beast of
+#              the settlement nation's row at its door; taking the building down sends it back to
+#              the wild ("The sky bison returns to the wild."). At most one row per
+#              (nation, home).
+# - speed:     optional; steps are taken at this `move_speed`. Absent, the settlement's own
+#              `move_speed`. Above 0, at most 10.
+# - food:      the home building's `[building.fuel]` (data/buildings.toml). It burns while the
+#              home houses a beast, and a Refuel haul keeps it stocked. While the bunker is empty
+#              the beast rests at home, `Hungry`, and works nothing; it never dies or leaves
+#              (#689). A home with no `[building.fuel]` never feeds its beast.
+#
+# Exactly one of these sections says what it does:
+#
+# - [beast.haul] {carry, min_trip}:  takes Haul and Refuel jobs whose trip, pickup to drop, is at
+#              least `min_trip` tiles (Chebyshev), and carries `carry` items a trip, not scaled
+#              by `carry_capacity`. Settlers keep the shorter trips.
+# - [beast.bend] {ability, seconds}: bends a tile of `ability` (the nation's own) in `seconds`
+#              (the Badgermole Den's tunnels, #697). The row parses and validates today; nothing
+#              houses one yet.
+
+# Air's capstone (#205): one per Bison Stable, carries base_carry x 4 at the nation's own speed,
+# and needs no food, as the owner scoped it for v1.
+[[beast]]
+id = "sky_bison"
+name = "Sky Bison"
+nation = "air"
+home = "bison_stable"
+[beast.haul]
+carry = 20
+min_trip = 10

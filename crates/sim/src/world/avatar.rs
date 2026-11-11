@@ -113,6 +113,7 @@ impl World {
             rank_credited: Rank::Novice,
             inside: None,
             guest: Some(Guest::Avatar),
+            beast: None,
             unhappy_since: None,
             last_harm: None,
             exposed_alerted: false,

@@ -53,7 +53,7 @@ impl World {
         if needed.is_empty() {
             return None;
         }
-        let speed = self.modifiers_for(u, defs).move_speed * self.scooter_multiplier(u.id);
+        let speed = self.unit_speed(u, defs);
         Some(Stride { tiles, needed, progress: u.move_progress, speed })
     }
 

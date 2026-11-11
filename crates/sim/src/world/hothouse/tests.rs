@@ -80,7 +80,7 @@ fn the_hothouse_is_fires_and_burns_wood() {
     assert!(!tech.core, "an optional horizons tech");
     let h = def.hothouse.unwrap();
     assert_eq!((h.radius, h.winter_growth), (2, 0.75));
-    assert_eq!(defs.item(def.fuel.unwrap().item).id, "wood");
+    assert_eq!(defs.item(def.fuel.as_ref().unwrap().item).id, "wood");
     assert_eq!(def.footprint, (2, 2));
 }
 

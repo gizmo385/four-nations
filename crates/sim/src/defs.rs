@@ -7,6 +7,7 @@
 
 use serde::Deserialize;
 
+use crate::beast::BeastDef;
 use crate::bending::{AbilityDef, AbilityId, BendingFile, CanalDef, ChiSettings, MasteryDef};
 use crate::building::{BuildingDef, BuildingId, BuildingsFile, DeconstructDef};
 use crate::difficulty::DifficultyDef;
@@ -188,6 +189,9 @@ pub struct Defs {
     /// Caravans (data/trade.toml, #437). Empty unless loaded with `with_trade`, which `bundled`
     /// does: then no caravan ever comes.
     pub trade: TradeDef,
+    /// Beasts, in file order; indexed by `BeastId` (data/beasts.toml, `beast.rs`). Empty unless
+    /// loaded with `with_beasts`, which `bundled` does.
+    pub beasts: Vec<BeastDef>,
     /// `harvests` index by `ResourceId`, so the lookup is O(1).
     harvest_by_resource: Vec<Option<usize>>,
 }
@@ -245,6 +249,11 @@ pub(crate) const BUNDLED_FILES: [&str; 13] = [
     include_str!("../../../data/harm.toml"),
 ];
 
+/// `data/beasts.toml` (#693), read after the 13 files above by [`Defs::with_beasts`]: a separate
+/// step like `with_trade`, so `from_files` keeps its shape. `bundled` loads it; a test that edits
+/// the 13 files and wants the beasts too adds `.with_beasts(BEASTS_FILE)`.
+pub(crate) const BEASTS_FILE: &str = include_str!("../../../data/beasts.toml");
+
 /// data/trade.toml (#437), read by [`Defs::bundled`] after the 13 files above. Kept apart from
 /// them so `Defs::from_files` and its callers don't change; data loaded that way has no caravans.
 pub(crate) const TRADE_FILE: &str = include_str!("../../../data/trade.toml");
@@ -264,6 +273,7 @@ impl Defs {
     pub fn bundled() -> Self {
         Self::from_files(BUNDLED_FILES)
             .and_then(|d| d.with_trade(TRADE_FILE))
+            .and_then(|d| d.with_beasts(BEASTS_FILE))
             .expect("bundled data/*.toml must be valid; run `cargo test -p fn_sim`")
     }
 
@@ -280,8 +290,8 @@ impl Defs {
 
     /// Definitions read from the text of the 13 `data/*.toml` files, in the order
     /// [`Defs::bundled`] reads them: biomes, resources, nations, research, needs, jobs, bending,
-    /// buildings, endeavor, embark, difficulty, seasons, harm. `bundled` is this on the embedded
-    /// files; tests use it on edited copies of them.
+    /// buildings, endeavor, embark, difficulty, seasons, harm. `bundled` is this on the
+    /// embedded files; tests use it on edited copies of them.
     pub fn from_files(files: [&str; 13]) -> Result<Self, DefsError> {
         let [
             biomes,
@@ -312,7 +322,7 @@ impl Defs {
     /// versions. It cannot see a change to the code, only to `data/`.
     pub fn bundled_digest() -> u64 {
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for file in BUNDLED_FILES.into_iter().chain([TRADE_FILE]) {
+        for file in BUNDLED_FILES.into_iter().chain([TRADE_FILE, BEASTS_FILE]) {
             for b in file.bytes().chain(std::iter::once(0)) {
                 h ^= u64::from(b);
                 h = h.wrapping_mul(0x0100_0000_01b3);
@@ -393,6 +403,7 @@ impl Defs {
             seasons: SeasonsDef::default(),
             harm: HarmDef::default(),
             trade: TradeDef::default(),
+            beasts: Vec::new(),
             harvest_by_resource,
         };
         defs.validate()?;

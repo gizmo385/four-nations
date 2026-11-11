@@ -103,7 +103,7 @@ impl World {
     /// answer at the next check; nobody is evicted when capacity drops below the headcount, growth
     /// just pauses. Reachability doesn't matter here, as no particular unit is looking for a bed.
     pub(super) fn has_room_for_newcomer(&self, defs: &Defs) -> bool {
-        let settlers = self.units.iter().filter(|u| !u.is_avatar()).count() as u32;
+        let settlers = self.units.iter().filter(|u| u.is_settler()).count() as u32;
         self.bed_capacity(defs) > settlers
     }
 
@@ -125,7 +125,7 @@ impl World {
         let (n, sx, sy) = self
             .units
             .iter()
-            .filter(|u| !u.is_avatar())
+            .filter(|u| u.is_settler())
             .fold((0i64, 0i64, 0i64), |(n, sx, sy), u| {
                 (n + 1, sx + i64::from(u.pos.x), sy + i64::from(u.pos.y))
             });
@@ -140,7 +140,7 @@ impl World {
     /// `start`, or from the first living unit when there is none. This runs once per arrival
     /// check, so one flood and one map pass are cheap enough.
     fn nearest_edge_tile(&self, anchor: Pos) -> Option<Pos> {
-        let first = self.units.iter().find(|u| !u.is_avatar());
+        let first = self.units.iter().find(|u| u.is_settler());
         let origin = self.start.or_else(|| first.map(|u| u.pos))?;
         let flood = Flood::new(&self.map, origin, &self.rules);
         let (w, h) = (self.map.width(), self.map.height());
@@ -188,7 +188,7 @@ impl World {
     /// already does for a starting roster bigger than its pool.
     fn draw_newcomer_name(&mut self, nation: &NationDef) -> String {
         let taken: BTreeSet<&str> =
-            self.units.iter().filter(|u| !u.is_avatar()).map(|u| u.name.as_str()).collect();
+            self.units.iter().filter(|u| u.is_settler()).map(|u| u.name.as_str()).collect();
         let available: Vec<&String> =
             nation.names.iter().filter(|n| !taken.contains(n.as_str())).collect();
         if !available.is_empty() {
@@ -242,6 +242,7 @@ impl World {
             rank_credited: Rank::Novice,
             inside: None,
             guest: None,
+            beast: None,
             unhappy_since: None,
             last_harm: None,
             exposed_alerted: false,

@@ -16,6 +16,7 @@ use std::cell::RefCell;
 
 use serde::{Deserialize, Serialize};
 
+use crate::beast::BeastId;
 use crate::bending::AbilityId;
 use crate::building::BuildingId;
 use crate::defs::{BiomeId, Defs, ResourceId};
@@ -38,6 +39,9 @@ pub struct SaveIds {
     pub items: Vec<String>,
     pub buildings: Vec<String>,
     pub abilities: Vec<String>,
+    /// Absent from a save written before beasts (#693), which reads as empty.
+    #[serde(default)]
+    pub beasts: Vec<String>,
 }
 
 impl SaveIds {
@@ -54,6 +58,7 @@ impl SaveIds {
             items: ids(&defs.items, |d| &d.id),
             buildings: ids(&defs.buildings, |d| &d.id),
             abilities: ids(&defs.abilities, |d| &d.id),
+            beasts: ids(&defs.beasts, |d| &d.id),
         }
     }
 
@@ -76,6 +81,15 @@ impl SaveIds {
         };
         for table in tables {
             for id in table {
+                id.bytes().for_each(&mut feed);
+                feed(0);
+            }
+            feed(1);
+        }
+        // Beasts (#693) came after the hash was first written down (a v1 save's `data_hash`,
+        // `V1_IDS`), so their table is fed only when it has entries.
+        if !self.beasts.is_empty() {
+            for id in &self.beasts {
                 id.bytes().for_each(&mut feed);
                 feed(0);
             }
@@ -105,11 +119,19 @@ pub(crate) enum Table {
     Item,
     Building,
     Ability,
+    Beast,
 }
 
 impl Table {
-    const ALL: [Table; 6] =
-        [Table::Biome, Table::Resource, Table::Tech, Table::Item, Table::Building, Table::Ability];
+    const ALL: [Table; 7] = [
+        Table::Biome,
+        Table::Resource,
+        Table::Tech,
+        Table::Item,
+        Table::Building,
+        Table::Ability,
+        Table::Beast,
+    ];
 
     /// What a player would call an entry of this table, for `SaveError::MissingContent`.
     pub(crate) fn kind(self) -> &'static str {
@@ -120,6 +142,7 @@ impl Table {
             Table::Item => "item",
             Table::Building => "building",
             Table::Ability => "ability",
+            Table::Beast => "beast",
         }
     }
 
@@ -131,6 +154,7 @@ impl Table {
             Table::Item => &ids.items,
             Table::Building => &ids.buildings,
             Table::Ability => &ids.abilities,
+            Table::Beast => &ids.beasts,
         }
     }
 
@@ -142,6 +166,7 @@ impl Table {
             Table::Item => defs.item_id(id).map(|i| usize::from(i.0)),
             Table::Building => defs.building_id(id).map(|i| usize::from(i.0)),
             Table::Ability => defs.ability_id(id).map(|i| usize::from(i.0)),
+            Table::Beast => defs.beast_id(id).map(|i| usize::from(i.0)),
         }
     }
 }
@@ -270,6 +295,7 @@ remapped_id!(TechId, u16, "TechId", Table::Tech);
 remapped_id!(ItemId, u16, "ItemId", Table::Item);
 remapped_id!(BuildingId, u16, "BuildingId", Table::Building);
 remapped_id!(AbilityId, u16, "AbilityId", Table::Ability);
+remapped_id!(BeastId, u16, "BeastId", Table::Beast);
 
 #[cfg(test)]
 mod tests {

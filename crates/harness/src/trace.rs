@@ -233,7 +233,7 @@ impl Trace {
     fn observe(&mut self, m: Minute<'_>, defs: &Defs) {
         let minute = m.sample.minute;
         let marks = &mut self.marks;
-        for u in m.world.units.iter().filter(|u| !u.is_avatar()) {
+        for u in m.world.units.iter().filter(|u| u.is_settler()) {
             let next = settler_mark(marks.len());
             marks.entry(u.id).or_insert(next);
         }
@@ -290,7 +290,7 @@ fn row(m: &Minute<'_>, marks: &BTreeMap<UnitId, char>, defs: &Defs) -> String {
     let world = m.world;
     let mut reasons = [0u32; 7];
     let mut needs = Vec::new();
-    for u in world.units.iter().filter(|u| !u.is_avatar()) {
+    for u in world.units.iter().filter(|u| u.is_settler()) {
         let occ = Occupation::read(world, u.id, defs).unwrap_or(Occupation::Idle);
         if let Some(slot) = reasons.get_mut(reason_slot(occ)) {
             *slot += 1;
@@ -412,7 +412,7 @@ fn crop(world: &World, defs: &Defs, marks: &BTreeMap<UnitId, char>, radius: i32)
         stockpile_tiles += 1;
     }
     let mut settlers: Vec<(char, &fn_sim::world::Unit)> = Vec::new();
-    for u in &world.units {
+    for u in world.units.iter().filter(|u| !u.is_beast()) {
         if u.is_avatar() {
             put(u.pos, AVATAR);
         } else {

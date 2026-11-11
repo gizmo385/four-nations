@@ -150,11 +150,11 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     let Some(b) = world.building_at(anchor) else { return lines };
     let def = defs.building(b);
     let bunker = world.bunker_at(anchor, defs);
-    let out = |item| format!("Out of {}", defs.item(item).name.to_lowercase());
+    let out = |names: String| format!("Out of {}", names.to_lowercase());
     if def.hothouse.is_some() {
         let winter = world.knobs(defs).seasons && world.season(defs).winter;
         lines.push(match (bunker, world.hothouse_warming(anchor, defs)) {
-            (Some((have, fuel)), _) if have.count == 0 => out(fuel.item),
+            (Some((have, fuel)), _) if have.count == 0 => out(fuel.names(defs)),
             _ if !winter => "Idle: not winter".to_owned(),
             (_, Some(n)) => format!("Warming {n} plot{}", if n == 1 { "" } else { "s" }),
             (_, None) => "Idle: not winter".to_owned(),
@@ -162,10 +162,11 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     }
     if let Some((have, fuel)) = bunker {
         if have.count > 0 {
-            let item = &defs.item(fuel.item).name;
+            let item =
+                have.item.map_or_else(|| fuel.names(defs), |held| defs.item(held).name.clone());
             lines.push(format!("Fuel: {}/{} {item}", have.count, fuel.bunker));
         } else if def.hothouse.is_none() {
-            lines.push(out(fuel.item));
+            lines.push(out(fuel.names(defs)));
         }
     }
     if let Some(p) = world.pickers_at(anchor) {

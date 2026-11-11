@@ -147,6 +147,19 @@ min_trip = 10           # takes only trips of at least 10 tiles, pickup to drop 
 - **Fuel takes a list.** `[building.fuel]` gains `items = [...]` as an alternative to `item`
   (exactly one of the two). A Refuel haul brings whichever listed item stores hold the most of,
   with ties broken by list order. A beast eats any food the settlement grows.
+- **As built (#693).** `data/beasts.toml` is read after the other files, as `trade.toml` is
+  (`Defs::with_beasts`), and `BeastId` is a saved content id like `AbilityId`. A beast is a `Unit`
+  with `beast: Some(Beast { id, home })`, and `Unit::is_settler` is the test for "one of the
+  people" that population, growth, beds and the signs use. Each tick starts with `tick_beasts`: a
+  finished home building with no beast gets one at its door, and a beast whose home is gone
+  returns to the wild (a `BeastEvent`, the line `The sky bison returns to the wild.`). That also
+  gives a save made before beasts the beast for its stable. A trip is the Chebyshev distance
+  from the pickup to the nearest place that would take the stack (a stockpile tile with room, a
+  study hall for a scroll), or, for a Refuel, from the nearest stack of the fuel to the
+  building. A hungry beast finishes the job it holds, then rests at its door and claims nothing;
+  settlers still refuel its bunker (a beast refuels it too while it has some left). Beasts act
+  before settlers each tick, so the long trips reach them first. A bunker that takes several
+  fuels may hold a mix; it remembers the item last tipped in, which is what teardown returns.
 
 ### 4. Canal: a land-to-water reshape
 

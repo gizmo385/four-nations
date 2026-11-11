@@ -40,13 +40,17 @@
 #             unit, and routes plan to use that. Any other step (a diagonal, road onto rail) is
 #             ordinary. Must be passable; more than one building may be a track. `speed` is
 #             above 1.0 and at most 10.
-# - fuel:     a fuel bunker (docs/design/horizons-phase-1.md, "Fuel bunkers"): `item` is burned,
+# - fuel:     a fuel bunker (docs/design/horizons-phase-1.md, "Fuel bunkers"): `item` is burned
+#             (or `items = [a, b, ...]`, at least two, exactly one of the two keys: a Refuel haul
+#             brings whichever listed item stores hold the most of, ties broken by list order),
 #             `bunker` (at least 1) is how many it holds, and `per_minute` (above 0) how fast it
 #             burns, only while the building's effect is in use (a heat source: while anyone is
-#             in its reach). The effect is off while the bunker is empty. It finishes empty; at
+#             in its reach; a beast's home, data/beasts.toml: while it houses a beast). The
+#             effect is off while the bunker is empty (a beast is `Hungry`: it rests at home and
+#             works nothing until it is refilled; it never dies or leaves). It finishes empty; at
 #             or below half full a Refuel haul brings the shortfall from stores. Fuel in a
 #             bunker is out of stores, so nobody eats it, and taking the building down returns
-#             it in full.
+#             it in full (a bunker holding several fuels returns the last one tipped in).
 # - pickers:  harvests ripe trees in reach with no worker (docs/design/horizons-phase-1.md, the
 #             Lemur Roost). Every `pick_seconds` it picks the nearest ripe `resources` tree within
 #             `radius` of its footprint (ties by tile index), skipping one a settler has claimed.
@@ -251,8 +255,9 @@ count = 2
 # --- Air Nomads ---
 # The Air branch's buildings (issue #28), each unlocked by its tech in data/research.toml. They
 # do what their section says. The orchard plants and tends fruit trees (issue #142); the wind
-# turbine is Air's power source (#204, below). The windmill and the bison stable are still
-# structures only, waiting on systems that don't exist yet (issues #488, #205). Costs scale with
+# turbine is Air's power source (#204, below), and the bison stable houses a sky bison that hauls
+# the long trips (#205, #693, data/beasts.toml). The windmill is still a structure only, waiting
+# on a system that doesn't exist yet (issue #488). Costs scale with
 # the tech's tier and use the items that exist today; they are starting values for a balance
 # pass, not a design target.
 

@@ -48,6 +48,8 @@ pub enum Event {
     Chart(ChartEvent),
     /// A caravan arrived, was skipped, closed a deal or a request, or left (`trade.rs`, #437).
     Caravan(CaravanEvent),
+    /// A beast went back to the wild (`beast.rs`, #693).
+    Beast(BeastEvent),
 }
 
 impl Event {
@@ -64,6 +66,7 @@ impl Event {
             Self::Harm(e) => e.tick,
             Self::Chart(e) => e.tick,
             Self::Caravan(e) => e.tick,
+            Self::Beast(e) => e.tick,
         }
     }
 
@@ -84,6 +87,7 @@ impl Event {
             Self::Harm(_) => 7,
             Self::Chart(_) => 8,
             Self::Caravan(_) => 9,
+            Self::Beast(_) => 10,
         }
     }
 }
@@ -109,6 +113,7 @@ event_from!(
     Harm(HarmEvent),
     Chart(ChartEvent),
     Caravan(CaravanEvent),
+    Beast(BeastEvent),
 );
 
 /// A typed filter over the log: `$name()` yields every `Event::$variant`, oldest first.
@@ -149,6 +154,8 @@ event_filters! {
     chart_events => Chart(ChartEvent);
     /// Every caravan event so far, oldest first.
     caravan_events => Caravan(CaravanEvent);
+    /// Every beast that has returned to the wild so far, oldest first.
+    beast_events => Beast(BeastEvent);
 }
 
 impl World {

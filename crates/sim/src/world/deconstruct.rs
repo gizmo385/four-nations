@@ -103,10 +103,11 @@ impl World {
             }
         }
         // A fuel bunker comes back in full (`fuel.rs`).
-        if let (Some(bunker), Some(fuel)) = (record.fuel, def.fuel)
+        if let (Some(bunker), Some(fuel)) = (record.fuel, def.fuel.as_ref())
             && bunker.count > 0
         {
-            self.place_ground(pos, Stack { item: fuel.item, count: bunker.count });
+            let item = bunker.item.unwrap_or(fuel.item);
+            self.place_ground(pos, Stack { item, count: bunker.count });
         }
         // So does a pantry's food (`outpost.rs`).
         for stack in record.pantry.iter().flat_map(|p| &p.stacks) {

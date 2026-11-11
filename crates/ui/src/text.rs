@@ -155,6 +155,10 @@ pub fn caster_label(rank: Option<Rank>, count: usize) -> String {
 /// (`World::walled_in`, #583), since "no reachable job" would hide that it is cut off from
 /// everything.
 fn describe_idle(world: &World, defs: &Defs, unit: &Unit) -> String {
+    // A beast whose home bunker is empty rests there (#689).
+    if world.beast_hungry(unit, defs) {
+        return "Hungry".to_owned();
+    }
     if world.walled_in(unit.id) {
         return "Idle: walled in".to_owned();
     }

@@ -488,7 +488,7 @@ impl Economy {
     /// the nation: every nation's farm plot and bed (if it has one) gets the same treatment.
     fn building_target(&self, world: &World, defs: &Defs, building: BuildingId) -> u32 {
         match defs.building(building).id.as_str() {
-            "bed" => (world.units.len() as u32 + 1).min(self.bed_ceiling(world, defs)),
+            "bed" => (world.population() as u32 + 1).min(self.bed_ceiling(world, defs)),
             "farm_plot" => {
                 if self.farms {
                     self.farm_plot_target(world)
@@ -506,7 +506,7 @@ impl Economy {
                 HealingPolicy::Sweep => 1,
                 HealingPolicy::Off => 0,
                 HealingPolicy::Planned => {
-                    (world.units.len() as u32).div_ceil(PEOPLE_PER_HERB_GARDEN).max(1)
+                    (world.population() as u32).div_ceil(PEOPLE_PER_HERB_GARDEN).max(1)
                 }
             },
             _ => 1,
@@ -528,7 +528,7 @@ impl Economy {
 
     /// One farm plot per `PEOPLE_PER_FARM_PLOT` living settlers, at least 1.
     fn farm_plot_target(&self, world: &World) -> u32 {
-        (world.units.len() as u32).div_ceil(PEOPLE_PER_FARM_PLOT).max(1)
+        (world.population() as u32).div_ceil(PEOPLE_PER_FARM_PLOT).max(1)
     }
 
     /// Sows every empty `plot` (a farm plot or an Herb Garden) the settlement has built
