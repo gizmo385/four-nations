@@ -1013,7 +1013,7 @@ mod tests {
     #[test]
     fn a_chapter_owns_its_signs_and_the_gate_never_sees_them() {
         let e = load(&format!(
-            "{CHAPTER_SIGN}[[chapter]]\nid = \"road\"\nname = \"Road\"\nhint = \"H\"\n\
+            "{CHAPTER_SIGN}[[chapter]]\nid = \"known_on_the_road\"\nname = \"Road\"\nhint = \"H\"\n\
              signs = [\"c\"]\n"
         ))
         .unwrap();

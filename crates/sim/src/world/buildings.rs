@@ -23,7 +23,7 @@
 //! Neither index is saved: `Buildings::reindex` rebuilds both from the records on load, from the
 //! current defs, in time proportional to the number of buildings rather than the map.
 
-use crate::building::{BuildingKey, TileBuilding, is_one_by_one, one_by_one};
+use crate::building::{BuildingKey, RecipeDef, TileBuilding, is_one_by_one, one_by_one};
 use crate::geom::Footprint;
 use crate::jobs::JobKind;
 use crate::mapgen::Tile;
@@ -49,6 +49,11 @@ pub struct Building {
     /// A production building's batch under way (`forge.rs`); `None` is a fresh, empty batch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) craft: Option<CraftState>,
+    /// The alt recipe it makes (`BuildingDef::alt_recipes`, by id, `Command::SetRecipe`); `None`
+    /// is its first recipe. An id the data no longer has reads as the first recipe, and a load
+    /// clears it (`World::reindex_buildings`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<String>,
     /// A Map Room's progress toward its next chart, in ticks (`chart.rs`); `None` is 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) chart: Option<f32>,
@@ -92,6 +97,17 @@ fn is_zero(n: &u32) -> bool {
 }
 
 impl Building {
+    /// The recipe it makes under `def`, its own: the chosen alt recipe, else the first recipe.
+    /// `World::recipe_at` is this for a tile.
+    pub fn recipe_in<'d>(&self, def: &'d crate::building::BuildingDef) -> Option<&'d RecipeDef> {
+        let chosen = self
+            .recipe
+            .as_deref()
+            .and_then(|id| def.alt_recipes.iter().find(|a| a.id == id))
+            .map(|a| &a.recipe);
+        chosen.or(def.recipe.as_ref())
+    }
+
     /// Whether its effect may run: it has no bunker, or its bunker holds at least one item.
     pub fn fuel_lit(&self) -> bool {
         self.fuel.is_none_or(|f| f.count > 0)
@@ -336,6 +352,7 @@ impl World {
             anchor: foot.anchor,
             size,
             craft: None,
+            recipe: None,
             chart: None,
             plot: def.farm.map(|_| FarmPlot::empty()),
             orchard: def.orchard.as_ref().map(Orchard::new),
@@ -482,6 +499,12 @@ impl World {
             let def = defs.building(b.id);
             let stray = [
                 ("craft", b.craft.is_some() && def.recipe.is_none()),
+                (
+                    "recipe",
+                    b.recipe
+                        .as_ref()
+                        .is_some_and(|id| !def.alt_recipes.iter().any(|a| a.id == *id)),
+                ),
                 ("chart", b.chart.is_some() && def.chart.is_none()),
                 ("plot", b.plot.is_some() && def.farm.is_none()),
                 ("orchard", b.orchard.is_some() && def.orchard.is_none()),
@@ -512,6 +535,13 @@ impl World {
     /// Also re-stamps every building tile's track index and the cart rules' track steps from
     /// today's defs, since neither is saved (`TileBuilding::track`, `MoveRules::with_tracks`).
     pub(crate) fn reindex_buildings(&mut self, defs: &Defs) {
+        // A chosen recipe the data no longer has falls back to the first one.
+        for b in self.buildings.records.values_mut() {
+            let def = defs.building(b.id);
+            if b.recipe.as_ref().is_some_and(|id| !def.alt_recipes.iter().any(|a| a.id == *id)) {
+                b.recipe = None;
+            }
+        }
         self.buildings.reindex(defs);
         let stamps: Vec<(Footprint, u8)> = self
             .buildings
@@ -553,6 +583,7 @@ impl World {
                     anchor: p,
                     size: b.size,
                     craft: None,
+                    recipe: None,
                     chart: None,
                     plot: None,
                     orchard: None,

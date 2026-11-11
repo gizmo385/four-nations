@@ -114,7 +114,14 @@
 #             starts a new batch only while fewer than `stock_limit` of `output` (items, optional,
 #             default 0 meaning no limit, issue #350) are in stores; a batch already under way
 #             finishes regardless.
-# - farm:     a farm plot (issue #198, docs/design/research.md, "Farm plots"): empty until a Sow
+# - alt_recipe: `[[building.alt_recipe]]` (#708, docs/design/horizons-phase-3.md): another recipe
+#             the player can set the building to (`Command::SetRecipe`), with every field of
+#             `[building.recipe]` plus an `id`, unique within the building. The building needs a
+#             `[building.recipe]` too, which stays the default. A tech unlocks one with
+#             `[[tech.unlocks.upgrades]] recipe = "id"` (data/research.toml); one no tech names
+#             is available from the start. Switching mid-batch drops the delivered inputs and
+#             loses the work done.
+# - farm:   a farm plot (issue #198, docs/design/research.md, "Farm plots"): empty until a Sow
 #             job (`sow_seconds` of work) plants `crop`, which then grows for `grow_seconds`
 #             (times `crop_growth`, the hook irrigation and terraces will multiply) before a Reap
 #             job (`reap_seconds` of work) gathers `harvest_count` of it and the plot is empty
@@ -614,6 +621,17 @@ work = 40.0
 modifier = "construction"
 input = [{ item = "wood", count = 3 }]
 stock_limit = 6
+# Its second recipe (#708, docs/design/horizons-phase-3.md): two wares from four wood, which a
+# Workshop makes instead of tools once `trade_wares` is known and the player sets it to (each
+# Workshop is set on its own). It idles at 30 wares in stores, whatever the tool count.
+[[building.alt_recipe]]
+id = "wares"
+output = "wares"
+output_count = 2
+work = 30.0
+modifier = "construction"
+input = [{ item = "wood", count = 4 }]
+stock_limit = 30
 
 # --- Earth: mining (issue #373) ---
 # Earth runs out of things to raise halfway up its tree (docs/design/nation-buildings.md,

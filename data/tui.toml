@@ -199,6 +199,12 @@ glyph = "⚒"
 ascii = "t"
 fg = [170, 150, 130]
 
+# What a Workshop makes once `trade_wares` is known (#708): bowls, boxes and toys for caravans.
+[item.wares]
+glyph = "◫"
+ascii = "w"
+fg = [196, 160, 110]
+
 # Water's own building material (#364): cut from river, lake or sea by Cut Ice.
 [item.ice]
 glyph = "❄"

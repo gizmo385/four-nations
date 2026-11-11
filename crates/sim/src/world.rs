@@ -89,6 +89,7 @@ pub use endeavor::{
 pub use events::Event;
 pub use farm::PlotStage;
 use forge::CraftState;
+pub use forge::RecipeError;
 pub use gate::{EndeavorError, GateSite, GateTask};
 use glide::Glider;
 pub use harm::{HarmEvent, HarmEventKind, HarmKind};

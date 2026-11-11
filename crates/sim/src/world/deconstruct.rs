@@ -117,7 +117,7 @@ impl World {
         for stack in record.dock_goods() {
             self.place_ground(pos, stack);
         }
-        if let (Some(craft), Some(recipe)) = (&record.craft, &def.recipe) {
+        if let (Some(craft), Some(recipe)) = (&record.craft, record.recipe_in(def)) {
             for (input, &count) in recipe.inputs.iter().zip(&craft.delivered) {
                 if count > 0 {
                     self.place_ground(pos, Stack { item: input.item, count });

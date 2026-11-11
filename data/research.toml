@@ -27,7 +27,8 @@
 # only then, so a condition has to be one that only ever becomes true (docs/design/horizons-phase-3.md).
 #
 # `[[tech.unlocks.upgrades]]` raises one property of an existing building once the tech is known:
-# `building` names it, and `seats` (the only property so far, 1 to 8) adds to its own `seats`.
+# `building` names it, and exactly one property: `seats` (1 to 8) adds to its own `seats`, and
+# `recipe = "id"` unlocks one of its `[[building.alt_recipe]]` (data/buildings.toml, #708).
 # The building must already have the property, a nation tech may only upgrade a building its
 # nation can reach, and each building's property is upgraded by at most one tech.
 #
@@ -699,3 +700,20 @@ prereqs = ["herbalism", "pottery"]
 # while it holds herbs, gives a caravan visit a 4th deal and a longer stay, and draw a little.
 [tech.unlocks]
 buildings = ["tea_house"]
+
+# --- #708 (docs/design/horizons-phase-3.md, "`trade_wares`") -----------------------------------
+
+# The Workshop's second recipe: wares, made of wood, which caravans buy (#711). Not core, so the
+# Harmony Gate doesn't grow. It waits for the "Known on the road" chapter, so it can't be
+# researched before any caravan has come to buy.
+[[tech]]
+id = "trade_wares"
+name = "Trade Wares"
+description = "Carve bowls, boxes and toys that traders pay well for."
+cost = 250
+prereqs = ["carpentry"]
+requires = { chapter = "known_on_the_road" }
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "workshop"
+recipe = "wares"
