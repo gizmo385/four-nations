@@ -58,6 +58,13 @@ pub const RESCORE_LIVE: Duration = Duration::from_secs(30);
 /// How often the interactive loop rescans the runs folder.
 const REFRESH_EVERY: Duration = Duration::from_secs(1);
 
+/// Whether `dir` holds anything the browser would list: a run or a campaign folder (#841, the
+/// title screen's Replays item shows only then). Always false on wasm32, which has no browser
+/// loop to open.
+pub fn has_runs(dir: &Path) -> bool {
+    cfg!(not(target_arch = "wasm32")) && !runs::run_dirs(dir).is_empty()
+}
+
 /// What a key press in the list asks of whoever is running it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -1461,6 +1468,24 @@ pub struct Cli {
     pub keys: Vec<Step>,
 }
 
+impl Cli {
+    /// The browser on `dir` with every other setting at its default: what the title screen's
+    /// Replays item opens (#841).
+    pub fn for_dir(dir: PathBuf, ascii: bool) -> Cli {
+        Cli {
+            dir,
+            focus: None,
+            pace: None,
+            ascii,
+            color: None,
+            frame: false,
+            size: crate::cli::DEFAULT_SIZE,
+            ansi: false,
+            keys: Vec::new(),
+        }
+    }
+}
+
 /// Whether `args` ask for the run browser.
 pub fn wanted(args: &[String]) -> bool {
     args.iter().any(|a| a == "--runs" || a.starts_with("--runs="))
@@ -1563,13 +1588,24 @@ pub fn frame(cli: &Cli, now: SystemTime, depth: ColorDepth) -> String {
 /// `--runs DIR` in a terminal: the browser, until `q`. Enter opens the selected run in the
 /// watcher on the same terminal.
 pub fn run(cli: &Cli, depth: ColorDepth) -> std::io::Result<()> {
+    let _restore = crate::run::Restore;
+    let mut terminal = crate::run::setup()?;
+    run_in(&mut terminal, cli, depth)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+/// The browser on a terminal someone else set up and will restore: [`run`]'s own, or the title
+/// screen's (#841, `crate::run`), which draws itself again when this returns on `q`.
+pub fn run_in(
+    terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
+    cli: &Cli,
+    depth: ColorDepth,
+) -> std::io::Result<()> {
     use crossterm::event::{self, Event, KeyEventKind};
     use std::time::Instant;
 
     const WAIT: Duration = Duration::from_millis(100);
 
-    let _restore = crate::run::Restore;
-    let mut terminal = crate::run::setup()?;
     let workers = std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 4));
     let mut browser = Browser::open(
         &cli.dir,
@@ -1595,7 +1631,7 @@ pub fn run(cli: &Cli, depth: ColorDepth) -> std::io::Result<()> {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
                     if let Outcome::Open(dir) = browser.key(key) {
                         let log = log_of(&dir);
-                        match watch::run_in(&mut terminal, &log, depth, cli.ascii, cli.pace) {
+                        match watch::run_in(terminal, &log, depth, cli.ascii, cli.pace) {
                             Err(e) => {
                                 browser.set_notice(format!("can't watch {}: {e}", dir.display()))
                             }

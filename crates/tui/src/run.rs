@@ -85,17 +85,23 @@ pub(crate) fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 /// title screen's own default seed, the one thing here that is not already decided before the
 /// terminal is touched. A new nation (Switch nation…, or a new game chosen at the title screen) needs
 /// new colours, so the palette is rebuilt for it at the same depth.
+///
+/// `runs` is the agent runs folder (#841): the title screen's Replays item opens the run browser
+/// on it, nested on this same terminal (`crate::browser::run_in`), and its `q` comes back here
+/// to the title screen as it was.
 pub fn run(
     args: &Args,
     depth: ColorDepth,
     saves: Option<PathBuf>,
+    runs: Option<PathBuf>,
     seed_hint: u64,
 ) -> io::Result<()> {
     let _restore = Restore;
     let mut terminal = setup()?;
     let (w, h) = terminal::size()?;
     let mut shell = Shell::for_args(args, (w, h), saves, seed_hint)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?
+        .with_runs(runs);
     let mut nation = shell.nation();
     let mut palette = Palette::new(shell.defs(), nation, depth, args.ascii);
 
@@ -133,6 +139,15 @@ pub fn run(
                 Event::Key(key) => shell.key(key),
                 Event::Resize(w, h) => shell.resize(w, h),
                 _ => {}
+            }
+            if let Some(dir) = shell.take_replays() {
+                let cli = crate::browser::Cli::for_dir(dir, args.ascii);
+                crate::browser::run_in(&mut terminal, &cli, depth)?;
+                // The browser drew over everything, and the terminal may have changed size.
+                terminal.clear()?;
+                let (w, h) = terminal::size()?;
+                shell.resize(w, h);
+                last_tick = Instant::now();
             }
             pending = event::poll(Duration::ZERO)?;
         }

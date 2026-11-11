@@ -1,6 +1,7 @@
 //! The title screen (#280): before a game exists, New game (pick a nation and a seed), Continue
 //! (the newest loadable slot, hidden with none), Load (every slot, as the in-game saves screen
-//! shows them) and Quit. [`crate::shell::Shell`] is the only thing that drives this: it holds
+//! shows them), Replays (the run browser on the agent runs folder, #841; hidden with no runs)
+//! and Quit. [`crate::shell::Shell`] is the only thing that drives this: it holds
 //! either this or the game, and switches between them on the outcome of a key.
 //!
 //! Like [`crate::state::UiState`], nothing here touches the terminal, so the keys and the golden
@@ -38,6 +39,8 @@ pub enum MenuItem {
     /// Hidden unless [`TitleScreen::continue_slot`] has something to load.
     Continue,
     Load,
+    /// The run browser (#841). Hidden unless [`TitleScreen::replays`] says there are runs.
+    Replays,
     Quit,
 }
 
@@ -47,6 +50,7 @@ impl MenuItem {
             Self::NewGame => "New game",
             Self::Continue => "Continue",
             Self::Load => "Load",
+            Self::Replays => "Replays",
             Self::Quit => "Quit",
         }
     }
@@ -111,6 +115,9 @@ pub enum Outcome {
     },
     /// Continue or Load: a world ready to become the game.
     Loaded(Box<World>),
+    /// Replays (#841): open the run browser. The title screen stays as it is underneath, so
+    /// coming back finds the cursor still on Replays.
+    Replays,
     /// The menu's own Quit: the whole program stops without asking again.
     Quit,
 }
@@ -127,6 +134,9 @@ pub struct TitleScreen {
     pub load_cursor: usize,
     /// A load's failure, or a hint about a save with no directory; cleared on the next key.
     pub status: String,
+    /// Whether the agent runs folder holds anything to replay (#841): `Shell` decides, since
+    /// only it knows the folder. Off by default, and always off on wasm32 (no run browser there).
+    pub replays: bool,
     /// The seed a fresh New Game offers until the player types over it: bumped each time a new
     /// title screen starts (`Shell`'s own job, since only it may read the wall clock), so
     /// starting over and over doesn't always suggest the same seed.
@@ -144,8 +154,22 @@ impl TitleScreen {
             save_slots,
             load_cursor: 0,
             status: String::new(),
+            replays: false,
             seed_hint,
         }
+    }
+
+    /// Shows or hides the Replays item (#841), keeping the cursor on the row it was on.
+    pub fn set_replays(&mut self, replays: bool) {
+        let on = self.items().get(self.cursor).copied();
+        self.replays = replays;
+        self.cursor = on.and_then(|i| self.items().iter().position(|&x| x == i)).unwrap_or(0);
+    }
+
+    /// [`Self::set_replays`], for building one.
+    pub fn with_replays(mut self, replays: bool) -> Self {
+        self.set_replays(replays);
+        self
     }
 
     /// The menu rows that show right now: `Continue` only with somewhere to continue.
@@ -155,6 +179,9 @@ impl TitleScreen {
             items.push(MenuItem::Continue);
         }
         items.push(MenuItem::Load);
+        if self.replays {
+            items.push(MenuItem::Replays);
+        }
         items.push(MenuItem::Quit);
         items
     }
@@ -222,6 +249,7 @@ impl TitleScreen {
                 self.page = Page::Load;
                 Outcome::None
             }
+            MenuItem::Replays => Outcome::Replays,
             MenuItem::Quit => Outcome::Quit,
         }
     }
@@ -663,6 +691,22 @@ mod tests {
             [MenuItem::NewGame, MenuItem::Load, MenuItem::Quit],
             "no save directory: nothing to continue"
         );
+    }
+
+    #[test]
+    fn replays_shows_between_load_and_quit_only_when_there_are_runs() {
+        let hidden = TitleScreen::new(None, 1);
+        assert!(!hidden.items().contains(&MenuItem::Replays), "no runs: no Replays");
+        let mut shown = TitleScreen::new(None, 1).with_replays(true);
+        assert_eq!(
+            shown.items(),
+            [MenuItem::NewGame, MenuItem::Load, MenuItem::Replays, MenuItem::Quit]
+        );
+        press(&mut shown, KeyCode::Down);
+        press(&mut shown, KeyCode::Down);
+        assert!(matches!(press(&mut shown, KeyCode::Enter), Outcome::Replays));
+        assert_eq!(shown.page, Page::Menu, "the menu stays put underneath the browser");
+        assert_eq!(shown.items()[shown.cursor], MenuItem::Replays);
     }
 
     #[test]

@@ -30,6 +30,7 @@ mod panels;
 mod phase3;
 mod rail;
 mod reference_goldens;
+mod replays;
 mod research;
 mod save_list;
 mod saves;
