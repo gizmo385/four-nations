@@ -378,7 +378,7 @@ implementation issues.
 
 | Phase | Issue |
 |---|---|
-| 1. Fill the midgame | #665 |
+| 1. Fill the midgame | #665 ([horizons-phase-1.md](horizons-phase-1.md)) |
 | 2. Routes and outposts | #666 |
 | 3. Trade techs | #667 |
 | 4. Schools | #668 |
