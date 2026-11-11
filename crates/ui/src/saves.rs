@@ -28,7 +28,7 @@ use fn_sim::save::{SaveInfo, inspect};
 use fn_sim::{Defs, World};
 
 use crate::Session;
-use crate::view::format_clock;
+use crate::time::clock_text_at;
 
 /// The slot the quicksave and quickload keys use.
 pub const QUICKSAVE: &str = "quicksave";
@@ -127,7 +127,7 @@ impl Slot {
         matches!(self.state, SlotState::Ready(_))
     }
 
-    /// What the list says about the slot: "Water Tribes, seed 3, 00:04 (tick 40)", or why it
+    /// What the list says about the slot: "Water Tribes, seed 3, Spring Y1 - 14:56 left (tick 40)", or why it
     /// can't be loaded.
     pub fn describe(&self, defs: &Defs) -> String {
         match &self.state {
@@ -135,7 +135,7 @@ impl Slot {
                 "{}, seed {}, {} (tick {})",
                 defs.nation(info.nation).name,
                 info.seed,
-                format_clock(info.tick),
+                clock_text_at(defs, info.tick),
                 info.tick
             ),
             SlotState::Unloadable(why) => format!("can't load: {why}"),
@@ -374,7 +374,10 @@ mod tests {
 
         let SlotState::Ready(info) = &get("save-1").state else { panic!("save-1 loads") };
         assert_eq!((info.nation, info.seed, info.tick), (Nation::Water, 3, 40));
-        assert_eq!(get("save-1").describe(&defs), "Water Tribes, seed 3, 00:04 (tick 40)");
+        assert_eq!(
+            get("save-1").describe(&defs),
+            "Water Tribes, seed 3, Spring Y1 - 14:56 left (tick 40)"
+        );
         assert!(get("quicksave").loadable());
         assert!(get("modded").loadable(), "the data hash doesn't gate loading");
         for (name, why) in [

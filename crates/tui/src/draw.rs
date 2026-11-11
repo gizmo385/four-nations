@@ -85,27 +85,16 @@ fn draw_modal(
     match modal {
         Modal::Build => {}
         Modal::Menu => {
-            // The elapsed clock, while seasons are on (#416, owner decision 4 on #414): the
-            // side panel's header shows the season instead, so the menu is one of the two
-            // places the clock moved to.
-            let clock = session
-                .world
-                .knobs(&session.defs)
-                .seasons
-                .then(|| fn_ui::view::format_clock(session.world.tick));
+            // The game's one clock (#654), the same words as the side panel's.
+            let clock = crate::widgets::clock(
+                &fn_ui::time::clock_text(session),
+                &Marks::new(palette.ascii),
+            );
             let nations: Vec<(String, bool)> = fn_sim::Nation::ALL
                 .iter()
                 .map(|&n| (session.defs.nation(n).name.clone(), n == session.world.nation))
                 .collect();
-            crate::menu::draw(
-                ui.menu_page,
-                ui.menu_cursor,
-                &nations,
-                clock.as_deref(),
-                palette,
-                area,
-                buf,
-            )
+            crate::menu::draw(ui.menu_page, ui.menu_cursor, &nations, &clock, palette, area, buf)
         }
     }
 }

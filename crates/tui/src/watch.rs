@@ -1360,7 +1360,7 @@ impl Watcher {
     }
 
     fn strip_text_impl(&self, drop_script: bool, drop_action: bool) -> String {
-        let clock = fn_ui::view::format_clock(self.app().session.world.tick);
+        let clock = fn_ui::time::clock_text(&self.app().session);
         let behind = self.turns_behind();
         let script = match &self.script_strip {
             Some(s) if !drop_script => format!("SCRIPT {}  ", s.label()),

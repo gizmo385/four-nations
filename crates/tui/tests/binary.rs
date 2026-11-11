@@ -47,8 +47,9 @@ fn ticks_advance_the_clock_in_the_frame() {
         assert!(out.status.success());
         String::from_utf8(out.stdout).unwrap()
     };
-    assert!(frame("0").contains("00:00"));
-    assert!(frame("600").contains("01:00"), "600 ticks is a minute at 10 ticks a second");
+    // No preset means no seasons, so the clock counts days (#654).
+    assert!(frame("0").contains("Day 1 · 5:00 left"));
+    assert!(frame("600").contains("Day 1 · 4:00 left"), "600 ticks is a minute at 10 a second");
 }
 
 #[test]
@@ -90,7 +91,7 @@ fn keys_play_a_script_before_the_frame() {
     let text = frame("h <left*6> <up*3> <enter> <right*5> <down*4> <enter> <tick 600>");
     assert!(text.lines().last().unwrap().starts_with(" HARVEST "), "{text}");
     assert!(text.contains("done"), "{text}");
-    assert!(text.contains("01:00"), "<tick 600> is a minute:\n{text}");
+    assert!(text.contains("4:00 left"), "<tick 600> is a minute:\n{text}");
     // WASD scripts move the cursor like the arrows do.
     assert_eq!(frame("d d s"), frame("<right*2> <down>"));
     assert_ne!(frame("d d s"), frame(""));

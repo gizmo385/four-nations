@@ -129,7 +129,7 @@ Three zones, three or four heading rows, and every row has a fixed place, so not
 
 | Row | Content | Replaces |
 |---|---|---|
-| Header | `▶ x1` (or `‖ Paused`) left; `Autumn Y4 4:57 left` right. With seasons off, the elapsed clock as today | Header + the Season heading |
+| Header | Two rows with one shape from tick 0 (#654): `▶ Running x1` (or `‖ Paused x1`), then the clock, `Autumn Y4 · 4:57 left`. With seasons off, `Day 3 · 2:10 left` | Header + the Season heading |
 | Heading | `├─ SETTLEMENT ─────── [N] ─┤` | PEOPLE, season, STORES, RESEARCH, ENDEAVOR headings |
 | People | `People 20` left, `Idle 11` right (Warn tone when idle is more than half and there is designated work) | The activity-count rows (the breakdown is on `N`) |
 | Needs | `Hungry 1  Thirsty 3`, toned as today; hidden when nobody is flagged | Same |
@@ -295,4 +295,4 @@ The owner answered on 2026-11-06:
 1. **People shows `People 20` and `Idle 11` only**; the activity breakdown is the Nation screen's.
 2. **Routine successes (ability casts, buildings used) go to the log only**, never to toasts.
 3. **The panel widens to 36 columns from 140 columns wide** (#423).
-4. **The header shows the season and its time left**, not the elapsed clock, while seasons are on.
+4. **The clock is the season and its time left, everywhere** (#654, owner decision 2026-11-10): the panel, the Nation header, the game menu, the saves list and the message log (a heading row per season, each line stamped with the time left in it). No screen shows minutes since the start; run logs and scorecards keep their own tick-based times. With seasons off the same shape runs on days (`Day 3 · 2:10 left`, a day being five game minutes).

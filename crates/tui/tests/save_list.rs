@@ -259,7 +259,7 @@ fn esc_keeps_the_slot_on_a_save_over_box() {
     assert_eq!(a.ui.status, "", "Esc answered the box, not a fresh key");
     run(&mut a, "<f6> <f6>"); // re-reads save-1 from disk
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("00:04"), "{frame}"); // tick 40, not 100
+    assert!(frame.contains("14:56 left"), "{frame}"); // tick 40, not 100
 }
 
 #[test]
@@ -285,5 +285,8 @@ fn the_saves_screen_lists_a_loadable_and_an_unloadable_slot() {
     run(&mut a, "<f6> <f6>"); // closes, then re-reads the directory (now with junk.ron too)
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("▸ junk  can't load: not a Four Nations save"), "{frame}");
-    assert!(frame.contains("save-1  Earth Kingdom, seed 7, 00:04 (tick 40)"), "{frame}");
+    assert!(
+        frame.contains("save-1  Earth Kingdom, seed 7, Spring Y1 - 14:56 left (tick 40)"),
+        "{frame}"
+    );
 }

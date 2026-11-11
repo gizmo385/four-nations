@@ -116,6 +116,6 @@ fn the_binary_saves_and_loads_from_a_key_script() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("Quickloaded (tick 40)"), "{text}");
-    assert!(text.contains("00:04"), "the clock is back at the save's 4 seconds: {text}");
+    assert!(text.contains("4:56 left"), "the clock is back at the save's 4 seconds: {text}");
     assert!(tmp.0.join("quicksave.ron").is_file());
 }

@@ -202,7 +202,7 @@ fn watch_frame_shows_the_running_script_then_what_it_woke_on() {
 
     // With no `--at`, the replay reaches the end of the log: the `Wake` line too.
     let woke = fn_tui()
-        .args(["--watch", path.to_str().unwrap(), "--frame", "--size", "110x30"])
+        .args(["--watch", path.to_str().unwrap(), "--frame", "--size", "130x30"])
         .output()
         .unwrap();
     std::fs::remove_file(&path).ok();

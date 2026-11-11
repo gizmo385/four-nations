@@ -104,15 +104,14 @@ pub fn step(at: usize, dy: i32, len: usize) -> usize {
 }
 
 /// Draws the menu: the row list or the list of nations (`page`), the highlighted row reversed.
-/// `nations` is each nation's name and whether it is the one being played. `clock`, while
-/// seasons are on, is the elapsed game clock (#416, owner decision 4 on #414): with the side
-/// panel's header showing the season instead, the menu is one of the two places it moved to (the
-/// Nation screen's header line, already there, is the other).
+/// `nations` is each nation's name and whether it is the one being played. `clock` is the game's
+/// one clock (#654, `fn_ui::time::clock_text`), the same words as the side panel's, on the bottom
+/// edge.
 pub fn draw(
     page: MenuPage,
     at: usize,
     nations: &[(String, bool)],
-    clock: Option<&str>,
+    clock: &str,
     palette: &Palette,
     outer: Rect,
     buf: &mut Buffer,
@@ -123,7 +122,7 @@ pub fn draw(
         MenuPage::Nations => "SWITCH NATION",
     };
     let title = format!(" {0} {name} {0} ", marks.seal);
-    let inner = modal::draw(buf, outer, SIZE, palette, &title, clock.unwrap_or(""));
+    let inner = modal::draw(buf, outer, SIZE, palette, &title, clock);
     let at = at.min(page.rows() - 1);
     let mut p = Painter::new(buf, inner, palette);
     let mut reversed = None;

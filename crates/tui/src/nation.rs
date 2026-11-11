@@ -15,12 +15,9 @@
 //!
 //! The meters sit at a fixed column just past a capped task column (#325), not stretched to the
 //! screen's far edge on a wide terminal, under a header naming each one that stays put while the
-//! roster scrolls (it sits above the scrolled window, not inside it). They wear their own glyphs
-//! ([`need_glyphs`]), not the frame's own [`Marks::full`]/[`Marks::empty`]: those fill a cell's
-//! whole height, and consecutive settlers with the same status would otherwise fuse into one
-//! solid stripe instead of reading as one bar per person -- a problem the selection bar and the
-//! side panel's research bar don't have, since each only ever draws one bar, never several
-//! stacked rows of them.
+//! roster scrolls (it sits above the scrolled window, not inside it). They are the game's one
+//! meter (#654, `crate::widgets::meter`) at five cells: a low need wears the warning colour with
+//! the `!` directly against it, in the column after the cells.
 
 use fn_sim::world::UnitId;
 use fn_ui::Session;
@@ -68,15 +65,6 @@ const TASK_CAP: usize = 46;
 
 fn task_width(name_width: usize, width: usize) -> usize {
     width.saturating_sub(2 + name_width + 1 + METER_GAP + METERS_WIDTH).min(TASK_CAP)
-}
-
-/// The need meters' own filled/empty glyphs, not [`Marks::full`]/[`Marks::empty`] (#325): a
-/// parallelogram that doesn't fill its cell's whole height, so one settler's meter doesn't visibly
-/// touch the one above or below it even when both are entirely full. ASCII keeps `#` for full
-/// (the same as the frame's own marks) but uses `-` rather than `.` for empty, since a run of dots
-/// beside a meter reads as a decimal point.
-fn need_glyphs(ascii: bool) -> (char, char) {
-    if ascii { ('#', '-') } else { ('▰', '▱') }
 }
 
 /// The longest settler name in the roster, the width every row's name column shares.
@@ -127,27 +115,24 @@ struct Line {
     unit: bool,
 }
 
-/// One need's five-cell meter and flag column: the filled cells and the empty ones wear the
-/// status (`ok`, `warn`, `bad`), and the flag only shows once it isn't ok, the same shape the
-/// selection bar's own meters use (`crate::bar::meter_row`), without the label.
-fn need_cells(n: &NeedView, glyphs: (char, char)) -> [(String, Tone); 3] {
-    let tone = Tone::of(n.status);
-    let (full, empty) = meter(n.frac, NEED_CELLS, glyphs.0, glyphs.1);
-    let flag = if n.status == Status::Ok { " " } else { "!" }.to_owned();
-    [(full, tone), (empty, Tone::Dim), (flag, tone)]
+/// One need's five-cell meter and its flag column (`crate::widgets::meter`): the cells wear the
+/// status (`ok`, `warn`, `bad`), the whole meter wears the warning once it isn't ok, and the
+/// `!` sits directly against it, the same shape the selection bar's own meters use
+/// (`crate::bar::meter_row`), without the label.
+fn need_cells(n: &NeedView, marks: &Marks) -> [(String, Tone); 3] {
+    meter(n.frac, NEED_CELLS, Tone::of(n.status), n.status != Status::Ok, marks)
 }
 
 /// Chi's own meter and flag column, the same shape as [`need_cells`] but always in the accent
 /// and never flagged: chi never hurts the unit, so it has no "low" threshold or warning colour
 /// (the selection bar's own rule, docs/design/bending.md).
-fn chi_cells(chi_frac: f32, glyphs: (char, char)) -> [(String, Tone); 3] {
-    let (full, empty) = meter(chi_frac, NEED_CELLS, glyphs.0, glyphs.1);
-    [(full, Tone::Accent), (empty, Tone::Dim), (" ".to_owned(), Tone::Accent)]
+fn chi_cells(chi_frac: f32, marks: &Marks) -> [(String, Tone); 3] {
+    meter(chi_frac, NEED_CELLS, Tone::Accent, false, marks)
 }
 
 /// A settler's row with its meters: the pointer, the name, the task (truncated to a fixed
 /// width, #325, so the meters stay near the name instead of drifting to the far edge), the four
-/// need meters and chi's own (`glyphs`, [`need_glyphs`], rather than the frame's own marks), then
+/// need meters and chi's own, then
 /// the Bends and Forms columns (`unit.bends_cell`/`unit.forms_cell`, `fn_ui::text::mastery_cells`,
 /// docs/design/bending.md "Seeing it", #346, #361).
 fn wide_unit_row(
@@ -156,7 +141,6 @@ fn wide_unit_row(
     name_width: usize,
     width: usize,
     marks: &Marks,
-    glyphs: (char, char),
 ) -> Row {
     let pointer = if chosen { marks.pointer } else { " " };
     let task_width = task_width(name_width, width);
@@ -173,10 +157,10 @@ fn wide_unit_row(
         if i > 0 {
             spans.push((" ".repeat(METER_GAP), Tone::Dim));
         }
-        spans.extend(need_cells(n, glyphs));
+        spans.extend(need_cells(n, marks));
     }
     spans.push((" ".repeat(METER_GAP), Tone::Dim));
-    spans.extend(chi_cells(unit.chi_frac, glyphs));
+    spans.extend(chi_cells(unit.chi_frac, marks));
     spans.push((" ".repeat(METER_GAP), Tone::Dim));
     spans.push((format!("{:<BENDS_COL$}", unit.bends_cell), Tone::Text));
     spans.push((" ".repeat(METER_GAP), Tone::Dim));
@@ -228,7 +212,6 @@ fn roster_lines(
     wide: bool,
     width: usize,
     marks: &Marks,
-    glyphs: (char, char),
 ) -> Vec<Line> {
     let name_width = name_width(view);
     let units = roster(view);
@@ -244,7 +227,7 @@ fn roster_lines(
         for unit in group {
             let chosen = units.get(at) == Some(&unit.id);
             let row = if wide {
-                wide_unit_row(unit, chosen, name_width, width, marks, glyphs)
+                wide_unit_row(unit, chosen, name_width, width, marks)
             } else {
                 narrow_unit_row(unit, chosen, name_width, marks)
             };
@@ -270,7 +253,6 @@ pub fn draw(
 ) -> Option<String> {
     let inner = page.body;
     let marks = Marks::new(palette.ascii);
-    let glyphs = need_glyphs(palette.ascii);
     let view = nation_view(session);
     let width = usize::from(inner.width);
     let height = usize::from(inner.height);
@@ -285,7 +267,7 @@ pub fn draw(
     let header_rows = if wide { 3 } else { 2 };
     let roster_h = height.saturating_sub(header_rows + footer_rows).max(1);
 
-    let lines = roster_lines(&view, ui.nation_cursor, wide, width, &marks, glyphs);
+    let lines = roster_lines(&view, ui.nation_cursor, wide, width, &marks);
     let chosen_row =
         lines.iter().enumerate().filter(|(_, l)| l.unit).nth(ui.nation_cursor).map(|(i, _)| i);
     let first = window_start(chosen_row.unwrap_or(0), roster_h);
@@ -297,7 +279,7 @@ pub fn draw(
             view.nation, marks.dot, view.seed, marks.dot, view.population
         ),
         Tone::Title,
-        view.clock.clone(),
+        crate::widgets::clock(&view.clock, &marks),
         Tone::Dim,
     ));
     p.blank();
@@ -378,7 +360,7 @@ mod tests {
     fn the_roster_lines_up_a_heading_then_a_row_per_settler() {
         let v = view(7, Nation::Earth);
         let marks = Marks::new(false);
-        let lines = roster_lines(&v, 0, true, 120, &marks, need_glyphs(false));
+        let lines = roster_lines(&v, 0, true, 120, &marks);
         assert_eq!(lines[0].row.plain(), format!("IDLE {}", v.groups[0].1.len()));
         assert!(!lines[0].unit);
         assert!(lines[1].unit);
@@ -406,7 +388,7 @@ mod tests {
         s.world.units[0].needs.hunger = 0.0;
         let v = nation_view(&s);
         let marks = Marks::new(false);
-        let row = wide_unit_row(&v.groups[0].1[0], false, 4, 120, &marks, need_glyphs(false));
+        let row = wide_unit_row(&v.groups[0].1[0], false, 4, 120, &marks);
         assert!(!row.plain().contains("Starving"), "{}", row.plain());
         assert!(row.plain().contains('!'), "{}", row.plain());
     }
@@ -423,11 +405,11 @@ mod tests {
         assert_eq!(unit.bends_cell, "0/8", "Earth's own threshold, the bundled bends_per_nation");
         assert_eq!(unit.forms_cell, "0/3", "the bundled master_forms");
         let marks = Marks::new(true);
-        let row = wide_unit_row(unit, false, 4, 120, &marks, need_glyphs(true));
+        let row = wide_unit_row(unit, false, 4, 120, &marks);
         let plain = row.plain();
         // Hunger (zeroed, flagged) - Thirst, Energy, Health (full, unflagged) - Chi (full,
         // never flagged even though a need just before it is) - Bends ("0/8") - Forms ("0/3").
-        let tail = "-----!  #####   #####   #####   #####   0/8     0/3   ";
+        let tail = ".....!  #####   #####   #####   #####   0/8     0/3   ";
         assert!(plain.ends_with(tail), "{plain}\nwant suffix {tail:?}");
     }
 
@@ -441,7 +423,7 @@ mod tests {
         unit.bends_cell = "12 *".to_owned();
         unit.forms_cell = "4 *".to_owned();
         let marks = Marks::new(true);
-        let row = wide_unit_row(&unit, false, 4, 120, &marks, need_glyphs(true));
+        let row = wide_unit_row(&unit, false, 4, 120, &marks);
         assert!(row.plain().ends_with("12 *    4 *   "), "{}", row.plain());
     }
 
@@ -451,15 +433,8 @@ mod tests {
     fn the_meter_header_lines_up_over_the_first_meter() {
         let header = meter_header(4, 120).plain();
         let marks = Marks::new(false);
-        let row = wide_unit_row(
-            &view(7, Nation::Earth).groups[0].1[0],
-            false,
-            4,
-            120,
-            &marks,
-            need_glyphs(false),
-        );
-        let meter_start = row.plain().chars().position(|c| c == '▰' || c == '▱').unwrap();
+        let row = wide_unit_row(&view(7, Nation::Earth).groups[0].1[0], false, 4, 120, &marks);
+        let meter_start = row.plain().chars().position(|c| c == '█' || c == '░').unwrap();
         assert_eq!(header.find("Hunger"), Some(meter_start), "{header}\n{}", row.plain());
         // Chi, Bends and Forms (#346, #361) follow the four needs, in that order.
         assert!(header.find("Chi").unwrap() > header.find("Health").unwrap(), "{header}");
