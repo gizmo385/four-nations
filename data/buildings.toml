@@ -910,3 +910,30 @@ count = 12
 [[building.cost]]
 item = "wood"
 count = 4
+
+# Waystations' Waystation (docs/design/horizons-phase-2.md, #688): a far outpost, not a second
+# base. It holds a pantry of food (kept stocked from stores by a Refuel haul, at half), two beds
+# and a water barrel, and no general store. It must stand 20 tiles from any stockpile, checked
+# only when it is placed.
+[[building]]
+id = "waystation"
+name = "Waystation"
+verb = "Build"
+work = 60.0
+passable = false
+footprint = [2, 2]
+capacity = 2           # two sleeping places inside (#227's rule for a bed bigger than 1x1)
+[building.bed]
+sleep_bonus = 1.2      # a bed is 1.4: a cot, not a home
+seek_tiles = 30
+[building.outpost]
+far_from_stores = 20   # every footprint tile at least 20 tiles (Chebyshev) from any stockpile tile
+pantry = 12            # food kept here, refilled at half by a Refuel haul
+pantry_items = ["cabbage", "fruit", "fish"]
+barrel = true          # a drinking place at the door
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "stone"
+count = 4

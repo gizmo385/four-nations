@@ -108,6 +108,10 @@ impl World {
         {
             self.place_ground(pos, Stack { item: fuel.item, count: bunker.count });
         }
+        // So does a pantry's food (`outpost.rs`).
+        for stack in record.pantry.iter().flat_map(|p| &p.stacks) {
+            self.place_ground(pos, *stack);
+        }
         if let (Some(craft), Some(recipe)) = (&record.craft, &def.recipe) {
             for (input, &count) in recipe.inputs.iter().zip(&craft.delivered) {
                 if count > 0 {

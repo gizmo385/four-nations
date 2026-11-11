@@ -90,6 +90,9 @@ pub enum FoodSource {
     Ground(Pos),
     /// A wild food resource on this tile, worked on the spot.
     Forage(Pos),
+    /// The pantry of the outpost anchored on this tile, eaten from at its door
+    /// (`world/outpost.rs`).
+    Pantry(Pos),
 }
 
 /// What a unit is doing. Needs outrank jobs; `Unit::task` reports the one in effect.
@@ -1224,11 +1227,15 @@ impl World {
     fn plan_drink(&self, i: usize, defs: &Defs) -> Option<(Task, Vec<Pos>)> {
         let rules = self.rules_for(&self.units[i]);
         let pos = self.units[i].pos;
+        // A barrel's door is a spot to drink, and fresh (`outpost.rs`).
+        let barrels = self.barrel_door_list(defs);
         let (any_flood, any_found) = Flood::seek(&self.map, pos, rules, |p, _| {
             if !self.rules.passable(&self.map[p]) {
                 return None;
             }
-            self.map.neighbors(p, true).any(|q| self.map[q].terrain.is_water()).then_some(((), ()))
+            (barrels.contains(&p)
+                || self.map.neighbors(p, true).any(|q| self.map[q].terrain.is_water()))
+            .then_some(((), ()))
         });
         let (any_stand, ()) = any_found?;
         if self.knobs(defs).harm > 0.0 {
@@ -1237,10 +1244,9 @@ impl World {
                 if !self.rules.passable(&self.map[p]) {
                     return None;
                 }
-                self.map
-                    .neighbors(p, true)
-                    .any(|q| is_fresh(self.map[q].terrain))
-                    .then_some(((), ()))
+                (barrels.contains(&p)
+                    || self.map.neighbors(p, true).any(|q| is_fresh(self.map[q].terrain)))
+                .then_some(((), ()))
             });
             if let Some((fresh_stand, ())) = fresh_found {
                 let any_cost = any_flood.cost(any_stand).unwrap_or(0);
@@ -1255,13 +1261,13 @@ impl World {
 
     /// Whether unit `i` won't eat `item` (the Avatar's `[avatar].refuses`, #237; "a canon touch
     /// and a real constraint for a fish-fed Water settlement"). Always false for anyone else.
-    fn refuses_food(&self, i: usize, item: ItemId, defs: &Defs) -> bool {
+    pub(super) fn refuses_food(&self, i: usize, item: ItemId, defs: &Defs) -> bool {
         self.units[i].is_avatar()
             && defs.endeavor.avatar.as_ref().is_some_and(|a| a.refuses.contains(&item))
     }
 
-    /// The rank (lowest first: stockpile, ground, forage) of the best unclaimed food source on
-    /// `pos` that unit `me` will eat, if any. Matches `plan_food`'s old per-category checks, just
+    /// The rank (lowest first: stockpile, pantry, ground, forage) of the best unclaimed food
+    /// source on `pos` that unit `me` will eat, if any. Matches `plan_food`'s old per-category checks, just
     /// asked of one tile at a time instead of every entry of `self.stored`/`self.ground`/the map
     /// up front.
     fn food_rank_at(&self, pos: Pos, defs: &Defs, me: usize) -> Option<u8> {
@@ -1270,11 +1276,12 @@ impl World {
         if self.stored.get(&pos).is_some_and(|s| eats(s.item)) {
             return Some(0);
         }
+        // Rank 1 is a pantry's door, which `plan_food` checks itself.
         if self.ground.get(&pos).is_some_and(|s| eats(s.item)) {
-            return Some(1);
+            return Some(2);
         }
         let h = self.ripe_harvest(pos, defs)?;
-        (eats(h.item) && !self.forage_taken(pos, me)).then_some(2)
+        (eats(h.item) && !self.forage_taken(pos, me)).then_some(3)
     }
 
     /// The closest food this unit will eat: carried (free), then stockpile, ground and wild
@@ -1290,6 +1297,10 @@ impl World {
             return Some((Task::Eat(FoodSource::Carried), Vec::new()));
         }
         let rules = self.rules_for(&self.units[i]);
+        // The door of every outpost pantry holding something this unit will eat (`outpost.rs`).
+        let pantries = self.pantry_doors(defs, |item| {
+            defs.food_of(item).is_some() && !self.refuses_food(i, item, defs)
+        });
         let (flood, found) = Flood::seek(&self.map, self.units[i].pos, rules, |q, _| {
             let mut best: Option<(u8, Pos)> = None;
             let mut consider = |rank: u8, source: Pos| {
@@ -1299,10 +1310,13 @@ impl World {
                 }
             };
             // q itself, if a unit could actually stand there to work it.
-            if self.rules.passable(&self.map[q])
-                && let Some(rank) = self.food_rank_at(q, defs, i)
-            {
-                consider(rank, q);
+            if self.rules.passable(&self.map[q]) {
+                if let Some(rank) = self.food_rank_at(q, defs, i) {
+                    consider(rank, q);
+                }
+                if pantries.iter().any(|&(door, _)| door == q) {
+                    consider(1, q);
+                }
             }
             // An unwalkable source (ordinarily a wild resource) worked from beside it: one of
             // q's neighbours, the same ring `stand_tile` would search.
@@ -1318,7 +1332,11 @@ impl World {
         let (stand, (rank, source)) = found?;
         let source = match rank {
             0 => FoodSource::Stockpile(source),
-            1 => FoodSource::Ground(source),
+            1 => {
+                let anchor = pantries.iter().find(|&&(door, _)| door == source).map(|&(_, a)| a)?;
+                FoodSource::Pantry(anchor)
+            }
+            2 => FoodSource::Ground(source),
             _ => FoodSource::Forage(source),
         };
         Some((Task::Eat(source), route_from(flood.path_to(stand)?)))
@@ -1412,6 +1430,7 @@ impl World {
             FoodSource::Stockpile(p) => self.stored.get(&p)?.item,
             FoodSource::Ground(p) => self.ground.get(&p)?.item,
             FoodSource::Forage(p) => self.ripe_harvest(p, defs)?.item,
+            FoodSource::Pantry(a) => self.pantry_item(i, a, defs)?,
         };
         defs.food_of(item).map(|_| item)
     }
@@ -1527,6 +1546,7 @@ impl World {
                     None => self.take_haul_job(p),
                 }
             }
+            FoodSource::Pantry(a) => self.take_from_pantry(a, item),
             FoodSource::Forage(p) => {
                 let h = defs.harvest(self.map[p].resource.expect("checked")).expect("checked");
                 let count = self.work_done(p, h, defs);

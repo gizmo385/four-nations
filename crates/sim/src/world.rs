@@ -47,6 +47,7 @@ mod inside;
 #[cfg(any(test, debug_assertions))]
 mod invariants;
 mod orchard;
+mod outpost;
 mod pair;
 mod pickers;
 mod population;
@@ -83,6 +84,7 @@ use forge::CraftState;
 pub use gate::{EndeavorError, GateSite, GateTask};
 pub use harm::{HarmEvent, HarmEventKind, HarmKind};
 pub use heat::{Aura, Flame, Glow, HeatSource};
+pub use outpost::Pantry;
 pub use pair::PairStatus;
 pub use population::Arrival;
 pub use power::PowerAt;
@@ -936,6 +938,7 @@ impl World {
         self.tick_reverts();
         self.tick_heat();
         self.tick_fuel(defs);
+        self.tick_outposts(defs);
         self.tick_scooters();
         for i in 0..self.units.len() {
             self.act(i, defs);

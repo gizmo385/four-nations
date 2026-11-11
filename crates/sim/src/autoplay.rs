@@ -500,6 +500,8 @@ impl Economy {
             // One road, laid in one go by `horizons::pave_once`, not tile by tile here.
             "paved_road" => 0,
             "chute" => u32::from(horizons::chute_wanted(world, defs)),
+            // Far from stores, so never at the anchor: the economy opening places it (#700).
+            "waystation" => 0,
             HERB_GARDEN => match self.healing {
                 HealingPolicy::Sweep => 1,
                 HealingPolicy::Off => 0,

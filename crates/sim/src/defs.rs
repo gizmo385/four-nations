@@ -433,6 +433,15 @@ impl Defs {
                     )));
                 }
             }
+            for &item in b.outpost.iter().flat_map(|o| &o.pantry_items) {
+                if self.food_of(item).is_none() {
+                    return Err(DefsError(format!(
+                        "building {}: outpost pantry keeps {}, which is not a food",
+                        b.id,
+                        self.item(item).id
+                    )));
+                }
+            }
             if let Some(o) = &b.orchard
                 && self.harvest(o.plants).is_none_or(|h| h.regrow.is_none())
             {

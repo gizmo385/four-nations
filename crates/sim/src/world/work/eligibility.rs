@@ -221,7 +221,7 @@ impl World {
                 self.map[pos].building.is_some()
             }
             JobKind::Deconstruct { pos } => self.anchored(pos).is_some(),
-            JobKind::Refuel { pos } => self.fuel_shortfall(pos, defs).is_some(),
+            JobKind::Refuel { pos } => self.refuel_live(pos, defs),
             // Live while the visit is here and the offer still needs goods (`trade.rs`).
             JobKind::Trade { pos, slot } => self.trade_job_wanted(pos, slot, defs),
             // The gate drops its own task and Attend jobs when it moves on (`gate.rs`).
@@ -268,10 +268,9 @@ impl World {
             }
             // Only while the bunker is short and some store holds its fuel, so nobody claims a
             // trip with nothing to fetch (the stuck-build case of #322).
-            JobKind::Refuel { pos } => self
-                .fuel_shortfall(pos, defs)
-                .filter(|&(item, short)| short > 0 && self.any_source_for_fuel(item))
-                .and_then(|_| free(StandRule::Building(pos))),
+            JobKind::Refuel { pos } => {
+                self.refuel_ready(pos, defs).then(|| free(StandRule::Building(pos))).flatten()
+            }
             // Only while the offer still needs goods some store holds, as Refuel does.
             JobKind::Trade { pos, slot } => (self.trade_job_wanted(pos, slot, defs)
                 && self.trade_source(slot, defs).is_some())
