@@ -68,6 +68,9 @@
 //!   (`horizons::buildable`: the endeavor's own set plus the optional horizon buildings), each
 //!   once its cost is affordable. `horizons` places what stands far out or in pairs (Waystation,
 //!   Wind Gate and Balloon Dock pairs, the canal, the tunnel line; its module doc);
+//!   `trade_techs` does phase 3's (#713): a Tea House beside the stockpile once an Herb Garden
+//!   stands, a second Workshop set to wares (every one, where a forge makes the tools), and the
+//!   Archive where the most study halls are in its reach;
 //! - plays draw and the caravans (#440, `docs/design/pacing.md`, sections 1 and 2): beds in reach
 //!   of a campfire, a campfire raised within reach of any bed outside every one, far foraging for
 //!   a missing food kind, and, with a caravan camped, its deals and request taken as far as the
@@ -105,6 +108,13 @@ use crate::world::{Command, TICKS_PER_SECOND, World};
 
 mod horizons;
 mod pacing;
+mod trade_techs;
+
+/// Every building `Economy` raises for `nation` (`horizons::buildable`), in data order: what the
+/// harness's `first_built` lists (#713).
+pub fn raised_buildings(nation: Nation, defs: &Defs) -> Vec<BuildingId> {
+    horizons::buildable(nation, defs).collect()
+}
 
 /// How far from the settlement's anchor (`World::settlement_anchor`) the opening designates
 /// standing harvest orders on wild food, and looks for the material a bed or a campfire costs
@@ -446,6 +456,9 @@ impl Economy {
         horizons::raise_pair(world, defs, anchor, "balloon_dock");
         horizons::bore_line(world, defs);
         horizons::carve_canal(world, defs);
+        trade_techs::gather_far_wood(world, defs, anchor);
+        trade_techs::raise_archive(world, defs, anchor);
+        trade_techs::set_workshop_recipes(world, defs, self.wood_wanted(world, defs));
         if self.farms {
             self.sow_plots(world, defs, "farm_plot");
         }
@@ -478,6 +491,19 @@ impl Economy {
             }
         }
         wanted
+    }
+
+    /// The wood the buildings `raise_buildings` still wants (its target unmet, its tech known)
+    /// cost between them: what a wares Workshop leaves in stores (`trade_techs`, #713).
+    fn wood_wanted(&self, world: &World, defs: &Defs) -> u32 {
+        let Some(wood) = defs.item_id("wood") else { return 0 };
+        horizons::buildable(world.nation, defs)
+            .filter(|&b| {
+                defs.building(b).unlocked_by.is_none_or(|t| world.research().is_known(t))
+                    && building_count(world, b) < self.building_target(world, defs, b)
+            })
+            .flat_map(|b| defs.building(b).cost.iter().filter(|c| c.item == wood).map(|c| c.count))
+            .sum()
     }
 
     /// Every item any building the nation can reach costs, other than `deposits` (stone and ore
@@ -549,6 +575,11 @@ impl Economy {
             // One road, laid in one go by `horizons::pave_once`, not tile by tile here.
             "paved_road" => 0,
             "chute" => u32::from(horizons::chute_wanted(world, defs)),
+            // Phase 3 (#713): the house needs a garden, the Workshop a second one for wares, the
+            // Archive a hall to stand beside.
+            "tea_house" => trade_techs::tea_house_target(world, defs),
+            "workshop" => trade_techs::workshop_target(world, defs),
+            "archive" => trade_techs::archive_target(world, defs),
             // Far from stores, or a pair far apart: `horizons` places these (#700). The target is
             // what `wanted_items` reads, for the materials.
             id if horizons::raises_itself(id) => horizons::outpost_target(world, defs, id),

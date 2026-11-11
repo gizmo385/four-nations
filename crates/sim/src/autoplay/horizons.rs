@@ -105,6 +105,7 @@ pub(super) fn site_anchor(world: &World, defs: &Defs, id: &str, anchor: Pos) -> 
         "oil_lamp" => near("bed"),
         "hothouse" => near("farm_plot"),
         "farm_plot" => near("hothouse"),
+        "tea_house" => nearest_stockpile(world, anchor),
         "chute" | "badgermole_den" => near("mine_shaft"),
         "lemur_roost" => near("orchard").map(|orchard| {
             let reach = defs
@@ -251,9 +252,10 @@ fn road_path(world: &World, defs: &Defs, anchor: Pos) -> Option<Vec<Pos>> {
 
 /// Whether `horizons` raises `id` itself, so the opening's one-of-everything sweep leaves it
 /// alone (`Economy::raise_buildings`): the Waystation stands far from stores and a pair's ends
-/// far from each other, neither near the anchor.
+/// far from each other, neither near the anchor; and the Archive, which goes where the most study
+/// halls are in its reach (`trade_techs::raise_archive`, #713).
 pub(super) fn raises_itself(id: &str) -> bool {
-    matches!(id, "waystation" | "wind_gate" | "balloon_dock")
+    matches!(id, "waystation" | "wind_gate" | "balloon_dock" | "archive")
 }
 
 /// How many of `id` the opening wants standing, for the buildings `raises_itself`: the

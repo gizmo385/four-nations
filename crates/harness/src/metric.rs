@@ -12,6 +12,8 @@
 //! | `first_death` | the minute of the first death |
 //! | `deaths`, `deaths_by.M` | deaths over the run, or by minute `M` |
 //! | `pop_at.M`, `wood_at.M`, `food_at.M` | population, wood or food in stores at the season boundary at minute `M` |
+//! | `herbs_at.M` | herbs in stores at the season boundary at minute `M` (#713) |
+//! | `copies_by.M` | scroll copies made by the season boundary at minute `M` (#713) |
 //! | `food_per_head.winter.N` | food per head entering year `N`'s winter |
 //! | `longest_gap`, `gaps_over_15` | the pacing doc's decision gaps from minute 30 to Ready |
 //! | `care.close_calls` | close calls over the run |
@@ -37,6 +39,8 @@ pub enum Metric {
     PopAt(u32),
     WoodAt(u32),
     FoodAt(u32),
+    HerbsAt(u32),
+    CopiesBy(u32),
     FoodPerHeadWinter(u64),
     LongestGap,
     GapsOver15,
@@ -71,6 +75,8 @@ impl Metric {
             ("pop_at", Some(m)) => Metric::PopAt(number(m)?),
             ("wood_at", Some(m)) => Metric::WoodAt(number(m)?),
             ("food_at", Some(m)) => Metric::FoodAt(number(m)?),
+            ("herbs_at", Some(m)) => Metric::HerbsAt(number(m)?),
+            ("copies_by", Some(m)) => Metric::CopiesBy(number(m)?),
             ("food_per_head", Some(rest)) => match rest.strip_prefix("winter.") {
                 Some(year) => Metric::FoodPerHeadWinter(u64::from(number(year)?)),
                 None => return Err(format!("metric {name:?}: expected food_per_head.winter.N")),
@@ -97,6 +103,8 @@ impl Metric {
             Metric::PopAt(m) => format!("pop_at.{m}"),
             Metric::WoodAt(m) => format!("wood_at.{m}"),
             Metric::FoodAt(m) => format!("food_at.{m}"),
+            Metric::HerbsAt(m) => format!("herbs_at.{m}"),
+            Metric::CopiesBy(m) => format!("copies_by.{m}"),
             Metric::FoodPerHeadWinter(y) => format!("food_per_head.winter.{y}"),
             Metric::LongestGap => "longest_gap".to_owned(),
             Metric::GapsOver15 => "gaps_over_15".to_owned(),
@@ -110,9 +118,12 @@ impl Metric {
     /// Whether the name takes the minute it is read at (`pop_at.120`), so the run must reach it.
     fn needs_minute(&self) -> Option<f32> {
         match self {
-            Metric::DeathsBy(m) | Metric::PopAt(m) | Metric::WoodAt(m) | Metric::FoodAt(m) => {
-                Some(*m as f32)
-            }
+            Metric::DeathsBy(m)
+            | Metric::PopAt(m)
+            | Metric::WoodAt(m)
+            | Metric::FoodAt(m)
+            | Metric::HerbsAt(m)
+            | Metric::CopiesBy(m) => Some(*m as f32),
             _ => None,
         }
     }
@@ -155,6 +166,8 @@ impl Metric {
             Metric::PopAt(m) => row_at(*m).map(|s| f64::from(s.population)),
             Metric::WoodAt(m) => row_at(*m).map(|s| f64::from(s.wood_stored)),
             Metric::FoodAt(m) => row_at(*m).map(|s| f64::from(s.food_stored)),
+            Metric::HerbsAt(m) => row_at(*m).map(|s| f64::from(s.herbs_stored)),
+            Metric::CopiesBy(m) => row_at(*m).map(|s| f64::from(s.scrolls_copied)),
             Metric::FoodPerHeadWinter(year) => rec
                 .seasons
                 .iter()
@@ -189,9 +202,12 @@ impl Metric {
             Metric::SignMinute(_) | Metric::ReadyMinute | Metric::FirstDeath => {
                 bar.at_most.map_or(end, |m| m as f32).min(end)
             }
-            Metric::DeathsBy(m) | Metric::PopAt(m) | Metric::WoodAt(m) | Metric::FoodAt(m) => {
-                (*m as f32).min(end)
-            }
+            Metric::DeathsBy(m)
+            | Metric::PopAt(m)
+            | Metric::WoodAt(m)
+            | Metric::FoodAt(m)
+            | Metric::HerbsAt(m)
+            | Metric::CopiesBy(m) => (*m as f32).min(end),
             Metric::FoodPerHeadWinter(year) => rec
                 .seasons
                 .iter()

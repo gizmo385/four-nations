@@ -238,6 +238,14 @@ pub struct EconomySeason {
     /// Absent from a record written before it existed.
     #[serde(default)]
     pub food_stored: u32,
+    /// Herbs in stores (the Tea House's fuel and the sick's remedy, `herbs_at.M`, #713). Absent
+    /// from a record written before it existed.
+    #[serde(default)]
+    pub herbs_stored: u32,
+    /// Scroll copies made so far (`World::scrolls_copied`, `copies_by.M`, #713). Absent from a
+    /// record written before it existed.
+    #[serde(default)]
+    pub scrolls_copied: u32,
     pub food_per_head: f32,
     pub population: u32,
     /// Ids of every sign met by this point, in `data/endeavor.toml`'s order.
@@ -267,7 +275,8 @@ pub struct EconomyReport {
     /// Every sign in `data/endeavor.toml`'s order, with the minute it was first met within
     /// `cfg.minutes`, or `None` if it never was.
     pub sign_minutes: Vec<(String, Option<f32>)>,
-    /// Every building the nation can reach (`endeavor::reachable_buildings`), in
+    /// Every building the opening raises (`autoplay::raised_buildings`: the nation's reachable
+    /// kinds, `endeavor::reachable_buildings`, and the optional horizon buildings), in
     /// `data/buildings.toml`'s order, with the minute one first stood complete, or `None` if
     /// none ever did (#376: does the opening raise one of every building, the new ones too?).
     pub first_built: Vec<(String, Option<f32>)>,
@@ -468,6 +477,8 @@ fn economy_season(
         ore_mined: ore_items.iter().map(|&i| world.tallies().harvested(i)).sum(),
         wood_stored: wood.map_or(0, |w| world.stored_total(w)),
         food_stored: world.stored_food(defs),
+        herbs_stored: defs.item_id("herbs").map_or(0, |h| world.stored_total(h)),
+        scrolls_copied: world.scrolls_copied(),
         food_per_head: if population > 0 {
             world.stored_food(defs) as f32 / population as f32
         } else {
@@ -826,7 +837,8 @@ mod tests {
                 .map(|b| defs.building(b).id.clone())
                 .collect();
         let listed: Vec<String> = report.first_built.iter().map(|(id, _)| id.clone()).collect();
-        assert_eq!(listed, reachable);
+        assert!(reachable.iter().all(|r| listed.contains(r)), "every reachable kind is listed");
+        assert!(listed.contains(&"tea_house".to_owned()), "and the optional ones");
         assert!(listed.contains(&"deep_mine".to_owned()));
     }
 

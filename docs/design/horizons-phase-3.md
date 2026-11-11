@@ -577,6 +577,160 @@ The balance follow-up records the measured numbers in a "Measured" section here.
 levers are the Tea House's `per_minute`, the wares deals' counts, `copy_points` and the Archive's
 `stock_limit`, all data.
 
+### Measured
+
+The phase-3 run (#713): seeds 1 to 32, all four nations, Small, Normal, both research orders
+(`steady` and `branch_first`), 256 runs a set, through `balance verdict`. The runs are **240
+minutes** long, not 180, because the three techs land at 140 to 240 and a 180-minute run would
+end before most of what they do. Three sets, so phase 3's effect can be told from #440's:
+
+- **base**: `main` at fec8e9d, before phase 3's first merge (and before #440);
+- **main**: `main` at 398d6cf, after #440's opening and all of phase 3's sim, TUI and data (#711),
+  but with the opening ignoring phase 3 except that its one-of-everything sweep builds a Tea House
+  and an Archive at the anchor when it can pay;
+- **now**: this change.
+
+`herbs_at.M` and `copies_by.M` were back-ported to the two baselines so all three sets read them
+(copies are 0 at base: no Archive exists). `first_built` now lists every building the opening
+raises, the optional ones too, and a run record's `paid_in` counts completed deals by the good they
+paid in; those two only exist for "now". Medians per nation, `steady` unless said; "base / main /
+now". Ore numbers predate #834 (a bought ore doesn't count as mined, so the caravan's ore deals
+don't help the ore sign yet).
+
+**What the opening does with it** (`crates/sim/src/autoplay/trade_techs.rs`, `pacing.rs`):
+
+- **Tea House**: one, beside the stockpile, once `tea_ceremony` is known and an Herb Garden is
+  finished.
+- **Wares**: once `trade_wares` is known, a second Workshop. Every Workshop but one is set to wares
+  (all of them where another building makes tools, which is Fire's forge: read from the recipes,
+  not the nation). A wares Workshop goes back to tools when stores hold less wood than the
+  buildings still wanted cost, and goes to wares only with 30 more than that.
+- **Archive**: once `archives` is known and a study hall stands, on the tile with the most study
+  halls in its reach (ties to the nearest the settlement's anchor). With no free tile in reach of
+  any hall it stands as near the first hall as it fits.
+- **Far wood**: while the Tea House or the Archive is wanted and its wood isn't in hand (the
+  stores and the ground, an unfinished site included), crews cut the nearest reachable trees past
+  `FORAGE_RADIUS` (within `DEPOSIT_RADIUS`), as many as the shortfall takes.
+- **Deals**: wares and scroll copies are spared in full (no threshold), less what taken deals
+  already owe the camp, and a deal that pays in them goes first. Clearing the target is never
+  scripted.
+
+**What the first runs found**, all three about wood or crowding and none in the design:
+
+- The opening has no wood left by the time these techs land. `wood_at.180` is 10, 42, 106 and 1
+  on `main` (Air, Water, Earth, Fire) against 192, 200, 349 and 82 at base, because #440's deals
+  and every phase-2 building spend the forest within 15 tiles and nothing refills it. With only
+  the plain rules and the reserve, the Tea House stood in about 16 to 24 runs of 32 and the Archive
+  in 5 to 7 (14 and 20 wood), and a wares Workshop that ran unchecked took the last of what there was. Hence the wares
+  rule's reserve and the far-wood rule. The far-wood rule has to count a designated but unfinished
+  site as still lacking: an Archive site waiting for wood the beds had taken stood unfinished
+  for the rest of the run on Air seed 1.
+- By minute 160 the core is full of stockpile tiles (83 on a trace of Fire seed 12 at minute 200),
+  buildings and rock. On Air seed 1 no tile within 6 of the study hall was free from minute 170 on,
+  so the Archive's reach rule found no site and none was built. The fallback to the nearest fit costs the seats (`archive stood` counts it either way)
+  and keeps the scribing.
+- The research tree is done in most runs: each nation's last tech is `archives`, at minute 160,
+  204, 219 and 187 (median, Air, Water, Earth, Fire, `steady`), which is the Archive's own tech,
+  so scribing starts as soon as the Archive stands.
+
+| Measure | Air | Water | Earth | Fire |
+|---|---|---|---|---|
+| `tea_ceremony` / `trade_wares` / `archives`, median minute | 139 / 148 / 160 | 179 / 189 / 205 | 192 / 201 / 220 | 169 / 173 / 187 |
+| Tea House stands by 240 (runs of 32), first minute | 28, 144 | 28, 187 | 31, 194 | 27, 176 |
+| Archive stands by 240 (runs of 32), first minute | 22, 158 | 19, 212 | 27, 224 | 18, 188 |
+| `food_at.180` | 337 / 260 / 250 | 136 / 158 / 161 | 130 / 146 / 145 | 125 / 154 / 160 |
+| `wood_at.180` | 192 / 10 / 1 | 200 / 42 / 34 | 349 / 106 / 106 | 82 / 1 / 0 |
+| `wood_at.180`, `branch_first` | 192 / 19 / 4 | 152 / 44 / 44 | 426 / 382 / 382 | 146 / 104 / 104 |
+| `wood_at.240` | 192 / 10 / 0 | 200 / 7 / 6 | 346 / 53 / 12 | 52 / 0 / 0 |
+| `herbs_at.120` | 39 / 40 / 40 | 34 / 36 / 36 | 36 / 40 / 40 | 35 / 38 / 38 |
+| `herbs_at.180` | 92 / 84 / 82 | 87 / 87 / 84 | 84 / 94 / 94 | 88 / 84 / 84 |
+| `herbs_at.240` | 153 / 130 / 131 | 144 / 128 / 128 | 141 / 134 / 136 | 146 / 128 / 130 |
+| `copies_by.240`, median | 0 / 0 / 19 | 0 / 0 / 4 | 0 / 0 / 4 | 0 / 0 / 12 |
+| `copies_by.240` of 6 or more (runs of 32) | 0 / 11 / 22 | 0 / 8 / 12 | 0 / 5 / 8 | 0 / 7 / 18 |
+| `copies_by.240` of 6 or more, `branch_first` | 0 / 10 / 21 | 0 / 5 / 9 | 0 / 0 / 0 | 0 / 5 / 7 |
+| Idle share after the tree is done (median) | 0.73 / 0.63 | 0.62 / 0.47 | 0.45 / 0.31 | 0.55 / 0.39 |
+| `sign_minute.stone` | 22 / 21 / 21 | 28 / 30 / 30 | 19 / 19 / 19 | 28 / 27 / 27 |
+| `sign_minute.ore` | 74 / 73 / 73 | 86 / 83 / 83 | 75 / 75 / 75 | 80 / 78 / 78 |
+| `longest_gap` | 36 / 30 / 21 | 41 / 29 / 27 | 25 / 20 / 20 | 37 / 25 / 21 |
+| Decisions 130 to 180 | 1 / 3 / 3 | 5 / 5 / 5 | 5 / 4 / 4 | 5 / 6 / 6 |
+| Decisions 150 to 240 | 0 / 1 / 1 | 3 / 4.5 / 5 | 4 / 6 / 6 | 3 / 5 / 5 |
+| Decisions 150 to 240, `branch_first` | 0 / 1 / 1 | 6 / 7 / 8 | 12 / 13 / 13 | 9 / 11 / 11 |
+| Ready reached (runs of 32) | 16 / 16 / 17 | 15 / 15 / 16 | 15 / 23 / 23 | 15 / 16 / 17 |
+| Ready reached, `branch_first` | 15 / 11 / 17 | 15 / 10 / 15 | 1 / 6 / 6 | 6 / 6 / 10 |
+| Deaths in 240 minutes (64 runs) | 0 / 0 / 1 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 1 |
+
+Idle share is the share of settlers idle in the 15-minute windows from the minute the last tech
+lands, in the runs that finish the tree.
+
+How the deals went (completed deals and requests that paid in the good, `steady`, runs of 32 with
+at least one): wares 13, 15, 19 and 12 (Air, Water, Earth, Fire), median 6, 3, 2 and 4 a run;
+scroll copies 21, 11, 11 and 14, median 7, 2, 1 and 5.5. `main` pays in neither, by construction.
+In a 360-minute probe of seeds 1 to 8 (`steady`), an Archive stood in 22 of the 24 runs that know
+`archives`, made 12 to 39 copies, and the deals took 0 to 20 of them (a run that makes only 12 sits
+at the stock limit with nothing taken: the caravans' random draw never showed a copy deal).
+
+Against "Expected" in the table above:
+
+- **Decision timeline: met at the low end.** From 150 on, the shared stretch gains 1 to 2
+  decisions against base (Air 0 to 1, Water 3 to 5, Earth 4 to 6, Fire 3 to 5), where 2 or 3 were
+  expected, and the same with `branch_first` (0 to 1, 6 to 8, 12 to 13, 9 to 11). The gain is the
+  techs, not the opening: it adds no decision against `main`, since the timeline counts techs that
+  unlock a building, and `trade_wares` unlocks none. The one timeline reading the opening moves is
+  `longest_gap`: Air 30 to 21 and Fire 25 to 21 against `main` (Air `branch_first` 55 to 24),
+  from the Tea House's draw and fourth deal, which bring Ready in on more runs (Air 11 to 17 of 32
+  with `branch_first`, Fire 6 to 10).
+- **Wood: Air falls, Fire has none to lose, Earth doesn't.** `wood_at.180` drops 10 to 1 and 42 to
+  34 (Air, Water) against `main` and 1 to 0 (Fire), and `wood_at.240` 53 to 12 on Earth. The wares
+  Workshop's draw is small because the reserve rule stops it where there is no wood to spare: the
+  wood was spent before the wares tech landed. The bigger fall is #440's (base to `main`: 192 to 10,
+  200 to 42, 349 to 106, 82 to 1).
+- **Stone and ore: unchanged.** Both signs fall at minute 19 to 86, before any phase-3 tech, so
+  `sign_minute.stone` and `.ore` do not move in any nation. The ore deals pay in wares and copies,
+  and a bought ore isn't mined (#834), so they could not help the ore sign yet either.
+- **Herbs and harm: no regression.** `herbs_at.240` is within 4 of `main` in every nation: the
+  house burns 12 an hour from minute 144 (Air) to 194 (Earth) and the gardens fill it back. Herbs
+  stand at 30 to 140 at 240 (the low ones are `branch_first` Earth and Fire, as in `main`), so
+  tea does not compete with the sick, and `no_deaths_by_180` holds on all 256 runs.
+- **Scribing: the 6-copy bar is met wherever an Archive stands and the tree is done.** `copies_by.240`
+  is 6 or more in 22, 12, 8 and 18 of 32 `steady` runs (Air, Water, Earth, Fire) against 11, 8, 5 and
+  7 on `main`. Of the 27, 21, 28 and 22 runs that finish the tree, 22, 19, 27 and 18 have an
+  Archive by 240; the rest finish it too late to build one or still lack the wood. Earth's median is
+  4 because its tree is done at minute 219, 21 minutes before the end. The idle share after the tree falls from 0.62 to 0.47 (Water),
+  0.45 to 0.31 (Earth) and 0.55 to 0.39 (Fire).
+- **No regressions: 0 of 12.** `balance verdict --against` `main` calls no reading moved, and
+  `no_deaths_by_180` holds. Against base it calls four moved, all #440's: `wood_at.120` (median
+  -172), `pop_at.120`, `longest_gap` and `sign_minute.population`. Two runs in 256 end with a
+  starvation death after minute 180 (Air seed 30 `branch_first` at 182 and Fire seed 12 `steady`
+  at 207), both with the sim's `stranded` flag: a settler in a pocket with no way to the stockpile.
+  Switching off any one of the opening's phase-3 moves removes the death on Fire 12, and switching
+  off all of them leaves Air 30's, so it is a latent trap the run's timeline finds, not a phase-3
+  building. Filed as #848. `ready_window` and the other pacing targets pass and fail where they did.
+
+```
+against      main at 398d6cf: 256 runs paired
+         sign_minute.stone            steady/normal        n 128  earlier   2  later   0  same 126  median       0  noise 0.58333
+         sign_minute.ore              steady/normal        n 128  earlier   5  later   0  same 123  median       0  noise 0.958332
+         wood_at.120                  steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 2
+         pop_at.120                   steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 0
+         food_per_head.winter.2       steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 0.4375
+         deaths_by.180                steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 0
+         longest_gap                  steady/normal        n 128  earlier  23  later  13  same  92  median       0  noise 2
+         longest_gap                  branch_first/normal  n 128  earlier  21  later   9  same  98  median       0  noise 2
+         sign_minute.population       steady/normal        n 128  earlier   5  later   0  same 123  median       0  noise 0
+         ready_minute                 steady/normal        n 128  earlier   5  later   3  same 120  median       0  noise 0
+         care.suffering               steady/normal        n 128  earlier  16  later  13  same  99  median       0  noise 0
+         deaths                       steady/normal        n 128  earlier   0  later   1  same 127  median       0  noise 0
+  0 of 12 readings moved; flags: 4 runs newly flagged, 9 no longer
+```
+
+**Levers.** None of the data levers needed touching. The Tea House's `per_minute` (12 herbs an
+hour) leaves herbs where `main` had them, the wares deals' counts and `copy_points` move the
+stock they were written for (copies traded in 11 to 21 of 32 runs), and `stock_limit` pauses
+scribing only once the deals have had their share. What was off was wood and the core's crowding,
+and the fixes are in the opening (the reserve, the far-wood rule, the Archive's fallback site),
+not in the data. If the Archive and the Tea House should not depend on the forest, their wood
+costs (20 and 14) are the lever.
+
 ## Risks
 
 - **#437 lands in a shape this doesn't expect.** This design assumes pacing.md's schema: a deal
