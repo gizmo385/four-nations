@@ -18,7 +18,7 @@
 //! ([`SaveIds`]), and the `World`:
 //!
 //! ```text
-//! (magic:"four-nations-save",version:4,data_hash:..,seed:..,nation:fire,tick:..)
+//! (magic:"four-nations-save",version:4,data_hash:..,seed:..,nation:fire,tick:..,seasons:Some(true))
 //! (biomes:["tundra",..],resources:[..],nations:[..],techs:[..],items:[..],buildings:[..],abilities:[..])
 //! (seed:..,tick:..,tiles:(..),buildings:(next:..,records:{..}),..)
 //! ```
@@ -102,6 +102,11 @@ pub struct SaveInfo {
     pub nation: Nation,
     /// The world's tick when saved.
     pub tick: u64,
+    /// Whether the world's difficulty has seasons on (`Knobs::seasons`), so a load menu words the
+    /// time as the game's panel did (#766). `None` in a save written before the field existed:
+    /// read as seasons on.
+    #[serde(default)]
+    pub seasons: Option<bool>,
 }
 
 /// Why a save couldn't be written or read.
@@ -223,6 +228,7 @@ impl World {
             seed: self.seed,
             nation: self.nation,
             tick: self.tick,
+            seasons: Some(self.knobs(defs).seasons),
         };
         let write = |e: ron::Error| SaveError::Write(e.to_string());
         let mut text = ron::ser::to_string(&info).map_err(write)?;

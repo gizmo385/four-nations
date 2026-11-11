@@ -103,6 +103,7 @@ mod tests {
             seed,
             nation: Nation::Earth,
             tick,
+            seasons: Some(true),
         })
     }
 
