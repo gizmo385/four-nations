@@ -134,6 +134,8 @@ pub enum Mode {
     Log,
     Help,
     Saves,
+    /// Typing a name for a new save, on the Saves screen.
+    SaveName,
     /// The Build picker (`U`).
     Build,
     /// The game menu (`Esc` with nothing else to close).
@@ -162,6 +164,7 @@ impl Mode {
             Self::Log => "LOG",
             Self::Help => "KEYS",
             Self::Saves => "SAVES",
+            Self::SaveName => "NAME",
             Self::Build => "BUILD",
             Self::Menu => "MENU",
             Self::MenuNations => "SWITCH",
@@ -313,6 +316,11 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Saves], &[Action::Cancel, Action::ShowSaves], "Esc or F6", "close", None);
     add(&[Mode::Saves], &[], "Shift+S", "save over", None);
     add(&[Mode::Saves], &[], "N", "new", None);
+
+    // Naming a new save: every key types, so only these three do anything else.
+    add(&[Mode::SaveName], &[], "Type", "a name", None);
+    add(&[Mode::SaveName], &[], "Enter", "save", None);
+    add(&[Mode::SaveName], &[], "Esc", "cancel", None);
 
     add(&[Mode::Build], &[], "Up/Down", "choose", None);
     add(&[Mode::Build], &[], "Enter", "build", None);

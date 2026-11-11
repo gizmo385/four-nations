@@ -255,7 +255,23 @@ pub fn draw_screen(
     let position = match screen {
         Screen::Research => research::draw(session, ui.tech, palette, &page, buf),
         Screen::Saves => {
-            saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, page.body, buf)
+            // A name being typed (#704) takes the body's last row; the list gets the rest.
+            let body = page.body;
+            let (list, name_row) = match &ui.save_name {
+                Some(typed) if body.height > 1 => {
+                    let list = Rect { height: body.height - 1, ..body };
+                    let row = Rect { y: body.bottom() - 1, height: 1, ..body };
+                    (list, Some((typed, row)))
+                }
+                _ => (body, None),
+            };
+            let position =
+                saves::draw(&ui.save_slots, ui.save_cursor, &session.defs, palette, list, buf);
+            if let Some((typed, row)) = name_row {
+                let suggestion = fn_ui::saves::new_name(&ui.save_slots);
+                saves::draw_name(typed, &suggestion, palette, row, buf);
+            }
+            position
         }
         Screen::Nation => {
             // Whether the page is wide enough for the meters (docs/design/side-panel.md "The

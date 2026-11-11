@@ -207,9 +207,9 @@ fn save_and_load_both_open_the_saves_screen_which_writes_a_named_slot() {
         assert_eq!(a.ui.screen, Some(Screen::Saves), "{rows}");
         assert_eq!(a.ui.modal, None, "the menu closes, opening the screen instead");
 
-        // The saves screen (#276) is where a named-slot save lives.
-        run(&mut a, "n");
-        let path = fn_ui::saves::slot_path(&tmp.0, "save-1");
+        // The saves screen (#276) is where a named-slot save lives (#704).
+        run(&mut a, "n m a p <enter>");
+        let path = fn_ui::saves::slot_path(&tmp.0, "map");
         assert_eq!(a.ui.status, format!("Saved to {} (tick 0)", path.display()));
     }
 }

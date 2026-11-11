@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
+use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use fn_sim::{Nation, World};
 use fn_ui::research::screen_view;
 use fn_ui::saves;
@@ -93,13 +93,17 @@ impl App {
             self.modal_key(modal, key);
             return;
         }
+        // Typing a name for a new save takes every key (#704).
+        if self.ui.screen == Some(Screen::Saves) && self.ui.save_name.is_some() {
+            return self.save_name_key(key);
+        }
         // The saves screen's own two keys: `n` (new) is free everywhere, but `s` already moves
         // the highlight down, so only its shifted, upper-case spelling saves over it (a
         // terminal sends Shift+s as `S`, with or without the Shift flag: `input::map_key`'s own
         // comment on upper case).
         if self.ui.screen == Some(Screen::Saves) {
             match key.code {
-                KeyCode::Char('n' | 'N') => return self.new_save(),
+                KeyCode::Char('n' | 'N') => return self.start_save_name(),
                 KeyCode::Char('S') => return self.ask_save_over(),
                 _ => {}
             }
@@ -564,23 +568,64 @@ impl App {
         self.refresh_saves();
     }
 
-    /// `N` in the saves screen: writes a new slot ([`fn_ui::saves::new_name`]), with no prompt
-    /// since nothing is overwritten, and the path it went to in the status line (#306).
-    fn new_save(&mut self) {
-        let Some(dir) = self.saves.clone() else {
+    /// `N` in the saves screen: starts typing a name for a new slot (#704). Without a save
+    /// directory it says so instead, as `F5` does.
+    fn start_save_name(&mut self) {
+        if self.saves.is_none() {
             self.ui.status = NO_SAVE_DIR.to_owned();
             return;
-        };
-        let name = saves::new_name(&self.ui.save_slots);
-        self.ui.status = match saves::save(&dir, &name, &self.session) {
-            Ok(()) => {
-                self.ui.saved_at = Some(self.session.world.tick);
-                let path = saves::slot_path(&dir, &name);
-                format!("Saved to {} (tick {})", path.display(), self.session.world.tick)
-            }
-            Err(why) => format!("Save failed: {why}"),
-        };
+        }
         self.refresh_saves();
+        self.ui.save_name = Some(String::new());
+    }
+
+    /// A key while a save name is being typed (#704): any printable character goes in (up to
+    /// [`saves::MAX_NAME`]), `Backspace` edits, `Enter` saves and `Esc` goes back to the list
+    /// with nothing written. Whether the name is allowed is `Enter`'s to say, so a typo shows up
+    /// as a message instead of a key that silently did nothing.
+    fn save_name_key(&mut self, key: KeyEvent) {
+        let Some(name) = &mut self.ui.save_name else { return };
+        match key.code {
+            KeyCode::Esc => self.ui.save_name = None,
+            KeyCode::Backspace => {
+                name.pop();
+            }
+            KeyCode::Char(c)
+                if !c.is_control()
+                    && !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && name.chars().count() < saves::MAX_NAME =>
+            {
+                name.push(c);
+            }
+            KeyCode::Enter => self.submit_save_name(),
+            _ => {}
+        }
+    }
+
+    /// `Enter` on a typed name (#704). Nothing typed takes the screen's own suggestion
+    /// ([`saves::new_name`]), so `N` then `Enter` always saves something. A name that can't be a
+    /// slot ([`saves::check_name`]) is refused with the typing left as it was. A name already in
+    /// the list asks first, as Shift+`S` does (`Prompt::SaveOver`). Any other name is written at
+    /// once, with no prompt since nothing is overwritten.
+    fn submit_save_name(&mut self) {
+        let Some(typed) = self.ui.save_name.clone() else { return };
+        let name = if typed.is_empty() { saves::new_name(&self.ui.save_slots) } else { typed };
+        if saves::check_name(&name).is_err() {
+            self.ui.status = format!(
+                "Can't name a save {name:?}: use 1 to {} letters, digits, - and _",
+                saves::MAX_NAME
+            );
+            return;
+        }
+        self.ui.save_name = None;
+        // File systems that ignore case would make `Save-1` replace `save-1` unasked.
+        if let Some(taken) = self.ui.save_slots.iter().find(|s| s.name.eq_ignore_ascii_case(&name))
+        {
+            let prompt = Prompt::SaveOver(taken.name.clone());
+            self.ask(prompt);
+        } else {
+            self.save_over(&name);
+        }
     }
 
     /// Makes `world` the game. Only the world is in a save: the cursor, the selection, the tool,

@@ -121,6 +121,9 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
         };
     }
     if let Some(screen) = ui.screen {
+        if screen == Screen::Saves && ui.save_name.is_some() {
+            return Mode::SaveName;
+        }
         return match screen {
             Screen::Log => Mode::Log,
             Screen::Help => Mode::Help,

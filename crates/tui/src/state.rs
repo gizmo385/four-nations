@@ -184,6 +184,9 @@ pub struct UiState {
     pub save_slots: Vec<Slot>,
     /// The saves screen's highlight: an index into [`Self::save_slots`].
     pub save_cursor: usize,
+    /// The name being typed for a new save (`N` in the saves screen, #704); it takes every key
+    /// until `Enter` or `Esc`.
+    pub save_name: Option<String>,
     /// Bend results, tech completions and deaths: the Alerts section and the message log.
     pub alerts: Alerts,
 }
@@ -234,6 +237,7 @@ impl UiState {
             nation_cursor: 0,
             save_slots: Vec::new(),
             save_cursor: 0,
+            save_name: None,
             alerts: Alerts::default(),
         };
         ui.center_view();

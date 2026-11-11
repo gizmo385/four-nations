@@ -511,7 +511,7 @@ reject; it formats and maps. Sprites, entities, the camera and interpolation sta
 | Research screen (`T`) | Tier columns, cursor, `Enter` sets the target | #100 |
 | Build tool `U`, picker, placement (#111) | `U` opens a modal picker (list and detail, #285) instead of cycling; `Enter` there picks and leaves the Build tool active, the Tool section names the choice, the Cursor section says whether the hovered tile fits | #275, #285 |
 | Footprints: multi-tile buildings and sites | A footprint is a block of its glyph; the Build tool's cursor shows a placement ghost, green or red per tile, and a drag shows every stamp | #212 |
-| Save and load (#7): `F5`/`F9` quicksave, `F6` save list (#112, #216) | `F5` quicksave, `F9` quickload after a prompt; `F6` opens the save list (newest first), Enter loads, Shift+`S` saves over, `N` writes a new slot, all through `fn_ui::saves` | #216, #276 |
+| Save and load (#7): `F5`/`F9` quicksave, `F6` save list (#112, #216) | `F5` quicksave, `F9` quickload after a prompt; `F6` opens the save list (newest first), Enter loads, Shift+`S` saves over, `N` types a name for a new slot (#704), all through `fn_ui::saves` | #216, #276 |
 | Mouse | Click moves the cursor; a drag is a rectangle | Later |
 | Portraits, sprite smoothing, canopy fade (#77) | Not applicable | none |
 
@@ -706,8 +706,9 @@ differs from the proposal above:
   ┗─────────────────────────────────────────────────┛
   ```
 
-  Save… and Load… both open the Saves screen (`N` writes a new slot, Shift+`S` saves over one,
-  `Enter` loads one); `F5`, `F6` and `F9` stay as shortcuts. Switch nation… turns the menu into
+  Save… and Load… both open the Saves screen (`N` types a name for a new slot and `Enter` saves it, or takes the
+  next free `save-N` when nothing was typed; a name that can't be a slot is refused, and one already
+  taken asks first, as Shift+`S` does; Shift+`S` saves over the highlighted one, `Enter` loads it); `F5`, `F6` and `F9` stay as shortcuts. Switch nation… turns the menu into
   the list of nations; `Esc` goes back. Every question that can lose progress (new map, switch
   nation, quit, load, quickload, save over a slot) is asked in a centred box (`ask.rs`) over
   whatever is open, in the menu's frame:
