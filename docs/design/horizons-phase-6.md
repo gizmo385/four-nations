@@ -15,7 +15,7 @@ table (#707) and phase 4's item bills (#718). It turns owner decisions 3 and 8 i
 **Designed ahead of the United City.** The owner chose to design this before the United City
 (#442) ships and before anyone has played it. The design follows #442's current spec (endgame.md,
 "The transformation: the United City", and pacing.md, section 4). Every number that depends on
-how the United City plays is marked *provisional*. A playtest (follow-up N) sets those numbers
+how the United City plays is marked *provisional*. A playtest (#752) sets those numbers
 before the phase-6 balance run. The three owner questions are under "Open questions for the
 owner", and the implementation work is under "Follow-up issues".
 
@@ -84,10 +84,10 @@ is too slow for the exchange to matter in a session of an hour or two. Question 
 let the player steer arrivals through United City caravan requests. With that fix and its
 weights, three of a chosen nation take about 65 minutes. All of these numbers are *provisional*.
 
-**What the playtest settles** (follow-up N): how long a United City session runs, how fast each
+**What the playtest settles** (#752): how long a United City session runs, how fast each
 nation's residents arrive, how many research points a minute the city makes after the gate, and
 whether 3 residents, 2x cost and 1,000-point fusions fit that session. Every number marked
-*provisional* below goes through that issue before the balance run (follow-up O). The sim work
+*provisional* below goes through that issue before the balance run (#764). The sim work
 can start earlier, because every one of these numbers lives in data.
 
 ## The `core` rule, unchanged
@@ -195,7 +195,7 @@ borrow_residents = 3       # provisional: residents of the tech's nation needed 
 
 The rule is "unlocks no ability". Capstones stay home, although `lightning_generation` and
 `sky_bison` unlock none, because the spec protects each nation's identity (research-horizons.md,
-"Keeping decisions interesting", point 5). Follow-up B flags the shipped techs and any phase 1
+"Keeping decisions interesting", point 5). #753 flags the shipped techs and any phase 1
 or 2 tech that has already landed. A later phase's follow-up sets the flag as it appends its
 tech.
 
@@ -418,7 +418,7 @@ verb = "Raise"
 work = 12.0
 passable = true            # raised on arches: people walk under it
 [building.aqueduct]
-source = ["river", "lake"] # follow-up D adds "canal" once #695 has landed
+source = ["river", "lake"] # #755 adds "canal" once #695 has landed
 irrigation_radius = 2      # Chebyshev, from each flowing tile: the canal's own number
 growth_boost = 1.5         # the Irrigation Channel's
 [[building.cost]]
@@ -594,7 +594,7 @@ bank = { beside = ["water", "river", "lake"], radius = 4 }   # the Tide Mill's r
   `[building.power]`. A finished building of the target whose footprint ring touches a `beside`
   terrain is **on the bank**. On the bank it burns no fuel: no Refuel haul is posted, as with
   phase 4's `fuel_free`. Its base power radius becomes the larger of its own and `radius`,
-  before `power_generation` scales it. Engines away from the bank don't change. Follow-up F adds
+  before `power_generation` scales it. Engines away from the bank don't change. #757 adds
   `"canal"` to `beside` once #695 has landed.
 - **Fuel.** The fuel half needs the Steam Engine to burn fuel, which is #433. If #433 hasn't
   landed when F starts, F ships the reach half and adds the fuel half with #433.
@@ -909,12 +909,12 @@ counts:
 
 ## Measuring it
 
-Phase 6 ends with a harness run (follow-up O), after the playtest (follow-up N). The harness has
-never played past the gate, so it first needs a United City to play in (follow-up M):
+Phase 6 ends with a harness run (#764), after the playtest (#752). The harness has
+never played past the gate, so it first needs a United City to play in (#751):
 
 - **Getting there.** The economy opening begins and finishes the gate. #731's `stage_minute.N`
-  already asks for the endeavor's stages, so M adds whatever part of that #731 hasn't. Runs go
-  to minute 420, and the new metrics count from `gate_minute`. M also adds four scenarios,
+  already asks for the endeavor's stages, so #751 adds whatever part of that #731 hasn't. Runs go
+  to minute 420, and the new metrics count from `gate_minute`. #751 also adds four scenarios,
   `<nation>-united`, whose prelude runs the economy opening to the gate. The playtest starts
   from these.
 - **What the opening does after the gate.** It targets each other nation's teachable techs as
@@ -952,13 +952,13 @@ the post-gate newcomer weights (question 1), and each celestial day's `minutes` 
 - **Borrowed modifiers per unit.** `effective_modifiers` gains a third input (the unit's nation
   besides the settlement's), and a system that reads the settlement's cached value where it
   should read the unit's will miss the borrowed tech for the teachers. It degrades safely, since
-  the cached value is today's. Follow-up B tests the three cases: home unit, teacher and third
+  the cached value is today's. #753 tests the three cases: home unit, teacher and third
   nation.
 - **Joint bends stall.** A joint bend waits for both slots. If the one Air adept is busy for an
   hour, the designation sits. The status says who is missing, and designating more bends doesn't
   queue more waiting jobs than there are pairs of casters.
 - **Airship crew and invariants.** Units leave the map and come back, so the world invariants
-  (`check`, "units are out of order") must allow units held by a voyage. Follow-up G keeps them
+  (`check`, "units are out of order") must allow units held by a voyage. #758 keeps them
   in `World::voyages`, in id order, and the invariant check walks both lists.
 - **Celestial refill and mastery.** A refill means more bends, and so faster ranks. Before the
   gate that speeds the masters sign (#344), one of the slowest, which is welcome, but it is a
@@ -977,7 +977,7 @@ the post-gate newcomer weights (question 1), and each celestial day's `minutes` 
    or have the gate bring a delegation of two from each other nation at once (fast, but every
    game's exchange starts the same, and six people need six free beds at the rite). It amends
    pacing.md section 4's request reward, which is #442's to build. Section: "Designed ahead of
-   the United City". (decision 1)
+   the United City". (#747)
 2. **Should a celestial day refill benders' chi, or only double its regen?** *Recommended: refill
    to full as the day begins, then 2x regen for its 5 minutes.* The spec says "regain chi twice
    as fast for a few minutes". At today's regen that is worth about 20 chi per bender a year,
@@ -985,7 +985,7 @@ the post-gate newcomer weights (question 1), and each celestial day's `minutes` 
    regen, and it turns the day into the decision the spec names: drain the meters before it,
    and have the big bends ready when it rises. A third option, bends at half chi on the day,
    does the same as the refill but is harder to read on the meter. Section: "Celestial days".
-   (decision 2)
+   (#748)
 3. **Does a borrowed tech stay known if its teachers leave?** *Recommended: yes. Residents gate
    learning only.* The spec's "while at least 3 of that nation live in the settlement" can be
    read either way. Keeping it means the Fire residents matter until the kiln is learned, and
@@ -993,31 +993,31 @@ the post-gate newcomer weights (question 1), and each celestial day's `minutes` 
    residents live there, so the city's mix matters for the rest of the game. But a death would
    switch off Brick Kilns, rail and turbines, which is upkeep the game doesn't ask anywhere else,
    and it would need an "unlearned" state for buildings already standing. Either way, the
-   tech's modifiers help only the teachers (section 2). Section: "Borrowed techs". (decision 3)
+   tech's modifiers help only the teachers (section 2). Section: "Borrowed techs". (#749)
 
 ## Follow-up issues
 
-Each one appends its own tech, building and table blocks from this doc, and B edits the
+Each one appends its own tech, building and table blocks from this doc, and #753 edits the
 `teachable` flags in place. `TechId`, `BuildingId` and `AbilityId` are file positions, and
 saves remap them by name (save-compat.md), so the order between follow-ups doesn't matter.
 
-| Draft | Title | Blocked by |
+| Issue | Title | Blocked by |
 |---|---|---|
-| A | Sim and data: research conditions that can fall (`population`, `masters`, `masters_of`, `residents`) and the Waiting state | #707 |
-| B | Sim and data: borrowed techs (`teachable`, borrow cost and residents, waived bending prereqs, modifiers for the teachers, the exchange list) | A, #673, N, decision 3 |
-| C | Sim and data: fusion techs (`fusion`, validation, visibility after the gate) and `steelworks` | A, #718, #673, N |
-| D | Sim and data: the Aqueduct (flowing network, drinking, irrigation) and `aqueducts` | C |
-| E | Sim and data: the Sky Lift (a pair anyone rides, loads and all) and `sky_lifts` | C, #690, #691 |
-| F | Sim and data: the `bank` upgrade and `steam_power` | C, #674, #675 |
-| G | Sim and data: the Airship Dock (voyages, crew away, `PlanVoyage`) and `airships` | C, #437, #442, #675 |
-| H | Sim and data: joint bends (`nations` on an ability), the `rain` effect, and `cloudbending` | C |
-| I | Sim and data: celestial days (`[[celestial_day]]`, refill and regen, rise events, the Almanac) and `star_charts` | #677, #673, decision 2 |
-| J | Sim and data: steering United City newcomers (requests draw their caravan's nation, post-gate weights) | #442, decision 1 |
-| K | TUI: the From newcomers page, condition lines, borrowed costs, fusion bills and the Waiting row | A, B, C, #729 |
-| L | TUI: celestial days (Almanac lines, rise alerts) and fusion readouts (aqueduct tint, lift link, bank line, Airship screen, joint bends in the picker) | I, D, E, F, G, H, #682, #698 |
-| M | Dev tools: the United City in the harness (the opening finishes the gate, 420-minute runs, `gate_minute`, `<nation>-united` scenarios) | #442, #731 |
-| N | Playtest: an hour of the United City, and phase 6's provisional numbers | #442, M |
-| O | Balance: the opening plays the exchange, post-gate metrics, and the phase-6 run | B, C, D, E, F, G, H, I, J, M, N, #731 |
-| decision 1 | Decision: should the player steer which nations settle in the United City? | none |
-| decision 2 | Decision: should a celestial day refill benders' chi, or only double its regen? | none |
-| decision 3 | Decision: does a borrowed tech stay known if its teachers leave? | none |
+| #750 | Sim and data: research conditions that can fall (`population`, `masters`, `masters_of`, `residents`) and the Waiting state | #707 |
+| #753 | Sim and data: borrowed techs (`teachable`, borrow cost and residents, waived bending prereqs, modifiers for the teachers, the exchange list) | #750, #673, #752, #749 |
+| #754 | Sim and data: fusion techs (`fusion`, validation, visibility after the gate) and `steelworks` | #750, #718, #673, #752 |
+| #755 | Sim and data: the Aqueduct (flowing network, drinking, irrigation) and `aqueducts` | #754 |
+| #756 | Sim and data: the Sky Lift (a pair anyone rides, loads and all) and `sky_lifts` | #754, #690, #691 |
+| #757 | Sim and data: the `bank` upgrade and `steam_power` | #754, #674, #675 |
+| #758 | Sim and data: the Airship Dock (voyages, crew away, `PlanVoyage`) and `airships` | #754, #437, #442, #675 |
+| #759 | Sim and data: joint bends (`nations` on an ability), the `rain` effect, and `cloudbending` | #754 |
+| #760 | Sim and data: celestial days (`[[celestial_day]]`, refill and regen, rise events, the Almanac) and `star_charts` | #677, #673, #748 |
+| #761 | Sim and data: steering United City newcomers (requests draw their caravan's nation, post-gate weights) | #442, #747 |
+| #762 | TUI: the From newcomers page, condition lines, borrowed costs, fusion bills and the Waiting row | #750, #753, #754, #729 |
+| #763 | TUI: celestial days (Almanac lines, rise alerts) and fusion readouts (aqueduct tint, lift link, bank line, Airship screen, joint bends in the picker) | #760, #755, #756, #757, #758, #759, #682, #698 |
+| #751 | Dev tools: the United City in the harness (the opening finishes the gate, 420-minute runs, `gate_minute`, `<nation>-united` scenarios) | #442, #731 |
+| #752 | Playtest: an hour of the United City, and phase 6's provisional numbers | #442, #751 |
+| #764 | Balance: the opening plays the exchange, post-gate metrics, and the phase-6 run | #753, #754, #755, #756, #757, #758, #759, #760, #761, #751, #752, #731 |
+| #747 | Decision: should the player steer which nations settle in the United City? | none |
+| #748 | Decision: should a celestial day refill benders' chi, or only double its regen? | none |
+| #749 | Decision: does a borrowed tech stay known if its teachers leave? | none |
