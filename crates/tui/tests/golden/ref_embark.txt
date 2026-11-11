@@ -37,4 +37,4 @@
                                                                                         │                              │
                                                                                         │                              │
                                                                                         ┗──────────────────────────────┛
- EMBARK  arrows move  Enter zoom in  E settle  R new seed  Esc back  ? keys
+ EMBARK  Arrows move · Enter zoom in · E settle · R new seed · Esc back                                          ? keys

@@ -21,6 +21,7 @@
 pub mod alerts;
 pub mod bend;
 pub mod build;
+pub mod chute;
 pub mod clock;
 pub mod code;
 pub mod endeavor;

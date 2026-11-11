@@ -67,8 +67,10 @@ holding a `Survey`, the zoom level and the cursor.
 | `R` | A new random seed: a new map, back to the overview, cursor on its default site. No prompt, because nothing is lost |
 | `?`, `Q` | Key help, and quit (asks for the title screen or out, with its keys in the hint bar's `EXIT` mode) |
 
-The y/n prompt is the one the game already uses for `R` and quickload. Settling on a refused site
-shows the reason as a notice instead of the prompt.
+The y/n prompt is asked on the hint bar, in its `SETTLE?` mode (`Y settle here · Any other key stay`, #686);
+settling on a refused site shows the reason as a notice instead of the prompt. The embark and title
+screens name their keys there and nowhere else: `EMBARK` (by zoom), `TITLE`, `NATION`, `SEED` and `LOAD`
+are modes of the `fn_ui::keys` table, and no border or box prints them.
 
 `+` and `-` change speed in the game. Embark has no clock, so they're free to zoom.
 
@@ -111,7 +113,7 @@ fresh water folds into the land around it, and the panel stops after the Land se
         ~~~~~~~~~**~~~~~~~~~~~~~~~~~~~~~        │                              │
         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~        │                              │
                                                 ┗──────────────────────────────┛
- EMBARK  arrows move  Enter zoom in  E settle  R new seed  Esc back  ? keys
+ EMBARK  Arrows move · Enter zoom in · E settle · R new seed · Esc back          ? keys
 ```
 
 **Scale.** The overview scale N is the smallest whole number, and at least `min_overview_scale`
@@ -185,7 +187,7 @@ language at every zoom.
 """"""""".~."""=,,,,,,,,,,,~~~~~~,,,,.,"=="-""==│                              │
 ="""""=""~~~~"=",,,,,,,,,,,~~~~~.,,,,,,"""=-==="│                              │
 =="""~~~~~~~~~"",,,,,,,,,,,~~~~~.,,,,,,,""""="""┗──────────────────────────────┛
- EMBARK  arrows move  Enter zoom in  - zoom out  E settle  R new seed  ? keys
+ EMBARK  Arrows move · Enter zoom in · - zoom out · E settle · R new seed       ? keys
 ```
 
 The same classification at N=2, with a view that scrolls to follow the cursor the way the game's
@@ -220,7 +222,7 @@ F"F,,,,,,,,,,,,,,^^^,T,=T,,,,,.~~~~~~~f~..,,,T,.│ water 8 steps away.         
 ""FY""YT,T,,,,,,,,o^,,,,=,,,,..~~~~~~~~~~.,TT,,T│                              │
 ""F""F"F,,,,,,,,,o^^,TT,,=,,..~~~~~~~~~~~..T,,,,│                              │
 F"F"""""",,,,└,,,^^^,,,...=..~~~~~~┘~~~~~~..TT,.┗──────────────────────────────┛
- EMBARK  arrows move  - zoom out  Enter/E settle here  R new seed  ? keys
+ EMBARK  Arrows move · Enter or E settle · - zoom out · R new seed               ? keys
 ```
 
 This is the game's own map renderer (`map.rs`) over the survey's map, with no units and with the
