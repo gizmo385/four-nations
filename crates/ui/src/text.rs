@@ -105,22 +105,11 @@ pub fn mastery_line(progress: MasteryProgress, master_chi: f32) -> String {
     }
 }
 
-/// The Nation screen's Bends and Forms columns (`docs/design/bending.md`, "Seeing it", #346,
-/// #361): "9/10" and "2/3" against this nation's own Master thresholds (`master_bends`,
-/// `master_forms`, `fn_sim::bending::MasteryDef::master_bends_for`/`master_forms`) below
-/// mastery, or "{n} *" in both once `progress.rank` is `Rank::Master` -- unlike the selection
-/// bar's own line, every row compares to the *same* pair, since a table's columns need one
-/// consistent meaning down the whole list, not each settler's own next rank.
-pub fn mastery_cells(
-    progress: MasteryProgress,
-    master_bends: u32,
-    master_forms: u32,
-) -> (String, String) {
-    if progress.rank == Rank::Master {
-        (format!("{} *", progress.bends), format!("{} *", progress.forms))
-    } else {
-        (format!("{}/{master_bends}", progress.bends), format!("{}/{master_forms}", progress.forms))
-    }
+/// The Nation screen's BENDING column (#660): the settler's rank title and how many bends it
+/// has learned, in words ("Student, 4 bends", "Novice, 1 bend"). The progress to the next rank is
+/// the detail strip's ([`mastery_line`]), not the row's.
+pub fn bending_words(rank_title: &str, bends: u32) -> String {
+    format!("{rank_title}, {bends} {}", if bends == 1 { "bend" } else { "bends" })
 }
 
 /// "a" or "an" by `word`'s first letter (A, E, I, O or U reads "an"): good enough for every
@@ -566,18 +555,12 @@ mod tests {
         assert_eq!(progress_words(12, 10, 0, 3), "bends done, 0 of 3 forms");
     }
 
-    /// The Nation screen's Bends and Forms columns, below and at mastery.
+    /// The Nation screen's BENDING column reads the rank and the count in words.
     #[test]
-    fn the_mastery_cells_read_below_and_at_mastery() {
-        let adept = MasteryProgress {
-            rank: Rank::Adept,
-            bends: 9,
-            forms: 2,
-            next: Some((Rank::Master, 10, 3)),
-        };
-        assert_eq!(mastery_cells(adept, 10, 3), ("9/10".to_owned(), "2/3".to_owned()));
-        let master = MasteryProgress { rank: Rank::Master, bends: 12, forms: 4, next: None };
-        assert_eq!(mastery_cells(master, 10, 3), ("12 *".to_owned(), "4 *".to_owned()));
+    fn the_bending_words_name_the_rank_and_count_the_bends() {
+        assert_eq!(bending_words("Student", 4), "Student, 4 bends");
+        assert_eq!(bending_words("Student", 1), "Student, 1 bend");
+        assert_eq!(bending_words("Earthbending Master", 12), "Earthbending Master, 12 bends");
     }
 
     /// `article` by first letter, covering every title in `data/bending.toml`.

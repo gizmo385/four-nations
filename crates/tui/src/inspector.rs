@@ -198,15 +198,21 @@ fn task_tone(is_avatar: bool, task: Option<Task>) -> Tone {
     if is_avatar && task == Some(Task::Rite) { Tone::Avatar } else { Tone::Text }
 }
 
-/// A selected settler: the old selection bar's rows (task, carrying, meters, rank progress and
-/// the tile) as the inspector's groups.
-fn settler_inspector(session: &Session, unit: &Unit, width: usize, marks: &Marks) -> Inspector {
+/// What the inspector says about `unit`, and the Nation screen's detail strip too (#660): the
+/// plain `unit_view`, except that while the unit channels a bend its task line names the ability
+/// and the time left (#278).
+pub fn settler_view(session: &Session, unit: &Unit) -> UnitView {
     let mut view = unit_view(session, unit);
-    // While the unit channels a bend, the task line names the ability and the time left (#278),
-    // in place of the plain task `unit_view` gives every other frontend.
     if let Some(text) = crate::panel::channel_text(session, unit) {
         view.task = text;
     }
+    view
+}
+
+/// A selected settler: the old selection bar's rows (task, carrying, meters, rank progress and
+/// the tile) as the inspector's groups.
+fn settler_inspector(session: &Session, unit: &Unit, width: usize, marks: &Marks) -> Inspector {
+    let view = settler_view(session, unit);
     let paragraph = |text: &str, tone: Tone| -> Vec<Row> {
         wrap(text, width, WRAP_LINES, marks.ellipsis)
             .into_iter()
