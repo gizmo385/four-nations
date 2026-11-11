@@ -606,6 +606,27 @@ pub struct NationView {
     pub stores: Vec<StoreRow>,
     /// The nation's modifiers that differ from 1.0, as (label, value) (`modifier_rows`).
     pub traits: Vec<(String, String)>,
+    /// The Almanac's lines once `calendar` is known (`almanac_lines`), else empty.
+    pub almanac: Vec<String>,
+}
+
+/// The Almanac (docs/design/horizons-phase-1.md): `First frost in 9m 40s`, and a caravan line
+/// only once caravans exist. Empty until the feature is known.
+pub fn almanac_lines(session: &Session) -> Vec<String> {
+    let (world, defs) = (&session.world, &session.defs);
+    let Some(a) = world.almanac(defs) else { return Vec::new() };
+    let secs = |ticks: u64| {
+        let s = ticks / u64::from(TICKS_PER_SECOND);
+        format!("{}m {:02}s", s / 60, s % 60)
+    };
+    let mut lines = vec![match a.frost_in {
+        Some(t) => format!("First frost in {}", secs(t)),
+        None => "No frost this game".to_owned(),
+    }];
+    if let Some(t) = a.caravan_in {
+        lines.push(format!("Next caravan in {}", secs(t)));
+    }
+    lines
 }
 
 pub fn nation_view(session: &Session) -> NationView {
@@ -627,6 +648,7 @@ pub fn nation_view(session: &Session) -> NationView {
         groups,
         stores: store_rows(session),
         traits: modifier_rows(world.modifiers()),
+        almanac: almanac_lines(session),
     }
 }
 
