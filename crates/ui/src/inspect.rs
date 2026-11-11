@@ -148,6 +148,38 @@ fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) ->
 /// A unit standing there (`units_at` skips one inside a building, #226: it isn't standing there
 /// as far as the map is concerned, so hovering its door falls through to the building below
 /// instead) takes over the tile entirely (`unit_lines`); otherwise this is [`tile_lines`].
+/// A Hothouse's state, a fuel bunker's fill and a Lemur Roost's tally
+/// (docs/design/horizons-phase-1.md): `Warming 6 plots`, `Idle: not winter` or `Out of wood`;
+/// `Fuel: 4/6 Fish` or `Out of fish`; `Picked: 36  Eaten: 9`.
+fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    let mut lines = Vec::new();
+    let Some(b) = world.building_at(anchor) else { return lines };
+    let def = defs.building(b);
+    let bunker = world.bunker_at(anchor, defs);
+    let out = |item| format!("Out of {}", defs.item(item).name.to_lowercase());
+    if def.hothouse.is_some() {
+        let winter = world.knobs(defs).seasons && world.season(defs).winter;
+        lines.push(match (bunker, world.hothouse_warming(anchor, defs)) {
+            (Some((have, fuel)), _) if have.count == 0 => out(fuel.item),
+            _ if !winter => "Idle: not winter".to_owned(),
+            (_, Some(n)) => format!("Warming {n} plot{}", if n == 1 { "" } else { "s" }),
+            (_, None) => "Idle: not winter".to_owned(),
+        });
+    }
+    if let Some((have, fuel)) = bunker {
+        if have.count > 0 {
+            let item = &defs.item(fuel.item).name;
+            lines.push(format!("Fuel: {}/{} {item}", have.count, fuel.bunker));
+        } else if def.hothouse.is_none() {
+            lines.push(out(fuel.item));
+        }
+    }
+    if let Some(p) = world.pickers_at(anchor) {
+        lines.push(format!("Picked: {}  Eaten: {}", p.picked, p.eaten));
+    }
+    lines
+}
+
 pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
     let world = &session.world;
     world.map.get(tile)?;
@@ -240,7 +272,12 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
                 }
                 PlotStage::Ripe => "Ripe".to_owned(),
             }));
+            // A standing sow order (`calendar`): it re-sows itself whenever it's empty.
+            if world.is_standing_sow(at) {
+                lines.push(Line::Detail("Sow order: standing".to_owned()));
+            }
         }
+        lines.extend(horizons_lines(world, defs, at).into_iter().map(Line::Detail));
         // A study hall says how many of its seats are filled right now (#338): the Build
         // modal's own line (`build::building_detail`) only has the total, since nothing is
         // built yet when it shows it.
@@ -860,6 +897,130 @@ mod tests {
         let lines = tooltip_lines(&s, Tool::Select, sapling).unwrap();
         assert!(lines.contains(&Line::Detail("Sapling - repeating order".into())), "{lines:?}");
         assert!((2..=4).contains(&lines.len()));
+    }
+
+    /// `s` with `tech` known and the first empty fuel bunker filled to `fuel`, by a save round
+    /// trip with the state spliced in (`World` serializes every field for saves), the way
+    /// `gate::tests::ready` does: neither can be reached from outside the sim otherwise.
+    fn spliced(mut s: Session, tech: Option<&str>, fuel: Option<u32>) -> Session {
+        let mut text = s.world.save(&s.defs).unwrap();
+        if let Some(tech) = tech {
+            let i = s.defs.tech_id(tech).unwrap().0 as usize;
+            let start = text.find("known:[").unwrap() + "known:[".len();
+            let end = start + text[start..].find(']').unwrap();
+            let mut known: Vec<String> = text[start..end].split(',').map(str::to_owned).collect();
+            known[i] = "true".to_owned();
+            text.replace_range(start..end, &known.join(","));
+        }
+        if let Some(n) = fuel {
+            text = text.replacen("fuel:Some((count:0))", &format!("fuel:Some((count:{n}))"), 1);
+        }
+        s.world = World::load(&text, &s.defs).expect("round trip");
+        s
+    }
+
+    /// A free 2x2 spot near the first settler, for a building put down by hand.
+    fn spot(s: &Session) -> Pos {
+        let home = s.world.units[0].pos;
+        let bed = s.defs.building_id("bed").unwrap();
+        let mut tiles: Vec<Pos> = s.world.map.iter().map(|(p, _)| p).collect();
+        tiles.sort_by_key(|p| ((p.x - home.x).pow(2) + (p.y - home.y).pow(2), p.x, p.y));
+        tiles
+            .into_iter()
+            .find(|&p| {
+                [(0, 0), (1, 0), (0, 1), (1, 1)].iter().all(|&(dx, dy)| {
+                    let q = Pos::new(p.x + dx, p.y + dy);
+                    q != home && s.world.check_build(q, bed, &s.defs).is_ok()
+                })
+            })
+            .expect("room near home")
+    }
+
+    fn put(s: &mut Session, id: &str, pos: Pos) {
+        let id = s.defs.building_id(id).unwrap();
+        let (w, h) = s.defs.building(id).footprint;
+        s.world.put_building(fn_sim::geom::Footprint::new(pos, w, h), id, &s.defs);
+    }
+
+    fn details(s: &Session, pos: Pos) -> Vec<String> {
+        tooltip_lines(s, Tool::Select, pos)
+            .unwrap()
+            .into_iter()
+            .filter_map(|l| match l {
+                Line::Detail(t) => Some(t),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The Oil Lamp's bunker (#678, #682): out of fish until filled, then how full it is.
+    #[test]
+    fn a_lamp_says_how_much_fish_it_holds_or_that_it_is_out() {
+        let mut s = Session::new(7, Nation::Water, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "oil_lamp", pos);
+        assert!(details(&s, pos).contains(&"Out of fish".to_owned()), "{:?}", details(&s, pos));
+        let s = spliced(s, None, Some(4));
+        assert!(details(&s, pos).contains(&"Fuel: 4/6 Fish".to_owned()), "{:?}", details(&s, pos));
+    }
+
+    /// The Hothouse (#680, #682): out of wood, else idle outside winter, with its fuel.
+    #[test]
+    fn a_hothouse_says_whether_it_is_warming_and_how_much_wood_it_holds() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "hothouse", pos);
+        assert_eq!(details(&s, pos)[1..], ["Out of wood".to_owned()]);
+        let s = spliced(s, None, Some(14));
+        assert_eq!(details(&s, pos)[1..], ["Idle: not winter", "Fuel: 14/20 Wood"]);
+        assert!(tooltip_lines(&s, Tool::Select, pos).unwrap().len() <= 4);
+    }
+
+    /// The Lemur Roost (#679, #682): its tally.
+    #[test]
+    fn a_roost_says_how_much_it_picked_and_how_much_was_eaten() {
+        let mut s = Session::new(7, Nation::Air, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "lemur_roost", pos);
+        assert!(details(&s, pos).contains(&"Picked: 0  Eaten: 0".to_owned()));
+    }
+
+    /// A standing sow order (#677, #682) reads on the plot, and the harvest tool's
+    /// standing-order toggle sets and clears it.
+    #[test]
+    fn a_plot_with_a_standing_sow_order_says_so_and_the_toggle_flips_it() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "farm_plot", pos);
+        let mut s = spliced(s, Some("calendar"), None);
+        let toggle = |s: &Session| {
+            let pick = crate::tools::Pick { repeating: true, ..Default::default() };
+            Tool::Harvest.command(pos, crate::tools::Here::at(s, pos), pick).unwrap()
+        };
+        assert_eq!(toggle(&s), Command::StandingSow { pos, on: true });
+        s.apply(toggle(&s)).unwrap();
+        assert!(details(&s, pos).contains(&"Sow order: standing".to_owned()));
+        assert_eq!(toggle(&s), Command::StandingSow { pos, on: false });
+        s.apply(toggle(&s)).unwrap();
+        assert!(!details(&s, pos).contains(&"Sow order: standing".to_owned()));
+    }
+
+    /// The Almanac (#677, #682): nothing until `calendar` is known, then the frost line.
+    #[test]
+    fn the_almanac_appears_once_calendar_is_known() {
+        let s = Session::new(7, Nation::Earth, 64, 64);
+        assert!(crate::view::almanac_lines(&s).is_empty());
+        let s = spliced(s, Some("calendar"), None);
+        assert_eq!(crate::view::almanac_lines(&s), ["No frost this game"]);
+        let defs = Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let survey = fn_sim::embark::Survey::new(&fn_sim::embark::Survey::config(7, size), &defs);
+        let start = survey.default_site(&defs);
+        let s = Session::found(survey, Nation::Earth, start, Some("normal".to_owned())).unwrap();
+        let s = spliced(s, Some("calendar"), None);
+        let lines = crate::view::almanac_lines(&s);
+        assert_eq!(lines.len(), 1, "no caravans yet: {lines:?}");
+        assert!(lines[0].starts_with("First frost in ") && lines[0].ends_with('s'), "{lines:?}");
     }
 
     #[test]

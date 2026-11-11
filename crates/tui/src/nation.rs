@@ -312,10 +312,11 @@ pub fn draw(
         width,
     );
     let trait_lines = packed_rows(view.traits.iter().map(|(l, v)| format!("{l} {v}")), width);
+    let almanac_block = if view.almanac.is_empty() { 0 } else { 1 + 1 + view.almanac.len() };
 
     let store_block = 1 + store_lines.len().max(1);
     let trait_block = if trait_lines.is_empty() { 0 } else { 1 + 1 + trait_lines.len() };
-    let footer_rows = 1 + store_block + trait_block;
+    let footer_rows = 1 + store_block + almanac_block + trait_block;
     let header_rows = if wide { 3 } else { 2 };
     let roster_h = height.saturating_sub(header_rows + footer_rows).max(1);
 
@@ -354,6 +355,13 @@ pub fn draw(
     } else {
         for row in &store_lines {
             p.row(row);
+        }
+    }
+    if !view.almanac.is_empty() {
+        p.blank();
+        p.row(&Row::text("ALMANAC", Tone::Title));
+        for line in &view.almanac {
+            p.row(&Row::text(line.clone(), Tone::Text));
         }
     }
     if !trait_lines.is_empty() {

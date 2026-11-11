@@ -88,6 +88,9 @@ pub struct Here {
     pub bend: bool,
     /// The finished building on the tile is marked to be taken down (#342).
     pub deconstructing: bool,
+    /// The tile is a farm plot's anchor: `Some(true)` with a standing sow order on it, else
+    /// `Some(false)` (docs/design/horizons-phase-1.md, `calendar`).
+    pub plot: Option<bool>,
 }
 
 impl Here {
@@ -101,6 +104,10 @@ impl Here {
             clearing: world.clear_designations().any(|z| z == pos),
             bend: world.bend_designations().any(|(_, p)| p == pos),
             deconstructing: world.is_marked_for_deconstruct(pos),
+            plot: world
+                .plot_stage(pos)
+                .filter(|_| world.footprint_at(pos).is_some_and(|f| f.anchor == pos))
+                .map(|_| world.is_standing_sow(pos)),
         }
     }
 }
@@ -246,6 +253,10 @@ impl Tool {
     pub fn command(self, pos: Pos, here: Here, pick: Pick) -> Option<Command> {
         match self {
             Self::Select => None,
+            // The standing-order toggle on a farm plot is its standing sow order (`calendar`).
+            Self::Harvest if pick.repeating && here.plot.is_some() => {
+                Some(Command::StandingSow { pos, on: here.plot == Some(false) })
+            }
             Self::Harvest if pick.repeating => Some(Command::DesignateRepeatingHarvest { pos }),
             Self::Harvest => Some(Command::DesignateHarvest { pos }),
             Self::CancelHarvest if pick.teardown && here.site => Some(Command::CancelBuild { pos }),
@@ -674,6 +685,10 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
             Ok(()) => {
                 done += 1;
                 match tool {
+                    Tool::Harvest if let Command::StandingSow { on, .. } = command => {
+                        let then = if on { "to re-sow" } else { "to stop re-sowing" };
+                        bump(&mut counts, "plot", "plots", then);
+                    }
                     Tool::Harvest => {
                         let (one, many, then) = harvest.unwrap_or_else(|| {
                             ("tile".to_owned(), "tiles".to_owned(), "to harvest".to_owned())
