@@ -66,7 +66,8 @@
 //!   surplus into a person and the "food" sign never fills (#513). It builds them again if the
 //!   population falls below the target. Also one of every other building the nation can reach
 //!   (`horizons::buildable`: the endeavor's own set plus the optional horizon buildings), each
-//!   once its cost is affordable;
+//!   once its cost is affordable. `horizons` places what stands far out or in pairs (Waystation,
+//!   Wind Gate and Balloon Dock pairs, the canal, the tunnel line; its module doc);
 //! - (`Economy::with_beds` picks the bed rule, `BedPolicy`; `Economy::with_healing` the Herb
 //!   Garden rule, `HealingPolicy`; `Economy::with_research` the tech order, `ResearchOrder`: the
 //!   knobs a play style sets, `docs/design/balance-harness.md`, section 2. The defaults are what
@@ -262,7 +263,7 @@ impl Opening {
         self.campfire(world, defs, anchor);
         self.research(world, defs);
         if let Some(slots) = self.bend_slots {
-            keep_bends_designated(world, defs, anchor, FORAGE_RADIUS, slots, &[]);
+            keep_bends_designated(world, defs, anchor, FORAGE_RADIUS, slots, &[], &[]);
         }
     }
 
@@ -415,6 +416,11 @@ impl Economy {
         self.raise_buildings(world, defs, anchor);
         horizons::pave_once(world, defs, anchor);
         horizons::link_chutes(world, defs);
+        horizons::raise_waystation(world, defs, anchor);
+        horizons::raise_pair(world, defs, anchor, "wind_gate");
+        horizons::raise_pair(world, defs, anchor, "balloon_dock");
+        horizons::bore_line(world, defs);
+        horizons::carve_canal(world, defs);
         if self.farms {
             self.sow_plots(world, defs, "farm_plot");
         }
@@ -422,7 +428,8 @@ impl Economy {
             self.sow_plots(world, defs, HERB_GARDEN);
         }
         let wanted = self.wanted_items(world, defs);
-        keep_bends_designated(world, defs, anchor, DEPOSIT_RADIUS, self.people, &wanted);
+        let own = horizons::own_bends(world, defs);
+        keep_bends_designated(world, defs, anchor, DEPOSIT_RADIUS, self.people, &wanted, &own);
     }
 
     /// Items some building `raise_buildings` still wants (its target unmet, its tech known)
@@ -475,6 +482,9 @@ impl Economy {
     fn raise_buildings(&self, world: &mut World, defs: &Defs, anchor: Pos) {
         let targets: Vec<BuildingId> = horizons::buildable(world.nation, defs).collect();
         for building in targets {
+            if horizons::raises_itself(&defs.building(building).id) {
+                continue;
+            }
             let target = self.building_target(world, defs, building);
             let near = horizons::site_anchor(world, defs, &defs.building(building).id, anchor);
             ensure_building(world, defs, near, building, target, BUILD_SEARCH_RADIUS);
@@ -500,8 +510,9 @@ impl Economy {
             // One road, laid in one go by `horizons::pave_once`, not tile by tile here.
             "paved_road" => 0,
             "chute" => u32::from(horizons::chute_wanted(world, defs)),
-            // Far from stores, so never at the anchor: the economy opening places it (#700).
-            "waystation" => 0,
+            // Far from stores, or a pair far apart: `horizons` places these (#700). The target is
+            // what `wanted_items` reads, for the materials.
+            id if horizons::raises_itself(id) => horizons::outpost_target(world, defs, id),
             HERB_GARDEN => match self.healing {
                 HealingPolicy::Sweep => 1,
                 HealingPolicy::Off => 0,
@@ -734,9 +745,11 @@ fn keep_bends_designated(
     radius: i32,
     slots: u32,
     wanted: &[ItemId],
+    own: &[AbilityId],
 ) {
     let mut abilities: Vec<AbilityId> = (0..defs.abilities.len() as u16)
         .map(AbilityId)
+        .filter(|a| !own.contains(a))
         .filter(|&a| world.check_ability(a, defs).is_ok())
         .collect();
     if abilities.is_empty() {
@@ -756,9 +769,10 @@ fn keep_bends_designated(
     });
     let positions = positions_near(anchor, radius);
     loop {
-        let pending =
-            world.bend_designations().filter(|&(_, p)| p.chebyshev(anchor) <= radius).count()
-                as u32;
+        let pending = world
+            .bend_designations()
+            .filter(|&(a, p)| !own.contains(&a) && p.chebyshev(anchor) <= radius)
+            .count() as u32;
         if pending >= slots {
             return;
         }
@@ -873,12 +887,17 @@ fn nearest_build_site(
     building: BuildingId,
     radius: i32,
 ) -> Option<Pos> {
-    let (w, h) = defs.building(building).footprint;
+    let def = defs.building(building);
+    let (w, h) = def.footprint;
     let before = world.flood_from_anchor(anchor, defs);
+    // A pair's ends and an outpost are used from their door (a link needs both doors in one
+    // region, a crew eats and sleeps at the door): it must be a tile a unit can walk to.
+    let needs_door = def.pair.is_some() || def.outpost.is_some();
     let ok = |p: Pos| {
         world.check_build(p, building, defs).is_ok()
             && world.to_clear(p, building, defs).is_empty()
             && world.build_site_viable(&before, Footprint::new(p, w, h), defs)
+            && (!needs_door || before.cost(Footprint::new(p, w, h).entrance()).is_some())
     };
     if ok(anchor) {
         return Some(anchor);

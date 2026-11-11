@@ -709,6 +709,138 @@ The balance follow-up records the measured numbers in a "Measured" section here.
 levers are each beast's `carry`, the Stable's `per_minute`, and the balloon's
 `fuel_per_flight`, all data.
 
+### Measured
+
+The phase-2 run (#700): seeds 1 to 32, all four nations, Small, Normal, 180 minutes, both research
+orders (`steady` and `branch_first`), against a baseline from `main` at 65d1a9c, just before the
+first phase-2 merge (#690; it already has `food_at.M` from #684). Medians per nation; "base" is
+before phase 2, "now" is with phase 2 and the economy opening using it
+(`crates/sim/src/autoplay/horizons.rs`).
+
+**What the opening does with it.** The far deposit is the farthest stone or ore deposit the
+opening has quarried, standing or not (it remembers its own `DesignateHarvest` orders): the doc
+assumed deposits would still be standing when these techs land, but the opening has quarried
+everything within 40 tiles by about minute 80 and no phase-2 tech lands before 87 (Air's
+`wind_gates`, `branch_first`), so a rule on standing deposits alone never fired. Both ends of a
+pair, and the Waystation, need a door a unit can walk to (a link is refused with `Not reachable
+on foot` otherwise). Earth's `bore_tunnel` leaves the settlers' rotation once a den stands, and
+`carve_canal` never joins it, so neither fills the bend slots. The den's tunnel is the 12 rock
+tiles nearest its sides, outward, not a straight line: the settlers' own tunnelling has usually
+chewed the rock beside the den, and a straight run of 3 clear tiles rarely exists.
+
+Runs of 32 with the thing standing at minute 180 (`steady` / `branch_first`):
+
+| Thing | Air | Water | Earth | Fire |
+|---|---|---|---|---|
+| Waystation | 22 / 21 | 19 / 4 | 24 / 0 | 19 / 0 |
+| Wind Gate pair, linked | 23 / 20 | | | |
+| Balloon Dock pair, linked | | | | 10 / 1 |
+| Stable | | 11 / 1 | 23 / 0 | 16 / 0 |
+| Carve Canal cut (first tile) | | 15 / 19 | | |
+| Badgermole Den | | | 1 / 29 | |
+
+The canal is absent from the other runs because the river is more than 6 tiles from every plot (no
+canal is cut that waters nothing). Fire's pair needs a metal for each dock (2 in all), and the
+Smelter runs dry on most seeds before `cargo_balloons`, so it stands on 10 runs in 32. The
+badgermole bored at least one tile on 20 of Earth's 29 dens with `branch_first` (the den lands at
+about minute 155).
+
+When the phase-2 techs land (`steady`, median minute, runs of 32 that reached it): `waystations`
+129 (31, Air), 156 (28, Water), 162 (32, Earth), 145 (29, Fire); `herding` 170 (16, Water), 169 (24,
+Earth), 163 (24, Fire); the nation's own tech 135 (30, Air `wind_gates`), 166 (27, Water `canals`),
+179 (3, Earth `badgermole_ways`) and 157 (26, Fire `cargo_balloons`). With `branch_first` the
+nation's tech comes much earlier (88, 113, 152 and 126, on 30 to 32 runs each), `waystations`
+lands for Air (141) and on 9 Water runs only, and `herding` on 3 Water runs.
+
+The numbers, base / now (`steady` first, then `branch_first`):
+
+| Measure | Air | Water | Earth | Fire |
+|---|---|---|---|---|
+| `food_at.120`, `steady` | 200 / 200 | 82 / 82 | 95 / 95 | 63 / 63 |
+| `food_at.180`, `steady` | 344 / 337 | 156 / 136 | 162 / 130 | 138 / 125 |
+| `food_at.180`, `branch_first` | 296 / 254 | 161 / 148 | 28 / 14 | 57 / 46 |
+| `wood_at.120`, `steady` | 234 / 234 | 232 / 232 | 398 / 398 | 204 / 204 |
+| `wood_at.180`, `steady` | 224 / 192 | 221 / 200 | 372 / 349 | 151 / 82 |
+| `wood_at.180`, `branch_first` | 210 / 192 | 161 / 152 | 402 / 426 | 138 / 146 |
+| `sign_minute.stone`, `steady` | 20 / 20 | 22 / 22 | 19 / 19 | 22 / 22 |
+| `sign_minute.ore`, `steady` | 67 / 67 | 75 / 75 | 75 / 75 | 73 / 73 |
+| `sign_minute.stone`, `branch_first` | 86 / 97 | 110 / 124 | 17 / 17 | 112 / 140 |
+| `sign_minute.ore`, `branch_first` | 110 / 123 | 139 / 152 | 160 / 176 | 159 / 178 |
+| `longest_gap`, `steady` | 27 / 27 | 28 / 20 | 20 / 19 | 31 / 21 |
+| decisions from 130 to 180, `steady` | 0 / 1 | 2 / 5 | 3 / 5 | 2 / 5 |
+| decisions from 130 to 180, `branch_first` | 0 / 2.5 | 4 / 6 | 7 / 5 | 5 / 5.5 |
+
+Against "Expected" in the table above:
+
+- **Decision timeline: met for three nations.** The 130-to-180 stretch gains 3 decisions for Water,
+  2 for Earth and 3 for Fire with `steady`, and 1 for Air (`wind_gates` lands at 135 and `herding`
+  isn't Air's), 2.5 with `branch_first`. `longest_gap` falls from 28 to 20 for Water and from 31 to
+  21 for Fire and is unchanged elsewhere. `balance verdict --against` calls no reading moved
+  (below). `decision_gap` and `decision_gap_branch_first` still fail everywhere, as before.
+- **Ore and stone: unchanged with `steady`, later with `branch_first`.** With `steady`
+  `sign_minute.stone` and `sign_minute.ore` don't move in any nation (the signs fall at minute 19
+  to 75, before any of these techs), and `stone_by_120` and `ore_by_120` pass and fail on the same
+  sites as before. With `branch_first` they're later by 11 to 28 minutes (Earth's stone sign, at
+  minute 17, comes before the research order matters), and Earth's ore sign, met on 25 runs in 32
+  before, is met on 2. That isn't the opening and isn't the routes: it's the
+  research order. `branch_first` researches the nation's whole branch before the shared tier, and
+  each nation's branch now ends in a 250 or 500-point capstone that isn't `core`: Earth's
+  `prospecting` falls from minute 160 to 177 and Fire's `stoneworking` from 105 to 132. No target
+  reads that order except `decision_gap_branch_first`, so this is a taste call, filed below.
+  The routes don't carry the gate's materials either, because the opening has no far work by the
+  time a route exists (next bullet).
+- **Food: Earth, Fire and Water fall, by more than a Stable's 9 an hour.** At minute 180 with
+  `steady` they fall by 20 (Water), 32 (Earth) and 13 (Fire), and Air, with no Stable of this
+  phase, by 7. That fits the one-time fill of a Stable's bunker (8) and a Waystation's pantry
+  (12), since the Stables land at 160 to 176 and eat only 1 to 2 food by 180. `food_at.120` is
+  unmoved. `food_winter2` reads minute 105 and is unchanged (the same per-nation pass counts as
+  before).
+- **Wood: Fire falls by 69** (151 to 82) with `steady`, which is the dock pair's cost and fuel plus
+  the Stable's and the Waystation's wood, as expected. The other nations lose 21 to 32 the same
+  way. `wood_at_120` is unchanged.
+- **No regressions.** `balance verdict --against` compares 12 readings and calls none moved (0 of
+  12): `sign_minute.stone` and `.ore`, `wood_at.120`, `pop_at.120`, `food_per_head.winter.2`,
+  `deaths_by.180`, `longest_gap` (both styles), `sign_minute.population`, `ready_minute`,
+  `care.suffering` and `deaths`. There are no deaths on any of the 256 runs, so `no_deaths_by_180`
+  holds, and no hungry crew is stranded at a Waystation (the one `stranded` sim lock the baseline
+  had, Fire seed 28 on `branch_first`, is gone). Five runs are newly flagged and three no longer
+  are, all harness gaps (`stores_frozen` before minute 90, `idle_with_work`) in the shared tier.
+  Every target passes or fails as it did.
+
+```
+against      base (main at 65d1a9c): 256 runs paired
+         sign_minute.stone            steady/normal        n 128  earlier   0  later   1  same 127  median       0  noise 0.58333
+         sign_minute.ore              steady/normal        n 128  earlier   0  later   2  same 126  median       0  noise 0.958332
+         wood_at.120                  steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 2
+         pop_at.120                   steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 0
+         food_per_head.winter.2       steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 0.4375
+         deaths_by.180                steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 0
+         longest_gap                  steady/normal        n 128  earlier  54  later   3  same  71  median       0  noise 2
+         longest_gap                  branch_first/normal  n 128  earlier  30  later  28  same  70  median       0  noise 2
+         sign_minute.population       steady/normal        n 128  earlier   5  later   0  same 123  median       0  noise 0
+         ready_minute                 steady/normal        n 128  earlier   5  later   8  same 115  median       0  noise 0
+         care.suffering               steady/normal        n 128  earlier  28  later   5  same  95  median       0  noise 0
+         deaths                       steady/normal        n 128  earlier   0  later   0  same 128  median       0  noise 0
+  0 of 12 readings moved; flags: 5 runs newly flagged, 3 no longer
+```
+
+- **The beasts and the routes have little to do.** The beasts' haul rule is a trip of 10 tiles or
+  more, and by the time a Stable stands (minute 160 to 176) the only long trips left are a
+  Waystation's pantry refills, which nobody eats from. A probe of eight seeds to minute 260 found
+  the Stable's beast busy on 1 to 5 minutes in 100 (a minute sampled each), with an empty bunker
+  on none, so nobody went hungry and no beast was stranded. The badgermole, which has designated
+  tunnel to bore, works (20 of 29 dens with `branch_first`, 5 of 7 in a `steady` run to minute
+  260), though its bunker was empty at some minute on 3 of those 29 dens: it eats 12 food an hour
+  whether or not it has work. The Wind Gate pair and the
+  Balloon Dock pair carry nothing the opening wants carried, for the same reason: the quarry they
+  join is empty. That is a finding about the opening and the techs' timing, not about `carry`,
+  `per_minute` or `fuel_per_flight`, so none of those levers is touched. Filed as a decision
+  below.
+- **The canal is short and slow.** The shortest run from the river to a plot's irrigation radius is
+  1 to 6 tiles, and the benders (60 chi a tile) have other bends: of the 6 designated on one probe
+  seed, 3 were cut in 96 minutes. Every canal tile irrigates a band of 5, so even the first tile or
+  two water the plot beside it.
+
 ## Risks
 
 - **#205 lands in a shape this doesn't expect.** The beast follow-up (#693) is written against #205's
