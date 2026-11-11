@@ -336,6 +336,21 @@ pub fn format_clock(tick: u64) -> String {
     format!("{:02}:{:02}", secs / 60, secs % 60)
 }
 
+/// How long ago a save was, in game time (`ticks` since it), for the confirm box's "This game
+/// was last saved 12 minutes ago": "just now", "less than a minute ago", "1 minute ago", "12
+/// minutes ago", then whole hours past two. Game time, not wall time: `fn_ui` never reads the
+/// clock, and at the usual speed the two agree.
+pub fn format_ago(ticks: u64) -> String {
+    let minutes = ticks / (u64::from(TICKS_PER_SECOND) * 60);
+    match minutes {
+        _ if ticks == 0 => "just now".to_owned(),
+        0 => "less than a minute ago".to_owned(),
+        1 => "1 minute ago".to_owned(),
+        2..=119 => format!("{minutes} minutes ago"),
+        _ => format!("{} hours ago", minutes / 60),
+    }
+}
+
 /// Seconds as "4:10 left" (minutes with no leading zero, seconds zero-padded):
 /// `docs/design/difficulty.md` ("TUI"), the Season section's heading.
 fn clock_left(secs: f32) -> String {
@@ -610,6 +625,17 @@ mod tests {
     use fn_sim::Nation;
 
     use super::*;
+
+    #[test]
+    fn a_save_s_age_is_in_game_minutes() {
+        let minute = u64::from(TICKS_PER_SECOND) * 60;
+        assert_eq!(format_ago(0), "just now");
+        assert_eq!(format_ago(minute - 1), "less than a minute ago");
+        assert_eq!(format_ago(minute), "1 minute ago");
+        assert_eq!(format_ago(12 * minute + 5), "12 minutes ago");
+        assert_eq!(format_ago(119 * minute), "119 minutes ago");
+        assert_eq!(format_ago(120 * minute), "2 hours ago");
+    }
 
     #[test]
     fn need_status_thresholds() {

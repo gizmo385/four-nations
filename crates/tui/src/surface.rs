@@ -74,7 +74,7 @@ use crate::input::{self, Action};
 use crate::keys::{self, Step};
 use crate::layout;
 use crate::map::{CellLook, Ground, Mark, Overlays, Thing, cell_look, style_cell};
-use crate::menu::MenuRow;
+use crate::menu::{MenuPage, MenuRow};
 use crate::panel::hint_text;
 use crate::shell::{Mode, Shell};
 use crate::state::Modal;
@@ -461,14 +461,15 @@ impl Host {
         Ok(result)
     }
 
-    /// Whether `key` is refused outright: `Space`, `+`, `-`, `.` (the host owns the clock), `R`
-    /// (a new map), `1`-`4` (switch nation), `q` and Ctrl+C (quit), `F5`, `F9` (save and load at
-    /// once) and `F6` (the saves screen) -- the same bindings `input::bindings` already names,
-    /// so a future rebinding can't quietly change what parity allows -- plus `Enter` on the Esc
-    /// menu's Save as…, Quicksave, Load…, Quickload or Quit row, which do the same things
-    /// without a function key (#306), plus `Esc` itself when nothing is open to close and it
-    /// would only open the game menu (#327: every row but Resume and Key help is already
-    /// refused above, so for an agent the menu is only a trap, not a tool).
+    /// Whether `key` is refused outright: `Space`, `+`, `-`, `.` (the host owns the clock),
+    /// Ctrl+C (quit), `F5`, `F9` (save and load at once) and `F6` (the saves screen) -- the same
+    /// bindings `input::bindings` already names, so a future rebinding can't quietly change what
+    /// parity allows -- plus `Enter` on the Esc menu's Save…, Load…, New map…, Switch nation… or
+    /// Quit… row (#655: new map, switch nation and quit have no key of their own any more, so
+    /// the menu is the only way to them, and an agent plays the one game it was given), plus
+    /// `Esc` itself when nothing is open to close and it would only open the game menu (#327:
+    /// every row but Resume and Key help is refused, so for an agent the menu is only a trap,
+    /// not a tool).
     pub fn refuses(&self, key: KeyEvent) -> bool {
         if let Some(action) = input::map_key(key)
             && matches!(
@@ -477,12 +478,9 @@ impl Host {
                     | Action::Faster
                     | Action::Slower
                     | Action::Step
-                    | Action::AskNewMap
-                    | Action::AskNation(_)
                     | Action::QuickSave
                     | Action::AskQuickLoad
                     | Action::ShowSaves
-                    | Action::AskQuit
                     | Action::QuitNow
             )
         {
@@ -490,14 +488,19 @@ impl Host {
         }
         if key.code == KeyCode::Enter {
             let ui = &self.app().ui;
-            if ui.modal == Some(Modal::Menu) && ui.menu_name.is_none() {
+            if ui.modal == Some(Modal::Menu) && ui.prompt.is_none() {
+                // The nations list is Switch nation…'s own page: every row of it asks to start
+                // over.
+                if ui.menu_page == MenuPage::Nations {
+                    return true;
+                }
                 let row = MenuRow::ALL[ui.menu_cursor];
                 if matches!(
                     row,
-                    MenuRow::SaveAs
-                        | MenuRow::Quicksave
+                    MenuRow::Save
                         | MenuRow::Load
-                        | MenuRow::Quickload
+                        | MenuRow::NewMap
+                        | MenuRow::SwitchNation
                         | MenuRow::Quit
                 ) {
                     return true;
@@ -3061,21 +3064,23 @@ mod tests {
         assert_eq!(h.observe().tool, "Select");
     }
 
-    /// Space, +, -, ., R, 1-4, q and F5/F6/F9 are refused, and refusing changes nothing
-    /// (#315's acceptance criteria).
+    /// Space, +, -, ., Ctrl+C and F5/F6/F9 are refused, and refusing changes nothing (#315's
+    /// acceptance criteria). R, 1-4 and q no longer mean anything (#655): they are pressed and
+    /// do nothing, with no prompt opened.
     #[test]
     fn the_listed_keys_are_refused_and_change_nothing() {
         let mut h = host(Nation::Earth);
         let before = h.frame(40, 20);
         let script = "<space> + - . R 1 2 3 4 q <c-c> <f5> <f6> <f9>";
         let result = h.press_keys(script, None, None).unwrap();
-        assert_eq!(result.pressed, 0, "{result:?}");
-        assert_eq!(result.refused, 14, "{result:?}");
+        assert_eq!(result.pressed, 6, "{result:?}");
+        assert_eq!(result.refused, 8, "{result:?}");
         assert_eq!(h.frame(40, 20), before);
         assert!(!h.shell.quit);
+        assert_eq!(h.app().ui.prompt, None);
     }
 
-    /// The Esc menu's Save as…, Quicksave, Load…, Quickload and Quit rows are refused too
+    /// The Esc menu's Save…, Load…, New map…, Switch nation… and Quit… rows are refused too
     /// (`Enter` on any of them), while Resume and Key help still work. An agent can never open
     /// the menu itself (#327), so this drives `App::key` directly, as if the menu were already
     /// open (a loaded save can start mid-menu), to check the rows alone.
@@ -3089,10 +3094,10 @@ mod tests {
             let result = h.press_keys("<enter>", None, None).unwrap();
             let refused = matches!(
                 row,
-                MenuRow::SaveAs
-                    | MenuRow::Quicksave
+                MenuRow::Save
                     | MenuRow::Load
-                    | MenuRow::Quickload
+                    | MenuRow::NewMap
+                    | MenuRow::SwitchNation
                     | MenuRow::Quit
             );
             assert_eq!(result.refused, usize::from(refused), "{row:?}");
@@ -4553,11 +4558,11 @@ mod tests {
     #[test]
     fn act_keys_round_trips_and_refuses_the_same_keys_press_keys_does() {
         let mut h = host(Nation::Earth);
-        let steps = vec![ActionStep::Keys { script: "h <right*2> <enter> q".into() }];
+        let steps = vec![ActionStep::Keys { script: "h <right*2> <enter> <c-c>".into() }];
         let result = h.act(&steps, None);
         assert!(result.error.is_none(), "{result:?}");
         assert_eq!(result.keys, vec!["h", "<right>", "<right>", "<enter>"]);
-        assert!(!h.shell.quit, "q is refused");
+        assert!(!h.shell.quit, "Ctrl+C is refused");
         assert_same_as_key_script(&mut h, Nation::Earth, "h <right*2> <enter>");
     }
 

@@ -111,7 +111,7 @@ fn the_map_keys_wait_while_it_is_open() {
     assert_eq!(a.ui.tool, fn_ui::Tool::Select, "no tool was picked");
     assert_eq!(a.ui.selected, None, "Enter asked to load, not selected a unit");
     assert_eq!(a.ui.screen, Some(Screen::Saves));
-    run(&mut a, "n"); // the load prompt swallows keys until answered; n keeps the game
+    run(&mut a, "<esc>"); // the load box swallows keys until answered; Esc keeps the game
     assert_eq!(a.ui.screen, Some(Screen::Saves));
 }
 
@@ -189,19 +189,21 @@ fn enter_asks_and_loads_the_highlighted_slot_through_app_load() {
     assert_eq!(a.ui.save_slots.len(), 1);
 
     run(&mut a, "<enter>");
-    assert!(text(&mut a, SIZE).contains("LOAD?"), "the prompt shows");
+    assert!(text(&mut a, SIZE).contains("Load save-1 in place of this game?"), "the box shows");
     run(&mut a, "y");
+    assert_eq!(a.session.world.tick, 100, "a bare y does nothing");
+    run(&mut a, "<down> <enter>");
     assert_eq!(a.session.world.tick, 40, "back to the saved tick");
     assert_eq!(a.ui.status, "Loaded save-1 (tick 40)");
     assert_eq!(a.ui.screen, None, "App::load resets the UI, closing the screen too");
 }
 
 #[test]
-fn anything_but_y_keeps_the_game_on_a_load_prompt() {
+fn esc_keeps_the_game_on_a_load_box() {
     let tmp = TempDir::new("load_no");
     let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<tick 40> <f6> n <tick 60> <enter> n");
-    assert_eq!(a.session.world.tick, 100, "n is not y, so nothing happened");
+    run(&mut a, "<tick 40> <f6> n <tick 60> <enter> <esc>");
+    assert_eq!(a.session.world.tick, 100, "Esc is the safe answer, so nothing happened");
     assert_eq!(a.ui.screen, Some(Screen::Saves));
 }
 
@@ -212,7 +214,7 @@ fn a_failed_load_says_why_and_changes_nothing() {
     let mut a = app(Some(tmp.0.clone()));
     run(&mut a, "<f6>");
     assert_eq!(a.ui.save_slots.len(), 1);
-    run(&mut a, "<enter> y");
+    run(&mut a, "<enter> <down> <enter>");
     assert!(a.ui.status.starts_with("Load failed:"), "{}", a.ui.status);
     assert_eq!(a.session.world.tick, 0);
 }
@@ -236,23 +238,25 @@ fn shift_s_asks_and_saves_over_the_highlighted_slot() {
     let tmp = TempDir::new("save_over");
     let mut a = app(Some(tmp.0.clone()));
     run(&mut a, "<tick 40> <f6> n <tick 60> S");
-    assert!(text(&mut a, SIZE).contains("SAVE?"), "the prompt shows");
+    assert!(text(&mut a, SIZE).contains("Save over the save-1 slot?"), "the box shows");
     run(&mut a, "y");
+    assert_eq!(a.ui.status, "", "a bare y does nothing");
+    run(&mut a, "<down> <enter>");
     let path = fn_ui::saves::slot_path(&tmp.0, "save-1");
     assert_eq!(a.ui.status, format!("Saved to {} (tick 100)", path.display()));
     assert_eq!(a.ui.screen, Some(Screen::Saves), "saving over a slot does not close the screen");
 
     // The slot now holds the later tick.
-    run(&mut a, "<esc> <f9> y");
+    run(&mut a, "<esc> <f9> <down> <enter>");
     assert!(a.ui.status.starts_with("Quickload failed"), "no quicksave, only save-1");
 }
 
 #[test]
-fn anything_but_y_keeps_the_slot_on_a_save_over_prompt() {
+fn esc_keeps_the_slot_on_a_save_over_box() {
     let tmp = TempDir::new("save_over_no");
     let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<tick 40> <f6> n <tick 60> S n");
-    assert_eq!(a.ui.status, "", "n answered the prompt, not a fresh key");
+    run(&mut a, "<tick 40> <f6> n <tick 60> S <esc>");
+    assert_eq!(a.ui.status, "", "Esc answered the box, not a fresh key");
     run(&mut a, "<f6> <f6>"); // re-reads save-1 from disk
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("00:04"), "{frame}"); // tick 40, not 100

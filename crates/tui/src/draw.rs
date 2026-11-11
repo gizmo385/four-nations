@@ -12,9 +12,10 @@ use crate::bar::{bar_area, draw_bar};
 use crate::color::Palette;
 use crate::layout::{self, MIN_HEIGHT, MIN_WIDTH};
 use crate::map::draw_map;
+use crate::menu::MenuPage;
 use crate::panel::draw_panel;
 use crate::screens::draw_screen;
-use crate::state::{Modal, Prompt, Screen, UiState};
+use crate::state::{Modal, Screen, UiState};
 use crate::widgets::{Marks, fit};
 
 /// What the frame says below the minimum size, and nothing else.
@@ -36,7 +37,10 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
     if let Some(screen) = ui.screen {
         draw_screen(session, ui, screen, palette, regions.map, buf);
     } else if let Some(modal) = ui.modal {
-        draw_modal(session, ui, modal, palette, regions.map, buf);
+        // A confirm box asked from the menu covers it: drawn alone, over the map.
+        if ui.prompt.is_none() {
+            draw_modal(session, ui, modal, palette, regions.map, buf);
+        }
     } else {
         if ui.tool != Tool::Select {
             banner::draw(session, ui, palette, banner_area(regions.map), buf);
@@ -44,6 +48,10 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
         if ui.selected_unit(session).is_some() {
             draw_bar(session, ui, palette, bar_area(regions.map), buf);
         }
+    }
+    // A question that can lose progress goes over whatever is open (#655).
+    if let Some(ask) = crate::ask::current(session, ui) {
+        crate::ask::draw(&ask, ui.ask_cursor, palette, regions.map, buf);
     }
     draw_panel(session, ui, palette, regions.panel, buf);
     draw_status(session, ui, palette, regions.status, buf);
@@ -73,10 +81,14 @@ fn draw_modal(
                 .knobs(&session.defs)
                 .seasons
                 .then(|| fn_ui::view::format_clock(session.world.tick));
+            let nations: Vec<(String, bool)> = fn_sim::Nation::ALL
+                .iter()
+                .map(|&n| (session.defs.nation(n).name.clone(), n == session.world.nation))
+                .collect();
             crate::menu::draw(
+                ui.menu_page,
                 ui.menu_cursor,
-                ui.menu_name.as_deref(),
-                ui.has_quicksave,
+                &nations,
                 clock.as_deref(),
                 palette,
                 area,
@@ -88,7 +100,7 @@ fn draw_modal(
 
 /// Where the terminal's own cursor goes: on the cursor tile, if it's in view.
 pub fn terminal_cursor(ui: &UiState, area: Rect) -> Option<Position> {
-    if ui.screen.is_some() || ui.modal.is_some() {
+    if ui.screen.is_some() || ui.modal.is_some() || ui.prompt.is_some() {
         return None;
     }
     let regions = layout::regions(area)?;
@@ -100,10 +112,13 @@ pub fn terminal_cursor(ui: &UiState, area: Rect) -> Option<Position> {
 /// if one is open, else the open screen, else the map: Select (with or without a settler's bar)
 /// or a tool (with or without a corner set).
 pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
+    if ui.prompt.is_some() {
+        return Mode::Ask;
+    }
     if let Some(modal) = ui.modal {
         return match modal {
             Modal::Build => Mode::Build,
-            Modal::Menu if ui.menu_name.is_some() => Mode::SaveAs,
+            Modal::Menu if ui.menu_page == MenuPage::Nations => Mode::MenuNations,
             Modal::Menu => Mode::Menu,
         };
     }
@@ -135,7 +150,7 @@ fn mode_label(ui: &UiState, mode: Mode) -> String {
 
 /// The status line (docs/design/tui.md, "Hints"): always the same three parts. The mode's name
 /// on the left; that mode's own keys (`fn_ui::keys::hints`), as many whole items as fit; and a
-/// fixed tail on the right, `PAUSED` while paused and then `? keys`. A prompt or a result notice
+/// fixed tail on the right, `PAUSED` while paused and then `? keys`. A result notice
 /// takes the place of the keys while it lasts (and the tail's `? keys` with it, for room).
 fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, buf: &mut Buffer) {
     let theme = &palette.theme;
@@ -154,35 +169,13 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
     };
     let width = |s: &str| s.chars().count() as u16;
 
-    // What the line says besides the keys: a prompt or a notice, or nothing.
-    let message: Option<(&str, Style, String)> = match &ui.prompt {
-        Some(prompt) => {
-            let (text, question) = match prompt {
-                Prompt::Quit => (" QUIT? ", "quit".to_owned()),
-                Prompt::NewMap => (
-                    " NEW MAP? ",
-                    format!("start a new map (seed {})", session.world.seed.wrapping_add(1)),
-                ),
-                Prompt::Nation(n) => {
-                    (" SWITCH? ", format!("start over as the {}", session.defs.nation(*n).name))
-                }
-                Prompt::QuickLoad => {
-                    (" LOAD? ", "load the quicksave in place of this game".to_owned())
-                }
-                Prompt::LoadSave(name) => (" LOAD? ", format!("load {name} in place of this game")),
-                Prompt::SaveOver(name) => (" SAVE? ", format!("save over the {name} slot")),
-            };
-            let style = badge(theme.on_accent, theme.warn);
-            Some((text, style, format!("Press y to {question}, any other key to stay.")))
-        }
-        None if !ui.status.is_empty() => {
-            let text = ui.status_badge.unwrap_or(" SAVE ");
-            let refused = ui.status.contains("failed") || ui.status.starts_with("Can't");
-            let bg = if refused { theme.warn } else { theme.accent };
-            Some((text, badge(theme.on_accent, bg), ui.status.clone()))
-        }
-        None => None,
-    };
+    // What the line says besides the keys: a result notice, or nothing.
+    let message: Option<(&str, Style, String)> = (!ui.status.is_empty()).then(|| {
+        let text = ui.status_badge.unwrap_or(" SAVE ");
+        let refused = ui.status.contains("failed") || ui.status.starts_with("Can't");
+        let bg = if refused { theme.warn } else { theme.accent };
+        (text, badge(theme.on_accent, bg), ui.status.clone())
+    });
 
     // The right edge: `PAUSED`, then `? keys` (not while a message has the line).
     let tail = keys::tail().text();

@@ -112,8 +112,9 @@ for UI-readability experiments. A race preset may restrict a run to frames and k
   `tools/call`, hand-rolled and roughly 200 lines with no SDK), the race runner, the log writer,
   `verify` and `keys`. A scripted, non-LLM bot speaks the same protocol, which is how CI tests
   it.
-- **Saves are off** in agent sessions (the `Shell` gets no save directory), and so are `R`
-  (new map), `1`-`4` (switch nation) and `q`.
+- **Saves are off** in agent sessions (the `Shell` gets no save directory), and so are a new map,
+  a nation switch and quitting: they are rows of the Esc menu only (#655: `R`, `1`-`4` and `q`
+  are no keys any more), and the menu is refused to an agent.
 
 ## Observation
 
@@ -193,9 +194,10 @@ so, rather than "not a farm plot"), one entry per step that left one, so a mostl
 rectangle is obvious right away instead of only in a later `observe` -- and never masked by a
 later step in the same call overwriting the one live UI notice.
 
-**Refused keys:** `Space`, `+`, `-`, `.` (the host owns time), and `R`, `1`-`4`, `q`, `F5`,
-`F6` and `F9`, plus the Esc menu's Save, Load and Quit (no saves, no new maps, no quitting
-mid-race). Refusing is always parity-safe. Named actions never need an F-key, so the WSL gap
+**Refused keys:** `Space`, `+`, `-`, `.` (the host owns time), and `F5`, `F6`, `F9` and Ctrl+C,
+plus the Esc menu's Save…, Load…, New map…, Switch nation… and Quit… (no saves, no new maps, no
+quitting mid-race; `R`, `1`-`4` and `q` do nothing on the map since #655, so they need no
+refusing). Refusing is always parity-safe. Named actions never need an F-key, so the WSL gap
 doesn't matter, and raw `keys` may still name one. A bare `Esc` with nothing open to close is
 refused too: for a player it opens the game menu, but every row there except Resume and Key
 help is already refused above, so for an agent the menu is only a trap, never a tool.

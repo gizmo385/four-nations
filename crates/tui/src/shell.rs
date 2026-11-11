@@ -1,4 +1,4 @@
-//! The top-level flow (#280): the title screen, then a game, and (on `Q`) back again or out.
+//! The top-level flow (#280): the title screen, then a game, and (on the menu's Quit…) back again or out.
 //! `App` only ever knows the game; `Shell` is the one place that holds either it or the title
 //! screen and switches between them, so `--frame`, the golden frames and the interactive loop
 //! (`run`) all go through here instead of repeating the switch themselves.
@@ -44,7 +44,7 @@ impl std::fmt::Debug for Mode {
 #[derive(Clone)]
 pub struct Shell {
     pub mode: Mode,
-    /// `Q` then `y` in a game opens this instead of quitting at once: `T` goes back to the title
+    /// Quit… confirmed in a game opens this instead of quitting at once: `T` goes back to the title
     /// screen, `Q`/Enter exits the process, anything else cancels and the game resumes (#280).
     pub exit_prompt: bool,
     /// Set by anything that changes what the frame shows, cleared when the frame is drawn, as
@@ -289,8 +289,8 @@ impl Shell {
             self.key_exit_prompt(key);
             return;
         }
-        // `R`, confirmed in a game: reopen embark on the next seed instead of restarting in
-        // place (docs/design/embark.md, "In the game, `R`"). Collected here, outside the match,
+        // New map…, confirmed in a game: reopen embark on the next seed instead of restarting in
+        // place (docs/design/embark.md, "In the game"). Collected here, outside the match,
         // so it can call `Self::open_embark` once the match's borrow of `self.mode` is done.
         let mut reopen: Option<(u64, Nation, fn_sim::embark::MapSizeDef, Option<String>)> = None;
         match &mut self.mode {
@@ -301,7 +301,7 @@ impl Shell {
             Mode::Embark(screen) => {
                 let outcome = screen.key(key, &self.defs);
                 if screen.quit {
-                    // `Q` in embark asks the same back-to-title question a game's `Q` does
+                    // `Q` in embark asks the same back-to-title question a game's Quit… does
                     // (docs/design/embark.md, "Flow and keys").
                     screen.quit = false;
                     self.exit_prompt = true;
@@ -311,7 +311,7 @@ impl Shell {
             Mode::Game(app) => {
                 app.key(key);
                 if app.ui.quit {
-                    // The game asked only `y` to confirm `Q`; that becomes this screen's own
+                    // The game asked in its own box to confirm Quit…; that becomes this screen's own
                     // question instead of stopping the process outright (#280).
                     app.ui.quit = false;
                     self.exit_prompt = true;
@@ -370,12 +370,16 @@ impl Shell {
                     bend_choice: None,
                 };
                 self.start(session);
+                // A loaded game is the saved one: the confirm box counts from here.
+                if let Mode::Game(app) = &mut self.mode {
+                    app.ui.saved_at = Some(app.session.world.tick);
+                }
             }
         }
     }
 
     /// Opens embark for `seed`, `nation`, `size` and `difficulty` (#290, #298): the title
-    /// screen's seed step, a game over `R`, or the direct `--embark` path all come through
+    /// screen's seed step, a game's New map…, or the direct `--embark` path all come through
     /// here.
     fn open_embark(
         &mut self,

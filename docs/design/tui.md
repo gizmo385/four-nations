@@ -115,7 +115,7 @@ at 100×32:
 │                                          Energy ██░░░░░░░░  23%! ││                              │
 │ [Esc] close  [Tab] next  [F] follow      Chi    ██████░░░░  60%  ││                              │
 ┗──────────────────────────────────────────────────────────────────┛┗──────────────────────────────┛
- HARVEST  arrows move  Shift x10  Enter corner  Esc cancel  T research  ? keys  q quit
+ HARVEST  arrows move  Shift x10  Enter corner  Esc cancel  T research  ? keys
 ```
 
 In the colour mockup the harvest rectangle being dragged and the queued harvests are amber
@@ -283,8 +283,7 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
 | `+` / `-` | Faster / slower | same | none (new) |
 | `.` | One tick, while paused | same | none (new) |
 | `L` / `?` | Message log / key help | same | none |
-| `R`, `1`-`4` | New map / switch nation, after a y/n prompt | same | Same, without a prompt |
-| `Q` | Quit, after a y/n prompt | same | Close the window |
+| `Esc` menu: New map…, Switch nation…, Quit… | New map / switch nation / quit, each after a box that asks (#655) | none: no single key | Same, without a question |
 
 - **Rectangles, as in Dwarf Fortress.** In a tool mode, `Enter` anchors a corner at the cursor.
   Moving the cursor stretches a tinted rectangle, and the Cursor section shows its size
@@ -341,8 +340,8 @@ One rule (#651): **keys are named in one place, the hint bar, and written once.*
   standing-order toggle is on); that mode's own keys, as `key verb` items joined by ` · `; and a
   fixed right-aligned tail, `PAUSED` while the clock is paused and then `? keys`. Keys that work
   everywhere (the clock, the screens, quitting) are not repeated in every mode: `? keys` opens the
-  key help for them. A y/n prompt or a result notice takes the place of the middle part while it
-  lasts, and of `? keys` too, for room.
+  key help for them. A result notice takes the place of the middle part while it lasts, and of
+  `? keys` too, for room. Questions are not asked here: see "The game menu and the confirm box".
 
   ```
   ┗───────────────────────────────────────────────────────────────────── tiers 1-4 of 5 ─┛
@@ -447,7 +446,7 @@ reject; it formats and maps. Sprites, entities, the camera and interpolation sta
 | Tools `H` `X` `P` `B`, drag rectangle, designation tints, notice | Dwarf Fortress-style rectangles | #98 |
 | Selection: click a unit, selection bar with needs and chi | `Enter`, `Tab`, `F`; text bars | #99 |
 | Side panel: stores, research line, modifiers, tool hint, alerts | Same, plus a message log (`L`) and key help (`?`) | #99 |
-| `R` and `1`-`4` regenerate | Same, with a prompt | #99 |
+| `R` and `1`-`4` regenerate | New map… and Switch nation… in the game menu, each after a box that asks (#655) | #99, #655 |
 | Research screen (`T`) | Tier columns, cursor, `Enter` sets the target | #100 |
 | Build tool `U`, picker, placement (#111) | `U` opens a modal picker (list and detail, #285) instead of cycling; `Enter` there picks and leaves the Build tool active, the Tool section names the choice, the Cursor section says whether the hovered tile fits | #275, #285 |
 | Footprints: multi-tile buildings and sites | A footprint is a block of its glyph; the Build tool's cursor shows a placement ghost, green or red per tile, and a drag shows every stamp | #212 |
@@ -615,17 +614,60 @@ differs from the proposal above:
   and tech completions `ok`.
 - **Screens.** `L` and `?` open the log and the key help over the map region (`screens.rs`; the
   side panel stays). Each toggles itself and switches to the other. While one is open the arrows,
-  `W` `S` and `PgUp` `PgDn` scroll it (Shift: 10 lines), `Esc` closes it, the clock keys, the
-  prompts and quit work, and the map keys wait. The log opens pinned to its newest line and sticks
+  `W` `S` and `PgUp` `PgDn` scroll it (Shift: 10 lines), `Esc` closes it, the clock keys and `F5`
+  `F6` `F9` work, and the map keys wait. The log opens pinned to its newest line and sticks
   there when scrolled back to the end. The status line shows `LOG` or `KEYS`.
-- **Prompts.** `R` asks to start a new map (the next seed, the same nation, as the client does) and
-  `1` `2` `3` `4` ask to restart the same seed as Air, Water, Earth or Fire (the client's order).
-  Only a plain `y` confirms. A restart is a new `Session` and `UiState` on a map of the same size:
-  a running clock, no selection, no log. The interactive loop rebuilds the palette for the new
-  nation, and `--frame` draws the last frame in the nation it ended on.
-- **Numpad.** The number row's digits now switch nation. A terminal that does not report keypad keys
-  sends the numpad's digits as the number row's, so there they ask to switch nation too (the prompt
-  makes that harmless); the Home/End/arrow forms still move.
+- **The game menu and the confirm box (#655).** New map (the next seed, the same nation, as the
+  client does), switch nation (the same seed as Air, Water, Earth or Fire, the client's order) and
+  quit have no key on the map: `R`, `1` to `4` and `Q` do nothing there and in a tool. They live
+  in the game menu (`Esc` with nothing else to close), one row each:
+
+  ```
+  ┏─────────────────── ◆ MENU ◆ ───────────────────┓
+  │ ▸ Resume                                        │
+  │   Save…                                         │
+  │   Load…                                         │
+  │   Key help                                      │
+  │                                                 │
+  │   New map…                                      │
+  │   Switch nation…                                │
+  │   Quit…                                         │
+  ┗─────────────────────────────────────────────────┛
+  ```
+
+  Save… and Load… both open the Saves screen (`N` writes a new slot, Shift+`S` saves over one,
+  `Enter` loads one); `F5`, `F6` and `F9` stay as shortcuts. Switch nation… turns the menu into
+  the list of nations; `Esc` goes back. Every question that can lose progress (new map, switch
+  nation, quit, load, quickload, save over a slot) is asked in a centred box (`ask.rs`) over
+  whatever is open, in the menu's frame:
+
+  ```
+  ┏──────────────── ◆ SWITCH NATION ◆ ─────────────────┓
+  │ Start over as the Water Tribes?                    │
+  │                                                    │
+  │ This game was last saved 12 minutes ago.           │
+  │ Anything since then is lost.                       │
+  │                                                    │
+  │ ▸ Keep playing                                     │
+  │   Save, then start over                            │
+  │   Start over without saving                        │
+  ┗────────────────────────────────────────────────────┛
+  ```
+
+  It says what happens, how long ago the game was last saved (game time: `UiState::saved_at` is a
+  world tick, so `fn_ui` reads no wall clock; or "has not been saved"), and lists its answers as
+  rows. The cursor starts on the first, always the safe one (`Keep playing`, or `Keep the old
+  save`); `Esc` picks it; a bare `y` does nothing; `Ctrl+C` still quits at once. New map, switch
+  nation and quit also offer "Save, then …", which writes a new slot (`save-N`, never over an
+  older one) and goes on only if that worked; it is left out when there is no save directory.
+  Load and quickload offer only "Load it, losing this game". The box's keys are the hint bar's
+  `CONFIRM` mode (`Up/Down choose · Enter answer · Esc cancel`); nothing in the box prints
+  them. A restart is a new `Session` and `UiState` on a map of the same size: a running clock, no
+  selection, no log. The interactive loop rebuilds the palette for the new nation, and `--frame`
+  draws the last frame in the nation it ended on.
+- **Numpad.** The number row's digits do nothing (they switched nation until #655). A terminal
+  that does not report keypad keys sends the numpad's digits as the number row's, so there they do
+  nothing either; the Home/End/arrow forms still move.
 - **Goldens.** Re-blessed: every nation's first frame, the ASCII frame and the paused, dragging and
   designated frames (the side panel gained Research and Modifiers, and People lists the units). New:
   `earth_seed7_selected` (and its ASCII, no-colour twin), `fire_seed1_log` and `earth_seed7_help`.
@@ -684,8 +726,8 @@ A title screen, so `fn_tui` with no `SEED` is a whole way to start instead of an
   (`crate::saves::draw`) over a list read the same way (`fn_ui::saves::list`/`load`).
   `TitleScreen::display_nation` says which nation's colours the frame should wear while picking
   or seeding one, so the box and the blurb are already themed before any game exists.
-- **Quitting a game no longer always stops the process.** `App`'s own `Q`-then-`y` is unchanged
-  (`ui.quit` still becomes `true`, and its own test is unchanged); `Shell` is what notices that
+- **Quitting a game no longer always stops the process.** `App`'s own Quit… answer is unchanged
+  (`ui.quit` still becomes `true`); `Shell` is what notices that
   and, instead of exiting, opens its own tiny prompt over the frame (`title::draw_exit_prompt`):
   `T` goes back to a fresh title screen, `Q` or `Enter` exits for good, anything else cancels and
   the game resumes. Only `main` (a `SystemTime` hint for a fresh default seed) and `run` (the

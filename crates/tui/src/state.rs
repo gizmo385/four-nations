@@ -20,13 +20,15 @@ pub const BAR_HEIGHT: i32 = 7;
 /// tool other than `Select` is active.
 pub const BANNER_HEIGHT: i32 = 1;
 
-/// A y/n question that takes over the keys until it is answered.
+/// A question that can lose progress. It is asked in a centred box (`crate::ask`) that takes the
+/// keys until it is answered (#655).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Prompt {
+    /// The game menu's Quit….
     Quit,
-    /// `R`: a new map (the next seed, the same nation).
+    /// The game menu's New map…: the next seed, the same nation.
     NewMap,
-    /// `1`-`4`: the same map, played as this nation.
+    /// The game menu's Switch nation… list: the same map, played as this nation.
     Nation(Nation),
     /// `F9`: the quicksave replaces the game.
     QuickLoad,
@@ -64,8 +66,8 @@ pub enum Modal {
     /// ([`UiState::build_cursor`], `crate::build`). `Enter` on an unlocked one picks it and
     /// leaves the Build tool active with it; `Esc` leaves the tool and the choice as they were.
     Build,
-    /// `Esc` with nothing else to close (#306, `crate::menu`): Resume, Save as…, Quicksave,
-    /// Load…, Quickload, Key help and Quit ([`UiState::menu_cursor`], #312). Pauses the clock
+    /// `Esc` with nothing else to close (#306, `crate::menu`): Resume, Save…, Load…, Key
+    /// help, New map…, Switch nation… and Quit… ([`UiState::menu_cursor`], #655). Pauses the clock
     /// while it's open; `Resume` or `Esc` (`App::close_menu`) restores whatever it was.
     Menu,
 }
@@ -127,16 +129,19 @@ pub struct UiState {
     pub modal: Option<Modal>,
     /// The Build modal's highlight: an index into `fn_ui::build::picker_rows`.
     pub build_cursor: usize,
-    /// The game menu's highlight: an index into `crate::menu::MenuRow::ALL` (#306).
+    /// The game menu's highlight: an index into the list [`Self::menu_page`] shows (#306).
     pub menu_cursor: usize,
-    /// The game menu's Save as… prompt (#312): `None` on the row list, `Some` with what's been
-    /// typed so far while the name prompt replaces it (`App::menu_name_key`,
-    /// `crate::menu::draw`). Starts empty, not pre-filled, so an unedited `Enter` falls back to
-    /// `fn_ui::saves::new_name` instead of a half-typed name reading as the player's own choice.
-    pub menu_name: Option<String>,
-    /// Whether the quicksave slot exists, read fresh each time the menu opens
-    /// (`App::open_menu`): greys out Quickload there when there's nothing to load.
-    pub has_quicksave: bool,
+    /// Which list the game menu shows: its rows, or Switch nation…'s list of nations (#655).
+    pub menu_page: crate::menu::MenuPage,
+    /// The confirm box's highlight: an index into its answers (`crate::ask`), `0` (the safe
+    /// answer) whenever a box opens (`App::ask`).
+    pub ask_cursor: usize,
+    /// Whether the open confirm box can offer "Save, then …": there is a save directory.
+    /// Read when the box opens (`App::ask`).
+    pub ask_can_save: bool,
+    /// The world tick of the last save or load of this game, for the confirm box's "last saved
+    /// N minutes ago" in game time (`crate::ask`); `None` for a game never saved.
+    pub saved_at: Option<u64>,
     /// The research screen's cursor: a column of the tech tree and a card in it.
     pub tech: (usize, usize),
     /// The Nation screen's cursor: an index into its roster (`crate::nation::roster`), in the
@@ -183,8 +188,10 @@ impl UiState {
             modal: None,
             build_cursor: 0,
             menu_cursor: 0,
-            menu_name: None,
-            has_quicksave: false,
+            menu_page: crate::menu::MenuPage::Rows,
+            ask_cursor: 0,
+            ask_can_save: false,
+            saved_at: None,
             tech: (0, 0),
             nation_cursor: 0,
             save_slots: Vec::new(),
