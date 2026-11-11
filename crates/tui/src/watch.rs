@@ -2624,7 +2624,7 @@ mod tests {
     fn spectator_key_ignores_keys_with_no_allowed_action() {
         let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
         w.spectator_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
-        assert!(w.following(), "q maps to AskQuit, which is refused for the spectator");
+        assert!(w.following(), "q maps to no action any more (#655), so it is a no-op");
     }
 
     /// The hard constraint (#330): free-look spectator input never changes what the replay

@@ -55,12 +55,14 @@ fn f5_saves_and_f9_after_a_yes_brings_the_game_back() {
     let saved = app.session.world.save(&app.session.defs).unwrap();
     assert!(tmp.0.join("quicksave.ron").is_file());
 
-    // Play on, pick a tool and open the log; F9 only asks, and anything but y keeps the game.
-    play(&mut app, "<tick 100> h <f9> n");
+    // Play on, pick a tool and open the log; F9 only asks, and Esc keeps the game.
+    play(&mut app, "<tick 100> h <f9> <esc>");
     assert_eq!(app.session.world.tick, 140);
     play(&mut app, "<f9>");
-    assert!(frame(&mut app).contains("LOAD?"), "the prompt shows");
+    assert!(frame(&mut app).contains("Load the quicksave in place of this game?"), "the box shows");
     play(&mut app, "y");
+    assert_eq!(app.session.world.tick, 140, "a bare y does nothing");
+    play(&mut app, "<down> <enter>");
     assert_eq!(app.ui.status, "Quickloaded (tick 40)");
     assert_eq!(app.session.world.save(&app.session.defs).unwrap(), saved);
     assert_eq!(app.ui.tool, Tool::Select, "the tool starts over");
@@ -77,12 +79,12 @@ fn f5_saves_and_f9_after_a_yes_brings_the_game_back() {
 fn a_failed_load_says_why_and_keeps_the_game() {
     let tmp = TempDir::new("failed");
     let mut app = app(Some(tmp.0.clone()));
-    play(&mut app, "<tick 5> <f9> y");
+    play(&mut app, "<tick 5> <f9> <down> <enter>");
     assert!(app.ui.status.starts_with("Quickload failed: no quicksave yet"), "{}", app.ui.status);
     assert_eq!(app.session.world.tick, 5);
 
     std::fs::write(tmp.0.join("quicksave.ron"), "garbage").unwrap();
-    play(&mut app, "<f9> y");
+    play(&mut app, "<f9> <down> <enter>");
     assert!(
         app.ui.status.starts_with("Quickload failed: not a Four Nations save"),
         "{}",
@@ -96,7 +98,7 @@ fn without_a_save_directory_both_keys_say_so() {
     let mut app = app(None);
     play(&mut app, "<f5>");
     assert!(app.ui.status.starts_with("Save failed: this platform has no data directory"));
-    play(&mut app, "<f9> y");
+    play(&mut app, "<f9> <down> <enter>");
     assert!(app.ui.status.starts_with("Save failed"));
 }
 
@@ -104,7 +106,7 @@ fn without_a_save_directory_both_keys_say_so() {
 fn the_binary_saves_and_loads_from_a_key_script() {
     let tmp = TempDir::new("binary");
     let out = Command::new(env!("CARGO_BIN_EXE_fn_tui"))
-        .args(["7", "earth", "--frame", "--keys", "<tick 40> <f5> <tick 600> <f9> y"])
+        .args(["7", "earth", "--frame", "--keys", "<tick 40> <f5> <tick 600> <f9> <down> <enter>"])
         .env("FN_SAVE_DIR", &tmp.0)
         .env_remove("NO_COLOR")
         .env_remove("COLORTERM")

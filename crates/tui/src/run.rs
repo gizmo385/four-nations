@@ -83,7 +83,7 @@ pub(crate) fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 /// (#280). `args` resolves (`Shell::for_args`) to the title screen, a game or embark (`--embark`,
 /// `--start`, #290), skipping the title screen when `SEED NATION` is given; `seed_hint` seeds the
 /// title screen's own default seed, the one thing here that is not already decided before the
-/// terminal is touched. A new nation (`1`-`4`, or a new game chosen at the title screen) needs
+/// terminal is touched. A new nation (Switch nation…, or a new game chosen at the title screen) needs
 /// new colours, so the palette is rebuilt for it at the same depth.
 pub fn run(
     args: &Args,

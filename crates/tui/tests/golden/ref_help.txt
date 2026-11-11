@@ -8,9 +8,10 @@
 │                           there. In a tool: set a corner, then apply                 │├─ HERE ──────────── (64, 28) ─┤
 │ Esc                       Close the screen, a modal or the bar. In a tool: drop the  ││ Juni                         │
 │                           corner, then leave the tool. With nothing to close: the    ││ Idle                         │
-│                           game menu (Resume, Save as…, Quicksave, Load…, Quickload,  ││ Press Enter to select        │
-│                           Key help, Quit, #306, #312) — every save and load action,  ││                              │
-│                           for a terminal the function keys don't reach               ││                              │
+│                           game menu (Resume, Save…, Load…, Key help, New map…,       ││ Press Enter to select        │
+│                           Switch nation…, Quit…), where the actions that end the     ││                              │
+│                           game live; each asks in a box first, and Esc there is the  ││                              │
+│                           safe answer                                                ││                              │
 │ Tab                       Select the next unit (Select mode)                         ││                              │
 │ Shift+Tab                 Select the previous unit (Select mode)                     ││                              │
 │ F                         Follow the selected unit (Select mode)                     ││                              │
@@ -35,6 +36,5 @@
 │ .                         One tick, while paused                                     ││                              │
 │                                                                                      ││                              │
 │ SCREENS AND GAME                                                                     ││                              │
-│ T                         Research: arrows W A S D choose a tech, Enter sets it as   ││                              │
-┗───────────────────────────────────────────────────────────────────────── 1-37 of 52 ─┛┗─ seed 1 ─────────────────────┛
+┗───────────────────────────────────────────────────────────────────────── 1-37 of 49 ─┛┗─ seed 1 ─────────────────────┛
  KEYS  Up/Down scroll · Esc or ? close · PgUp/PgDn page                                                   PAUSED ? keys

@@ -23,6 +23,9 @@ const MODES: &[(&str, Mode)] = &[
     ("?", Mode::Help),
     ("u", Mode::Build),
     ("<esc>", Mode::Menu),
+    ("<esc> <down*5> <enter>", Mode::MenuNations),
+    ("<esc> <down*4> <enter>", Mode::Ask),
+    ("<f9>", Mode::Ask),
 ];
 
 fn status_line(script: &str, width: u16) -> (String, Mode) {

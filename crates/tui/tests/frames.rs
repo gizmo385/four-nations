@@ -251,24 +251,40 @@ fn plus_and_minus_change_the_speed() {
     assert_eq!(app.session.clock.speed(), 2);
 }
 
+/// `Q` is no key any more (#655): quitting is the game menu's Quit…, which asks in a box. Only
+/// that box's own "Quit without saving" quits; `y`, other keys and `Esc` do not.
 #[test]
-fn q_asks_first_and_only_y_quits() {
+fn quit_is_in_the_menu_and_only_its_last_answer_quits() {
     let none = KeyModifiers::NONE;
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
     press(&mut app, KeyCode::Char('q'), none);
-    assert!(!app.ui.quit, "q only asks");
+    assert!(!app.ui.quit && app.ui.prompt.is_none(), "q does nothing");
+    for key in [KeyCode::Esc, KeyCode::Down, KeyCode::Down, KeyCode::Down] {
+        press(&mut app, key, none);
+    }
+    for key in [KeyCode::Down, KeyCode::Down, KeyCode::Down, KeyCode::Enter] {
+        press(&mut app, key, none);
+    }
+    assert!(!app.ui.quit, "Quit… only asks");
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
-    assert!(text.contains("QUIT?"), "{text}");
-    // Any other key withdraws the question, and is not also acted on.
+    assert!(text.contains("QUIT") && text.contains("Quit the game?"), "{text}");
+    // Other keys do not answer it, and are not also acted on.
     let cursor = app.ui.cursor;
-    press(&mut app, KeyCode::Char('d'), none);
-    assert!(!app.ui.quit && app.ui.prompt.is_none());
+    for c in ['y', 'Y', 'q', 'd'] {
+        press(&mut app, KeyCode::Char(c), none);
+    }
+    assert!(!app.ui.quit && app.ui.prompt.is_some());
     assert_eq!(app.ui.cursor, cursor);
-    press(&mut app, KeyCode::Char('Q'), none);
     press(&mut app, KeyCode::Esc, none);
     assert!(!app.ui.quit && app.ui.prompt.is_none());
-    press(&mut app, KeyCode::Char('q'), none);
-    press(&mut app, KeyCode::Char('y'), none);
+    // Reopen it and take the last answer (no save directory: Keep playing, Quit without saving).
+    for key in [KeyCode::Esc, KeyCode::Down, KeyCode::Down, KeyCode::Down] {
+        press(&mut app, key, none);
+    }
+    for key in [KeyCode::Down, KeyCode::Down, KeyCode::Down, KeyCode::Enter, KeyCode::Down] {
+        press(&mut app, key, none);
+    }
+    press(&mut app, KeyCode::Enter, none);
     assert!(app.ui.quit);
 }
 

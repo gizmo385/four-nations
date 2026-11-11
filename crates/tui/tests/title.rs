@@ -100,13 +100,13 @@ fn enter_on_the_seed_step_opens_embark_and_esc_at_the_overview_goes_back() {
     }
 }
 
-/// `R`, confirmed in a game, reopens embark on the next seed instead of restarting in place
-/// (#290); the `1`-`4` nation switch, with no chosen start, still restarts in place as before.
+/// New map…, confirmed in a game, reopens embark on the next seed instead of restarting in place
+/// (#290); the nation switch, with no chosen start, still restarts in place as before.
 #[test]
-fn r_in_a_game_reopens_embark_on_the_next_seed() {
+fn new_map_in_a_game_reopens_embark_on_the_next_seed() {
     let mut shell = Shell::new_game(fn_tui::new_session(7, Nation::Earth), SIZE, None);
-    press(&mut shell, KeyCode::Char('r'));
-    press(&mut shell, KeyCode::Char('y'));
+    // The menu's New map…, then the box's second answer (no save directory).
+    shell.play(&fn_tui::keys::parse("<esc> <down*4> <enter> <down> <enter>").unwrap());
     match &shell.mode {
         fn_tui::shell::Mode::Embark(screen) => {
             assert_eq!(screen.seed(), 8);
@@ -116,6 +116,9 @@ fn r_in_a_game_reopens_embark_on_the_next_seed() {
     }
 }
 
+/// The game menu's Quit… (the last row), as far as its box.
+const ASK_QUIT: &str = "<esc> <down*6> <enter>";
+
 #[test]
 fn quitting_a_game_asks_whether_to_go_to_the_title_screen_or_exit() {
     let mut shell = Shell::new_title(SIZE, None, 1);
@@ -124,9 +127,9 @@ fn quitting_a_game_asks_whether_to_go_to_the_title_screen_or_exit() {
     shell.play(&start);
     assert!(matches!(shell.mode, fn_tui::shell::Mode::Game(_)));
 
-    press(&mut shell, KeyCode::Char('q'));
-    assert!(!shell.exit_prompt, "q only asks to quit the game first");
-    press(&mut shell, KeyCode::Char('y'));
+    shell.play(&fn_tui::keys::parse(ASK_QUIT).unwrap());
+    assert!(!shell.exit_prompt, "Quit… only asks to quit the game first");
+    shell.play(&fn_tui::keys::parse("<down> <enter>").unwrap());
     assert!(shell.exit_prompt, "confirming asks where to go next");
     assert!(!shell.quit);
 
@@ -135,8 +138,7 @@ fn quitting_a_game_asks_whether_to_go_to_the_title_screen_or_exit() {
     assert!(!shell.exit_prompt && !shell.quit);
     assert!(matches!(shell.mode, fn_tui::shell::Mode::Game(_)));
 
-    press(&mut shell, KeyCode::Char('q'));
-    press(&mut shell, KeyCode::Char('y'));
+    shell.play(&fn_tui::keys::parse(&format!("{ASK_QUIT} <down> <enter>")).unwrap());
     press(&mut shell, KeyCode::Char('t'));
     assert!(!shell.exit_prompt && !shell.quit);
     assert!(matches!(shell.mode, fn_tui::shell::Mode::Title(_)), "back at the title screen");
@@ -149,12 +151,11 @@ fn quitting_a_game_asks_whether_to_go_to_the_title_screen_or_exit() {
 }
 
 #[test]
-fn q_then_enter_exits_the_process_instead_of_the_title_screen() {
+fn quit_then_enter_exits_the_process_instead_of_the_title_screen() {
     let mut shell = Shell::new_title(SIZE, None, 1);
     let start = fn_tui::keys::parse("<enter> <enter> <enter> e y").unwrap();
     shell.play(&start);
-    press(&mut shell, KeyCode::Char('q'));
-    press(&mut shell, KeyCode::Char('y'));
+    shell.play(&fn_tui::keys::parse(&format!("{ASK_QUIT} <down> <enter>")).unwrap());
     press(&mut shell, KeyCode::Enter);
     assert!(shell.quit);
 }

@@ -1,17 +1,19 @@
-//! The game menu (`Esc`, #306): opens when there is nothing else for `Esc` to close (no tool
-//! active, no selection bar, no screen, modal or prompt open already) — Resume, Save as…,
-//! Quicksave, Load…, Quickload, Key help and Quit, so every save/load action is reachable
-//! without a function key, which some terminals (Windows Terminal on WSL among them, #312) never
-//! pass through (`App::open_menu`/`App::menu_key`, `crate::app`). Reuses the Build modal's
-//! reusable frame (`crate::modal`, #285).
+//! The game menu (`Esc`, #306, #655): opens when there is nothing else for `Esc` to close (no
+//! tool active, no selection bar, no screen, modal or prompt open already). Resume, Save…,
+//! Load…, Key help, then below a gap the three that end the game as it is: New map…, Switch
+//! nation… and Quit…. Those three live only here (#655): the map has no single key for them.
+//! Reuses the Build modal's reusable frame (`crate::modal`, #285).
 //!
-//! **Save as…** (#312) turns the row list into a one-line name prompt in place
-//! (`App::menu_name_key`, [`UiState::menu_name`](crate::state::UiState::menu_name)): typed text
-//! replaces the row list until `Enter` writes the slot (asking first if the name is already
-//! taken, as Shift+`S` does in the saves screen) or `Esc` returns to the row list. An empty name
-//! falls back to the saves screen's own `N` naming (`fn_ui::saves::new_name`), so Enter alone
-//! always saves something.
+//! **Save…** and **Load…** both open the saves screen (`App::menu_choose`): its `N` writes a new
+//! slot, Shift+`S` saves over the highlighted one and `Enter` loads it. `F5`, `F6` and `F9` stay
+//! as shortcuts. **New map…**, **Quit…** and every nation on **Switch nation…**'s list ask in a
+//! centred box first (`crate::ask`).
+//!
+//! **Switch nation…** turns the row list into the list of nations in place
+//! ([`MenuPage::Nations`], [`UiState::menu_page`](crate::state::UiState::menu_page)); `Esc` there
+//! goes back to the rows.
 
+use fn_sim::Nation;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -25,125 +27,132 @@ use crate::widgets::{Marks, Painter, Row, Tone};
 pub enum MenuRow {
     /// Closes the menu, as `Esc` does too.
     Resume,
-    /// Types a name in place (see the module docs) and writes a new slot under it, or over an
-    /// existing one after a y/n prompt like Shift+`S`. The other way to a named slot is `Load`'s
-    /// saves screen below, whose own `N` and Shift+`S` do the same two things.
-    SaveAs,
-    /// Writes the quicksave slot at once, the same as `F5` (`App::quicksave`).
-    Quicksave,
-    /// Opens the saves screen (#276): `Enter` loads the highlighted slot, `N` writes a new one
-    /// and Shift+`S` saves over it, so it is also where a named-slot save lives.
+    /// Opens the saves screen (#276), where `N` writes a new slot and Shift+`S` saves over one.
+    Save,
+    /// Opens the saves screen too: `Enter` loads the highlighted slot, after asking.
     Load,
-    /// Asks the same y/n `F9` does (`Prompt::QuickLoad`), then the quicksave becomes the game.
-    /// Reads as disabled with no quicksave yet, as there is then nothing to load.
-    Quickload,
     /// The key help screen (`?`).
     Help,
-    /// Asks to quit, the same question `Q` does (`Prompt::Quit`); the menu stays open behind
-    /// the prompt until it's answered, so declining leaves the menu where it was.
+    /// Asks, then opens embark on the next seed (`Prompt::NewMap`).
+    NewMap,
+    /// Lists the nations ([`MenuPage::Nations`]); choosing one asks (`Prompt::Nation`).
+    SwitchNation,
+    /// Asks, then quits (`Prompt::Quit`).
     Quit,
 }
 
 impl MenuRow {
     pub const ALL: [MenuRow; 7] = [
         Self::Resume,
-        Self::SaveAs,
-        Self::Quicksave,
+        Self::Save,
         Self::Load,
-        Self::Quickload,
         Self::Help,
+        Self::NewMap,
+        Self::SwitchNation,
         Self::Quit,
     ];
 
-    /// The row's text. With no quicksave yet, [`Self::Quickload`] is dimmed rather than
-    /// relabelled (`draw`).
+    /// The row's text. A trailing `…` says choosing it goes on to another step.
     pub fn label(self) -> &'static str {
         match self {
             Self::Resume => "Resume",
-            Self::SaveAs => "Save as…",
-            Self::Quicksave => "Quicksave",
+            Self::Save => "Save…",
             Self::Load => "Load…",
-            Self::Quickload => "Quickload",
             Self::Help => "Key help",
-            Self::Quit => "Quit",
+            Self::NewMap => "New map…",
+            Self::SwitchNation => "Switch nation…",
+            Self::Quit => "Quit…",
         }
     }
 
-    /// The function key this row doubles for, where it has one: the whole point of the menu is
-    /// reaching these when such a key doesn't arrive, so the row says which it is.
-    pub fn hint(self) -> Option<&'static str> {
+    /// Whether a blank line sits above this row: the three that end the game as it is are set
+    /// apart from the rest.
+    fn gap_before(self) -> bool {
+        self == Self::NewMap
+    }
+}
+
+/// Which list the menu shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MenuPage {
+    /// [`MenuRow::ALL`].
+    #[default]
+    Rows,
+    /// [`Nation::ALL`], under Switch nation….
+    Nations,
+}
+
+impl MenuPage {
+    /// How many rows the page lists (never none).
+    pub fn rows(self) -> usize {
         match self {
-            Self::Quicksave => Some("F5"),
-            Self::Load => Some("F6"),
-            Self::Quickload => Some("F9"),
-            Self::Resume | Self::SaveAs | Self::Help | Self::Quit => None,
+            Self::Rows => MenuRow::ALL.len(),
+            Self::Nations => Nation::ALL.len(),
         }
     }
 }
 
-/// The modal's target size: seven short rows, room for the longest label and its hint, and a
-/// little space round them.
-pub const SIZE: (u16, u16) = (40, 11);
+/// The modal's target size: the rows, the gap, room for the longest label and a little space
+/// round them.
+pub const SIZE: (u16, u16) = (40, 10);
 
-/// The cursor after a step of `dy` rows (its sign only), stopping at the list's edges, as
-/// `crate::build::step` and `crate::saves::step` do.
-pub fn step(at: usize, dy: i32) -> usize {
-    let last = MenuRow::ALL.len() as i64 - 1;
+/// The cursor after a step of `dy` rows (its sign only) on a list of `len`, stopping at the
+/// list's edges, as `crate::build::step` and `crate::saves::step` do.
+pub fn step(at: usize, dy: i32, len: usize) -> usize {
+    let last = (len as i64 - 1).max(0);
     (at as i64 + i64::from(dy.signum())).clamp(0, last) as usize
 }
 
-/// Draws the menu: the row list ([`draw_rows`]), or in its place the Save as… name prompt
-/// (`naming`, `Some` while [`crate::state::UiState::menu_name`] is). `clock`, while seasons are
-/// on, is the elapsed game clock (#416, owner decision 4 on #414): with the side panel's header
-/// showing the season instead, the menu is one of the two places it moved to (the Nation
-/// screen's header line, already there, is the other).
+/// Draws the menu: the row list or the list of nations (`page`), the highlighted row reversed.
+/// `nations` is each nation's name and whether it is the one being played. `clock`, while
+/// seasons are on, is the elapsed game clock (#416, owner decision 4 on #414): with the side
+/// panel's header showing the season instead, the menu is one of the two places it moved to (the
+/// Nation screen's header line, already there, is the other).
 pub fn draw(
+    page: MenuPage,
     at: usize,
-    naming: Option<&str>,
-    has_quicksave: bool,
-    clock: Option<&str>,
-    palette: &Palette,
-    outer: Rect,
-    buf: &mut Buffer,
-) {
-    match naming {
-        Some(name) => draw_naming(name, palette, outer, buf),
-        None => draw_rows(at, has_quicksave, clock, palette, outer, buf),
-    }
-}
-
-/// The row list, the highlighted one reversed.
-fn draw_rows(
-    at: usize,
-    has_quicksave: bool,
+    nations: &[(String, bool)],
     clock: Option<&str>,
     palette: &Palette,
     outer: Rect,
     buf: &mut Buffer,
 ) {
     let marks = Marks::new(palette.ascii);
-    let title = format!(" {0} MENU {0} ", marks.seal);
+    let name = match page {
+        MenuPage::Rows => "MENU",
+        MenuPage::Nations => "SWITCH NATION",
+    };
+    let title = format!(" {0} {name} {0} ", marks.seal);
     let inner = modal::draw(buf, outer, SIZE, palette, &title, clock.unwrap_or(""));
-    let at = at.min(MenuRow::ALL.len() - 1);
+    let at = at.min(page.rows() - 1);
     let mut p = Painter::new(buf, inner, palette);
     let mut reversed = None;
-    for (i, row) in MenuRow::ALL.iter().enumerate() {
+    let mut rows: Vec<(bool, usize, String, Option<&str>)> = Vec::new();
+    match page {
+        MenuPage::Rows => {
+            for (i, row) in MenuRow::ALL.iter().enumerate() {
+                rows.push((row.gap_before(), i, row.label().to_owned(), None));
+            }
+        }
+        MenuPage::Nations => {
+            for (i, (name, playing)) in nations.iter().enumerate() {
+                rows.push((false, i, name.clone(), playing.then_some("playing")));
+            }
+        }
+    }
+    for (gap, i, label, note) in rows {
+        if gap {
+            p.blank();
+        }
         let chosen = i == at;
         if chosen {
             reversed = Some(inner.y + p.row);
         }
-        let disabled = *row == MenuRow::Quickload && !has_quicksave;
         let pointer = if chosen { marks.pointer } else { " " };
-        let tone = if disabled {
-            Tone::Dim
-        } else if chosen {
-            Tone::Title
-        } else {
-            Tone::Text
-        };
-        let left = format!("{pointer} {}", row.label());
-        match row.hint() {
-            Some(hint) => p.row(&Row::pair(left, tone, hint, Tone::Dim)),
+        let tone = if chosen { Tone::Title } else { Tone::Text };
+        let left = format!("{pointer} {label}");
+        match note {
+            Some(note) => p.row(&Row::pair(left, tone, note, Tone::Dim)),
             None => p.row(&Row::text(left, tone)),
         }
     }
@@ -154,46 +163,33 @@ fn draw_rows(
     }
 }
 
-/// The Save as… name prompt, in the same frame: one line of typed text, a cursor block at its
-/// end.
-fn draw_naming(name: &str, palette: &Palette, outer: Rect, buf: &mut Buffer) {
-    let marks = Marks::new(palette.ascii);
-    let title = format!(" {0} SAVE AS {0} ", marks.seal);
-    let inner = modal::draw(buf, outer, SIZE, palette, &title, "");
-    let mut p = Painter::new(buf, inner, palette);
-    p.row(&Row::text(format!("Name: {name}"), Tone::Text));
-    p.blank();
-    p.row(&Row::text("Letters, digits, - and _ only.", Tone::Dim));
-    let y = inner.y;
-    let x = inner.x + "Name: ".chars().count() as u16 + name.chars().count() as u16;
-    if x < inner.right() {
-        buf[(x, y)].set_style(Style::new().add_modifier(Modifier::REVERSED));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn stepping_stops_at_the_edges() {
-        assert_eq!(step(0, -1), 0);
-        assert_eq!(step(0, 1), 1);
-        assert_eq!(step(MenuRow::ALL.len() - 1, 1), MenuRow::ALL.len() - 1);
+        let len = MenuPage::Rows.rows();
+        assert_eq!(step(0, -1, len), 0);
+        assert_eq!(step(0, 1, len), 1);
+        assert_eq!(step(len - 1, 1, len), len - 1);
+        assert_eq!(step(3, 1, MenuPage::Nations.rows()), 3);
     }
 
     #[test]
-    fn every_row_has_a_label() {
+    fn every_row_has_a_label_and_the_ones_that_go_on_say_so() {
         for row in MenuRow::ALL {
             assert!(!row.label().is_empty());
         }
+        for row in [MenuRow::Save, MenuRow::Load, MenuRow::NewMap, MenuRow::SwitchNation] {
+            assert!(row.label().ends_with('…'), "{row:?}");
+        }
+        assert!(MenuRow::Quit.label().ends_with('…'));
     }
 
     #[test]
-    fn only_the_f_key_rows_hint_their_key() {
-        for row in MenuRow::ALL {
-            let expect = matches!(row, MenuRow::Quicksave | MenuRow::Load | MenuRow::Quickload);
-            assert_eq!(row.hint().is_some(), expect, "{row:?}");
-        }
+    fn the_three_that_end_the_game_are_set_apart() {
+        let gaps: Vec<MenuRow> = MenuRow::ALL.into_iter().filter(|r| r.gap_before()).collect();
+        assert_eq!(gaps, [MenuRow::NewMap]);
     }
 }

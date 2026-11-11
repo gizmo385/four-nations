@@ -1,7 +1,7 @@
-//! The game menu (`Esc`, #306, #312): opens only once nothing else is left for `Esc` to close,
-//! pauses the clock while it's open, and reaches every save/load action — Save as…, Quicksave,
-//! Load…, Quickload — plus Key help and Quit without a function key. The one reference golden
-//! lives in `reference_goldens.rs` now (#455).
+//! The game menu (`Esc`, #306, #655): opens only once nothing else is left for `Esc` to close,
+//! pauses the clock while it's open, and holds Resume, Save…, Load…, Key help, New map…, Switch
+//! nation… and Quit…. The last three are asked in a centred box (`fn_tui::ask`) and have no key
+//! of their own. The one reference golden lives in `reference_goldens.rs` now (#455).
 
 use std::path::PathBuf;
 
@@ -9,7 +9,7 @@ use fn_sim::Nation;
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
-use fn_tui::state::{Modal, Screen};
+use fn_tui::state::{Modal, Prompt, Screen};
 use fn_tui::{keys, new_session};
 use fn_ui::Tool;
 
@@ -147,6 +147,28 @@ fn the_menu_captures_every_key_until_it_closes() {
 // The rows
 // ---------------------------------------------------------------------------------------------
 
+/// The menu's rows in order: Resume 0, Save… 1, Load… 2, Key help 3, New map… 4,
+/// Switch nation… 5, Quit… 6.
+#[test]
+fn the_menu_lists_the_rows_the_issue_names_with_the_game_enders_set_apart() {
+    let mut a = app(None);
+    run(&mut a, "<esc>");
+    let frame = text(&mut a, SIZE);
+    let mut last = 0;
+    for row in ["Resume", "Save…", "Load…", "Key help", "New map…", "Switch nation…", "Quit…"]
+    {
+        let at = frame.find(row).unwrap_or_else(|| panic!("no {row} row in\n{frame}"));
+        assert!(at > last, "{row} is out of order");
+        last = at;
+    }
+    for gone in ["Save as", "Quicksave", "Quickload"] {
+        assert!(!frame.contains(gone), "{gone} left the menu");
+    }
+    let line = |needle: &str| frame.lines().position(|l| l.contains(needle)).unwrap();
+    assert_eq!(line("New map…") - line("Key help"), 2, "a blank line sets the three apart");
+    assert_eq!(line("Save…") - line("Resume"), 1);
+}
+
 #[test]
 fn arrows_and_w_s_move_the_highlight_and_stop_at_the_edges() {
     let mut a = app(None);
@@ -163,162 +185,250 @@ fn arrows_and_w_s_move_the_highlight_and_stop_at_the_edges() {
 }
 
 #[test]
-fn quicksave_writes_the_slot_and_says_where() {
+fn f5_still_quicksaves_from_the_map_and_says_where() {
     let tmp = TempDir::new("quicksave");
     let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<tick 40> <esc> <down*2> <enter>");
+    run(&mut a, "<tick 40> <f5>");
     let path = fn_ui::saves::slot_path(&tmp.0, fn_ui::saves::QUICKSAVE);
     assert_eq!(a.ui.status, format!("Quicksaved to {} (tick 40)", path.display()));
     assert!(path.is_file());
-    assert_eq!(a.ui.modal, None, "Quicksave closes the menu back to the game");
-    assert!(!a.session.clock.paused, "and restores the pause from before it opened");
 }
 
 #[test]
-fn quicksave_without_a_save_directory_says_so_in_the_notice() {
+fn save_and_load_both_open_the_saves_screen_which_writes_a_named_slot() {
+    for rows in ["<down>", "<down*2>"] {
+        let tmp = TempDir::new("saves_screen");
+        let mut a = app(Some(tmp.0.clone()));
+        run(&mut a, &format!("<esc> {rows} <enter>"));
+        assert_eq!(a.ui.screen, Some(Screen::Saves), "{rows}");
+        assert_eq!(a.ui.modal, None, "the menu closes, opening the screen instead");
+
+        // The saves screen (#276) is where a named-slot save lives.
+        run(&mut a, "n");
+        let path = fn_ui::saves::slot_path(&tmp.0, "save-1");
+        assert_eq!(a.ui.status, format!("Saved to {} (tick 0)", path.display()));
+    }
+}
+
+#[test]
+fn save_without_a_save_directory_says_so() {
     let mut a = app(None);
-    run(&mut a, "<esc> <down*2> <enter>");
-    assert!(a.ui.status.starts_with("Save failed: this platform has no data directory"));
-}
-
-#[test]
-fn load_opens_the_saves_screen_which_can_also_write_a_named_slot() {
-    let tmp = TempDir::new("load");
-    let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<esc> <down*3> <enter>");
-    assert_eq!(a.ui.screen, Some(Screen::Saves));
-    assert_eq!(a.ui.modal, None, "Load closes the menu, opening the screen instead");
-
-    // The saves screen (#276) is where a named-slot save lives.
-    run(&mut a, "n");
-    let path = fn_ui::saves::slot_path(&tmp.0, "save-1");
-    assert_eq!(a.ui.status, format!("Saved to {} (tick 0)", path.display()));
+    run(&mut a, "<esc> <down> <enter>");
+    assert!(a.ui.status.contains("data directory"), "{}", a.ui.status);
 }
 
 #[test]
 fn help_opens_the_key_help_screen() {
     let mut a = app(None);
-    run(&mut a, "<esc> <down*5> <enter>");
+    run(&mut a, "<esc> <down*3> <enter>");
     assert_eq!(a.ui.screen, Some(Screen::Help));
     assert_eq!(a.ui.modal, None);
 }
 
+// ---------------------------------------------------------------------------------------------
+// The freed keys (#655): R, 1-4 and Q do nothing on the map and in a tool.
+// ---------------------------------------------------------------------------------------------
+
 #[test]
-fn quit_asks_the_same_question_q_does_and_the_menu_stays_open_behind_it() {
+fn r_1_to_4_and_q_do_nothing_on_the_map_or_in_a_tool() {
+    for prelude in ["", "h", "x", "b", "u <esc>"] {
+        let mut a = app(None);
+        run(&mut a, prelude);
+        let before = (a.ui.clone(), text(&mut a, SIZE));
+        run(&mut a, "r R 1 2 3 4 q Q");
+        assert_eq!((a.ui.clone(), text(&mut a, SIZE)), before, "after {prelude:?}");
+        assert_eq!(a.ui.prompt, None, "no prompt opens");
+        assert!(!a.ui.quit && !a.reopen_embark);
+        assert_eq!(a.session.world.nation, Nation::Earth);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// New map…, Switch nation… and Quit… ask in a centred box
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn new_map_asks_in_a_centred_box_with_the_cursor_on_the_safe_answer() {
+    let mut a = app(None);
+    run(&mut a, "<esc> <down*4> <enter>");
+    assert_eq!(a.ui.prompt, Some(Prompt::NewMap));
+    assert_eq!(a.ui.ask_cursor, 0);
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("NEW MAP"), "{frame}");
+    assert!(frame.contains("Start a new map (seed 8)?"), "{frame}");
+    assert!(frame.contains("This game has not been saved."), "{frame}");
+    assert!(frame.contains("▸ Keep playing"), "{frame}");
+    assert!(frame.contains("Start over without saving"), "{frame}");
+    assert!(!frame.contains("Press y"), "the hint bar no longer asks");
+    // The menu is hidden behind it, and the hint bar shows the box's keys.
+    assert!(!frame.contains("Switch nation…"), "{frame}");
+    let bar = frame.lines().last().unwrap();
+    assert!(bar.contains("CONFIRM") && bar.contains("Esc cancel"), "{bar}");
+}
+
+#[test]
+fn a_bare_y_does_nothing_and_esc_picks_the_safe_answer() {
+    let mut a = app(None);
+    run(&mut a, "<esc> <down*4> <enter> y Y n");
+    assert_eq!(a.ui.prompt, Some(Prompt::NewMap), "still asking");
+    assert!(!a.reopen_embark);
+
+    // Esc keeps playing: the box and the menu close and the clock runs again.
+    run(&mut a, "<esc>");
+    assert_eq!(a.ui.prompt, None);
+    assert_eq!(a.ui.modal, None);
+    assert!(!a.reopen_embark);
+    assert!(!a.session.clock.paused);
+}
+
+#[test]
+fn the_answers_are_rows_the_cursor_moves_over() {
+    let mut a = app(None);
+    run(&mut a, "<esc> <down*4> <enter>");
+    run(&mut a, "<down>");
+    assert_eq!(a.ui.ask_cursor, 1);
+    run(&mut a, "s s s");
+    assert_eq!(a.ui.ask_cursor, 1, "two rows with nowhere to save to: stops at the last");
+    run(&mut a, "<up> w");
+    assert_eq!(a.ui.ask_cursor, 0);
+    // Without a save directory there is no "Save, then" row.
+    assert!(!text(&mut a, SIZE).contains("Save, then"));
+}
+
+#[test]
+fn the_last_row_starts_over_without_saving() {
+    let mut a = app(None);
+    run(&mut a, "<esc> <down*4> <enter> <down> <enter>");
+    assert!(a.reopen_embark, "the shell reopens embark on the next seed");
+}
+
+#[test]
+fn switch_nation_lists_the_nations_then_asks() {
+    let mut a = app(None);
+    run(&mut a, "<esc> <down*5> <enter>");
+    assert_eq!(a.ui.prompt, None);
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("SWITCH NATION"), "{frame}");
+    for name in ["Air Nomads", "Water Tribes", "Earth Kingdom", "Fire Nation"] {
+        assert!(frame.contains(name), "no {name} in\n{frame}");
+    }
+    assert!(frame.contains("playing"), "the current nation is marked");
+    let bar = frame.lines().last().unwrap();
+    assert!(bar.contains("SWITCH") && bar.contains("Esc back"), "{bar}");
+
+    // Esc goes back to the rows, on Switch nation….
+    run(&mut a, "<esc>");
+    assert_eq!(a.ui.modal, Some(Modal::Menu));
+    assert_eq!(a.ui.menu_cursor, 5);
+
+    // Choosing the second nation asks, naming it.
+    run(&mut a, "<enter> <down> <enter>");
+    assert_eq!(a.ui.prompt, Some(Prompt::Nation(Nation::Water)));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Start over as the Water Tribes?"), "{frame}");
+
+    // Going on restarts the game as that nation.
+    run(&mut a, "<down> <enter>");
+    assert_eq!(a.session.world.nation, Nation::Water);
+    assert_eq!((a.ui.prompt.clone(), a.ui.modal), (None, None));
+}
+
+#[test]
+fn quit_asks_in_a_box_and_declining_resumes_the_game() {
     let mut a = app(None);
     run(&mut a, "<esc> <down*6> <enter>");
-    assert_eq!(a.ui.modal, Some(Modal::Menu), "the menu stays open behind the prompt");
-    let status = text(&mut a, SIZE).lines().last().unwrap().to_owned();
-    assert!(status.starts_with(" QUIT? "), "{status}");
+    assert_eq!(a.ui.prompt, Some(Prompt::Quit));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Quit the game?"), "{frame}");
 
-    // Declining leaves the menu where it was.
-    run(&mut a, "n");
-    assert_eq!(a.ui.modal, Some(Modal::Menu));
-    assert!(!a.ui.quit);
+    run(&mut a, "y q <enter>");
+    assert!(!a.ui.quit, "y and q do nothing, and Enter on Keep playing keeps playing");
+    assert_eq!((a.ui.prompt.clone(), a.ui.modal), (None, None));
 
-    // Confirming answers as Q itself would (`App::ui.quit`, which `Shell` turns into its own
+    // Confirming answers as the old Q did (`App::ui.quit`, which `Shell` turns into its own
     // back-to-title/exit prompt, #280).
-    run(&mut a, "<down*6> <enter> y");
+    run(&mut a, "<esc> <down*6> <enter> <down> <enter>");
+    assert!(a.ui.quit);
+}
+
+#[test]
+fn ctrl_c_still_quits_at_once_even_with_a_question_open() {
+    let mut a = app(None);
+    run(&mut a, "<esc> <down*6> <enter> <c-c>");
     assert!(a.ui.quit);
 }
 
 // ---------------------------------------------------------------------------------------------
-// Save as… (#312): the row list becomes a name prompt in place.
+// "Save, then …" and how long ago the game was saved
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn save_as_types_a_name_writes_it_and_closes_the_menu() {
-    let tmp = TempDir::new("save_as");
+fn the_box_says_how_long_ago_the_game_was_saved_in_game_time() {
+    let tmp = TempDir::new("ago");
     let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<tick 10> <esc> <down> <enter>");
-    assert!(a.ui.menu_name.is_some(), "the row list became the name prompt");
-    let status = text(&mut a, SIZE).lines().last().unwrap().to_owned();
-    assert!(status.starts_with(" SAVE AS "), "{status}");
-    run(&mut a, "m y - s a v e <enter>");
-    assert_eq!(a.ui.modal, None, "a successful save as closes the menu back to the game");
-    let path = fn_ui::saves::slot_path(&tmp.0, "my-save");
-    assert!(path.is_file());
-    assert_eq!(a.ui.status, format!("Saved to {} (tick 10)", path.display()));
+    run(&mut a, "<tick 10> <f5> <tick 7200> <esc> <down*6> <enter>");
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("This game was last saved 12 minutes ago."), "{frame}");
+    assert!(frame.contains("Anything since then is lost."), "{frame}");
 }
 
 #[test]
-fn esc_in_the_name_prompt_goes_back_to_the_menu_without_saving() {
-    let tmp = TempDir::new("save_as_esc");
+fn save_then_quit_writes_a_new_slot_and_only_then_quits() {
+    let tmp = TempDir::new("save_then");
     let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<esc> <down> <enter> m y <esc>");
-    assert_eq!(a.ui.modal, Some(Modal::Menu), "back to the row list, not resumed");
-    assert_eq!(a.ui.menu_name, None);
+    run(&mut a, "<tick 30> <esc> <down*6> <enter>");
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Save, then quit"), "{frame}");
+    assert!(frame.contains("Quit without saving"), "{frame}");
     assert!(fn_ui::saves::list(&tmp.0).unwrap().is_empty());
+
+    run(&mut a, "<down> <enter>");
+    let slots = fn_ui::saves::list(&tmp.0).unwrap();
+    assert_eq!(slots.len(), 1, "one new slot");
+    assert_eq!(slots[0].name, "save-1");
+    assert!(a.ui.quit);
 }
 
 #[test]
-fn save_as_with_no_typed_name_falls_back_to_new_name() {
-    let tmp = TempDir::new("save_as_blank");
-    let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<esc> <down> <enter> <enter>");
-    let path = fn_ui::saves::slot_path(&tmp.0, "save-1");
-    assert!(path.is_file(), "an empty name falls back to new_name's save-1");
-    assert_eq!(a.ui.modal, None);
-}
-
-#[test]
-fn save_as_over_an_existing_name_asks_first_like_shift_s() {
-    let tmp = TempDir::new("save_as_over");
-    let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<esc> <down*2> <enter>"); // Quicksave writes the `quicksave` slot.
-    assert!(fn_ui::saves::slot_path(&tmp.0, fn_ui::saves::QUICKSAVE).is_file());
-
-    run(&mut a, "<esc> <down> <enter> q u i c k s a v e <enter>");
-    assert_eq!(a.ui.modal, Some(Modal::Menu), "the menu stays open behind the prompt");
-    let status = text(&mut a, SIZE).lines().last().unwrap().to_owned();
-    assert!(status.to_lowercase().contains("save"), "{status}");
-
-    // Declining leaves it as it was, cursor still on Save as….
-    run(&mut a, "n");
-    assert_eq!(a.ui.modal, Some(Modal::Menu));
-
-    // Confirming writes it over and closes the menu, as a plain new name does.
-    run(&mut a, "<enter> q u i c k s a v e <enter> y");
-    assert_eq!(a.ui.modal, None);
-}
-
-#[test]
-fn save_as_without_a_save_directory_says_so_and_leaves_the_menu_as_it_was() {
-    let mut a = app(None);
-    run(&mut a, "<esc> <down> <enter>");
-    assert!(a.ui.status.starts_with("Save failed: this platform has no data directory"));
-    assert_eq!(a.ui.menu_name, None, "never entered the name prompt");
-    assert_eq!(a.ui.modal, Some(Modal::Menu));
+fn a_failed_save_keeps_the_box_open_and_does_not_go_on() {
+    let tmp = TempDir::new("save_then_fails");
+    // A file where the directory should be: every write fails.
+    let blocked = tmp.0.join("not-a-dir");
+    std::fs::write(&blocked, "x").unwrap();
+    let mut a = app(Some(blocked));
+    run(&mut a, "<esc> <down*6> <enter> <down> <enter>");
+    assert!(!a.ui.quit);
+    assert_eq!(a.ui.prompt, Some(Prompt::Quit), "still asking");
+    assert!(a.ui.status.contains("failed"), "{}", a.ui.status);
 }
 
 // ---------------------------------------------------------------------------------------------
-// Quickload (#312): the same y/n `F9` asks, greyed out (and said) with nothing to load.
+// Quickload (F9) and the saves screen ask in the same box
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn quickload_asks_first_like_f9_then_loads_and_closes_the_menu() {
+fn f9_asks_in_the_box_then_loads() {
     let tmp = TempDir::new("quickload");
     let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<tick 40> <esc> <down*2> <enter>"); // Quicksave at tick 40.
-    assert_eq!(a.ui.modal, None);
-
-    run(&mut a, "<tick 20> <esc> <down*4> <enter>"); // Quickload row.
-    assert_eq!(a.ui.modal, Some(Modal::Menu), "the menu stays open behind the prompt");
+    run(&mut a, "<tick 40> <f5> <tick 20> <f9>");
+    assert_eq!(a.ui.prompt, Some(Prompt::QuickLoad));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("Load the quicksave in place of this game?"), "{frame}");
+    assert!(!frame.contains("Save, then"), "loading offers no save-first row: {frame}");
     run(&mut a, "y");
+    assert_eq!(a.session.world.tick, 60, "y alone loads nothing");
+    run(&mut a, "<down> <enter>");
     assert_eq!(a.session.world.tick, 40, "the quicksave replaced the game");
-    assert_eq!(a.ui.modal, None, "and the menu closed along with it");
 }
 
 #[test]
-fn quickload_is_greyed_out_and_fails_gracefully_with_no_quicksave_yet() {
-    let tmp = TempDir::new("quickload_none");
+fn saving_over_a_slot_asks_in_the_box_too() {
+    let tmp = TempDir::new("save_over");
     let mut a = app(Some(tmp.0.clone()));
-    run(&mut a, "<esc>");
-    assert!(!a.ui.has_quicksave, "nothing saved yet");
+    run(&mut a, "<f5> <f6> S");
+    assert_eq!(a.ui.prompt, Some(Prompt::SaveOver("quicksave".to_owned())));
     let frame = text(&mut a, SIZE);
-    assert!(frame.contains("Quickload"), "the row stays, dimmed: {frame}");
-
-    run(&mut a, "<down*4> <enter> y");
-    assert!(a.ui.status.contains("no quicksave yet"), "{}", a.ui.status);
-    assert_eq!(a.ui.modal, None, "the menu still closes after the failed attempt");
+    assert!(frame.contains("Save over the quicksave slot?"), "{frame}");
+    run(&mut a, "<esc>");
+    assert_eq!((a.ui.prompt.clone(), a.ui.screen), (None, Some(Screen::Saves)));
 }

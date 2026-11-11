@@ -115,9 +115,10 @@ fn the_clock_prompts_and_other_screens_still_work() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "t <space>");
     assert!(a.session.clock.paused);
-    run(&mut a, "q");
-    assert!(a.ui.prompt.is_some(), "q asks first");
-    run(&mut a, "n");
+    run(&mut a, "<f9>");
+    assert!(a.ui.prompt.is_some(), "F9 asks first, over the screen");
+    run(&mut a, "<esc>");
+    assert!(a.ui.prompt.is_none() && a.ui.screen == Some(Screen::Research));
     run(&mut a, "l");
     assert_eq!(a.ui.screen, Some(Screen::Log), "L switches to the log");
     run(&mut a, "t");

@@ -279,6 +279,27 @@ const CASES: &[Case] = &[
     Case { name: "help_screen", script: "<enter> ?", headings: &["KEY HELP"] },
     Case { name: "saves_screen", script: "<enter> <f6>", headings: &["SAVES"] },
     Case { name: "menu_modal", script: "<enter> <esc> <esc>", headings: &["MENU"] },
+    Case {
+        name: "menu_nations",
+        script: "<enter> <esc> <esc> <down*5> <enter>",
+        headings: &["SWITCH NATION"],
+    },
+    Case {
+        name: "confirm_new_map",
+        script: "<enter> <esc> <esc> <down*4> <enter>",
+        headings: &["NEW MAP"],
+    },
+    Case {
+        name: "confirm_switch_nation",
+        script: "<enter> <esc> <esc> <down*5> <enter> <down> <enter>",
+        headings: &["SWITCH NATION"],
+    },
+    Case {
+        name: "confirm_quit",
+        script: "<enter> <esc> <esc> <down*6> <enter>",
+        headings: &["QUIT"],
+    },
+    Case { name: "confirm_quickload", script: "<enter> <f9>", headings: &["LOAD"] },
 ];
 
 #[test]

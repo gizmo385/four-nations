@@ -9,7 +9,6 @@
 use std::sync::LazyLock;
 
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use fn_sim::Nation;
 use fn_ui::Tool;
 pub use fn_ui::keys::{Action, Group, HelpRow, help_rows};
 
@@ -146,15 +145,10 @@ fn build_table() -> Vec<Binding> {
     add(Key::ch('?'), Action::ShowHelp);
     add(Key::ch('g'), Action::ShowEndeavor);
     add(Key::ch('n'), Action::ShowNation);
-    add(Key::ch('r'), Action::AskNewMap);
-    for (i, nation) in Nation::ALL.into_iter().enumerate() {
-        add(Key::ch(char::from(b'1' + i as u8)), Action::AskNation(nation));
-    }
     // F5/F9, the usual quicksave/quickload keys.
     add(Key::plain(F(5)), Action::QuickSave);
     add(Key::plain(F(9)), Action::AskQuickLoad);
     add(Key::plain(F(6)), Action::ShowSaves);
-    add(Key::ch('q'), Action::AskQuit);
     t
 }
 
@@ -187,10 +181,9 @@ pub fn spectator_allowed(action: Action) -> bool {
         | Action::ShowEndeavor
         | Action::ShowNation => true,
         Action::ShowSaves => false,
-        Action::AskNewMap | Action::AskNation(_) => false,
         Action::QuickSave | Action::AskQuickLoad => false,
         Action::TogglePause | Action::Faster | Action::Slower | Action::Step => false,
-        Action::AskQuit | Action::QuitNow => false,
+        Action::QuitNow => false,
     }
 }
 
@@ -292,9 +285,10 @@ mod tests {
         // NumLock off: 7 and 1 are Home and End.
         assert_eq!(map_key(key(KeyCode::Home)), Some(Action::Move { dx: -1, dy: -1, tiles: 1 }));
         assert_eq!(map_key(key(KeyCode::End)), Some(Action::Move { dx: -1, dy: 1, tiles: 1 }));
-        // The number row is not the numpad: 7 does nothing, and 1 to 4 switch nation.
+        // The number row is not the numpad: its digits do nothing (1 to 4 once switched nation,
+        // #655 took that away).
         assert_eq!(map_key(key(KeyCode::Char('7'))), None);
-        assert_eq!(map_key(key(KeyCode::Char('1'))), Some(Action::AskNation(Nation::Air)));
+        assert_eq!(map_key(key(KeyCode::Char('1'))), None);
     }
 
     #[test]
@@ -312,8 +306,10 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('='))), Some(Action::Faster));
         assert_eq!(map_key(key(KeyCode::Char('-'))), Some(Action::Slower));
         assert_eq!(map_key(key(KeyCode::Char('.'))), Some(Action::Step));
-        assert_eq!(map_key(key(KeyCode::Char('q'))), Some(Action::AskQuit));
-        assert_eq!(map_key(key(KeyCode::Char('Q'))), Some(Action::AskQuit));
+        // `Q` and `R` are not keys any more (#655): quit and new map live in the game menu.
+        assert_eq!(map_key(key(KeyCode::Char('q'))), None);
+        assert_eq!(map_key(key(KeyCode::Char('Q'))), None);
+        assert_eq!(map_key(key(KeyCode::Char('r'))), None);
         assert_eq!(map_key(key(KeyCode::F(1))), None);
     }
 
@@ -353,12 +349,6 @@ mod tests {
         // A terminal sends `?` as Shift+/, so it may carry the Shift flag.
         assert_eq!(map_key(key(KeyCode::Char('?'))), Some(Action::ShowHelp));
         assert_eq!(map_key(with(KeyCode::Char('?'), KeyModifiers::SHIFT)), Some(Action::ShowHelp));
-        assert_eq!(map_key(key(KeyCode::Char('r'))), Some(Action::AskNewMap));
-        assert_eq!(map_key(key(KeyCode::Char('R'))), Some(Action::AskNewMap));
-        for (i, nation) in Nation::ALL.into_iter().enumerate() {
-            let digit = char::from(b'1' + i as u8);
-            assert_eq!(map_key(key(KeyCode::Char(digit))), Some(Action::AskNation(nation)));
-        }
         assert_eq!(map_key(key(KeyCode::Char('5'))), None);
         assert_eq!(map_key(key(KeyCode::F(5))), Some(Action::QuickSave));
         assert_eq!(map_key(key(KeyCode::F(9))), Some(Action::AskQuickLoad));
@@ -434,15 +424,12 @@ mod tests {
             Action::ToggleRepeat,
             Action::Cancel,
             Action::ShowSaves,
-            Action::AskNewMap,
-            Action::AskNation(Nation::Air),
             Action::QuickSave,
             Action::AskQuickLoad,
             Action::TogglePause,
             Action::Faster,
             Action::Slower,
             Action::Step,
-            Action::AskQuit,
             Action::QuitNow,
         ];
         for a in refused {
@@ -542,8 +529,10 @@ mod tests {
         assert_eq!(walk.keys, "Arrows or WASD");
         let jump = rows.iter().find(|r| r.what.starts_with("Jump")).unwrap();
         assert_eq!(jump.keys, "Ctrl+Arrows or PgUp/PgDn");
-        let nation = rows.iter().find(|r| r.what.starts_with("Switch nation")).unwrap();
-        assert_eq!(nation.keys, "1-4");
+        // New map, switch nation and quit live in the game menu only (#655): no key row.
+        for gone in ["New map", "Switch nation", "Quit (asks"] {
+            assert!(rows.iter().all(|r| !r.what.starts_with(gone)), "{gone} has a key row");
+        }
         let save = rows.iter().find(|r| r.what == "Quicksave").unwrap();
         assert_eq!(save.keys, "F5");
         let load = rows.iter().find(|r| r.what.starts_with("Quickload")).unwrap();

@@ -61,12 +61,13 @@ fn fast_survives_app_restart() {
     assert!(app.session.clock.is_fast(), "the restarted game should still be fast");
 }
 
-/// A nation switch (`1`-`4`, confirmed) keeps `--fast`'s ladder too.
+/// A nation switch (the menu's Switch nation…, confirmed) keeps `--fast`'s ladder too.
 #[test]
 fn fast_survives_a_nation_switch() {
     let mut shell = Shell::for_args(&args("--fast"), SIZE, None, 0).unwrap();
-    press(&mut shell, KeyCode::Char('2'));
-    press(&mut shell, KeyCode::Char('y'));
+    shell.play(
+        &fn_tui::keys::parse("<esc> <down*5> <enter> <down> <enter> <down> <enter>").unwrap(),
+    );
     let Mode::Game(app) = &shell.mode else { panic!("expected a game") };
     assert_eq!(app.session.world.nation, Nation::Water);
     assert!(app.session.clock.is_fast(), "the switched nation should still be fast");

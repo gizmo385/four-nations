@@ -19,8 +19,6 @@
 
 use std::sync::LazyLock;
 
-use fn_sim::Nation;
-
 use crate::Tool;
 
 /// What a key asks for, as the frontend that read it passes it on.
@@ -64,13 +62,9 @@ pub enum Action {
     /// `N`: the Nation screen (#308): every settler grouped by activity, every store and the
     /// nation's traits.
     ShowNation,
-    /// `R`: a new map, after a y/n prompt.
-    AskNewMap,
-    /// `1`-`4`: switch nation, after a y/n prompt.
-    AskNation(Nation),
     /// `F5`: save the game to the quicksave slot.
     QuickSave,
-    /// `F9`: replace the game with the quicksave, after a y/n prompt.
+    /// `F9`: replace the game with the quicksave, after asking in a centred box.
     AskQuickLoad,
     /// `F6`: the saves screen (named slots).
     ShowSaves,
@@ -79,16 +73,13 @@ pub enum Action {
     Slower,
     /// One tick, while paused.
     Step,
-    /// Ask whether to quit.
-    AskQuit,
     /// Quit at once (Ctrl+C: raw mode turns the signal into a key).
     QuitNow,
 }
 
 impl Action {
     /// Whether `other` is the same kind of action: the same variant, whatever its numbers (a
-    /// `Move` is a `Move` in any direction, `AskNation` for any nation), but a tool key is that
-    /// tool's own.
+    /// `Move` is a `Move` in any direction), but a tool key is that tool's own.
     pub fn same_kind(self, other: Action) -> bool {
         match (self, other) {
             (Action::PickTool(a), Action::PickTool(b)) => a == b,
@@ -143,8 +134,11 @@ pub enum Mode {
     Build,
     /// The game menu (`Esc` with nothing else to close).
     Menu,
-    /// The menu's Save as… name prompt.
-    SaveAs,
+    /// The menu's Switch nation… list.
+    MenuNations,
+    /// A question that can lose progress, asked in a centred box (new map, switch nation, quit,
+    /// load, save over a slot).
+    Ask,
     /// Every map mode (Select, Selected and a tool). Key help only.
     Map,
     /// Every mode at once: the clock, the screens, prompts. Key help only.
@@ -166,7 +160,8 @@ impl Mode {
             Self::Saves => "SAVES",
             Self::Build => "BUILD",
             Self::Menu => "MENU",
-            Self::SaveAs => "SAVE AS",
+            Self::MenuNations => "SWITCH",
+            Self::Ask => "CONFIRM",
             Self::Anywhere => "ANY",
         }
     }
@@ -319,9 +314,15 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Menu], &[], "Enter", "select", None);
     add(&[Mode::Menu], &[], "Esc", "resume", None);
 
-    add(&[Mode::SaveAs], &[], "Type", "a name", None);
-    add(&[Mode::SaveAs], &[], "Enter", "save", None);
-    add(&[Mode::SaveAs], &[], "Esc", "back", None);
+    add(&[Mode::MenuNations], &[], "Up/Down", "choose", None);
+    add(&[Mode::MenuNations], &[], "Enter", "choose", None);
+    add(&[Mode::MenuNations], &[], "Esc", "back", None);
+
+    // The confirm box (`Esc` is always the safe answer, the cursor starts on it, and `y` alone
+    // does nothing).
+    add(&[Mode::Ask], &[], "Up/Down", "choose", None);
+    add(&[Mode::Ask], &[], "Enter", "answer", None);
+    add(&[Mode::Ask], &[], "Esc", "cancel", None);
 
     // The key help's own rows, in its order. Their keys are the whole spelling (WASD too).
     let cursor = Some(Group::Cursor);
@@ -360,9 +361,9 @@ fn build() -> Vec<Entry> {
         help(
             units,
             "Close the screen, a modal or the bar. In a tool: drop the corner, then leave the \
-             tool. With nothing to close: the game menu (Resume, Save as…, Quicksave, Load…, \
-             Quickload, Key help, Quit, #306, #312) — every save and load action, for a \
-             terminal the function keys don't reach",
+             tool. With nothing to close: the game menu (Resume, Save…, Load…, Key help, New \
+             map…, Switch nation…, Quit…), where the actions that end the game live; each asks \
+             in a box first, and Esc there is the safe answer",
         ),
     );
     add(
@@ -452,20 +453,6 @@ fn build() -> Vec<Entry> {
         "nation",
         help(game, "Nation: every settler, every store and the nation's traits"),
     );
-    add(
-        &[Mode::Anywhere],
-        &[Action::AskNewMap],
-        "R",
-        "new map",
-        help(game, "New map (asks first)"),
-    );
-    add(
-        &[Mode::Anywhere],
-        &Nation::ALL.map(Action::AskNation),
-        "1-4",
-        "switch nation",
-        help(game, "Switch nation: 1 Air, 2 Water, 3 Earth, 4 Fire (asks first)"),
-    );
     add(&[Mode::Anywhere], &[Action::QuickSave], "F5", "quicksave", help(game, "Quicksave"));
     add(
         &[Mode::Anywhere],
@@ -485,7 +472,6 @@ fn build() -> Vec<Entry> {
              first), N a new one",
         ),
     );
-    add(&[Mode::Anywhere], &[Action::AskQuit], "Q", "quit", help(game, "Quit (asks first)"));
     add(
         &[Mode::Anywhere],
         &[Action::QuitNow],
@@ -562,7 +548,16 @@ mod tests {
     #[test]
     fn lists_say_up_down_and_grids_say_arrows() {
         assert!(line(Mode::Research).starts_with("Arrows choose"));
-        for mode in [Mode::Nation, Mode::Log, Mode::Help, Mode::Saves, Mode::Build, Mode::Menu] {
+        for mode in [
+            Mode::Nation,
+            Mode::Log,
+            Mode::Help,
+            Mode::Saves,
+            Mode::Build,
+            Mode::Menu,
+            Mode::MenuNations,
+            Mode::Ask,
+        ] {
             assert!(line(mode).starts_with("Up/Down "), "{mode:?}: {}", line(mode));
         }
         assert!(line(Mode::Select).starts_with("Arrows move"));
@@ -628,7 +623,7 @@ mod tests {
     fn same_kind_ignores_numbers_but_not_tools() {
         let up = Action::Move { dx: 0, dy: -1, tiles: 1 };
         assert!(up.same_kind(Action::Move { dx: 1, dy: 0, tiles: 10 }));
-        assert!(Action::AskNation(Nation::Air).same_kind(Action::AskNation(Nation::Fire)));
+        assert!(Action::Move { dx: 0, dy: 1, tiles: 1 }.same_kind(up));
         assert!(Action::PickTool(Tool::Bend).same_kind(Action::PickTool(Tool::Bend)));
         assert!(!Action::PickTool(Tool::Bend).same_kind(Action::PickTool(Tool::Sow)));
         assert!(!up.same_kind(Action::Confirm));

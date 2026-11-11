@@ -9,7 +9,8 @@ nation plays differently. See [docs/design/vision.md](docs/design/vision.md).
 Continue, Load or Quit. In the game, arrows or WASD move the cursor (Shift: 10 tiles), Enter
 selects a unit, `H` `X` `P` `B` `U` pick the harvest, cancel, stockpile, bend and build tools,
 Space pauses, `+`/`-` change speed, `T` opens research, `L` the message log, `?` the key help,
-`F5`/`F9` quicksave/load, `F6` the save list, and `q` quits. Full list: `cargo run -- --help`.
+`F5`/`F9` quicksave/load and `F6` the save list. `Esc` opens the game menu, where new map, switch
+nation and quit are (each asks first). Full list: `cargo run -- --help`.
 
 With Nix, `nix develop` (see [flake.nix](flake.nix)) gives you the pinned Rust toolchain. For
 direnv, put `use flake` in an `.envrc`.

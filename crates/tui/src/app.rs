@@ -9,8 +9,10 @@ use fn_ui::saves;
 use fn_ui::tools::{apply_rect, cycle_ability, switch_tool};
 use fn_ui::{Session, Tool};
 
+use crate::ask::Answer;
 use crate::input::{Action, map_key};
 use crate::keys::Step;
+use crate::menu::{MenuPage, MenuRow};
 use crate::research;
 use crate::saves as saves_screen;
 use crate::screens;
@@ -31,14 +33,14 @@ pub struct App {
     /// Where `F5` and `F9` keep the quicksave (`fn_ui::saves`); `None` when there is nowhere,
     /// and then both keys say so. The binary sets it from the environment; tests set their own.
     pub saves: Option<PathBuf>,
-    /// `R`, confirmed: `Shell` reopens embark on the next seed instead of restarting in place
-    /// (#290, docs/design/embark.md, "In the game, `R`"), since only it can leave the game
+    /// New map…, confirmed: `Shell` reopens embark on the next seed instead of restarting in place
+    /// (#290, docs/design/embark.md, "In the game"), since only it can leave the game
     /// behind for a pre-game screen.
     pub reopen_embark: bool,
     /// The clock's pause from just before the game menu opened (#306), so `close_menu` can put
     /// it back rather than the menu itself toggling pause.
     menu_prev_paused: Option<bool>,
-    /// `--fast` (#321): carried across `R` and `1`-`4` (`Self::restart`), which otherwise build a
+    /// `--fast` (#321): carried across New map… and Switch nation… (`Self::restart`), which otherwise build a
     /// brand new [`Session`] (and so a plain [`fn_ui::Clock::default`]) from scratch. A host or
     /// session setting, not the player's own clock state, so it survives a restart the way the
     /// clock's speed and pause deliberately don't (`Self::restart`'s doc comment).
@@ -77,11 +79,13 @@ impl App {
         self.dirty = true;
         self.ui.status.clear();
         self.ui.status_badge = None;
-        if let Some(prompt) = self.ui.prompt.take() {
-            // Only a plain y confirms; anything else (Esc, n, a stray key) stays.
-            if matches!(key.code, KeyCode::Char('y' | 'Y')) {
-                self.confirm_prompt(prompt);
-            }
+        // Ctrl+C quits at once, whatever is open, a question included.
+        if map_key(key) == Some(Action::QuitNow) {
+            self.ui.quit = true;
+            return;
+        }
+        if let Some(prompt) = self.ui.prompt.clone() {
+            self.prompt_key(prompt, key);
             return;
         }
         if let Some(modal) = self.ui.modal {
@@ -139,15 +143,12 @@ impl App {
             Action::ShowEndeavor => self.open(Screen::Endeavor),
             Action::ShowNation => self.open(Screen::Nation),
             Action::ShowSaves => self.show_saves(),
-            Action::AskNewMap => self.ui.prompt = Some(Prompt::NewMap),
-            Action::AskNation(nation) => self.ui.prompt = Some(Prompt::Nation(nation)),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
             Action::Slower => self.session.clock.slower(),
             Action::Step => self.step(),
             Action::QuickSave => self.quicksave(),
-            Action::AskQuickLoad => self.ui.prompt = Some(Prompt::QuickLoad),
-            Action::AskQuit => self.ui.prompt = Some(Prompt::Quit),
+            Action::AskQuickLoad => self.ask(Prompt::QuickLoad),
             Action::QuitNow => self.ui.quit = true,
         }
     }
@@ -210,11 +211,8 @@ impl App {
             Action::Faster => self.session.clock.faster(),
             Action::Slower => self.session.clock.slower(),
             Action::Step => self.step(),
-            Action::AskNewMap => self.ui.prompt = Some(Prompt::NewMap),
-            Action::AskNation(nation) => self.ui.prompt = Some(Prompt::Nation(nation)),
             Action::QuickSave => self.quicksave(),
-            Action::AskQuickLoad => self.ui.prompt = Some(Prompt::QuickLoad),
-            Action::AskQuit => self.ui.prompt = Some(Prompt::Quit),
+            Action::AskQuickLoad => self.ask(Prompt::QuickLoad),
             Action::QuitNow => self.ui.quit = true,
             Action::PickTool(_)
             | Action::ToggleRepeat
@@ -310,13 +308,101 @@ impl App {
         self.ui.scroll = if screen == Screen::Log && to == max { PINNED } else { to };
     }
 
-    /// The answer to a prompt was yes.
+    /// Opens the confirm box for `prompt` (`crate::ask`): the cursor on its first row, the safe
+    /// answer.
+    fn ask(&mut self, prompt: Prompt) {
+        self.ui.ask_cursor = 0;
+        self.ui.ask_can_save = self.saves.is_some();
+        self.ui.prompt = Some(prompt);
+    }
+
+    /// What a key does while the confirm box is up (#655): arrows or `W`/`S` move the cursor,
+    /// `Enter` takes the answer it is on, and `Esc` takes the safe one. Anything else, a bare `y`
+    /// among it, does nothing.
+    fn prompt_key(&mut self, prompt: Prompt, key: KeyEvent) {
+        let Some(ask) = crate::ask::current(&self.session, &self.ui) else { return };
+        let last = ask.answers.len() - 1;
+        let at = self.ui.ask_cursor.min(last);
+        match key.code {
+            KeyCode::Esc => self.answer(prompt, Answer::Keep),
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
+                self.ui.ask_cursor = at.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('s' | 'S') => self.ui.ask_cursor = (at + 1).min(last),
+            KeyCode::Enter => self.answer(prompt, ask.answers[at].0),
+            _ => {}
+        }
+    }
+
+    /// Takes `answer` to `prompt`. "Save, then" writes a new slot first and, if that fails,
+    /// leaves the box open with the reason in the status line instead of going on.
+    fn answer(&mut self, prompt: Prompt, answer: Answer) {
+        match answer {
+            Answer::Keep => {
+                self.ui.prompt = None;
+                self.decline(&prompt);
+            }
+            Answer::SaveThen => {
+                if self.save_new_slot() {
+                    self.ui.prompt = None;
+                    self.confirm_prompt(prompt);
+                }
+            }
+            Answer::Go => {
+                self.ui.prompt = None;
+                self.confirm_prompt(prompt);
+            }
+        }
+    }
+
+    /// The safe answer was taken. A question asked from the menu that ends the game as it is
+    /// ("Keep playing") closes the menu too, so the game runs again; a load or a save over a slot
+    /// was asked in the saves screen, which stays.
+    fn decline(&mut self, prompt: &Prompt) {
+        match prompt {
+            Prompt::Quit | Prompt::NewMap | Prompt::Nation(_) | Prompt::QuickLoad => {
+                self.close_menu();
+            }
+            Prompt::LoadSave(_) | Prompt::SaveOver(_) => {}
+        }
+    }
+
+    /// "Save, then …": writes the game to a new slot ([`saves::new_name`]), so no earlier save is
+    /// replaced. Says in the status line why not if it can't, and returns whether it did.
+    fn save_new_slot(&mut self) -> bool {
+        let Some(dir) = self.saves.clone() else {
+            self.ui.status = NO_SAVE_DIR.to_owned();
+            return false;
+        };
+        self.refresh_saves();
+        let name = saves::new_name(&self.ui.save_slots);
+        match saves::save(&dir, &name, &self.session) {
+            Ok(()) => {
+                self.ui.saved_at = Some(self.session.world.tick);
+                true
+            }
+            Err(why) => {
+                self.ui.status = format!("Save failed: {why}");
+                false
+            }
+        }
+    }
+
+    /// The answer to a prompt was to go on.
     fn confirm_prompt(&mut self, prompt: Prompt) {
         match prompt {
-            Prompt::Quit => self.ui.quit = true,
+            // The menu closes first, so a game the shell keeps (its own back-to-title question
+            // answered "stay") runs again instead of sitting in a paused menu.
+            Prompt::Quit => {
+                self.close_menu();
+                self.ui.quit = true;
+            }
             // `Shell` reads this on the way out: it leaves the game behind for embark, rather
             // than restarting in place (#290).
-            Prompt::NewMap => self.reopen_embark = true,
+            Prompt::NewMap => {
+                self.close_menu();
+                self.reopen_embark = true;
+            }
             Prompt::Nation(nation) => {
                 let seed = self.session.world.seed;
                 self.restart(seed, nation);
@@ -345,6 +431,7 @@ impl App {
             None => NO_SAVE_DIR.to_owned(),
             Some(dir) => match saves::quicksave(dir, &self.session) {
                 Ok(()) => {
+                    self.ui.saved_at = Some(self.session.world.tick);
                     let path = saves::slot_path(dir, saves::QUICKSAVE);
                     format!("Quicksaved to {} (tick {})", path.display(), self.session.world.tick)
                 }
@@ -406,14 +493,16 @@ impl App {
     /// `Enter` in the saves screen: asks to load the highlighted slot.
     fn ask_load_save(&mut self) {
         if let Some(slot) = self.ui.save_slots.get(self.ui.save_cursor) {
-            self.ui.prompt = Some(Prompt::LoadSave(slot.name.clone()));
+            let prompt = Prompt::LoadSave(slot.name.clone());
+            self.ask(prompt);
         }
     }
 
     /// `Shift+S` in the saves screen: asks to save over the highlighted slot.
     fn ask_save_over(&mut self) {
         if let Some(slot) = self.ui.save_slots.get(self.ui.save_cursor) {
-            self.ui.prompt = Some(Prompt::SaveOver(slot.name.clone()));
+            let prompt = Prompt::SaveOver(slot.name.clone());
+            self.ask(prompt);
         }
     }
 
@@ -441,6 +530,7 @@ impl App {
             None => NO_SAVE_DIR.to_owned(),
             Some(dir) => match saves::save(dir, name, &self.session) {
                 Ok(()) => {
+                    self.ui.saved_at = Some(self.session.world.tick);
                     let path = saves::slot_path(dir, name);
                     format!("Saved to {} (tick {})", path.display(), self.session.world.tick)
                 }
@@ -460,6 +550,7 @@ impl App {
         let name = saves::new_name(&self.ui.save_slots);
         self.ui.status = match saves::save(&dir, &name, &self.session) {
             Ok(()) => {
+                self.ui.saved_at = Some(self.session.world.tick);
                 let path = saves::slot_path(&dir, &name);
                 format!("Saved to {} (tick {})", path.display(), self.session.world.tick)
             }
@@ -475,6 +566,8 @@ impl App {
         self.session.world = world;
         self.session.bend_choice = None;
         self.ui = UiState::new(&self.session, self.screen);
+        // What was loaded is what was saved: nothing has happened since.
+        self.ui.saved_at = Some(self.session.world.tick);
         // The loaded game's past events are not news: they age out at once instead of showing
         // as toasts.
         self.ui.alerts.update(&self.session, f32::MAX);
@@ -520,6 +613,7 @@ impl App {
             }
         };
         self.session.clock = self.session.clock.clone().with_fast(self.fast);
+        self.menu_prev_paused = None;
         self.ui = UiState::new(&self.session, self.screen);
         self.ui.alerts.update(&self.session, 0.0);
         self.dirty = true;
@@ -682,27 +776,21 @@ impl App {
     }
 
     /// `Esc` in Select mode with nothing selected (#306): no tool, no bar, no screen and no
-    /// modal were left to close, so `Esc` opens the game menu (Resume, Save as…, Quicksave,
-    /// Load…, Quickload, Key help, Quit, #312) instead. Pauses the clock while it's open;
-    /// [`Self::close_menu`] puts it back. Reads whether a quicksave exists fresh every time
-    /// (`UiState::has_quicksave`), so Quickload's own row can say when there's nothing to load.
+    /// modal were left to close, so `Esc` opens the game menu (Resume, Save…, Load…, Key help,
+    /// New map…, Switch nation…, Quit…, #655) instead. Pauses the clock while it's open;
+    /// [`Self::close_menu`] puts it back.
     fn open_menu(&mut self) {
         self.menu_prev_paused = Some(self.session.clock.paused);
         self.session.clock.paused = true;
         self.ui.modal = Some(Modal::Menu);
         self.ui.menu_cursor = 0;
-        self.ui.menu_name = None;
-        self.ui.has_quicksave = self
-            .saves
-            .as_deref()
-            .is_some_and(|dir| saves::slot_path(dir, saves::QUICKSAVE).exists());
+        self.ui.menu_page = MenuPage::Rows;
     }
 
     /// Closes the game menu (`Resume`, or `Esc` inside it), restoring the clock's pause from
     /// just before it opened. Harmless to call when the menu isn't open (nothing to restore):
-    /// [`Self::confirm_prompt`] calls it after every save/load prompt whether or not the menu
-    /// was behind it, so a quickload through the menu (which replaces `self.ui` outright,
-    /// #312) still gets its pause back.
+    /// a quickload through the confirm box replaces `self.ui` outright (`Self::load`), so every
+    /// answer to a question asked from the menu comes through here to give the pause back.
     fn close_menu(&mut self) {
         if let Some(paused) = self.menu_prev_paused.take() {
             self.session.clock.paused = paused;
@@ -710,100 +798,58 @@ impl App {
         self.ui.modal = None;
     }
 
-    /// What a key does while the game menu is open (#306): the Save as… name prompt
-    /// ([`Self::menu_name_key`]) takes every key while it's up; otherwise arrows or `W`/`S` move
-    /// the row highlight, `Enter` acts on it, and `Esc` resumes, as choosing `Resume` itself
-    /// does.
+    /// What a key does while the game menu is open (#306): arrows or `W`/`S` move the row
+    /// highlight, `Enter` acts on it, and `Esc` resumes, as choosing `Resume` itself does; on
+    /// Switch nation…'s list it goes back to the rows instead.
     fn menu_key(&mut self, key: KeyEvent) {
-        if self.ui.menu_name.is_some() {
-            return self.menu_name_key(key);
-        }
+        let page = self.ui.menu_page;
         match key.code {
+            KeyCode::Esc if page == MenuPage::Nations => self.menu_back(),
             KeyCode::Esc => self.close_menu(),
             KeyCode::Up | KeyCode::Char('w' | 'W') => {
-                self.ui.menu_cursor = crate::menu::step(self.ui.menu_cursor, -1);
+                self.ui.menu_cursor = crate::menu::step(self.ui.menu_cursor, -1, page.rows());
             }
             KeyCode::Down | KeyCode::Char('s' | 'S') => {
-                self.ui.menu_cursor = crate::menu::step(self.ui.menu_cursor, 1);
+                self.ui.menu_cursor = crate::menu::step(self.ui.menu_cursor, 1, page.rows());
+            }
+            KeyCode::Enter if page == MenuPage::Nations => {
+                let nation = Nation::ALL[self.ui.menu_cursor.min(Nation::ALL.len() - 1)];
+                self.ask(Prompt::Nation(nation));
             }
             KeyCode::Enter => self.menu_choose(),
             _ => {}
         }
     }
 
+    /// Back from Switch nation…'s list to the rows, the highlight on that row again.
+    fn menu_back(&mut self) {
+        self.ui.menu_page = MenuPage::Rows;
+        self.ui.menu_cursor =
+            MenuRow::ALL.iter().position(|r| *r == MenuRow::SwitchNation).unwrap_or(0);
+    }
+
     /// `Enter` in the game menu: what the highlighted row does.
     fn menu_choose(&mut self) {
-        match crate::menu::MenuRow::ALL[self.ui.menu_cursor] {
-            crate::menu::MenuRow::Resume => self.close_menu(),
-            crate::menu::MenuRow::SaveAs => self.start_save_as(),
-            crate::menu::MenuRow::Quicksave => {
-                self.quicksave();
-                self.close_menu();
-            }
-            crate::menu::MenuRow::Load => {
+        match MenuRow::ALL[self.ui.menu_cursor] {
+            MenuRow::Resume => self.close_menu(),
+            // Both open the saves screen: `N` there writes a new slot, Shift+`S` saves over one
+            // and `Enter` loads one (each asking first where it can lose something).
+            MenuRow::Save | MenuRow::Load => {
                 self.close_menu();
                 self.show_saves();
             }
-            // The same question `F9` asks (`Action::AskQuickLoad`); the menu stays open behind
-            // the prompt, same as Quit below, and `confirm_prompt`'s own `QuickLoad` arm closes
-            // it once answered.
-            crate::menu::MenuRow::Quickload => self.ui.prompt = Some(Prompt::QuickLoad),
-            crate::menu::MenuRow::Help => {
+            MenuRow::Help => {
                 self.close_menu();
                 self.open(Screen::Help);
             }
-            // Asks the same question `Q` does; the menu stays open behind the prompt
-            // (`draw_status` shows it over whatever's open, as it already does over a screen),
-            // so declining leaves the menu where it was instead of losing it.
-            crate::menu::MenuRow::Quit => self.ui.prompt = Some(Prompt::Quit),
-        }
-    }
-
-    /// `Enter` on Save as… (#312): turns the row list into the name prompt
-    /// ([`UiState::menu_name`]), reading the save directory first so [`Self::submit_save_as`]
-    /// can tell a new name from one that already exists. Without a save directory, says so and
-    /// leaves the menu where it was, as Quicksave does.
-    fn start_save_as(&mut self) {
-        if self.saves.is_none() {
-            self.ui.status = NO_SAVE_DIR.to_owned();
-            return;
-        }
-        self.refresh_saves();
-        self.ui.menu_name = Some(String::new());
-    }
-
-    /// A key while the Save as… name prompt is up (#312): typed letters, digits, `-` and `_`
-    /// build the name (the same alphabet `fn_ui::saves::check_name` allows, capped at
-    /// `MAX_NAME`), `Backspace` edits it, `Enter` submits and `Esc` goes back to the row list
-    /// without saving anything.
-    fn menu_name_key(&mut self, key: KeyEvent) {
-        let Some(name) = &mut self.ui.menu_name else { return };
-        match key.code {
-            KeyCode::Esc => self.ui.menu_name = None,
-            KeyCode::Backspace => {
-                name.pop();
+            // The menu stays open behind the box (`draw` hides it while one is up), so the
+            // "Keep playing" answer closes it (`Self::decline`) and `Esc` there is the same.
+            MenuRow::NewMap => self.ask(Prompt::NewMap),
+            MenuRow::SwitchNation => {
+                self.ui.menu_page = MenuPage::Nations;
+                self.ui.menu_cursor = 0;
             }
-            KeyCode::Char(c) if is_save_name_char(c) && name.chars().count() < saves::MAX_NAME => {
-                name.push(c);
-            }
-            KeyCode::Enter => self.submit_save_as(),
-            _ => {}
-        }
-    }
-
-    /// `Enter` on the Save as… name prompt (#312): an empty name falls back to the saves
-    /// screen's own suggestion (`fn_ui::saves::new_name`), so Enter alone always saves
-    /// something; a name already in the list asks first, as Shift+`S` does there
-    /// (`Prompt::SaveOver`, whose `confirm_prompt` arm closes the menu once answered); any other
-    /// name writes straight away and closes the menu back to the game, as Quicksave does.
-    fn submit_save_as(&mut self) {
-        let Some(typed) = self.ui.menu_name.take() else { return };
-        let name = if typed.is_empty() { saves::new_name(&self.ui.save_slots) } else { typed };
-        if self.ui.save_slots.iter().any(|s| s.name == name) {
-            self.ui.prompt = Some(Prompt::SaveOver(name));
-        } else {
-            self.save_over(&name);
-            self.close_menu();
+            MenuRow::Quit => self.ask(Prompt::Quit),
         }
     }
 
@@ -865,11 +911,4 @@ impl App {
         self.session.tick_n(n);
         self.settle(0.0);
     }
-}
-
-/// Whether `c` can go in a typed save name (#312, [`App::menu_name_key`]): the same alphabet
-/// `fn_ui::saves::check_name` allows, so nothing the player types there can fail its own
-/// validation once they're done.
-fn is_save_name_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '-' || c == '_'
 }

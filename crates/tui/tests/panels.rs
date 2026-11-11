@@ -2,7 +2,6 @@
 //! message log, key help, and the new-map and nation prompts. Whole-frame goldens live in
 //! `reference_goldens.rs` now (#455); everything here is `contains`-style assertions.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::world::Command;
 use fn_sim::{Nation, Pos, Terrain};
 use fn_tui::app::App;
@@ -857,7 +856,7 @@ fn the_help_scrolls_on_a_small_terminal_and_stops_at_its_ends() {
     run(&mut a, "<down*5>");
     assert_eq!(a.ui.scroll, end, "or below the end");
     let bottom = text(&mut a, SMALL);
-    assert!(bottom.contains("Quit (asks first)"), "the last row is reachable:\n{bottom}");
+    assert!(bottom.contains("Quit at once"), "the last row is reachable:\n{bottom}");
     assert!(!bottom.contains("CURSOR AND VIEW"));
 }
 
@@ -983,45 +982,60 @@ fn g_opens_and_closes_the_endeavor_screen_and_gives_way_to_other_screens() {
 // New map and nation
 // ---------------------------------------------------------------------------------------------
 
+/// The menu's route to the New map… box (#655): `Esc` opens it with nothing selected.
+const NEW_MAP: &str = "<esc> <down*4> <enter>";
+
 #[test]
-fn r_starts_a_new_map_only_after_a_y() {
+fn new_map_starts_only_after_its_box_is_answered() {
     let mut a = app(7, Nation::Earth, SIZE);
-    run(&mut a, "<tab> <tick 50>");
-    run(&mut a, "r");
+    run(&mut a, "<tick 50> r");
+    assert_eq!(a.ui.prompt, None, "R is no key any more");
+    run(&mut a, NEW_MAP);
     let frame = text(&mut a, SIZE);
-    let status = frame.lines().last().unwrap();
-    assert!(status.starts_with(" NEW MAP? ") && status.contains("seed 8"), "{status}");
+    assert!(frame.contains("NEW MAP") && frame.contains("seed 8"), "{frame}");
     assert_eq!(a.session.world.seed, 7, "nothing happens until the answer");
 
-    run(&mut a, "n");
+    run(&mut a, "y n");
     assert_eq!((a.session.world.seed, a.session.world.tick), (7, 50));
-    assert!(a.ui.selected.is_some());
+    assert!(a.ui.prompt.is_some(), "only a row answers");
 
-    run(&mut a, "r <esc>");
+    run(&mut a, "<esc>");
     assert_eq!(a.session.world.seed, 7, "Esc stays");
-    // Confirming `R` no longer restarts in place (#290): it flags that `Shell` should reopen
+    // Confirming no longer restarts in place (#290): it flags that `Shell` should reopen
     // embark on the next seed instead, and leaves this game exactly as it was until that
     // happens (`crate::shell::Shell::key`, tested at that level in `tests/title.rs`).
-    run(&mut a, "R y");
+    run(&mut a, &format!("{NEW_MAP} <down> <enter>"));
     assert!(a.reopen_embark);
     assert_eq!(a.session.world.seed, 7, "App itself doesn't restart; Shell does");
     assert!(a.ui.prompt.is_none());
 }
 
+/// The menu's route to the nation at `index` on Switch nation…'s list, as far as its box.
+fn switch_box(index: usize) -> String {
+    let down = if index == 0 { String::new() } else { format!("<down*{index}> ") };
+    format!("<esc> <down*5> <enter> {down}<enter>")
+}
+
+/// The whole route, answered "Start over without saving" (no save directory: Keep, Go).
+fn switch_to(index: usize) -> String {
+    format!("{} <down> <enter>", switch_box(index))
+}
+
 #[test]
-fn the_number_row_switches_nation_on_the_same_seed_after_a_y() {
+fn switch_nation_restarts_on_the_same_seed_after_its_box_is_answered() {
     let mut a = app(7, Nation::Earth, SIZE);
     run(&mut a, "2");
-    let status = text(&mut a, SIZE).lines().last().unwrap().to_owned();
-    assert!(status.starts_with(" SWITCH? ") && status.contains("Water"), "{status}");
-    run(&mut a, "x");
+    assert_eq!(a.ui.prompt, None, "the number row is no key any more");
+    run(&mut a, &switch_box(1));
+    let frame = text(&mut a, SIZE);
+    assert!(frame.contains("SWITCH NATION") && frame.contains("Water Tribes"), "{frame}");
+    run(&mut a, "x <esc>");
     assert_eq!(a.session.world.nation, Nation::Earth);
 
-    for (digit, nation) in
-        [('1', Nation::Air), ('2', Nation::Water), ('3', Nation::Earth), ('4', Nation::Fire)]
+    for (index, nation) in
+        [(0, Nation::Air), (1, Nation::Water), (2, Nation::Earth), (3, Nation::Fire)]
     {
-        a.key(KeyEvent::new(KeyCode::Char(digit), KeyModifiers::NONE));
-        a.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        run(&mut a, &switch_to(index));
         assert_eq!((a.session.world.nation, a.session.world.seed), (nation, 7));
         let frame = text(&mut a, SIZE);
         let name = a.session.defs.nation(nation).name.to_uppercase();
@@ -1029,27 +1043,27 @@ fn the_number_row_switches_nation_on_the_same_seed_after_a_y() {
     }
 }
 
-/// `App::restart` (here, through the `1`-`4` nation switch, the one prompt it still answers
-/// in place since `R` leaves restarting to `Shell`, #290) keeps the screen size and shows the
+/// `App::restart` (here, through the menu's Switch nation…, the one question it still answers
+/// in place since New map… leaves restarting to `Shell`, #290) keeps the screen size and shows the
 /// cursor on the new world's first settler.
 #[test]
 fn restarting_in_place_keeps_the_screen_size_and_shows_the_cursor_on_its_first_settler() {
     let mut a = app(7, Nation::Earth, SMALL);
-    run(&mut a, "2 y");
+    run(&mut a, &switch_to(1));
     assert_eq!(a.session.world.nation, Nation::Water);
     assert_eq!(a.ui.viewport(), (48, 23));
     assert!(a.ui.cursor_cell().is_some());
     assert_eq!(a.ui.cursor, a.session.world.units[0].pos);
 }
 
-/// The `1`-`4` nation switch (#290): with no `start` (a world made by `App::new`'s plain
+/// The nation switch (#290): with no `start` (a world made by `App::new`'s plain
 /// `Session::new`), it keeps the centre-spiral spawn; founded at a chosen site, it rebuilds
 /// there instead of snapping back to the centre.
 #[test]
 fn the_nation_switch_rebuilds_at_the_world_s_start_when_it_has_one() {
     let mut a = app(7, Nation::Earth, SIZE);
     assert_eq!(a.session.world.start(), None);
-    run(&mut a, "2 y");
+    run(&mut a, &switch_to(1));
     assert_eq!(a.session.world.start(), None, "no start to keep");
 
     let defs = fn_sim::Defs::bundled();
@@ -1061,7 +1075,7 @@ fn the_nation_switch_rebuilds_at_the_world_s_start_when_it_has_one() {
     let mut a = App::new(session, SIZE);
     assert_eq!(a.session.world.start(), Some(start));
 
-    run(&mut a, "2 y");
+    run(&mut a, &switch_to(1));
     assert_eq!(a.session.world.nation, Nation::Water);
     assert_eq!(a.session.world.start(), Some(start), "rebuilt at the same start");
     let radius = defs.embark.spawn_radius as u32;
@@ -1074,14 +1088,14 @@ fn the_nation_switch_rebuilds_at_the_world_s_start_when_it_has_one() {
     }
 }
 
-/// `App::restart` (here, through the `1`-`4` nation switch) carries the current world's
+/// `App::restart` (here, through the nation switch) carries the current world's
 /// difficulty preset over (#298): it is a new game, not a change of preset mid-game, on both
 /// the plain and the founded path.
 #[test]
 fn restart_carries_the_current_difficulty_preset_over() {
     let mut a = app(7, Nation::Earth, SIZE);
     a.session.world.set_difficulty(Some("hard".into()));
-    run(&mut a, "2 y");
+    run(&mut a, &switch_to(1));
     assert_eq!(a.session.world.difficulty(), Some("hard"), "the plain path keeps it too");
 
     let defs = fn_sim::Defs::bundled();
@@ -1091,7 +1105,8 @@ fn restart_carries_the_current_difficulty_preset_over() {
     let start = survey.default_site(&defs);
     let session = Session::found(survey, Nation::Earth, start, Some("hard".into())).unwrap();
     let mut a = App::new(session, SIZE);
-    run(&mut a, "2 y");
+    run(&mut a, &switch_to(1));
+    assert_eq!(a.session.world.nation, Nation::Water);
     assert_eq!(a.session.world.difficulty(), Some("hard"), "found keeps it across the switch");
 }
 
