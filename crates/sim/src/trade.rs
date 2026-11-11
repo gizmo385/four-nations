@@ -183,12 +183,15 @@ struct RawReward {
 
 impl TradeFile {
     /// Validates the file and resolves item and chapter ids. `draw_bank` is
-    /// `[growth.draw].bank`, the most a draw reward may grant.
+    /// `[growth.draw].bank`, the most a draw reward may grant. `copy_item` is the Archive's scroll
+    /// copy (#709), if the buildings have one: no deal or request may take it and pay knowledge,
+    /// or copies would turn back into research points (#711).
     pub(crate) fn resolve(
         self,
         items: &[ItemDef],
         chapters: &[ChapterDef],
         draw_bank: f32,
+        copy_item: Option<ItemId>,
     ) -> Result<TradeDef, DefsError> {
         let err = |msg: String| DefsError(format!("trade.toml: {msg}"));
         let s = self.caravans;
@@ -239,7 +242,7 @@ impl TradeFile {
                 return Err(err(format!("caravan {nation:?} isn't in caravans.order")));
             }
             caravans.push(
-                raw.resolve(items, draw_bank)
+                raw.resolve(items, draw_bank, copy_item)
                     .map_err(|m| err(format!("caravan {nation:?}: {m}")))?,
             );
         }
@@ -298,7 +301,14 @@ fn resolve_goods(raw: Vec<RawGoods>, items: &[ItemDef]) -> Result<Vec<Goods>, St
 }
 
 impl RawCaravan {
-    fn resolve(self, items: &[ItemDef], draw_bank: f32) -> Result<CaravanDef, String> {
+    fn resolve(
+        self,
+        items: &[ItemDef],
+        draw_bank: f32,
+        copy_item: Option<ItemId>,
+    ) -> Result<CaravanDef, String> {
+        let takes_copies =
+            |give: &[Goods]| copy_item.is_some_and(|c| give.iter().any(|g| g.accepts(c)));
         if self.name.trim().is_empty() {
             return Err("name must not be empty".into());
         }
@@ -318,6 +328,9 @@ impl RawCaravan {
                 return Err(at("knowledge must be at most 10000".into()));
             }
             let give = resolve_goods(d.give, items).map_err(at)?;
+            if d.knowledge > 0 && takes_copies(&give) {
+                return Err(at("takes scroll copies and pays knowledge, a loop".into()));
+            }
             let mut get = Vec::with_capacity(d.get.len());
             for g in d.get {
                 if g.item == "food" {
@@ -371,6 +384,9 @@ impl RawCaravan {
                 _ => return Err(at("one reward only".into())),
             };
             let give = resolve_goods(r.give, items).map_err(at)?;
+            if matches!(reward, Reward::Knowledge(_)) && takes_copies(&give) {
+                return Err(at("takes scroll copies and pays knowledge, a loop".into()));
+            }
             requests.push(RequestDef { name: r.name.clone(), give, reward });
         }
         if requests.is_empty() {

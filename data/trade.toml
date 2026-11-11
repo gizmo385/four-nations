@@ -66,9 +66,26 @@ give = [{ item = "stone", count = 15 }]
 get = [{ item = "cabbage", count = 5 }]
 times = 2
 
+# Wares (#708) and scroll copies (#709): what a surplus of wood and idle scholars buys. A ware
+# costs about 2 wood, so wood in wares buys about twice what raw wood does.
+[[caravan.deal]]
+give = [{ item = "wares", count = 6 }]
+get = [{ item = "gold_ore", count = 3 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "scroll_copy", count = 1 }]
+get = [{ item = "stone", count = 15 }]
+times = 2
+
 [[caravan.request]]
 name = "Food for the miners of Omashu"
 give = [{ item = "food", count = 40 }]
+reward = { draw = 0.5 }
+
+[[caravan.request]]
+name = "Copies for the library at Ba Sing Se"
+give = [{ item = "scroll_copy", count = 3 }]
 reward = { draw = 0.5 }
 
 # --- Fire: metal and bricks ---
@@ -96,6 +113,16 @@ give = [{ item = "stone", count = 15 }]
 get = [{ item = "fruit", count = 5 }]
 times = 2
 
+[[caravan.deal]]
+give = [{ item = "wares", count = 10 }]
+get = [{ item = "brick", count = 8 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "scroll_copy", count = 2 }]
+get = [{ item = "metal", count = 3 }]
+times = 1
+
 [[caravan.request]]
 name = "Food for the families at Fire Fountain City"
 give = [{ item = "food", count = 40 }]
@@ -119,6 +146,16 @@ times = 2
 [[caravan.deal]]
 give = [{ item = "wood", count = 30 }]
 get = [{ item = "ice", count = 6 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "wares", count = 8 }]
+get = [{ item = "herbs", count = 4 }]
+times = 2
+
+[[caravan.deal]]
+give = [{ item = "scroll_copy", count = 1 }]
+get = [{ item = "tool", count = 2 }]
 times = 2
 
 [[caravan.request]]
@@ -146,7 +183,28 @@ give = [{ item = "stone", count = 15 }]
 get = [{ item = "fruit", count = 5 }]
 times = 2
 
+# Air's fourth deal (#711): bricks for knowledge, so the list always has four. Never copies for
+# knowledge: the loader refuses that (copies would turn back into research points).
+[[caravan.deal]]
+give = [{ item = "brick", count = 8 }]
+knowledge = 30
+times = 2
+
 [[caravan.request]]
 name = "Food for the monks of the Eastern Air Temple"
 give = [{ item = "food", count = 40 }]
 reward = { knowledge = 60 }
+
+# Air's monks buy newcomers with what the settlement makes (and, once a caravan's chart has a
+# system, charts with copies), never knowledge for copies.
+[[caravan.request]]
+name = "Gifts for the festival at the Western Air Temple"
+give = [{ item = "wares", count = 12 }]
+reward = { draw = 0.5 }
+
+# Wants { chart = 1 } (docs/design/horizons-phase-3.md). The loader refuses a chart reward until
+# a caravan's chart has a system, so this pays a smaller draw for now.
+[[caravan.request]]
+name = "Copies for the Eastern Air Temple"
+give = [{ item = "scroll_copy", count = 2 }]
+reward = { draw = 0.25 }

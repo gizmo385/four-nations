@@ -81,7 +81,7 @@ fn the_bundled_caravans_load() {
     assert_eq!(s.opens.as_deref(), Some("known_on_the_road"));
     assert_eq!(defs.trade.caravans.len(), 4);
     for c in &defs.trade.caravans {
-        assert!(c.deals.len() >= 3, "{:?}", c.nation);
+        assert!(c.deals.len() >= 4, "{:?}", c.nation);
         assert!(!c.requests.is_empty(), "{:?}", c.nation);
     }
     let visitors: Vec<Nation> = s.visitors(Nation::Earth).collect();
@@ -308,14 +308,22 @@ fn goods_for_an_unfinished_deal_are_left_when_the_caravan_goes() {
 #[test]
 fn a_request_grants_its_knowledge() {
     let defs = defs_with(false, Some("order = [\"air\", \"earth\", \"fire\", \"water\"]"));
-    let mut w = world(1, 3, &defs);
-    run(&mut w, &defs, minutes(0.2) + 1);
-    let v = w.caravan().unwrap();
-    assert_eq!(v.nation, Nation::Air);
-    let slot = (v.offers.len() - 1) as u8;
-    let caravan = w.caravan_def(&defs).unwrap();
-    let OfferKind::Request(r) = v.offers[usize::from(slot)].kind else { panic!("the request") };
-    assert_eq!(caravan.requests[usize::from(r)].reward, Reward::Knowledge(60));
+    // Air has three requests and a visit offers one at random: take the first seed that offers
+    // the monks' knowledge request.
+    let (mut w, slot) = (1..64)
+        .find_map(|seed| {
+            let mut w = world(seed, 3, &defs);
+            run(&mut w, &defs, minutes(0.2) + 1);
+            let v = w.caravan().unwrap();
+            assert_eq!(v.nation, Nation::Air);
+            let slot = (v.offers.len() - 1) as u8;
+            let caravan = w.caravan_def(&defs).unwrap();
+            let OfferKind::Request(r) = v.offers[usize::from(slot)].kind else {
+                panic!("the request")
+            };
+            (caravan.requests[usize::from(r)].reward == Reward::Knowledge(60)).then_some((w, slot))
+        })
+        .expect("some seed offers the knowledge request");
     w.apply(Command::TakeDeal { slot }, &defs).unwrap();
     assert_eq!(
         w.apply(Command::TakeDeal { slot }, &defs),

@@ -284,6 +284,7 @@ impl Defs {
             &self.items,
             &self.endeavor.chapters,
             self.needs.growth.draw.bank,
+            self.buildings.iter().find_map(|b| b.archive).map(|a| a.copy_item),
         )?;
         Ok(self)
     }
