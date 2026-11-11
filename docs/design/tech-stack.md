@@ -29,7 +29,10 @@ not just the map.
 3. **Lots of UI** eventually: inventories, job lists, tooltips, menus.
 4. **Data-driven content** (nations, biomes, resources, jobs) that people can edit without
    touching code.
-5. ~~Web builds~~: no longer needed, since the game is personal-only (see vision.md).
+5. **Web builds**: needed again (2026-11-11). The replayer is already hosted on the public
+   Pages site (#596), and browser play will be hosted there too (see vision.md, "Audience and
+   IP"). From 2026-10-21 until then this requirement was struck out as "no longer needed",
+   because the game was meant to be personal-only.
 
 ## Options
 

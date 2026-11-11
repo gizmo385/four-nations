@@ -4,11 +4,24 @@ Doc status: current
 
 Status: **draft**. Open questions are tracked as GitHub issues.
 
-## Audience and IP (decided 2026-10-21)
+## Audience and IP (decided 2026-10-21, revised 2026-11-11)
 
-A **personal project**: one player, the owner. It lives in a private repo and is never sold,
-published or distributed. So canon Avatar names, characters and fan art are fine. No web build
-or public deploys.
+A **personal, non-commercial project** with one intended player, the owner. It is never sold.
+
+It is not private, though:
+
+- The repository is public.
+- The web replayer is hosted on the public GitHub Pages site (#596; "The hosted replayer" in
+  [agent-play.md](agent-play.md)).
+- On 2026-11-11 the owner decided that browser play, once it is built, will be hosted on that
+  same page.
+
+Canon Avatar names, characters and fan art stay, as a free, non-commercial fan project. The
+owner made that call knowing the code, the replayer and later the game itself are public.
+
+(Until 2026-11-11 this section said the game lived in a private repo, was never published or
+distributed, and would have no web build or public deploys. That stopped being true when the
+repository went public and #596 hosted the replayer.)
 
 ## Pitch
 
