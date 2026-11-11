@@ -1,13 +1,13 @@
-//! The full screens (`crate::page`, #652), each covering the map and the side panel: the message
-//! log (`L`), the key help (`?`) and the Endeavor screen (`G`, `endeavor.rs`) are pages of rows
-//! that scroll; the research screen (`T`) is a grid of tech cards with a cursor and a detail
+//! The full screens (`crate::page`, #652), each covering the map and the side panel: the
+//! key help (`?`) and the Endeavor screen (`G`, `endeavor.rs`) are pages of rows that scroll; the
+//! message log (`L`, #661, `msglog.rs`) is a list of lines with a cursor under a filter row; the
+//! research screen (`T`) is a grid of tech cards with a cursor and a detail
 //! strip (`research.rs`); the Nation screen (`N`, #308, `nation.rs`) is a roster with a pointer;
 //! the saves screen (`F6`, `saves.rs`) is a list with a pointer. The Build picker (`U`,
 //! `build.rs`) wears the same frame. Each closes on `Esc` or on the key that opened it.
 
 use fn_ui::Session;
-use fn_ui::alerts::{Alerts, Kind};
-use fn_ui::time::{Period, game_time};
+use fn_ui::alerts::Kind;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
@@ -28,39 +28,32 @@ pub fn text_size(page: (i32, i32)) -> (usize, usize) {
 
 /// The screen's text as rows, `width` columns wide. `ascii` picks the glyph set the Endeavor
 /// screen's marks and bars wear (the message log and the key help don't need it).
-pub fn lines(
-    session: &Session,
-    screen: Screen,
-    alerts: &Alerts,
-    width: usize,
-    ascii: bool,
-) -> Vec<Row> {
+pub fn lines(session: &Session, screen: Screen, width: usize, ascii: bool) -> Vec<Row> {
     let marks = Marks::new(ascii);
     match screen {
-        Screen::Log => {
-            let history: Vec<_> =
-                alerts.history().iter().map(|e| (e.tick, e.kind, e.text.as_str())).collect();
-            log_lines(session, &history, width, &marks)
-        }
         Screen::Help => help_lines(width, marks.ellipsis),
         Screen::Endeavor => crate::endeavor::lines(session, width, &marks),
-        // A grid or a list with a cursor, not rows that scroll: `research::draw`, `saves::draw`
-        // and `nation::draw` lay them out.
-        Screen::Research | Screen::Saves | Screen::Nation => Vec::new(),
+        // A grid or a list with a cursor, not rows that scroll: `research::draw`, `saves::draw`,
+        // `nation::draw` and `msglog::draw` lay them out.
+        Screen::Log | Screen::Research | Screen::Saves | Screen::Nation => Vec::new(),
     }
 }
 
 /// How many rows the screen's text has at `width`. `ascii` never changes a row count (only which
 /// glyph a mark or a bar's cells wear), so this always measures the Unicode set.
-pub fn line_count(screen: Screen, session: &Session, alerts: &Alerts, width: usize) -> usize {
-    lines(session, screen, alerts, width, false).len()
+pub fn line_count(screen: Screen, session: &Session, width: usize) -> usize {
+    lines(session, screen, width, false).len()
 }
 
 /// How many rows of a screen's own text show at once on a `page`: the key help gives its first
-/// two to the tab strip and a blank row.
+/// two to the tab strip and a blank row, the message log its first two to the filter row.
 pub fn body_rows(screen: Screen, page: (i32, i32)) -> usize {
     let rows = text_size(page).1;
-    if screen == Screen::Help { rows.saturating_sub(HELP_HEAD_ROWS) } else { rows }
+    match screen {
+        Screen::Help => rows.saturating_sub(HELP_HEAD_ROWS),
+        Screen::Log => rows.saturating_sub(crate::msglog::HEAD_ROWS),
+        _ => rows,
+    }
 }
 
 /// How many rows the open screen scrolls through at `width`: [`line_count`], except that the key
@@ -71,11 +64,12 @@ pub fn row_count(session: &Session, ui: &UiState, screen: Screen, width: usize) 
         let palette = Palette::new(&session.defs, session.nation(), ColorDepth::TrueColor, false);
         return legend::line_count(session, ui, &palette, width);
     }
-    line_count(screen, session, &ui.alerts, width)
+    line_count(screen, session, width)
 }
 
-/// The tone a log line wears: deaths stand out, discoveries read as good news. The side panel's
-/// Alerts toasts share this (`crate::panel`), so the two never disagree.
+/// The tone a toast wears: discoveries read as good news, the winter warning and a full stockpile
+/// as cautions. The message log's lines share this (`crate::msglog`), where an alert in any kind
+/// wears the warning colour.
 pub(crate) fn kind_tone(kind: Kind) -> Tone {
     match kind {
         Kind::Bend => Tone::Text,
@@ -97,49 +91,6 @@ pub(crate) fn kind_tone(kind: Kind) -> Tone {
         // routine bend, not a warning.
         Kind::BendTip => Tone::Text,
     }
-}
-
-/// The message log, oldest first (#654): a heading row per season ("── WINTER, YEAR 1 ──", or per
-/// day with seasons off), and under it each line stamped with the time left in that season when
-/// it happened ("14:50 left"), the same words as the panel's clock, so a line can be placed
-/// against it. The text wraps under the stamp.
-pub fn log_lines(
-    session: &Session,
-    history: &[(u64, Kind, &str)],
-    width: usize,
-    marks: &Marks,
-) -> Vec<Row> {
-    if history.is_empty() {
-        let none = "Nothing has happened yet: no bends, no discoveries, no deaths.";
-        return wrap(none, width, usize::MAX, marks.ellipsis)
-            .into_iter()
-            .map(|line| Row::text(line, Tone::Dim))
-            .collect();
-    }
-    let seasons = session.world.knobs(&session.defs).seasons;
-    let times: Vec<_> =
-        history.iter().map(|&(tick, ..)| game_time(&session.defs, tick, seasons)).collect();
-    let stamps: Vec<String> = times.iter().map(|t| t.left()).collect();
-    let stamp_width = stamps.iter().map(|s| s.chars().count()).max().unwrap_or(0);
-    let indent = stamp_width + 1;
-    let room = width.saturating_sub(indent).max(1);
-    let rule = marks.h.to_string().repeat(2);
-    let mut rows = Vec::new();
-    let mut period: Option<&Period> = None;
-    for ((&(_, kind, text), stamp), time) in history.iter().zip(&stamps).zip(&times) {
-        if period != Some(&time.period) {
-            period = Some(&time.period);
-            let heading = format!("{rule} {} {rule}", time.heading());
-            rows.push(Row::text(fit(&heading, width, marks.ellipsis), Tone::Title));
-        }
-        let tone = kind_tone(kind);
-        let text = wrap(text, room, usize::MAX, marks.ellipsis);
-        for (i, part) in text.into_iter().enumerate() {
-            let lead = if i == 0 { format!("{stamp:>stamp_width$} ") } else { " ".repeat(indent) };
-            rows.push(Row::spans(vec![(lead, Tone::Dim), (part, tone)]));
-        }
-    }
-    rows
 }
 
 /// How many rows the key help's tab strip takes: the tabs, and a blank row under them.
@@ -309,9 +260,10 @@ pub fn draw_screen(
             crate::nation::draw(session, ui, wide, palette, &page, buf)
         }
         Screen::Help => draw_help(session, ui, palette, page.body, buf),
-        Screen::Log | Screen::Endeavor => {
+        Screen::Log => crate::msglog::draw(session, ui, palette, &page, buf),
+        Screen::Endeavor => {
             let body = page.body;
-            let rows = lines(session, screen, &ui.alerts, usize::from(body.width), palette.ascii);
+            let rows = lines(session, screen, usize::from(body.width), palette.ascii);
             let max = rows.len().saturating_sub(usize::from(body.height));
             let start = ui.scroll.min(max);
             let mut p = Painter::new(buf, body, palette);
@@ -361,70 +313,7 @@ fn draw_help(
 
 #[cfg(test)]
 mod tests {
-    use fn_sim::Nation;
-
     use super::*;
-    use crate::new_session;
-
-    /// A line is stamped with the time left in its season, under a heading row per season, and
-    /// wraps under the stamp.
-    #[test]
-    fn the_log_puts_the_time_left_first_under_a_heading_per_season() {
-        let mut s = new_session(7, Nation::Earth);
-        s.world.set_difficulty(Some("normal".to_owned()));
-        let per = s.defs.seasons.season_ticks();
-        let history = [
-            (0, Kind::Bend, "Haru used Raise Earth at (5, 3)"),
-            (650, Kind::Death, "Tyro died of dehydration, far from any water"),
-            (3 * per + 10, Kind::Season, "Winter has come"),
-        ];
-        let rows = log_lines(&s, &history, 30, &Marks::new(false));
-        let text: Vec<String> = rows.iter().map(Row::plain).collect();
-        assert_eq!(text[0], "── SPRING, YEAR 1 ──");
-        assert_eq!(text[1], "15:00 left Haru used Raise");
-        assert_eq!(text[2], "           Earth at (5, 3)");
-        assert!(text[3].starts_with("13:55 left Tyro died of"), "{text:?}");
-        assert!(text.contains(&"── WINTER, YEAR 1 ──".to_owned()), "{text:?}");
-        assert!(text.iter().any(|t| t.starts_with("14:59 left Winter has")), "{text:?}");
-        assert!(text.iter().all(|t| t.chars().count() <= 30), "{text:?}");
-        // The kinds wear their tones; a heading is a title.
-        assert_eq!(rows[0].left[0].1, Tone::Title);
-        assert_eq!(rows[1].left[1].1, Tone::Text);
-        assert_eq!(rows[3].left[1].1, Tone::Bad);
-    }
-
-    /// The stamp is the panel's own time left: a line from this very tick reads like the clock.
-    #[test]
-    fn a_log_stamp_matches_the_panel_clock_at_that_tick() {
-        let mut s = new_session(7, Nation::Earth);
-        s.world.set_difficulty(Some("normal".to_owned()));
-        s.world.tick = 4321;
-        let clock = fn_ui::time::clock_text(&s);
-        let rows = log_lines(&s, &[(4321, Kind::Bend, "x")], 60, &Marks::new(true));
-        let left = clock.split(" · ").nth(1).unwrap();
-        assert!(rows[1].plain().starts_with(left), "{clock} vs {}", rows[1].plain());
-        assert_eq!(rows[0].plain(), format!("-- {} --", fn_ui::time::session_time(&s).heading()));
-    }
-
-    /// With seasons off the log runs on days, in the same shape.
-    #[test]
-    fn with_seasons_off_the_log_has_a_heading_per_day() {
-        let s = new_session(7, Nation::Earth);
-        let history = [(0, Kind::Bend, "a"), (3100, Kind::Bend, "b")];
-        let text: Vec<String> =
-            log_lines(&s, &history, 40, &Marks::new(false)).iter().map(Row::plain).collect();
-        assert_eq!(text[0], "── DAY 1 ──");
-        assert_eq!(text[1], "5:00 left a");
-        assert_eq!(text[2], "── DAY 2 ──");
-        assert!(text[3].starts_with("4:50 left b"), "{text:?}");
-    }
-
-    #[test]
-    fn an_empty_log_says_so() {
-        let s = new_session(7, Nation::Earth);
-        let rows = log_lines(&s, &[], 40, &Marks::new(false));
-        assert!(rows[0].plain().starts_with("Nothing has happened"));
-    }
 
     fn plain(rows: &[Row]) -> Vec<String> {
         rows.iter().map(Row::plain).collect()

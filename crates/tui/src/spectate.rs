@@ -18,7 +18,7 @@ use fn_ui::Session;
 
 use crate::input::{self, Action};
 use crate::state::{Modal, Screen, UiState};
-use crate::{build, nation, research, screens};
+use crate::{build, msglog, nation, research, screens};
 
 /// Handles one key for the spectator's own `ui`, reading `session` but never changing it.
 /// Returns whether it did anything at all, which `Watcher` uses to switch from Follow to Free
@@ -86,6 +86,11 @@ pub fn key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
 /// toggle `open_screen` uses to open one.
 fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
     let screen = ui.screen.expect("called only once a screen is confirmed open");
+    // The log's cursor, folds and `Enter` (#661), shared with `App`. Read-only: `Enter` only moves
+    // the spectator's own cursor or selects a settler to see their bar.
+    if screen == Screen::Log && msglog::act(ui, session, action) {
+        return true;
+    }
     match screen {
         Screen::Research => match action {
             Action::Move { dx, dy, .. } => return move_tech(ui, session, dx, dy),
@@ -181,7 +186,7 @@ fn scroll_by(ui: &mut UiState, session: &Session, screen: Screen, lines: i32) {
     let max = total.saturating_sub(rows);
     let now = ui.scroll.min(max) as i64;
     let to = (now + i64::from(lines)).clamp(0, max as i64) as usize;
-    ui.scroll = if screen == Screen::Log && to == max { crate::state::PINNED } else { to };
+    ui.scroll = to;
 }
 
 /// Opens `screen`, or closes it if it is the one already open, as `App::open` does (minus the
@@ -191,7 +196,10 @@ fn open_screen(ui: &mut UiState, session: &Session, screen: Screen) -> bool {
         ui.screen = None;
     } else {
         ui.screen = Some(screen);
-        ui.scroll = if screen == Screen::Log { crate::state::PINNED } else { 0 };
+        ui.scroll = 0;
+        if screen == Screen::Log {
+            msglog::reset(ui);
+        }
         ui.help_tab = crate::state::HelpTab::default();
         if screen == Screen::Research {
             let view = fn_ui::research::screen_view(session);

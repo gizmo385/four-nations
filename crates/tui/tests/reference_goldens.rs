@@ -1,4 +1,4 @@
-//! Reference goldens (#455): ten whole-screen snapshots, one per screen type, kept for a reviewer
+//! Reference goldens (#455): eleven whole-screen snapshots, one per screen type, kept for a reviewer
 //! to look at -- not the regression net. That job belongs to the layout properties
 //! (`layout_properties.rs`, #454) and the `contains`-style assertions beside each feature.
 //!
@@ -41,7 +41,7 @@ const SEED: u64 = 1;
 const SETTLERS: [&str; 2] = ["Juni", "Shen"];
 
 /// Every reference screen, by golden name.
-const SCREENS: [&str; 10] = [
+const SCREENS: [&str; 11] = [
     "ref_title",
     "ref_embark",
     "ref_game_80x24",
@@ -52,6 +52,7 @@ const SCREENS: [&str; 10] = [
     "ref_endeavor",
     "ref_menu",
     "ref_help",
+    "ref_log",
 ];
 
 fn golden(name: &str, actual: &str) {
@@ -170,6 +171,26 @@ fn game_text(defs: &Defs, seed: u64, size: (u16, u16), script: &str) -> String {
     to_text(&render_app(&mut app, &p, size))
 }
 
+/// The message log over a log written by hand (the run's own lines, `push_agent`: nothing a tick
+/// computed), over two days and with the cursor on the second line.
+fn log_text(defs: &Defs, seed: u64) -> String {
+    let mut app = App::new(fixed_world(defs, seed), SIZE);
+    let tps = u64::from(fn_sim::world::TICKS_PER_SECOND);
+    let day = fn_ui::time::DAY_SECS * tps;
+    for (tick, line) in [
+        (30 * tps, "Juni scouted the east shore"),
+        (95 * tps, "Shen marked the oak grove for chopping"),
+        (210 * tps, "Juni and Shen raised a wall by the beds"),
+        (day + 40 * tps, "Shen set the research target"),
+        (day + 150 * tps, "Juni began a stockpile by the pond"),
+    ] {
+        app.ui.alerts.push_agent(tick, line.to_owned());
+    }
+    app.play(&keys::parse("l <down>").expect("a valid script"));
+    let p = Palette::new(&app.session.defs, app.session.world.nation, ColorDepth::TrueColor, false);
+    to_text(&render_app(&mut app, &p, SIZE))
+}
+
 fn shell_text(shell: &mut Shell) -> String {
     let p = Palette::new(shell.defs(), shell.nation(), ColorDepth::TrueColor, false);
     to_text(&render_shell(shell, &p, SIZE))
@@ -190,12 +211,13 @@ fn screen_text(name: &str, defs: &Defs, seed: u64) -> String {
         "ref_endeavor" => game_text(defs, seed, SIZE, "g"),
         "ref_menu" => game_text(defs, seed, SIZE, "<esc>"),
         "ref_help" => game_text(defs, seed, SIZE, "?"),
+        "ref_log" => log_text(defs, seed),
         other => panic!("no reference screen {other:?}"),
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// The ten reference screens
+// The eleven reference screens
 // ---------------------------------------------------------------------------------------------
 
 fn reference(name: &str) {
@@ -252,6 +274,11 @@ fn reference_menu() {
 #[test]
 fn reference_help() {
     reference("ref_help");
+}
+
+#[test]
+fn reference_log() {
+    reference("ref_log");
 }
 
 // ---------------------------------------------------------------------------------------------

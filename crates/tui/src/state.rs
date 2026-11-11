@@ -4,7 +4,9 @@
 use fn_sim::building::BuildingId;
 use fn_sim::world::{Unit, UnitId};
 use fn_sim::{Nation, Pos};
+use fn_ui::alerts::Category;
 use fn_ui::build::Placement;
+use fn_ui::msglog::LineKey;
 use fn_ui::saves::Slot;
 use fn_ui::{Alerts, Session, Tool};
 
@@ -90,9 +92,6 @@ pub enum Modal {
     Menu,
 }
 
-/// The scroll of a screen that sticks to its end: the newest line of the log.
-pub const PINNED: usize = usize::MAX;
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiState {
     /// The tile under the keyboard cursor, always on the map.
@@ -144,8 +143,15 @@ pub struct UiState {
     pub following: bool,
     /// The screen over the map, if one is open.
     pub screen: Option<Screen>,
-    /// The first line of the open screen that shows ([`PINNED`] for the end of the log).
+    /// The first row of the open screen that shows.
     pub scroll: usize,
+    /// The message log's filter (`1` to `5`): one kind of line, or `None` for all (#661).
+    pub log_filter: Option<Category>,
+    /// The message log's cursor: the line it is on, by id so a new line at the top does not move
+    /// it. `None` is the newest line.
+    pub log_cursor: Option<LineKey>,
+    /// The message log's open folds, by the id of each one's first line.
+    pub log_open: Vec<u64>,
     /// Which tab of the key help shows (`Tab` switches it, [`HelpTab`]).
     pub help_tab: HelpTab,
     /// The modal dialog over the map, if one is open (#285).
@@ -209,6 +215,9 @@ impl UiState {
             following: false,
             screen: None,
             scroll: 0,
+            log_filter: None,
+            log_cursor: None,
+            log_open: Vec::new(),
             help_tab: HelpTab::default(),
             modal: None,
             build_cursor: 0,
@@ -490,6 +499,14 @@ impl UiState {
             },
         };
         self.select(Some(next));
+    }
+
+    /// `Enter` in the message log (#661): puts the cursor on `place` and centres the view there,
+    /// as a jump to a place does. The cursor stops following a settler.
+    pub fn go_to(&mut self, place: Pos) {
+        self.following = false;
+        self.cursor = self.clamp_to_map(place);
+        self.center_view();
     }
 
     /// `Enter` in the Nation screen (`N`, #308): puts the cursor on `id` and opens the selection

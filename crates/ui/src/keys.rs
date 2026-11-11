@@ -296,9 +296,12 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Endeavor], &[Action::PickTool(Tool::CancelHarvest)], "X", "withdraw", None);
     add(&[Mode::Endeavor], &[jump], "PgUp/PgDn", "page", None);
 
-    add(&[Mode::Log], &[step], "Up/Down", "scroll", None);
-    add(&[Mode::Log], &[Action::Cancel, Action::ShowLog], "Esc or L", "close", None);
+    add(&[Mode::Log], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Log], &[Action::Confirm], "Enter", "jump there", None);
+    add(&[Mode::Log], &[], "Right", "open", None);
+    add(&[Mode::Log], &[], "1-5", "filter", None);
     add(&[Mode::Log], &[jump], "PgUp/PgDn", "page", None);
+    add(&[Mode::Log], &[Action::Cancel, Action::ShowLog], "Esc or L", "close", None);
 
     add(&[Mode::Help], &[step], "Up/Down", "scroll", None);
     add(&[Mode::Help], &[Action::Cancel, Action::ShowHelp], "Esc or ?", "close", None);

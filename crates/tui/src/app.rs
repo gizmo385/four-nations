@@ -13,10 +13,11 @@ use crate::ask::Answer;
 use crate::input::{Action, map_key};
 use crate::keys::Step;
 use crate::menu::{MenuPage, MenuRow};
+use crate::msglog;
 use crate::research;
 use crate::saves as saves_screen;
 use crate::screens;
-use crate::state::{HelpTab, Modal, PINNED, Prompt, Screen, UiState};
+use crate::state::{HelpTab, Modal, Prompt, Screen, UiState};
 
 /// What `F5`, `F9` and `F6` say when there is no save directory.
 const NO_SAVE_DIR: &str = "Save failed: this platform has no data directory (set FN_SAVE_DIR)";
@@ -103,6 +104,15 @@ impl App {
                 _ => {}
             }
         }
+        // The message log's filters (#661): `1` to `5` and `0` on the number row. A keypad digit
+        // still moves, as everywhere else.
+        if self.ui.screen == Some(Screen::Log)
+            && let KeyCode::Char(c @ '0'..='9') = key.code
+            && !key.state.contains(crate::keyev::KeyEventState::KEYPAD)
+        {
+            msglog::press(&mut self.ui, &self.session, c);
+            return;
+        }
         if let Some(action) = map_key(key) {
             self.act(action);
         }
@@ -165,6 +175,11 @@ impl App {
                 Action::Confirm => return research::choose(&mut self.session, self.ui.tech),
                 _ => {}
             }
+        }
+        // The log (#661) has a cursor on its lines: the arrows choose, Right opens a fold, Left
+        // folds it, and Enter goes to the line's place.
+        if self.ui.screen == Some(Screen::Log) && msglog::act(&mut self.ui, &self.session, action) {
+            return;
         }
         if self.ui.screen == Some(Screen::Saves) {
             // The list has a highlight, not a scroll: the arrows move it by one slot whatever
@@ -240,8 +255,12 @@ impl App {
             self.ui.screen = None;
         } else {
             self.ui.screen = Some(screen);
-            // The log opens at its newest line, the help at its top, the tree on its target.
-            self.ui.scroll = if screen == Screen::Log { PINNED } else { 0 };
+            // The log opens at its newest line (its top), the help at its top, the tree on its
+            // target.
+            self.ui.scroll = 0;
+            if screen == Screen::Log {
+                msglog::reset(&mut self.ui);
+            }
             self.ui.help_tab = HelpTab::default();
             if screen == Screen::Research {
                 let view = screen_view(&self.session);
@@ -310,8 +329,7 @@ impl App {
         let max = total.saturating_sub(rows);
         let now = self.ui.scroll.min(max) as i64;
         let to = (now + i64::from(lines)).clamp(0, max as i64) as usize;
-        // The log sticks to its newest line once it has been scrolled back there.
-        self.ui.scroll = if screen == Screen::Log && to == max { PINNED } else { to };
+        self.ui.scroll = to;
     }
 
     /// Opens the confirm box for `prompt` (`crate::ask`): the cursor on its first row, the safe

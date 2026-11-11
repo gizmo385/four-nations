@@ -20,13 +20,13 @@
 
 use std::collections::BTreeSet;
 
-use fn_sim::Defs;
 use fn_sim::jobs::ItemId;
 use fn_sim::needs::DeathCause;
 use fn_sim::world::{
     Arrival, BendEvent, BendOutcome, ChartEvent, ChartEventKind, Death, Event, SeasonEvent,
-    SeasonEventKind, StrainEvent, TICKS_PER_SECOND,
+    SeasonEventKind, StrainEvent, TICKS_PER_SECOND, UnitId,
 };
+use fn_sim::{Defs, Pos};
 
 use crate::endeavor;
 use crate::session::Session;
@@ -110,6 +110,81 @@ impl Kind {
     }
 }
 
+/// What a log line is about, for the message log's filter (#661): the five groups a player
+/// reads the log by. Set where the entry is made ([`Kind::category`]), never worked out by the
+/// screen drawing it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Category {
+    /// Something that needs an eye: a death, the winter warning and the season turning, a full
+    /// stockpile, a plant picked to death, a failed bend, an endeavor sign met.
+    Alert,
+    /// A settler: someone joined the settlement.
+    People,
+    /// Something learned: a finished tech, a finished chart.
+    Knowledge,
+    /// A bend that finished.
+    Bending,
+    /// Work and the people at it: an agent's act in a watched run, the bend tip.
+    Work,
+}
+
+impl Category {
+    /// Every category, in the order the filter row lists them (keys `1` to `5`).
+    pub const ALL: [Category; 5] =
+        [Self::Alert, Self::People, Self::Knowledge, Self::Bending, Self::Work];
+
+    /// The word the filter row shows.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Alert => "Alerts",
+            Self::People => "People",
+            Self::Knowledge => "Knowledge",
+            Self::Bending => "Bending",
+            Self::Work => "Work",
+        }
+    }
+
+    /// The category the digit `key` (`1` to `5`) picks.
+    pub fn from_key(key: char) -> Option<Category> {
+        let n = key.to_digit(10)? as usize;
+        Self::ALL.get(n.checked_sub(1)?).copied()
+    }
+
+    /// The digit that picks this category.
+    pub fn key(self) -> char {
+        let at = Self::ALL.iter().position(|&c| c == self).unwrap_or(0);
+        char::from_digit(at as u32 + 1, 10).unwrap_or('1')
+    }
+}
+
+impl Kind {
+    /// The log category of a line of this kind. `failed` only matters for a `Bend`: a finished
+    /// one is routine bending, a failed one is an alert.
+    pub fn category(self, failed: bool) -> Category {
+        match self {
+            Self::Bend if failed => Category::Alert,
+            Self::Bend => Category::Bending,
+            Self::Tech | Self::Chart => Category::Knowledge,
+            Self::Death | Self::Endeavor | Self::Season | Self::Stockpile => Category::Alert,
+            Self::Arrival => Category::People,
+            Self::Agent | Self::BendTip => Category::Work,
+        }
+    }
+}
+
+/// What lets a run of the same event close together fold into one log line (#661): the same
+/// variant and the same name. Set where the entry is made; only the message log's view reads it
+/// (`crate::msglog`), so the history, and the run log an agent reads, stay one line per event.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fold {
+    /// A finished bend of the named ability.
+    Bend(String),
+    /// A newcomer joined.
+    Arrival,
+    /// A wild plant of the named resource picked to death.
+    Strain(String),
+}
+
 /// What a toast shows for one entry, before [`Alerts::toasts`] folds repeats together (#417):
 /// `subject` is the grouping key (and the plural line's own text, "Hearthflame failed ×3"),
 /// `text` is what a single, uncoalesced occurrence shows -- the richer line, but still with no
@@ -123,9 +198,22 @@ struct ToastSpec {
 /// One line of the log.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
+    /// Which line it is: counts up from 1 as lines are made, so it names the line for as long as
+    /// the line is in the history, whatever drops off the front (#661: the log's cursor and its
+    /// open folds hold ids, not positions).
+    pub id: u64,
     /// The world tick it happened on.
     pub tick: u64,
     pub kind: Kind,
+    /// What the message log's filter sorts it under ([`Kind::category`]).
+    pub category: Category,
+    /// The place it is about, if it names one: `Enter` in the message log puts the map cursor
+    /// there.
+    pub place: Option<Pos>,
+    /// The settler it is about, if it names one and they are in the settlement.
+    pub unit: Option<UnitId>,
+    /// What it folds with when a run of it comes close together (the log's view only).
+    pub fold: Option<Fold>,
     /// The log's own copy: the full detail, map coordinates included where the describer names
     /// a place. Never shown as a toast directly; see [`Entry::toast`].
     pub text: String,
@@ -143,6 +231,24 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// An entry with nothing set but its defaults, for a test to fill in the fields it cares about.
+    #[cfg(test)]
+    pub(crate) fn blank() -> Self {
+        Self {
+            id: 0,
+            tick: 0,
+            kind: Kind::Bend,
+            category: Category::Bending,
+            place: None,
+            unit: None,
+            fold: None,
+            text: String::new(),
+            left: 0.0,
+            toast: None,
+            failed: false,
+        }
+    }
+
     /// Worth an agent stopping `Host::end_turn` (crates/tui/src/surface.rs) for: every kind but
     /// `Bend`, `Agent` and `BendTip`, since those are either routine (a settlement that bends a
     /// lot finishes one most turns, #377), for `Agent`, never produced by [`Alerts::update`] in
@@ -173,6 +279,8 @@ impl Entry {
 pub struct Alerts {
     /// Oldest first.
     log: Vec<Entry>,
+    /// The id the next line gets (`Entry::id`).
+    next_id: u64,
     /// How many of `World::events` have already been read (#605: one cursor for every kind).
     seen: usize,
     /// The tick of the last update, to notice a new world.
@@ -209,7 +317,8 @@ impl Alerts {
             if !self.full_items.contains(&item) {
                 let text = describe_stockpile_full(&session.defs, item, count);
                 let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-                fresh.push(((world.tick, STOCKPILE_ORDER), Kind::Stockpile, text, false, toast));
+                fresh
+                    .push(((world.tick, STOCKPILE_ORDER), Line::new(Kind::Stockpile, text, toast)));
             }
         }
         self.full_items = stuck.into_iter().map(|(item, _)| item).collect();
@@ -225,7 +334,7 @@ impl Alerts {
             } else if world.tick >= BEND_TIP_AFTER_TICKS && chi_to_spare(session) {
                 let text = bend_tip_text();
                 let toast = Some(ToastSpec { subject: text.clone(), text: text.clone() });
-                fresh.push(((world.tick, BEND_TIP_ORDER), Kind::BendTip, text, false, toast));
+                fresh.push(((world.tick, BEND_TIP_ORDER), Line::new(Kind::BendTip, text, toast)));
                 self.bend_tip_shown = true;
             }
         }
@@ -234,10 +343,23 @@ impl Alerts {
         // then a full stockpile and the bend tip: the order the alert log read the world's nine
         // separate lists in before #605, whatever order the sim logged them in.
         fresh.sort_by_key(|(key, ..)| *key);
-        self.log.extend(fresh.into_iter().map(|((tick, _), kind, text, failed, toast)| {
-            let left = if toast.is_some() { kind.toast_seconds() } else { 0.0 };
-            Entry { tick, kind, text, left, toast, failed }
-        }));
+        for ((tick, _), line) in fresh {
+            self.next_id += 1;
+            let left = if line.toast.is_some() { line.kind.toast_seconds() } else { 0.0 };
+            self.log.push(Entry {
+                id: self.next_id,
+                tick,
+                kind: line.kind,
+                category: line.kind.category(line.failed),
+                place: line.place,
+                unit: line.unit,
+                fold: line.fold,
+                text: line.text,
+                left,
+                toast: line.toast,
+                failed: line.failed,
+            });
+        }
         for e in &mut self.log {
             e.left -= dt;
         }
@@ -256,9 +378,15 @@ impl Alerts {
     /// (docs/design/agent-play.md, "Watching": "The message log gains an Agent entry for every
     /// act"). Appends in call order, so the caller is the one keeping `tick` non-decreasing.
     pub fn push_agent(&mut self, tick: u64, text: String) {
+        self.next_id += 1;
         self.log.push(Entry {
+            id: self.next_id,
             tick,
             kind: Kind::Agent,
+            category: Kind::Agent.category(false),
+            place: None,
+            unit: None,
+            fold: None,
             text,
             left: 0.0,
             toast: None,
@@ -275,6 +403,7 @@ impl Alerts {
     pub fn toasts(&self) -> Vec<Toast> {
         struct Group {
             kind: Kind,
+            category: Category,
             subject: String,
             text: String,
             count: usize,
@@ -294,6 +423,7 @@ impl Alerts {
                 }
                 None => groups.push(Group {
                     kind: e.kind,
+                    category: e.category,
                     subject: toast.subject.clone(),
                     text: toast.text.clone(),
                     count: 1,
@@ -328,11 +458,20 @@ impl Alerts {
         out.into_iter()
             .map(|g| Toast {
                 kind: g.kind,
+                category: g.category,
                 // A repeat coalesces into the subject plus a count (#417: "Hearthflame failed
                 // ×3"); a lone occurrence keeps its own, richer text instead.
                 text: if g.count > 1 { format!("{} ×{}", g.subject, g.count) } else { g.text },
             })
             .collect()
+    }
+
+    /// The open alerts: the live toasts whose lines the message log files under
+    /// [`Category::Alert`] (#661). They are the same lines the log's Alerts filter shows, so a
+    /// player who sees one in the side panel finds it there, whatever the panel has already let
+    /// age out.
+    pub fn open_alerts(&self) -> Vec<Toast> {
+        self.toasts().into_iter().filter(|t| t.category == Category::Alert).collect()
     }
 
     /// The toasts' text, oldest first, for the side panel.
@@ -346,23 +485,56 @@ impl Alerts {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Toast {
     pub kind: Kind,
+    /// The message log's category of the lines it stands for (`Entry::category`).
+    pub category: Category,
     pub text: String,
+}
+
+/// One line before it is an [`Entry`]: what an event (or a standing condition) becomes.
+struct Line {
+    kind: Kind,
+    text: String,
+    /// A `Bend` that failed rather than finished.
+    failed: bool,
+    toast: Option<ToastSpec>,
+    place: Option<Pos>,
+    unit: Option<UnitId>,
+    fold: Option<Fold>,
+}
+
+impl Line {
+    /// A line that names no place or settler and folds with nothing.
+    fn new(kind: Kind, text: String, toast: Option<ToastSpec>) -> Self {
+        Self { kind, text, failed: false, toast, place: None, unit: None, fold: None }
+    }
+
+    fn at(mut self, place: Pos) -> Self {
+        self.place = Some(place);
+        self
+    }
+
+    fn of(mut self, unit: UnitId) -> Self {
+        self.unit = Some(unit);
+        self
+    }
+
+    fn folding(mut self, fold: Fold) -> Self {
+        self.fold = Some(fold);
+        self
+    }
 }
 
 /// A line not yet in the log, with its sort key first: the tick, then `Event::order` for the
 /// world's own events, or `STOCKPILE_ORDER` and `BEND_TIP_ORDER` for the standing conditions,
 /// which sort after every one of those.
-type Fresh = ((u64, u8), Kind, String, bool, Option<ToastSpec>);
+type Fresh = ((u64, u8), Line);
 
 /// The lines `events` (newly logged, oldest first) become, sorted by key. The sort is stable,
 /// so lines with the same key keep the order the world logged them in.
 fn fresh_lines(session: &Session, events: &[Event]) -> Vec<Fresh> {
     let mut fresh: Vec<Fresh> = events
         .iter()
-        .filter_map(|ev| {
-            let (kind, text, failed, toast) = line_for(session, ev)?;
-            Some(((ev.tick(), ev.order()), kind, text, failed, toast))
-        })
+        .filter_map(|ev| Some(((ev.tick(), ev.order()), line_for(session, ev)?)))
         .collect();
     fresh.sort_by_key(|(key, ..)| *key);
     fresh
@@ -379,7 +551,7 @@ const BEND_TIP_ORDER: u8 = 10;
 ///
 /// The match is exhaustive on purpose (#605): a new `Event` variant doesn't compile until it has
 /// an arm here, so no kind of event can be silently left out of the alert log.
-fn line_for(session: &Session, ev: &Event) -> Option<(Kind, String, bool, Option<ToastSpec>)> {
+fn line_for(session: &Session, ev: &Event) -> Option<Line> {
     let defs = &session.defs;
     let toast = |text: &String| Some(ToastSpec { subject: text.clone(), text: text.clone() });
     Some(match ev {
@@ -391,38 +563,46 @@ fn line_for(session: &Session, ev: &Event) -> Option<(Kind, String, bool, Option
             // cut. A failed one still says something worth a toast, coalesced by the ability
             // that failed (not who was channelling it) so several benders failing the same way
             // reads as one line with a count.
-            let toast = failed.then(|| {
-                let ability = &defs.ability(ev.ability).name;
-                ToastSpec { subject: format!("{ability} failed"), text: text.clone() }
-            });
-            (Kind::Bend, text, failed, toast)
+            let ability = defs.ability(ev.ability).name.clone();
+            let toast = failed
+                .then(|| ToastSpec { subject: format!("{ability} failed"), text: text.clone() });
+            let line = Line { failed, ..Line::new(Kind::Bend, text, toast) }.at(ev.pos).of(ev.unit);
+            // Only the routine ones fold: a failure says something of its own each time.
+            if failed { line } else { line.folding(Fold::Bend(ability)) }
         }
         Event::Tech(c) => {
             let text = format!("Learned {}", defs.tech(c.tech).name);
-            (Kind::Tech, text.clone(), false, toast(&text))
+            Line::new(Kind::Tech, text.clone(), toast(&text))
         }
-        Event::Death(d) => (Kind::Death, describe_death(d), false, None),
+        Event::Death(d) => Line::new(Kind::Death, describe_death(d), None),
         Event::Endeavor(ev) => {
             let text = endeavor::describe_event(defs, ev);
-            (Kind::Endeavor, text.clone(), false, toast(&text))
+            Line::new(Kind::Endeavor, text.clone(), toast(&text))
         }
         Event::Arrival(a) => {
             let text = describe_arrival(a);
-            (Kind::Arrival, text.clone(), false, toast(&text))
+            Line::new(Kind::Arrival, text.clone(), toast(&text)).of(a.unit).folding(Fold::Arrival)
         }
         Event::Season(ev) => {
             let text = describe_season_event(session, ev)?;
-            (Kind::Season, text.clone(), false, toast(&text))
+            Line::new(Kind::Season, text.clone(), toast(&text))
         }
         Event::Strain(ev) => {
             let text = describe_strain_event(defs, ev);
-            (Kind::Season, text, false, Some(strain_toast(defs, ev)))
+            let name = defs.resource(ev.resource).name.to_lowercase();
+            Line::new(Kind::Season, text, Some(strain_toast(defs, ev)))
+                .at(ev.pos)
+                .folding(Fold::Strain(name))
         }
         // Harm reaches the alert log here, but has no line yet: its wording is #393's.
         Event::Harm(_) => return None,
         Event::Chart(ev) => {
             let (text, toast) = describe_chart_event(session, ev);
-            (Kind::Chart, text, false, Some(toast))
+            let line = Line::new(Kind::Chart, text, Some(toast));
+            match ev.kind {
+                ChartEventKind::Found { pos, .. } => line.at(pos),
+                ChartEventKind::NoneLeft => line.at(ev.room),
+            }
         }
     })
 }
@@ -630,6 +810,7 @@ mod tests {
             left: Kind::Arrival.toast_seconds(),
             toast: Some(ToastSpec { subject: text.clone(), text }),
             failed: false,
+            ..Entry::blank()
         });
         alerts.update(&s, 0.0);
         assert_eq!(alerts.toast_lines(), ["Pema has joined the settlement"]);
@@ -736,6 +917,45 @@ mod tests {
         assert_eq!(alerts.history().len(), 1);
     }
 
+    /// Every entry has a category, a place and a settler where its event names them, and what it
+    /// folds with, all set where the entry is made (#661): a finished bend is Bending, folds by
+    /// its ability and goes to where it was done; the entries get ids that count up.
+    #[test]
+    fn an_entry_carries_its_category_place_settler_and_fold() {
+        let mut s = Session::new(1, Nation::Fire, 48, 32);
+        let ability: AbilityId = ability_for_nation(&s.defs, Nation::Fire).unwrap();
+        let (unit, pos) = (s.world.units[0].id, s.world.units[0].pos);
+        s.apply(Command::Bend { ability, pos }).unwrap();
+        run_until(&mut s, |s| s.world.bend_events().next().is_some());
+        let mut alerts = Alerts::default();
+        alerts.update(&s, 0.0);
+        let done = &alerts.history()[0];
+        assert_eq!(done.category, Category::Bending);
+        assert_eq!((done.place, done.unit), (Some(pos), Some(unit)));
+        assert_eq!(done.fold, Some(Fold::Bend(s.defs.ability(ability).name.clone())));
+        assert_eq!(done.id, 1);
+        alerts.push_agent(5, "x".to_owned());
+        let agent = &alerts.history()[1];
+        assert_eq!((agent.category, agent.id, agent.fold.is_none()), (Category::Work, 2, true));
+    }
+
+    /// The kinds sort under the categories the filter row names: a failed bend is an alert, a
+    /// finished one is bending.
+    #[test]
+    fn every_kind_has_a_category() {
+        assert_eq!(Kind::Bend.category(true), Category::Alert);
+        assert_eq!(Kind::Bend.category(false), Category::Bending);
+        assert_eq!(Kind::Death.category(false), Category::Alert);
+        assert_eq!(Kind::Season.category(false), Category::Alert);
+        assert_eq!(Kind::Stockpile.category(false), Category::Alert);
+        assert_eq!(Kind::Endeavor.category(false), Category::Alert);
+        assert_eq!(Kind::Arrival.category(false), Category::People);
+        assert_eq!(Kind::Tech.category(false), Category::Knowledge);
+        assert_eq!(Kind::Chart.category(false), Category::Knowledge);
+        assert_eq!(Kind::Agent.category(false), Category::Work);
+        assert_eq!(Kind::BendTip.category(false), Category::Work);
+    }
+
     /// A finished bend is routine and never worth stopping `end_turn` for (#377); a failed one
     /// still is, so it needs the same attention a death or an arrival gets.
     #[test]
@@ -774,8 +994,16 @@ mod tests {
     #[test]
     fn every_kind_but_a_finished_bend_agent_and_the_bend_tip_is_worth_stopping() {
         let worth_stopping = |kind: Kind, failed: bool| {
-            Entry { tick: 0, kind, text: String::new(), left: 0.0, toast: None, failed }
-                .worth_stopping()
+            Entry {
+                tick: 0,
+                kind,
+                text: String::new(),
+                left: 0.0,
+                toast: None,
+                failed,
+                ..Entry::blank()
+            }
+            .worth_stopping()
         };
         assert!(worth_stopping(Kind::Death, false));
         assert!(worth_stopping(Kind::Arrival, false));
@@ -848,6 +1076,7 @@ mod tests {
                 // Each a distinct subject, so this tests the per-kind cap, not coalescing.
                 toast: Some(ToastSpec { subject: text.clone(), text }),
                 failed: false,
+                ..Entry::blank()
             });
         }
         alerts.update(&s, 0.5);
@@ -872,6 +1101,7 @@ mod tests {
                 left: 5.0,
                 toast: Some(ToastSpec { subject: text.clone(), text }),
                 failed: false,
+                ..Entry::blank()
             });
         }
         alerts.update(&s, 0.0);
@@ -1097,6 +1327,7 @@ mod tests {
                     text: "Someone's Hearthflame failed: no fuel nearby".to_owned(),
                 }),
                 failed: true,
+                ..Entry::blank()
             });
         }
         alerts.update(&s, 0.0);
@@ -1121,6 +1352,7 @@ mod tests {
                 text: "Haru's Hearthflame failed: no fuel nearby".to_owned(),
             }),
             failed: true,
+            ..Entry::blank()
         });
         alerts.update(&s, 0.0);
         assert_eq!(alerts.toast_lines(), ["Haru's Hearthflame failed: no fuel nearby"]);
@@ -1141,6 +1373,7 @@ mod tests {
                 left: Kind::Bend.toast_seconds(),
                 toast: Some(ToastSpec { subject: text.clone(), text }),
                 failed: true,
+                ..Entry::blank()
             });
         }
         alerts.update(&s, 0.0);
@@ -1259,7 +1492,7 @@ mod tests {
             }),
             Event::Tech(TechCompleted { tech, tick }),
         ];
-        let kinds: Vec<Kind> = fresh_lines(&s, &logged).into_iter().map(|l| l.1).collect();
+        let kinds: Vec<Kind> = fresh_lines(&s, &logged).into_iter().map(|l| l.1.kind).collect();
         assert_eq!(kinds, [Kind::Bend, Kind::Tech, Kind::Death, Kind::Arrival, Kind::Chart]);
     }
 
@@ -1271,7 +1504,7 @@ mod tests {
         let s = v3_fixture_session();
         let w = &s.world;
         let lines: Vec<Option<Kind>> =
-            w.events().iter().map(|e| line_for(&s, e).map(|l| l.0)).collect();
+            w.events().iter().map(|e| line_for(&s, e).map(|l| l.kind)).collect();
         assert_eq!(lines.len(), w.events().len());
         for (ev, line) in w.events().iter().zip(&lines) {
             let want = match ev {
@@ -1299,11 +1532,10 @@ mod tests {
         let (found, room) = (Pos::new(10, 1), Pos::new(6, 6));
         s.world.map[found].resource = Some(ruins);
         let line = |s: &Session, kind| {
-            let (k, text, _, toast) =
-                line_for(s, &Event::Chart(ChartEvent { tick: 0, room, kind }))
-                    .expect("a chart has a line");
-            assert_eq!(k, Kind::Chart);
-            (text, toast.expect("a chart toasts").text)
+            let line = line_for(s, &Event::Chart(ChartEvent { tick: 0, room, kind }))
+                .expect("a chart has a line");
+            assert_eq!(line.kind, Kind::Chart);
+            (line.text, line.toast.expect("a chart toasts").text)
         };
         let reachable = ChartEventKind::Found { pos: found, reachable: true };
         assert_eq!(
@@ -1335,6 +1567,7 @@ mod tests {
             left: 0.0,
             toast: None,
             failed: false,
+            ..Entry::blank()
         };
         assert!(!entry.worth_stopping());
     }

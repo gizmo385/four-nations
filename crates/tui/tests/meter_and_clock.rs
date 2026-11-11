@@ -263,10 +263,12 @@ fn the_log_is_stamped_with_the_time_left_under_a_heading_per_season() {
     let frame = text(&mut a, SIZE);
     let lines: Vec<&str> = frame.lines().collect();
     let at = |needle: &str| lines.iter().position(|l| l.contains(needle)).unwrap();
+    // Newest first: the later season is on top.
+    assert!(at("── SUMMER, YEAR 1 ──") < at("14:50 left"), "{frame}");
+    assert!(lines[at("14:50 left")].contains("Raised a wall"), "{frame}");
+    assert!(at("14:50 left") < at("── SPRING, YEAR 1 ──"), "{frame}");
     assert!(at("── SPRING, YEAR 1 ──") < at("14:00 left"), "{frame}");
     assert!(lines[at("14:00 left")].contains("Scouted the east"), "{frame}");
-    assert!(at("14:00 left") < at("── SUMMER, YEAR 1 ──"), "{frame}");
-    assert!(lines[at("14:50 left")].contains("Raised a wall"), "{frame}");
     assert!(elapsed_stamps(&frame).is_empty(), "{:?}", elapsed_stamps(&frame));
 }
 

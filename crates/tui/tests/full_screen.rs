@@ -138,8 +138,7 @@ fn a_long_screen_shows_its_position_on_the_bottom_edge() {
     run(&mut a, "?");
     let text = to_text(&render(&mut a, (80, 24)));
     let bottom = text.lines().nth(22).unwrap();
-    let total =
-        fn_tui::screens::line_count(fn_tui::state::Screen::Help, &a.session, &a.ui.alerts, 76);
+    let total = fn_tui::screens::line_count(fn_tui::state::Screen::Help, &a.session, 76);
     // The tab strip and a blank row take two of the 21 rows.
     assert!(total > 19, "the help is longer than a page at 80x24");
     assert!(bottom.ends_with(&format!(" 1-19 of {total} ─┛")), "{bottom}");

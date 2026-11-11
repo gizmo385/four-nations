@@ -7,7 +7,7 @@ use fn_sim::{Nation, Pos, Terrain};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
-use fn_tui::state::{PINNED, Screen};
+use fn_tui::state::Screen;
 use fn_tui::widgets::Tone;
 use fn_tui::{keys, new_session};
 use fn_ui::tools::ability_for_nation;
@@ -674,13 +674,14 @@ fn a_failed_bend_becomes_an_alert_but_a_finished_one_is_log_only() {
     assert_eq!(a.ui.screen, Some(Screen::Log));
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("MESSAGE LOG"), "{frame}");
-    let history: Vec<String> = a.ui.alerts.history().iter().map(|e| e.text.clone()).collect();
-    // Newest last: every line is there, in order.
+    // Newest first: the lines read down the page from the newest, and a run of bends is folded
+    // into one, so the failed bend (never folded) is there as its own line.
+    let shown = fn_tui::msglog::lines(&a.ui);
     let mut from = 0;
-    for line in &history {
+    for line in shown.iter().take(6) {
         let at = frame[from..]
-            .find(&line[..line.len().min(20)])
-            .unwrap_or_else(|| panic!("{line} in\n{frame}"));
+            .find(&line.text[..line.text.len().min(20)])
+            .unwrap_or_else(|| panic!("{} in\n{frame}", line.text));
         from += at;
     }
     assert!(frame.contains(" left "), "each line is stamped with the time left:\n{frame}");
@@ -763,45 +764,56 @@ fn page_text(frame: &str) -> String {
 }
 
 #[test]
-fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() {
+fn the_log_cursor_moves_with_the_arrows_ws_and_the_page_keys_and_stops_at_the_ends() {
     let mut a = bending_game();
-    // Enough lines to need more than two pages at the smallest size (the paging steps below need
-    // that). Runs on until the settlers have bent and starved, so the count is the whole story.
+    // Enough lines to need more than a page at the smallest size, folded or not. Runs on until
+    // the settlers have bent and starved, so the count is the whole story.
     let mut guard = 0;
     while a.ui.alerts.history().len() < 60 && guard < 400 {
         run(&mut a, "<tick 100>");
         guard += 1;
     }
     a.resize(SMALL.0, SMALL.1);
-    let n = a.ui.alerts.history().len();
-    assert!(n >= 40, "only {n} log lines: pick a seed with more fuel near the start");
     run(&mut a, "l");
-    assert_eq!(a.ui.scroll, PINNED, "the log opens on its newest line");
-    let newest = fold(&a.ui.alerts.history()[n - 1].text);
+    assert_eq!(a.ui.scroll, 0, "the log opens at its newest line, at the top");
+    assert_eq!(a.ui.log_cursor, None);
+    let all = fn_tui::msglog::lines(&a.ui);
+    let n = all.len();
+    assert!(n >= 3, "only {n} lines");
     let frame = text(&mut a, SMALL);
-    if n > 22 {
-        assert!(page_text(&frame).contains(&newest), "{frame}");
-        let oldest = fold(&a.ui.alerts.history()[0].text);
-        assert!(!page_text(&frame).contains(&oldest), "scrolled to the end:\n{frame}");
+    assert!(page_text(&frame).contains(&fold(&all[0].text)), "the newest line shows:\n{frame}");
 
-        run(&mut a, "<up>");
-        let one_up = a.ui.scroll;
-        assert_ne!(one_up, PINNED);
-        run(&mut a, "w");
-        assert_eq!(a.ui.scroll, one_up - 1, "W scrolls like the arrow");
-        run(&mut a, "s <down>");
-        assert_eq!(a.ui.scroll, PINNED, "back at the end it sticks again");
-        // A page moves more than a line (the full-width log, #652, may be under two pages
-        // long at 80x24, so one page from the end can already be the top).
-        run(&mut a, "<pgup>");
-        assert!(a.ui.scroll + 1 < one_up, "a page is more than a line: {}", a.ui.scroll);
-        run(&mut a, "<pgup*40>");
-        assert_eq!(a.ui.scroll, 0, "the top");
-        let frame = text(&mut a, SMALL);
-        assert!(page_text(&frame).contains(&oldest), "{frame}");
-        run(&mut a, "<pgdn*40>");
-        assert_eq!(a.ui.scroll, PINNED);
+    run(&mut a, "<down>");
+    assert_eq!(a.ui.log_cursor, Some(all[1].key));
+    run(&mut a, "s");
+    assert_eq!(a.ui.log_cursor, Some(all[2].key), "S moves like the arrow");
+    run(&mut a, "w");
+    assert_eq!(a.ui.log_cursor, Some(all[1].key));
+    run(&mut a, "<up> <up>");
+    assert_eq!(a.ui.log_cursor, Some(all[0].key), "it stops at the top");
+    assert_eq!(a.ui.scroll, 0);
+
+    // A page moves more than a line, and the cursor stays in the window.
+    run(&mut a, "<pgdn>");
+    let at = all.iter().position(|l| Some(l.key) == a.ui.log_cursor).unwrap();
+    assert!(at > 1, "a page is more than a line: {at}");
+    run(&mut a, "<pgdn*40>");
+    assert_eq!(a.ui.log_cursor, Some(all[n - 1].key), "the oldest line");
+    let frame = text(&mut a, SMALL);
+    assert!(page_text(&frame).contains(&fold(&all[n - 1].text)), "the oldest shows:\n{frame}");
+    let rows =
+        fn_tui::msglog::body(&a.session, &all, None, None, 76, &fn_tui::widgets::Marks::new(false))
+            .rows
+            .len();
+    if rows > fn_tui::msglog::shown(a.ui.page()) {
+        assert!(a.ui.scroll > 0, "the window followed the cursor down");
     }
+    run(&mut a, "<down>");
+    assert_eq!(a.ui.log_cursor, Some(all[n - 1].key), "and stops at the bottom");
+    run(&mut a, "<pgup*40>");
+    assert_eq!(a.ui.log_cursor, Some(all[0].key));
+    assert_eq!(a.ui.scroll, 0, "back at the top");
+
     // Esc closes it, and L opens and closes it too.
     run(&mut a, "<esc>");
     assert_eq!(a.ui.screen, None);
@@ -809,19 +821,28 @@ fn the_log_scrolls_with_the_arrows_ws_and_the_page_keys_and_sticks_to_the_end() 
     assert_eq!(a.ui.screen, None);
 }
 
-/// The message log screen: its heading and scroll hints and the newest line (the log opens
-/// pinned to the end), over the side panel (#652).
+/// The message log screen: its heading, filter row and hints, and the newest line at the top,
+/// over the side panel (#652, #661).
 #[test]
-fn the_message_log_screen_shows_its_heading_hints_and_newest_line() {
+fn the_message_log_screen_shows_its_heading_filters_hints_and_newest_line() {
     let mut a = bending_game();
     run(&mut a, "l");
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("◆ MESSAGE LOG ◆"), "{frame}");
+    assert!(
+        frame.contains("Show  [All]  1 Alerts  2 People  3 Knowledge  4 Bending  5 Work"),
+        "{frame}"
+    );
     let status = frame.lines().last().unwrap();
     assert!(status.starts_with(" LOG "), "{status}");
-    assert!(status.contains("Up/Down scroll · Esc or L close · PgUp/PgDn page"), "{status}");
+    assert!(
+        status.contains(
+            "Up/Down choose · Enter jump there · Right open · 1-5 filter · PgUp/PgDn page · Esc or L close"
+        ),
+        "{status}"
+    );
     assert!(status.trim_end().ends_with("? keys"), "{status}");
-    let newest = a.ui.alerts.history().last().expect("the bending game has a log").text.clone();
+    let newest = fn_tui::msglog::lines(&a.ui)[0].text.clone();
     let newest: String = newest.chars().take(30).collect();
     assert!(frame.contains(&newest), "the newest line ({newest:?}) in\n{frame}");
     assert!(!frame.contains("ALERTS"), "the side panel is covered:\n{frame}");
