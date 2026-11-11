@@ -405,6 +405,7 @@ mod tests {
             unlock: unlock.into(),
             needs: needs.into(),
             target: false,
+            closed: String::new(),
         }
     }
 

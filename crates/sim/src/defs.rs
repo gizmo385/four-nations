@@ -18,7 +18,7 @@ use crate::jobs::{HarvestDef, ItemDef, ItemId, JobSettings, JobsFile};
 use crate::nation::{Nation, NationDef};
 use crate::needs::{FoodDef, NeedsFile, NeedsSettings};
 use crate::path::MoveRules;
-use crate::research::{self, ResearchFile, ResearchSettings, TechDef, TechId};
+use crate::research::{self, ResearchFile, ResearchSettings, SchoolDef, SchoolId, TechDef, TechId};
 use crate::seasons::SeasonsDef;
 use crate::trade::{TradeDef, TradeFile};
 
@@ -143,6 +143,8 @@ pub struct Defs {
     pub nations: Vec<NationDef>,
     /// The tech tree, in file order (a topological order); indexed by `TechId`.
     pub techs: Vec<TechDef>,
+    /// The schools (`[[school]]`), each a fork of two techs; indexed by `SchoolId`.
+    pub schools: Vec<SchoolDef>,
     pub research: ResearchSettings,
     /// Hunger, thirst, energy and health rates (data/needs.toml).
     pub needs: NeedsSettings,
@@ -368,12 +370,14 @@ impl Defs {
         bending: &str,
         buildings: &str,
     ) -> Result<Self, DefsError> {
-        let (research, techs) = parse::<ResearchFile>("research.toml", research)?.resolve()?;
+        let (research, schools, techs) =
+            parse::<ResearchFile>("research.toml", research)?.resolve()?;
         let mut nations = parse::<NationFile>("nations.toml", nations)?.nation;
         for n in &mut nations {
             n.starting_techs =
                 research::resolve_starting_techs(n.id, &n.starting_tech_ids, &techs)?;
         }
+        research::check_schools(&techs, &nations)?;
         let resources = parse::<ResourceFile>("resources.toml", resources)?.resource;
         let resource_ids: Vec<&str> = resources.iter().map(|r| r.id.as_str()).collect();
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
@@ -394,6 +398,7 @@ impl Defs {
             resources,
             nations,
             techs,
+            schools,
             research,
             needs,
             foods,
@@ -626,6 +631,33 @@ impl Defs {
 
     pub fn tech(&self, id: TechId) -> &TechDef {
         &self.techs[id.0 as usize]
+    }
+
+    pub fn school(&self, id: SchoolId) -> &SchoolDef {
+        &self.schools[id.0 as usize]
+    }
+
+    /// The other techs of `tech`'s school, in file order: empty for a tech outside a school.
+    /// Learning any of them closes `tech` (`Research::closed_by`).
+    pub fn school_mates(&self, tech: TechId) -> impl Iterator<Item = TechId> + '_ {
+        let school = self.techs.get(tech.0 as usize).and_then(|t| t.school);
+        self.techs
+            .iter()
+            .enumerate()
+            .filter(move |(i, t)| school.is_some() && t.school == school && *i != tech.0 as usize)
+            .map(|(i, _)| TechId(i as u16))
+    }
+
+    /// The techs of `nation`'s school, in file order (empty if it has none).
+    pub fn school_techs(&self, nation: Nation) -> Vec<TechId> {
+        let Some(k) = self.schools.iter().position(|s| s.nation == nation) else {
+            return Vec::new();
+        };
+        let school = Some(SchoolId(k as u16));
+        (0..self.techs.len())
+            .filter(|&i| self.techs[i].school == school)
+            .map(|i| TechId(i as u16))
+            .collect()
     }
 
     pub fn nation(&self, n: Nation) -> &NationDef {

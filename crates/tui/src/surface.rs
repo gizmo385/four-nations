@@ -903,6 +903,7 @@ impl Host {
                             cost: c.cost,
                             unlock: c.unlock,
                             needs: c.needs,
+                            closed: c.closed,
                         })
                         .collect()
                 })
@@ -1318,6 +1319,10 @@ impl Host {
             .enumerate()
             .find_map(|(c, col)| col.iter().position(|card| card.name == tech).map(|r| (c, r)))
             .ok_or_else(|| format!("no such tech {tech:?}"))?;
+        let card = &view.columns[target.0][target.1];
+        if !card.closed.is_empty() {
+            return Err(format!("research: {}", card.closed));
+        }
         let start = crate::research::initial_cursor(session, &view);
         let mut keys = self.close_overlay_keys();
         keys.push(char_key('t'));
@@ -2148,6 +2153,10 @@ pub struct TechCardView {
     /// what a locked card's own row now says in the frame, instead of a dash that only
     /// confirming -- by researching each candidate and rechecking -- would explain.
     pub needs: String,
+    /// `Closed: you chose Metal City` for a school option that can no longer be chosen
+    /// (`fn_ui::research::closed_reason`); left out for every other tech.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub closed: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

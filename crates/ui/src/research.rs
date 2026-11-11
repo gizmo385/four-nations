@@ -310,6 +310,18 @@ pub struct TechCard {
     /// The current research target (the last tech of the queue): the one tech the player chose,
     /// as against the prereqs queued ahead of it (#659).
     pub target: bool,
+    /// `Closed: you chose Metal City` for a school option whose mate is learned
+    /// (`closed_reason`); empty otherwise.
+    pub closed: String,
+}
+
+/// Why `tech` can't be researched any more, as the player reads it: `Closed: you chose Metal
+/// City` once the other option of its school is learned (docs/design/horizons-phase-4.md).
+/// `None` for every other tech.
+pub fn closed_reason(research: &Research, defs: &Defs, tech: TechId) -> Option<String> {
+    research
+        .closed_by(tech, defs)
+        .map(|chosen| format!("Closed: you chose {}", defs.tech(chosen).name))
 }
 
 /// Columns by depth, each holding the techs at that depth: shared techs plus the nation's own
@@ -347,6 +359,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
             },
             needs: missing_needs(research, &facts, defs, def).join(", "),
             target: target == Some(id),
+            closed: closed_reason(research, defs, id).unwrap_or_default(),
         });
     }
     ScreenView { columns }
@@ -372,6 +385,7 @@ mod tests {
             unlocks: Unlocks::default(),
             core: true,
             requires: Requires::default(),
+            school: None,
         }
     }
 

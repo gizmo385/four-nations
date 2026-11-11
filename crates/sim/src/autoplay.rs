@@ -206,6 +206,27 @@ pub enum ResearchOrder {
     BranchFirst,
 }
 
+/// Which option of the nation's school (`Defs::school_techs`, file order) `Economy` targets as
+/// soon as its prereqs are known, ahead of everything else (docs/design/horizons-phase-4.md,
+/// "Measuring it"). With none set, the school is reached in its place in file order, like any
+/// other tech, and the other option is skipped once one is learned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchoolPick {
+    First,
+    Second,
+}
+
+impl SchoolPick {
+    /// The tech this pick names for `nation`, if it has a school.
+    pub fn tech(self, nation: Nation, defs: &Defs) -> Option<TechId> {
+        let techs = defs.school_techs(nation);
+        match self {
+            Self::First => techs.first().copied(),
+            Self::Second => techs.get(1).copied(),
+        }
+    }
+}
+
 /// What `Economy` does about the Herb Garden and its tech (herbalism).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HealingPolicy {
@@ -351,6 +372,8 @@ pub struct Economy {
     /// The passive player (#440, `docs/design/pacing.md`, "Measuring it"): beds and the rest of
     /// the sweep, but none of `pacing`'s use of draw and caravans. Set with `with_beds_only`.
     pub beds_only: bool,
+    /// Which school option to take first, if any (`SchoolPick`). Set with `with_school`.
+    pub school: Option<SchoolPick>,
 }
 
 impl Economy {
@@ -362,7 +385,13 @@ impl Economy {
             beds: BedPolicy::default(),
             healing: HealingPolicy::default(),
             beds_only: false,
+            school: None,
         }
+    }
+
+    /// The same opening, taking `school`'s option as soon as its prereqs are known.
+    pub fn with_school(self, school: Option<SchoolPick>) -> Self {
+        Self { school, ..self }
     }
 
     /// The same opening, but it tills no farm plots and raises no orchard
@@ -412,7 +441,12 @@ impl Economy {
     /// queued: `Research::set_target`'s own prereq closure (always ascending `TechId`) decides
     /// what's actually researched first regardless, so a branch tech whose prereqs are still
     /// shared-tier techs pulls those in ahead of itself either way.
-    fn research_plan(&self, nation: Nation, defs: &Defs) -> Vec<TechId> {
+    fn research_plan(
+        &self,
+        nation: Nation,
+        defs: &Defs,
+        known: impl Fn(TechId) -> bool,
+    ) -> Vec<TechId> {
         let mut techs: Vec<(TechId, bool)> =
             defs.techs_for(nation).map(|(id, t)| (id, t.nation.is_none())).collect();
         if self.research == ResearchOrder::BranchFirst {
@@ -420,6 +454,14 @@ impl Economy {
             techs.sort_by_key(|&(_, shared)| shared);
         }
         let mut plan: Vec<TechId> = techs.into_iter().map(|(id, _)| id).collect();
+        if let Some(pick) = self.school.and_then(|p| p.tech(nation, defs)) {
+            // Ahead of everything, but only once its prereqs are known: picking it earlier would
+            // queue the whole chain to it, which isn't the style's question.
+            if defs.tech(pick).prereqs.iter().all(|&p| known(p)) {
+                plan.retain(|&t| t != pick);
+                plan.insert(0, pick);
+            }
+        }
         if let Some(herbalism) = defs.tech_id(HERBALISM) {
             match self.healing {
                 HealingPolicy::Sweep | HealingPolicy::Planned => {}
@@ -440,7 +482,8 @@ impl Economy {
         gather_materials(world, defs, anchor, &self.build_material_items(world, defs, &deposits));
         self.quarry_and_mine(world, defs, anchor, &deposits);
         recover_scrolls(world, defs, anchor);
-        queue_next_known_tech(world, defs, self.research_plan(world.nation, defs).into_iter());
+        let plan = self.research_plan(world.nation, defs, |t| world.research().is_known(t));
+        queue_next_known_tech(world, defs, plan.into_iter());
         if !self.beds_only {
             pacing::forage_missing_kinds(world, defs, anchor);
             pacing::take_deals(world, defs);
@@ -789,7 +832,8 @@ fn queue_next_known_tech(world: &mut World, defs: &Defs, plan: impl Iterator<Ite
         return;
     }
     for tech in plan {
-        if world.research().is_known(tech) {
+        // A closed school option would only be refused (docs/design/horizons-phase-4.md).
+        if world.research().is_known(tech) || world.research().closed_by(tech, defs).is_some() {
             continue;
         }
         if world.apply(Command::SetResearch { tech }, defs).is_ok() {
@@ -1281,6 +1325,55 @@ mod tests {
         assert_eq!(world.research().queue(), [gated]);
     }
 
+    /// Phase 4 (#717): a closed school option is skipped without a refusal, and `with_school`
+    /// puts its pick first once the pick's prereqs are known, not before.
+    #[test]
+    fn the_research_order_skips_a_closed_option_and_takes_the_school_pick_first() {
+        let mut files = crate::defs::BUNDLED_FILES;
+        let tech = |id: &str| {
+            format!(
+                "[[tech]]\nid = \"{id}\"\nname = \"{id}\"\ndescription = \"\"\nnation = \"earth\"\n\
+                 cost = 1000\nprereqs = [\"earth_shaping\"]\nschool = \"city\"\n"
+            )
+        };
+        let research = format!(
+            "{}\n[[school]]\nid = \"city\"\nnation = \"earth\"\nquestion = \"Which city?\"\n{}{}",
+            files[3],
+            tech("ring"),
+            tech("rail")
+        );
+        files[3] = &research;
+        let defs = Defs::from_files(files).unwrap();
+        let size = defs.embark.map_size("small").unwrap();
+        let cfg = MapGenConfig {
+            seed: 7,
+            width: size.width,
+            height: size.height,
+            ..MapGenConfig::default()
+        };
+        let (ring, rail) = (defs.tech_id("ring").unwrap(), defs.tech_id("rail").unwrap());
+        let shaping = defs.tech_id("earth_shaping").unwrap();
+        let fire_making = defs.tech_id("fire_making").unwrap();
+
+        let mut world = World::new(&cfg, Nation::Earth, 6, &defs);
+        world.grant_tech(ring);
+        let refusals = world.refusals().total();
+        queue_next_known_tech(&mut world, &defs, [rail, fire_making].into_iter());
+        assert_eq!(world.research().queue(), [fire_making], "skipped the closed option");
+        assert_eq!(world.refusals().total(), refusals, "and nothing was refused");
+
+        let econ = Economy::new(6).with_school(Some(SchoolPick::Second));
+        let world = World::new(&cfg, Nation::Earth, 6, &defs);
+        let known = |t| world.research().is_known(t);
+        assert_ne!(econ.research_plan(Nation::Earth, &defs, known)[0], rail, "prereq unknown");
+        let mut world = World::new(&cfg, Nation::Earth, 6, &defs);
+        world.grant_tech(shaping);
+        let known = |t| world.research().is_known(t);
+        assert_eq!(econ.research_plan(Nation::Earth, &defs, known)[0], rail);
+        let first = Economy::new(6).with_school(Some(SchoolPick::First));
+        assert_eq!(first.research_plan(Nation::Earth, &defs, known)[0], ring);
+    }
+
     /// `with_branch_first` (#434, `docs/design/pacing.md` "Measuring it"): Earth starts knowing
     /// `stoneworking` (`data/nations.toml`), so its first branch tech (`earth_shaping`) needs no
     /// further shared-tier prereq, and branch-first queues it straight away instead of the
@@ -1590,17 +1683,17 @@ mod tests {
         // The default is what `Economy` did before the policy existed: one, in file order.
         assert_eq!(base.healing, HealingPolicy::Sweep);
         assert_eq!(base.building_target(&world, &defs, garden), 1);
-        assert!(base.research_plan(Nation::Fire, &defs).contains(&herbalism));
+        assert!(base.research_plan(Nation::Fire, &defs, |_| false).contains(&herbalism));
 
         let off = base.with_healing(HealingPolicy::Off);
         assert_eq!(off.building_target(&world, &defs, garden), 0);
-        assert!(!off.research_plan(Nation::Fire, &defs).contains(&herbalism));
+        assert!(!off.research_plan(Nation::Fire, &defs, |_| false).contains(&herbalism));
 
         let planned = base.with_healing(HealingPolicy::Planned);
         assert_eq!(planned.building_target(&world, &defs, garden), 1);
         assert_eq!(
-            planned.research_plan(Nation::Fire, &defs),
-            base.research_plan(Nation::Fire, &defs)
+            planned.research_plan(Nation::Fire, &defs, |_| false),
+            base.research_plan(Nation::Fire, &defs, |_| false)
         );
         // One per 8 people, rounding up.
         let cfg = MapGenConfig { seed: 7, width: 64, height: 64, ..MapGenConfig::default() };
