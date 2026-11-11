@@ -211,6 +211,9 @@ pub struct EconomyConfig {
     /// `docs/design/pacing.md`'s own `--branch-first`, #434): `false` is the default, unchanged
     /// order.
     pub branch_first: bool,
+    /// The passive player (`Economy::beds_only`, #440's `--beds-only`): beds and the rest, but no
+    /// deliberate use of draw's bonuses and no caravan deals.
+    pub beds_only: bool,
     pub width: i32,
     pub height: i32,
 }
@@ -286,6 +289,14 @@ pub struct EconomyReport {
     /// `cfg.minutes` if one of them never was): `None` if `ready_minute` is 30 or earlier, so
     /// there's no window to measure (`docs/design/pacing.md`, "Measuring it"; #434).
     pub longest_gap: Option<(f32, f32)>,
+    /// The minute every sign but `masters` and `scrolls` was met (Ready), or `None` if one of
+    /// them never was within `cfg.minutes`.
+    pub ready: Option<f32>,
+    /// The tail: the last stretch with no decision event, from the last one before Ready (minute
+    /// 30 if there is none) to Ready, or to the end of the run if Ready was never reached
+    /// (`docs/design/pacing.md`, section 5: with no skip key, the wait after the last decision is
+    /// what a player feels at x5; #440). `None` if Ready is minute 30 or earlier.
+    pub tail: Option<(f32, f32)>,
     /// How many of those same gaps are longer than 15 minutes (`docs/design/pacing.md`'s own
     /// pacing target; #434).
     pub gaps_over_15: u32,
@@ -331,6 +342,7 @@ pub fn run_economy_scored(
 fn run_economy_world(cfg: &EconomyConfig, defs: &Defs) -> (EconomyReport, World) {
     let economy = if cfg.farms { Economy::new(PEOPLE) } else { Economy::without_farms(PEOPLE) };
     let economy = if cfg.branch_first { economy.with_branch_first() } else { economy };
+    let economy = economy.with_beds_only(cfg.beds_only);
     let spec = RunSpec {
         seed: cfg.seed,
         nation: cfg.nation,
@@ -687,6 +699,7 @@ mod tests {
             minutes,
             farms,
             branch_first: false,
+            beds_only: false,
             width: size.width,
             height: size.height,
         }
@@ -915,6 +928,30 @@ mod tests {
         assert_eq!(run_economy(&c, &defs), run_economy(&c, &defs));
     }
 
+    /// `--beds-only` (`EconomyConfig::beds_only`, #440) is a different, deterministic run: the
+    /// passive player lights its campfire elsewhere and takes no deal, so the stores differ.
+    #[test]
+    fn beds_only_is_a_different_deterministic_run() {
+        let defs = Defs::bundled();
+        let c = EconomyConfig { beds_only: true, ..economy_cfg(Nation::Fire, 60.0, true) };
+        assert_eq!(run_economy(&c, &defs), run_economy(&c, &defs));
+        let active = economy_cfg(Nation::Fire, 60.0, true);
+        assert_ne!(run_economy(&c, &defs).seasons, run_economy(&active, &defs).seasons);
+    }
+
+    /// The tail (#440) is the last decision-free stretch: it ends at Ready, or at the end of the
+    /// run when Ready was never reached, and starts at or after minute 30.
+    #[test]
+    fn the_tail_ends_at_ready_or_the_end_of_the_run() {
+        let defs = Defs::bundled();
+        let report = run_economy(&economy_cfg(Nation::Earth, 90.0, true), &defs);
+        // Ninety minutes is before Ready for any nation (population 16 alone takes longer).
+        assert_eq!(report.ready, None);
+        let (start, end) = report.tail.expect("a run past minute 30 has a tail");
+        assert_eq!(end, 90.0);
+        assert!((30.0..end).contains(&start), "{start}-{end}");
+    }
+
     /// Seed 7, Earth, Normal, the small map's default site, 90 turns (30 game minutes).
     fn par_track() -> (ParTrack, Defs) {
         let defs = Defs::bundled();
@@ -948,7 +985,7 @@ mod tests {
             card.care.deaths,
             card.care.close_calls,
         );
-        assert_eq!(got, (180.429, 0.1804, 0, 0), "{card:#?}");
+        assert_eq!(got, (181.318, 0.1813, 0, 0), "{card:#?}");
     }
 
     /// `par` is the same run `run_economy_scored` makes for the same start and length.
@@ -963,6 +1000,7 @@ mod tests {
             minutes: 30.0,
             farms: true,
             branch_first: false,
+            beds_only: false,
             width: size.width,
             height: size.height,
         };

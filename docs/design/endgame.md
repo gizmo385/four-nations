@@ -82,7 +82,10 @@ population sign already reward farming.
   (#355):** where the economy opening reaches Ready it does so at minute 108 to 159 (median
   minute 123), so a full game lands near 3 to 3.5 hours, just under the target. Most runs
   don't reach Ready within 3 hours, though: "Pacing, as measured" below says which signs hold
-  them back.
+  them back. **Re-measured on 2026-11-11 (#440), with draw, caravans and the chapter in:** Ready
+  falls at minute 100 to 180 (median 134, the middle 80% from 108 to 150) and is reached on 58 of
+  128 steady runs, up from 51, so the game lands a little later than before, at about 3 to 3.5
+  hours.
 - **Latching.** The endeavor becomes **Ready** the first tick every sign is met at once. Stores
   that are eaten afterwards don't undo it. The toast reads "Word of your settlement has reached
   the Avatar. Choose a site for the Harmony Gate (G)."

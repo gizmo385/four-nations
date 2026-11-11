@@ -4,7 +4,8 @@ Doc status: current
 
 Status: **accepted** (#412). The owner answered on 2026-11-06 and 2026-11-08, recorded under
 "Owner decisions". The follow-up work is under "Follow-up issues". The harness numbers below
-predate #353, #490 and #513, and need a fresh measure before anyone tunes against them.
+predate #353, #490 and #513, and need a fresh measure before anyone tunes against them. "After
+#440" (below them) is that measure, with draw, caravans and the chapter in.
 
 The owner's playtest (2026-11-06): "the midgame and end game felt like they really lagged." This
 is about pacing, not frame rate. The middle of the game has too few new decisions, and the total
@@ -111,6 +112,119 @@ Two notes on reading this:
 The harness's opening gives fewer orders than a player would, so the real idle share is lower.
 But the shape is the owner's: full stores, spare hands and nothing to spend them on.
 #353 makes food and wood leaner, but it doesn't give either a use.
+
+### After #440 (2026-11-11)
+
+Draw (#435), caravans (#437), the chapter (#439) and the Traders screen (#438) have landed, and
+the economy opening uses them (`crates/sim/src/autoplay/pacing.rs`). Seeds 1 to 32, all four
+nations, Small, Normal, 180 minutes, on main at `c2e3cdf`, through `balance verdict` with the
+`steady` and `branch_first` styles (the 32-seed panel; the first tables below are its seeds 1 to
+8, to compare with the "before" tables above). "Before" is the same main without #440's opening.
+
+**What the opening does now.**
+
+- **Warm beds.** Beds go on a free tile in reach of the campfire with the fewest beds. A bed that
+  ends up outside every campfire's reach (the first bed comes before fire-making for most
+  nations) gets another campfire on a tile within reach of it, one at a time, up to 8. A finished
+  bed with no such tile is taken down. The passive variant lights its one campfire 8 tiles east
+  of the anchor instead.
+- **Food variety.** While fewer than two food kinds have 10 in stores, the standing harvest
+  orders reach past 15 tiles, two far sources of the shortest kind at a time. (Draw counts a
+  third kind too, for 120%; the opening stops at two, which with warm beds is the 100% the
+  targets assume.)
+- **Caravans.** With a caravan camped, it takes first the deals that feed a sign not met yet
+  (stone and bricks for the stone sign, ore for the ore sign), then the request, then the deals
+  that spend whichever of food or wood is the more over its threshold, as long as the goods can be
+  spared. The thresholds are constants in code, not data: 8 food a settler (at least a newcomer's
+  30, and the food sign's 150 once the population sign is met) and 150 wood. A request or sign deal
+  may dip to half of that while the settlement is still growing. Stone and everything else is never
+  paid.
+- **Data nudge.** `arrival_minutes` goes from 10 to 12. An opening that keeps all three bonuses
+  and takes every request draws at 120% to 140%, and with 10 it reached 16 people at minute 85 to
+  100, before the window. At 12 the economy opening is near the window's middle (median 108 for
+  the shared-first order on seeds 1 to 8), and a bare settlement (60% to 100%, below) is 25 minutes
+  behind it.
+
+**Signs first met** (`steady`, seeds 1 to 8, median minute, runs that met it of 8):
+
+| | Beds | Stone | Food | Ore | Kinds | Branch | Population | Masters | Scrolls |
+|---|---|---|---|---|---|---|---|---|---|
+| Air | 6 (8) | 18 (6) | 80 (6) | 66 (6) | 96 (7) | 106 (8) | 100 (5) | 108 (6) | 78 (6) |
+| Water | 6 (8) | 19 (6) | 140 (5) | 73 (6) | 106 (5) | 124 (7) | 109 (5) | 104 (5) | 84 (6) |
+| Earth | 5 (8) | 11 (8) | 142 (4) | 71 (7) | 108 (7) | 122 (8) | 114 (7) | 105 (7) | 83 (7) |
+| Fire | 6 (8) | 17 (5) | 142 (4) | 69 (6) | 110 (5) | 126 (8) | 105 (5) | 146 (3) | 82 (6) |
+
+Before, on the same seeds: Population 111, 117, 129 and 108 (Air, Water, Earth, Fire) and Food met
+on 5, 4, 3 and 2 runs of 8. The runs that miss a sign are mostly the ones the harness already
+knows: seeds 2 and 6 have too little stone and ore in reach, and seeds 3, 4 and 6 stall in the
+opening (#395, #397).
+
+**Gaps, tail and Ready** (`steady`, then `branch_first`, seeds 1 to 8; "tail" is the median
+minutes from the last decision before Ready to Ready, the new `tail:` line):
+
+| | Gaps of 15 or less | Longest gap, min-median-max | Tail | Ready, median (runs that reach it) | Ready in 130-170 | Population 16 in 100-130 | Ore on seeds 2, 6 |
+|---|---|---|---|---|---|---|---|
+| Air | 1 of 8 | 14-21-59 | 0 | 108 (4) | 0 | 3 | none, none |
+| Water | 0 of 8 | 16-17-80 | 9 | 138 (4) | 3 | 5 | none, none |
+| Earth | 0 of 8 | 16-19-22 | 15 | 142 (4) | 3 | 7 | none, minute 180 |
+| Fire | 0 of 8 | 16-19-26 | 6 | 142 (4) | 4 | 5 | none, none |
+| Air, branch first | 0 of 8 | 17-24-40 | 7 | 140 (4) | 3 | 3 | none, none |
+| Water, branch first | 0 of 8 | 21-27-43 | 3 | 157 (2) | 2 | 3 | none, none |
+| Earth, branch first | 0 of 8 | 28-29-30 | | never | 0 | 0 | none, minute 174 |
+| Fire, branch first | 0 of 8 | 26-27-40 | | never | 0 | 0 | none, none |
+
+On the whole panel (`steady`, 32 seeds per nation) Ready is reached on 58 of 128 runs, up from 51,
+at a median of minute 134 (minute 128 before), with the middle 80% from 108 to 150 (109 to 163
+before). The signs that keep the other 70 from it are ore (16 runs miss only it), food (13 miss only it)
+and the stalled openings.
+
+**The targets, `balance verdict`** (32 seeds, `steady` unless named; pass counts of the runs that
+count, before then after):
+
+| Target | Air | Water | Earth | Fire |
+|---|---|---|---|---|
+| `wood_at_120` | 10/24 FAIL, 23/27 pass | 16/30 FAIL, 26/30 pass | 12/32 FAIL, 28/32 pass | 17/30 FAIL, 21/28 FAIL |
+| `food_winter2` | 1/24, 8/27 | 16/31, 25/30 | 15/32, 27/32 | 19/31, 28/30 pass |
+| `pop_at_120` | 20/24, 23/27 pass | 22/30, 24/30 | 29/32, 30/32 pass | 23/30, 24/28 pass |
+| `stone_by_120` | pass, pass | 16/19 FAIL, 16/19 FAIL | pass, pass | 16/20 FAIL, 16/17 pass |
+| `ore_by_120`, hard sites at 150 | 6/15, 6/16 FAIL | 6/16, 6/16 FAIL | 8/16, 8/16 pass | 6/14, 6/15 FAIL |
+| `pop16_window` | 18/23, 17/27 | 21/30, 19/30 | 20/32, 27/32 | 18/29, 19/28 |
+| `ready_window` | 2/21, 1/23 | 6/29, 9/26 | 8/32, 11/32 | 4/27, 9/27 |
+| `decision_gap` | 1/21, 2/22 | 1/27, 0/25 | 1/32, 1/32 | 0/27, 0/27 |
+| `decision_gap_branch_first` | 1/30, 1/29 | 0/26, 0/24 | 0/31, 0/31 | 0/27, 0/28 |
+
+No death on any of the 256 runs (`no_deaths_by_180` holds).
+
+**What meets the targets and what doesn't.**
+
+- **Met or better:** wood in stores at minute 120 (three nations now pass; Fire is at 21 of 28
+  against 85%), food per head into winter 2 (Fire passes; Water and Earth are at 83% and 84%),
+  population 14 at minute 120 (Air, Earth and Fire pass), and population 16 for Earth (27 of 32 in
+  100 to 130, from 20, one run short of 85%).
+- **Population 16 in 100-130** is still below 85% for the other three nations. In every case the
+  misses are runs that never reach 16 (seeds 3, 4 and 6; #395, #397), not runs that come early:
+  the median is 102, 110 and 109 (Air, Water, Fire).
+- **Ready in 130-170** moved from 2-8 of 32 to 1-11 of 32 and stays well below 85%, because most
+  runs are held up by a sign that isn't the clock: ore on the hard sites (#834), the food sign
+  (150 in stores against 3 to 8 a head into winter 2), and the stalled openings. Where Ready is
+  reached, it is mostly at minute 108 to 150.
+- **Longest gap of 15 or less** is met on 0 to 2 seeds of 32 per nation, both orders. The gap is
+  research with nothing to unlock, at minute 54 to 80 between Herbalism and Prospecting (Earth,
+  122 to 142, between Paving and Omashu Chutes): #835. Caravans don't count in the timeline, so
+  they don't hide it.
+- **Ore on seeds 2 and 6 by minute 150** is not met for any nation. The caravans' gold ore is
+  hauled home but doesn't count toward a sign that tallies ore *mined*, and the lots would be
+  small if it did: #834 (a decision).
+- **Population 16 for the passive player** (`balance economy --beds-only`: beds, one campfire
+  lit apart from them, no far foraging, no deals): minute 112 to 162, median 134, 150 or later on 4
+  of 22 runs. The economy opening reaches it at 94 to 127 (median 109). The passive player isn't
+  passive enough because wild foraging fills two food kinds for free: #836.
+
+**Tail.** The `tail:` line shows the wait from the last decision before Ready to Ready. On the
+whole panel its median is 0 (Air), 5 (Water), 11 (Earth) and 5 (Fire) minutes. It is 0 for Air
+because the last sign is the branch, met a tick after its last tech. For the others the last sign is
+usually the food sign, filling toward 150 after the last tech (Earth: 8 of 13 runs, after Paving),
+so the wait is a few minutes of stores filling, not of the clock.
 
 ## 1. Growth the player can drive: draw
 
@@ -353,7 +467,8 @@ What this means for the rest of the doc:
 - **The gaps have to close by content.** The 15-minute target (see "Measuring it") is the only
   pacing check. Nothing papers over a gap the levers leave.
 - **The tail after the last decision matters more.** With no skip, the stretch between the last
-  sign and Ready is felt at x5. #440 reports it alongside the longest gap.
+  sign and Ready is felt at x5. `balance economy` prints it on a `tail:` line beside the longest
+  gap (#440).
 - **A gap #440 can't close becomes a content issue**, for #413's follow-ups if it's research, or
   a new caravan or request kind if it's the economy. It doesn't reopen time controls. Revisiting
   that is a new `decision` issue, after a playtest with draw, caravans and the chapter in.
@@ -382,7 +497,14 @@ What this means for the rest of the doc:
   over 15 minutes;
 - the idle share per 15-minute window;
 - `--branch-first`, which researches the nation's branch before the shared tier, closer to how a
-  person plays.
+  person plays;
+- (#440) a `tail:` line, the stretch from the last decision before Ready to Ready, and
+  `--beds-only`, the passive player (beds, one campfire away from them, no far foraging, no
+  caravan deals).
+
+As built, the timeline holds techs that unlock something and first-met signs, not the chapter or
+a caravan's arrival: a caravan every 15 minutes would meet the 15-minute target by itself, so the
+check is about new content, not about the cadence.
 
 **Targets** (all nations, Small, Normal, economy opening, once draw, caravans and the chapter
 have landed): the numbers live in `data/harness.toml` (`[[target]]`, #537) and `balance verdict`
@@ -392,7 +514,7 @@ judges them on a 32-seed panel, so this table names the targets instead of repea
 |---|---|
 | Longest gap between decisions, minute 30 to Ready, on nearly every seed per nation, in both research orders | `decision_gap`, `decision_gap_branch_first` |
 | Population 16, economy opening (draw near 100%) | `pop16_window` |
-| Population 16, beds-only opening (no food variety, no campfire near beds) | minute 150 or later (not a harness target yet: no play style does this) |
+| Population 16, beds-only opening (no far foraging, a campfire away from the beds, no deals) | minute 150 or later (not a harness target yet: no play style does this). Measured at 112 to 162 (#836) |
 | Ore sign on the sites where it is hard (seeds 2 and 6), with caravan deals | the hard bar of `ore_by_120` (applied to every nation; Earth and Fire were the ones named) |
 | Ready, ignoring masters and scrolls (unchanged length; the middle is fuller, not shorter) | `ready_window` |
 
@@ -409,7 +531,7 @@ still on, because work-tracking.md leaves removing them to the owner.
 | #437 | Caravans: `data/trade.toml`, the camp, deals, requests and events | none | #463, #551 |
 | #438 | TUI: the Traders screen (`M`), the camp glyph and caravan alerts | #437 | #463 |
 | #439 | Endeavor: the "Known on the road" chapter, which opens the caravans | #437 | #463 |
-| #440 | Balance: the economy opening takes caravan deals, and the pacing targets are checked | #434, #435, #437, #439 | |
+| #440 | Balance: the economy opening takes caravan deals, and the pacing targets are checked (done: "After #440") | #434, #435, #437, #439 | |
 | #441 | TUI: skip to news (`]`): closed, not planned | none | #461 |
 | #442 | United City: caravans from all four nations, bigger requests, population milestones | #437 | #464 |
 

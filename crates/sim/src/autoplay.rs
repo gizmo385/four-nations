@@ -68,6 +68,11 @@
 //!   (`horizons::buildable`: the endeavor's own set plus the optional horizon buildings), each
 //!   once its cost is affordable. `horizons` places what stands far out or in pairs (Waystation,
 //!   Wind Gate and Balloon Dock pairs, the canal, the tunnel line; its module doc);
+//! - plays draw and the caravans (#440, `docs/design/pacing.md`, sections 1 and 2): beds in reach
+//!   of a campfire, a campfire raised within reach of any bed outside every one, far foraging for
+//!   a missing food kind, and, with a caravan camped, its deals and request taken as far as the
+//!   goods can be spared (`pacing`'s module doc has the rules). `Economy::with_beds_only` is the
+//!   passive player, which does none of it;
 //! - (`Economy::with_beds` picks the bed rule, `BedPolicy`; `Economy::with_healing` the Herb
 //!   Garden rule, `HealingPolicy`; `Economy::with_research` the tech order, `ResearchOrder`: the
 //!   knobs a play style sets, `docs/design/balance-harness.md`, section 2. The defaults are what
@@ -99,6 +104,7 @@ use crate::research::TechId;
 use crate::world::{Command, TICKS_PER_SECOND, World};
 
 mod horizons;
+mod pacing;
 
 /// How far from the settlement's anchor (`World::settlement_anchor`) the opening designates
 /// standing harvest orders on wild food, and looks for the material a bed or a campfire costs
@@ -332,6 +338,9 @@ pub struct Economy {
     pub beds: BedPolicy,
     /// What to do about herbalism and the Herb Garden. Set with `with_healing`.
     pub healing: HealingPolicy,
+    /// The passive player (#440, `docs/design/pacing.md`, "Measuring it"): beds and the rest of
+    /// the sweep, but none of `pacing`'s use of draw and caravans. Set with `with_beds_only`.
+    pub beds_only: bool,
 }
 
 impl Economy {
@@ -342,6 +351,7 @@ impl Economy {
             research: ResearchOrder::default(),
             beds: BedPolicy::default(),
             healing: HealingPolicy::default(),
+            beds_only: false,
         }
     }
 
@@ -376,6 +386,14 @@ impl Economy {
     /// The same opening, with `healing` as its herbalism policy.
     pub fn with_healing(self, healing: HealingPolicy) -> Self {
         Self { healing, ..self }
+    }
+
+    /// The same opening as the passive player or not (`beds_only`): with it on, its one campfire
+    /// stands apart from the beds (`pacing::PASSIVE_FIRE_OFFSET`), no far food is foraged for
+    /// variety and no caravan deal is taken, so draw stays near its base (`docs/design/pacing.md`'s
+    /// "beds-only" row; #440). What the base opening forages anyway is still there.
+    pub fn with_beds_only(self, beds_only: bool) -> Self {
+        Self { beds_only, ..self }
     }
 
     /// `defs.techs_for(nation)`'s own set, reordered with the nation's branch before the shared
@@ -413,7 +431,14 @@ impl Economy {
         self.quarry_and_mine(world, defs, anchor, &deposits);
         recover_scrolls(world, defs, anchor);
         queue_next_known_tech(world, defs, self.research_plan(world.nation, defs).into_iter());
+        if !self.beds_only {
+            pacing::forage_missing_kinds(world, defs, anchor);
+            pacing::take_deals(world, defs);
+        }
         self.raise_buildings(world, defs, anchor);
+        if !self.beds_only {
+            pacing::raise_campfire(world, defs, anchor);
+        }
         horizons::pave_once(world, defs, anchor);
         horizons::link_chutes(world, defs);
         horizons::raise_waystation(world, defs, anchor);
@@ -485,8 +510,21 @@ impl Economy {
             if horizons::raises_itself(&defs.building(building).id) {
                 continue;
             }
+            // Raised by `pacing::raise_campfire`, which looks for a site within a cold bed's reach.
+            if defs.building(building).id == "campfire" && !self.beds_only {
+                continue;
+            }
             let target = self.building_target(world, defs, building);
-            let near = horizons::site_anchor(world, defs, &defs.building(building).id, anchor);
+            let id = defs.building(building).id.as_str();
+            if id == "bed" && !self.beds_only {
+                pacing::raise_bed(world, defs, anchor, target);
+                continue;
+            }
+            let near = match id {
+                // The passive player lights its one campfire away from where it sleeps.
+                "campfire" => Pos::new(anchor.x + pacing::PASSIVE_FIRE_OFFSET, anchor.y),
+                _ => horizons::site_anchor(world, defs, id, anchor),
+            };
             ensure_building(world, defs, near, building, target, BUILD_SEARCH_RADIUS);
         }
     }
@@ -507,6 +545,7 @@ impl Economy {
                 }
             }
             "orchard" => u32::from(self.farms),
+            "campfire" if !self.beds_only => pacing::campfire_target(world, defs),
             // One road, laid in one go by `horizons::pave_once`, not tile by tile here.
             "paved_road" => 0,
             "chute" => u32::from(horizons::chute_wanted(world, defs)),

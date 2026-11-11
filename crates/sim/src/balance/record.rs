@@ -142,7 +142,14 @@ pub struct RunRecord {
 impl RunRecord {
     /// The record as the older economy report: the part of it `run_economy` has always returned.
     pub fn economy_report(&self) -> EconomyReport {
+        let reached = self
+            .sign_minutes
+            .iter()
+            .all(|(id, m)| id == "masters" || id == "scrolls" || m.is_some());
+        let ready = ready_minute(&self.sign_minutes, self.minutes);
         EconomyReport {
+            ready: reached.then_some(ready),
+            tail: decision_gaps(&self.timeline, ready).last().copied(),
             seasons: self.seasons.clone(),
             sign_minutes: self.sign_minutes.clone(),
             first_built: self.first_built.clone(),
