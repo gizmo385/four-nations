@@ -58,6 +58,25 @@ pub enum Screen {
     Nation,
 }
 
+/// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
+/// switches between them; the screen always opens on the keys.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HelpTab {
+    #[default]
+    Keys,
+    Legend,
+}
+
+impl HelpTab {
+    /// The other tab.
+    pub fn other(self) -> Self {
+        match self {
+            Self::Keys => Self::Legend,
+            Self::Legend => Self::Keys,
+        }
+    }
+}
+
 /// Something that captures every key while it is open: no tool key, screen key or clock action
 /// reaches `App::act` (`App::modal_key`). The game menu draws as a centred box (`crate::menu`);
 /// the Build picker draws as a full screen, like a [`Screen`] (#652).
@@ -130,6 +149,8 @@ pub struct UiState {
     pub screen: Option<Screen>,
     /// The first line of the open screen that shows ([`PINNED`] for the end of the log).
     pub scroll: usize,
+    /// Which tab of the key help shows (`Tab` switches it, [`HelpTab`]).
+    pub help_tab: HelpTab,
     /// The modal dialog over the map, if one is open (#285).
     pub modal: Option<Modal>,
     /// The Build modal's highlight: an index into `fn_ui::build::picker_rows`.
@@ -191,6 +212,7 @@ impl UiState {
             following: false,
             screen: None,
             scroll: 0,
+            help_tab: HelpTab::default(),
             modal: None,
             build_cursor: 0,
             menu_cursor: 0,
@@ -206,6 +228,12 @@ impl UiState {
         };
         ui.center_view();
         ui
+    }
+
+    /// `Tab` in the key help: the other tab, from its top.
+    pub fn switch_help_tab(&mut self) {
+        self.help_tab = self.help_tab.other();
+        self.scroll = 0;
     }
 
     /// The map region of the terminal, in tiles.

@@ -7,6 +7,7 @@
 #        renderer uses; a test checks).
 # fg / bg: sRGB [r, g, b], quantised automatically on 256- and 16-colour terminals.
 # A resource, item or building has no bg: it draws on its tile's terrain or biome colour.
+# plant: true (resources only) lists it under Plants, not Terrain, in the key help's legend.
 # Terrain backgrounds stay dark so a unit (its nation colour lifted toward white) reads on every
 # one of them: the tests check 3:1 contrast for every nation.
 
@@ -94,21 +95,25 @@ bg = [78, 62, 32]
 glyph = "♣"
 ascii = "T"
 fg = [72, 182, 66]
+plant = true
 
 [resource.fir_tree]
 glyph = "♠"
 ascii = "F"
 fg = [64, 156, 96]
+plant = true
 
 [resource.fruit_tree]
 glyph = "¥"
 ascii = "Y"
 fg = [240, 150, 50]
+plant = true
 
 [resource.cabbage]
 glyph = "τ"
 ascii = "c"
 fg = [172, 232, 122]
+plant = true
 
 [resource.stone]
 glyph = "•"

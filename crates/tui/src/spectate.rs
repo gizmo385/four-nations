@@ -111,6 +111,8 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
         Screen::Log | Screen::Help | Screen::Endeavor => {}
     }
     match action {
+        // `Tab` flips the key help between its keys and its legend (#662).
+        Action::NextUnit | Action::PrevUnit if screen == Screen::Help => ui.switch_help_tab(),
         Action::Move { dy, tiles, .. } => scroll_by(ui, session, screen, dy * tiles),
         Action::Jump { dy, .. } => {
             let page = screen_rows(ui);
@@ -165,7 +167,7 @@ fn confirm_nation(ui: &mut UiState, session: &Session) -> bool {
 
 /// How many rows the open screen shows at once, as `App::screen_rows` does.
 fn screen_rows(ui: &UiState) -> i32 {
-    screens::text_size(ui.page()).1 as i32
+    ui.screen.map_or(0, |s| screens::body_rows(s, ui.page())) as i32
 }
 
 /// Scrolls the open screen, as `App::scroll_by` does.
@@ -173,8 +175,9 @@ fn scroll_by(ui: &mut UiState, session: &Session, screen: Screen, lines: i32) {
     if matches!(screen, Screen::Research | Screen::Saves) {
         return;
     }
-    let (width, rows) = screens::text_size(ui.page());
-    let total = screens::line_count(screen, session, &ui.alerts, width);
+    let width = screens::text_size(ui.page()).0;
+    let rows = screens::body_rows(screen, ui.page());
+    let total = screens::row_count(session, ui, screen, width);
     let max = total.saturating_sub(rows);
     let now = ui.scroll.min(max) as i64;
     let to = (now + i64::from(lines)).clamp(0, max as i64) as usize;
@@ -189,6 +192,7 @@ fn open_screen(ui: &mut UiState, session: &Session, screen: Screen) -> bool {
     } else {
         ui.screen = Some(screen);
         ui.scroll = if screen == Screen::Log { crate::state::PINNED } else { 0 };
+        ui.help_tab = crate::state::HelpTab::default();
         if screen == Screen::Research {
             let view = fn_ui::research::screen_view(session);
             ui.tech = research::initial_cursor(session, &view);

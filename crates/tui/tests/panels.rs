@@ -822,7 +822,7 @@ fn the_help_lists_the_keys_from_the_tables() {
         assert!(seen.contains(what), "{what:?} in\n{seen}");
     }
     for tool in [Tool::Harvest, Tool::CancelHarvest, Tool::Stockpile, Tool::Bend] {
-        assert!(seen.contains(&format!("{} tool", tool.name())), "{seen}");
+        assert!(seen.contains(tool.name()), "{seen}");
     }
     // `?` closes it again, and L switches to the log.
     run(&mut a, "l");
@@ -858,17 +858,15 @@ fn the_key_help_screen_lists_its_sections_and_keys() {
     run(&mut a, "?");
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("◆ KEY HELP ◆"), "{frame}");
-    for want in [
-        "CURSOR AND VIEW",
-        "UNITS",
-        "DESIGNATING",
-        "Harvest tool: designate harvest (chop, mine, gather)",
-    ] {
+    for want in ["CURSOR AND VIEW", "SETTLERS", "DESIGNATING", "Harvest: chop, mine, gather"] {
         assert!(frame.contains(want), "{want:?} in\n{frame}");
     }
     let status = frame.lines().last().unwrap();
     assert!(status.starts_with(" KEYS "), "{status}");
-    assert!(status.contains("Up/Down scroll · Esc or ? close · PgUp/PgDn page"), "{status}");
+    assert!(
+        status.contains("Up/Down scroll · Esc or ? close · PgUp/PgDn page · Tab switch tab"),
+        "{status}"
+    );
 }
 
 /// `G` opens the Endeavor screen (#242): the same screen for every nation, since the signs and

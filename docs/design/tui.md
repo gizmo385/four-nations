@@ -666,6 +666,16 @@ differs from the proposal above:
   `W` `S` and `PgUp` `PgDn` scroll it (Shift: 10 lines), `Esc` closes it, the clock keys and `F5`
   `F6` `F9` work, and the map keys wait. The log opens pinned to its newest line and sticks
   there when scrolled back to the end. The status line shows `LOG` or `KEYS`.
+- **Key help: Keys and Legend (#662).** The key help has two tabs, `Tab` (or `Shift+Tab`) switching
+  between them; it always opens on Keys. Keys is one row per key, in two columns from 100 columns
+  (a page of 96 cells of text) so that it fits one 120x40 screen with no scrolling, split between
+  groups where the taller column is shortest; below 100 columns it is one column that scrolls and
+  says where it is. Anything that needs a paragraph is left to the screen it is about. Legend
+  (`legend.rs`) lists each kind of thing on the map in view once, with its name, in the glyph and
+  colours the map draws it in (`--ascii` included), grouped as people, plants, terrain, buildings
+  and goods, and marks. It reads the same `cell_look` and `style_cell` the agent's `look` legend
+  does, and that legend's `describe_ground` and `describe_mark` names. The game menu's Key help
+  row opens the same screen as `?`.
 - **The game menu and the confirm box (#655).** New map (the next seed, the same nation, as the
   client does), switch nation (the same seed as Air, Water, Earth or Fire, the client's order) and
   quit have no key on the map: `R`, `1` to `4` and `Q` do nothing there and in a tool. They live

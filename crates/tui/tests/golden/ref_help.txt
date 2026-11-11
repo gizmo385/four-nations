@@ -1,40 +1,40 @@
 ┏──────────────────────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────────────────────┓
-│ CURSOR AND VIEW                                                                                                      │
-│ Arrows or WASD            Move the cursor 1 tile (Shift: 10)                                                         │
-│ Ctrl+Arrows or PgUp/PgDn  Jump the view a quarter screen                                                             │
+│ [Keys]  Legend                                                                                          Tab switches │
 │                                                                                                                      │
-│ UNITS                                                                                                                │
-│ Enter                     Select the unit under the cursor; again: the next one there. In a tool: set a corner, then │
-│                           apply                                                                                      │
-│ Esc                       Close the screen, a modal or the bar. In a tool: drop the corner, then leave the tool.     │
-│                           With nothing to close: the game menu (Resume, Save…, Load…, Key help, New map…, Switch     │
-│                           nation…, Quit…), where the actions that end the game live; each asks in a box first, and   │
-│                           Esc there is the safe answer                                                               │
-│ Tab                       Select the next unit (Select mode)                                                         │
-│ Shift+Tab                 Select the previous unit (Select mode)                                                     │
-│ F                         Follow the selected unit (Select mode)                                                     │
+│ CURSOR AND VIEW                                            TIME                                                      │
+│ Arrows or WASD  Move 1 tile (Shift: 10)                    Space   Pause or run                                      │
+│ Ctrl+Arrows     Jump a quarter screen                      + or =  Faster                                            │
+│ PgUp/PgDn       Jump a quarter screen                      - or _  Slower                                            │
+│                                                            .       One tick, while paused                            │
+│ SETTLERS                                                                                                             │
+│ Enter      Select what is under the cursor                 SCREENS AND GAME                                          │
+│ Tab        Next settler                                    N       Nation                                            │
+│ Shift+Tab  Previous settler                                T       Research                                          │
+│ F          Follow the selected settler                     G       Endeavor                                          │
+│ Esc        Deselect, or open the menu                      L       Message log                                       │
+│                                                            ?       Key help and legend                               │
+│ DESIGNATING                                                F5      Quicksave                                         │
+│ H  Harvest: chop, mine, gather                             F9      Quickload (asks first)                            │
+│ X  Cancel a mark                                           F6      Saves                                             │
+│ E  Clear the ground                                        Esc     Game menu: save, load, new map, quit              │
+│ P  Stockpile                                               Ctrl+C  Quit at once, without asking                      │
+│ B  Bend: channel the nation's ability                                                                                │
+│ U  Build                                                   IN A TOOL                                                 │
+│ C  Sow a farm plot                                         Enter  Set a corner, then apply                           │
+│                                                            O      Standing order (Harvest)                           │
+│                                                            Esc    Drop the corner, then leave                        │
 │                                                                                                                      │
-│ DESIGNATING                                                                                                          │
-│ H                         Harvest tool: designate harvest (chop, mine, gather)                                       │
-│ X                         Cancel tool: cancel a harvest, bend, sow or clear mark (O: also a build site or stockpile) │
-│ E                         Clear tool: clear the ground                                                               │
-│ P                         Stockpile tool: designate stockpile                                                        │
-│ B                         Bend tool: channel the nation's ability                                                    │
-│ U                         Build tool: place the chosen building (U: pick one)                                        │
-│ C                         Sow tool: sow an empty farm plot                                                           │
-│ O                         Harvest tool: toggle a standing order (re-designates when ripe again); Cancel tool: toggle │
-│                           withdrawing a build site or stockpile too (#335)                                           │
 │                                                                                                                      │
-│ TIME                                                                                                                 │
-│ Space                     Pause or run                                                                               │
-│ + or =                    Faster                                                                                     │
-│ - or _                    Slower                                                                                     │
-│ .                         One tick, while paused                                                                     │
 │                                                                                                                      │
-│ SCREENS AND GAME                                                                                                     │
-│ T                         Research: arrows W A S D choose a tech, Enter sets it as the target                        │
-│ L                         Message log                                                                                │
-│ ?                         Key help                                                                                   │
-│ G                         Endeavor: the Harmony Gate's progress; once Ready, Enter places the gate, X withdraws the  │
-┗───────────────────────────────────────────────────────────────────────────────────────────────────────── 1-37 of 44 ─┛
- KEYS  Up/Down scroll · Esc or ? close · PgUp/PgDn page                                                   PAUSED ? keys
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+┗──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┛
+ KEYS  Up/Down scroll · Esc or ? close · PgUp/PgDn page · Tab switch tab                                  PAUSED ? keys

@@ -525,10 +525,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} missing", tool.name()));
             assert_eq!(row.keys, tool.key(), "from the tool table");
         }
-        let walk = rows.iter().find(|r| r.what.starts_with("Move the cursor")).unwrap();
+        let walk = rows.iter().find(|r| r.what.starts_with("Move 1 tile")).unwrap();
         assert_eq!(walk.keys, "Arrows or WASD");
         let jump = rows.iter().find(|r| r.what.starts_with("Jump")).unwrap();
-        assert_eq!(jump.keys, "Ctrl+Arrows or PgUp/PgDn");
+        assert_eq!(jump.keys, "Ctrl+Arrows");
+        assert!(rows.iter().any(|r| r.keys == "PgUp/PgDn" && r.what.starts_with("Jump")));
         // New map, switch nation and quit live in the game menu only (#655): no key row.
         for gone in ["New map", "Switch nation", "Quit (asks"] {
             assert!(rows.iter().all(|r| !r.what.starts_with(gone)), "{gone} has a key row");

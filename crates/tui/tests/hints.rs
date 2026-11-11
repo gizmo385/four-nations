@@ -109,5 +109,5 @@ fn the_help_text_lists_every_key_help_row() {
         assert!(usage.contains(&row.keys), "{:?} in --help", row.keys);
         assert!(usage.contains(row.what.split(' ').next().unwrap()), "{:?} in --help", row.what);
     }
-    assert!(usage.contains("U: pick one") && !usage.contains("U again cycles"));
+    assert!(usage.contains("Harvest: chop, mine, gather"));
 }
