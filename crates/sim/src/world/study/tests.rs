@@ -155,6 +155,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         uses_power: false,
         names: HashMap::new(),
         unlocked_by: None,
+        seat_upgrades: Vec::new(),
         endeavor: false,
         beside: None,
     });
@@ -430,4 +431,63 @@ fn study_seats_filled_counts_only_scholars_already_inside() {
     assert_eq!(w.study_seats_filled(), 0, "claimed, but not inside yet");
     run_until(&mut w, &defs, 200, |w| seated(w, 0));
     assert_eq!(w.study_seats_filled(), 1);
+}
+
+fn study_jobs_at(w: &World, anchor: Pos) -> usize {
+    w.jobs().iter().filter(|j| j.kind == JobKind::Study { pos: anchor }).count()
+}
+
+/// `writing` adds 2 seats to every study hall (docs/design/horizons-phase-1.md): `seats_at`
+/// counts them once it is known, and learning it opens them at a hall that already stands.
+#[test]
+fn learning_writing_opens_two_more_seats_at_every_hall() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(0, 0)]);
+    let base = defs.building(defs.building_id("study_hall").unwrap()).seats;
+    place_study_hall(&mut w, &defs, at(2, 2));
+    assert_eq!(w.seats_at(at(2, 2), &defs), base);
+    assert_eq!(w.seats_at(at(0, 4), &defs), 0, "no building there");
+    let writing = defs.tech_id("writing").unwrap();
+    for &p in &defs.tech(writing).prereqs.clone() {
+        for &q in &defs.tech(p).prereqs.clone() {
+            w.research.grant(q);
+        }
+        w.research.grant(p);
+    }
+    w.apply(Command::SetResearch { tech: writing }, &defs).unwrap();
+    w.research.bank_for_test(10_000_000);
+    w.tick(&defs);
+    assert!(w.research().is_known(writing));
+    assert_eq!(w.seats_at(at(2, 2), &defs), base + 2);
+    assert_eq!(study_jobs_at(&w, at(2, 2)) as u32, base + 2);
+    // A hall raised afterwards opens the full count at once.
+    let hall = defs.building_id("study_hall").unwrap();
+    let (fw, fh) = defs.building(hall).footprint;
+    w.raise(crate::geom::Footprint::new(at(5, 2), fw, fh), hall, &defs);
+    assert_eq!(study_jobs_at(&w, at(5, 2)) as u32, base + 2);
+    // Syncing again changes nothing.
+    w.sync_seats(&defs);
+    assert_eq!(study_jobs_at(&w, at(2, 2)) as u32, base + 2);
+}
+
+/// A save whose halls predate the upgrade gains the seats on load.
+#[test]
+fn a_save_that_knows_writing_loads_with_the_new_seats() {
+    let (mut w, defs) = setup(Nation::Water, &GRID, &[at(0, 0)]);
+    let base = defs.building(defs.building_id("study_hall").unwrap()).seats;
+    place_study_hall(&mut w, &defs, at(2, 2));
+    // Known, but the seats weren't opened: what an older save looks like.
+    w.research.grant(defs.tech_id("writing").unwrap());
+    assert_eq!(study_jobs_at(&w, at(2, 2)) as u32, base);
+    let saved = w.save(&defs).expect("world saves");
+    let w2 = World::load(&saved, &defs).expect("world loads");
+    assert_eq!(study_jobs_at(&w2, at(2, 2)) as u32, base + 2);
+}
+
+/// The Map Room keeps its single seat whatever is known.
+#[test]
+fn writing_leaves_the_map_room_alone() {
+    let (mut w, defs) = setup(Nation::Fire, &GRID, &[at(0, 0)]);
+    let room = defs.building_id("map_room").unwrap();
+    w.research.grant(defs.tech_id("writing").unwrap());
+    assert_eq!(w.seats_of(defs.building(room)), defs.building(room).seats);
 }

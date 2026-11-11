@@ -268,6 +268,9 @@ impl World {
         // next_unit (#232) defaults to 0 for a save from before it existed; restore its
         // invariant (past every unit id ever handed out) from the units and deaths on file.
         world.fixup_next_unit();
+        // Seats a known tech adds (`writing`'s, docs/design/horizons-phase-1.md) that a hall
+        // saved before the upgrade existed doesn't have yet.
+        world.sync_seats(defs);
         Ok(world)
     }
 }
