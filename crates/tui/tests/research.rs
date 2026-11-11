@@ -547,3 +547,90 @@ fn the_target_is_marked_on_its_card_and_named_in_the_detail_strip() {
     assert!(grid_rows(&frame).iter().any(|r| r.contains("Target · 60 pts")), "{frame}");
     assert!(frame.lines().rev().nth(4).unwrap().contains("Target: Farming"), "{frame}");
 }
+
+// ---------------------------------------------------------------------------------------------
+// A whole detail strip (#768)
+// ---------------------------------------------------------------------------------------------
+
+/// The detail strip's rows of a frame: under the rule, down to the bottom edge.
+fn strip_rows(frame: &str) -> Vec<&str> {
+    let lines: Vec<&str> = frame.lines().collect();
+    let rule = lines.iter().position(|l| l.starts_with('├')).expect("a rule over the details");
+    let bottom = lines.iter().rposition(|l| l.starts_with('┗')).expect("a bottom edge");
+    lines[rule + 1..bottom].to_vec()
+}
+
+/// The strip is never cut: with the cursor on every card of every nation's tree, at 80x24 and
+/// 120x40, no row of it ends in an ellipsis and every word of what the tech unlocks and needs is
+/// there, wrapped onto a further row when it doesn't fit one.
+#[test]
+fn the_detail_strip_wraps_what_a_tech_unlocks_and_needs_for_any_nation_at_80x24_and_120x40() {
+    let mut wrapped = 0;
+    for (nation, size, deep) in Nation::ALL
+        .into_iter()
+        .flat_map(|n| [SMALL, SIZE].map(|s| (n, s)))
+        .flat_map(|(n, s)| [(n, s, false), (n, s, true)])
+    {
+        {
+            let mut a = app(7, nation, size);
+            if deep {
+                // Targeting the deepest tech queues every prereq: a Queued card shows what it
+                // unlocks and what it still needs, side by side.
+                let view = screen_view(&a.session);
+                let deepest = view.columns.last().and_then(|c| c.last()).expect("a tree").id;
+                a.session.apply(Command::SetResearch { tech: deepest }).unwrap();
+            }
+            run(&mut a, "t");
+            let view = screen_view(&a.session);
+            for (c, col) in view.columns.iter().enumerate() {
+                for (r, card) in col.iter().enumerate() {
+                    a.ui.tech = (c, r);
+                    let frame = text(&mut a, size);
+                    let rows = strip_rows(&frame);
+                    for row in &rows {
+                        assert!(
+                            !row.contains('…'),
+                            "{nation:?} {size:?} cursor on {}: {row}\n{frame}",
+                            card.name
+                        );
+                    }
+                    if rows.len() > 3 {
+                        wrapped += 1;
+                    }
+                    let strip = rows.join("\n");
+                    for word in card.unlock.split_whitespace().chain(card.needs.split_whitespace())
+                    {
+                        assert!(
+                            strip.contains(word),
+                            "{nation:?} {size:?} {}: {word}\n{frame}",
+                            card.name
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert!(wrapped > 0, "some tech at 80x24 has a line too long for one row");
+}
+
+/// The strip words things as the cards do ("Needs X" and "Leads to X", no colon), and a short
+/// line stays on one row beside the other.
+#[test]
+fn the_strip_and_the_cards_use_the_same_words() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "t");
+    let view = screen_view(&a.session);
+    for (c, col) in view.columns.iter().enumerate() {
+        for (r, card) in col.iter().enumerate() {
+            a.ui.tech = (c, r);
+            let frame = text(&mut a, SIZE);
+            let strip = strip_rows(&frame).join("\n");
+            assert!(!strip.contains("Needs:") && !strip.contains("Unlocks:"), "{strip}");
+            if card.state == TechState::Locked {
+                assert!(
+                    strip.contains(&format!("Needs {}", card.needs.split(", ").next().unwrap()))
+                );
+            }
+        }
+    }
+}
