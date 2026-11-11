@@ -62,9 +62,11 @@ impl World {
     }
 
     /// Whether a study seat is worth claiming or holding: something is queued, or scribing is on
-    /// (#284 left an empty queue with no use for a seat; an Archive gives it one).
+    /// (#284 left an empty queue with no use for a seat; an Archive gives it one). Not while the
+    /// front tech waits only on its item bill (#718): its knowledge is banked, so scholars haul.
     pub(super) fn study_wanted(&self, defs: &Defs) -> bool {
-        !self.research.queue().is_empty() || self.scribing_on(defs)
+        let waiting = self.research.waiting_on_bill(defs, self.knobs(defs).research_cost);
+        (!self.research.queue().is_empty() && !waiting) || self.scribing_on(defs)
     }
 
     /// Turns the scribing counter into copies, once per tick after the research tick. Stops at

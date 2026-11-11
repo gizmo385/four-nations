@@ -48,6 +48,8 @@
 passive_knowledge_per_minute = 3.0   # settlement-wide "oral tradition" trickle
 study_knowledge_per_minute = 9.0     # per scholar, before the `study` modifier
 idle_knowledge_cap = 10.0            # points the pool may hold with no target queued (#284)
+cost_items_from = 1000               # only a tech costing at least this may have cost_items
+bill_hall = "study_hall"             # takes research bills' deliveries; must have seats (#718)
 
 # ---------------------------------------------------------------------------------------------
 # Shared civilization tier

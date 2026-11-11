@@ -184,7 +184,11 @@ impl World {
 
     /// The nearest stockpile tile or ground stack holding any of `items` (stockpiles first on a
     /// tie), with the tile to stand on and the item found.
-    fn nearest_source_of(&self, flood: &Flood, items: &[ItemId]) -> Option<(Source, Pos, ItemId)> {
+    pub(super) fn nearest_source_of(
+        &self,
+        flood: &Flood,
+        items: &[ItemId],
+    ) -> Option<(Source, Pos, ItemId)> {
         type Best = ((u32, u8, Pos), Source, Pos, ItemId);
         let mut best: Option<Best> = None;
         let mut consider = |rank: u8, pos: Pos, source: Source, item: ItemId| {
