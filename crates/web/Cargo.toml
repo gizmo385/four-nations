@@ -4,11 +4,17 @@ description = "The web replayer (#595): fn_tui's run-log watcher compiled to was
 edition.workspace = true
 version.workspace = true
 license.workspace = true
+# One integration-test binary, `tests/it.rs`, with each other file in tests/ as a module of it.
+autotests = false
 
 # `cdylib` is the .wasm the page loads; `rlib` lets the native tests drive the same `Replay`.
 [lib]
 name = "fn_web"
 crate-type = ["cdylib", "rlib"]
+
+[[test]]
+name = "it"
+path = "tests/it.rs"
 
 [dependencies]
 fn_sim = { path = "../sim" }
