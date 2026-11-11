@@ -37,6 +37,7 @@ pub mod msglog;
 pub mod nation;
 pub mod page;
 pub mod panel;
+pub mod pointer;
 pub mod record;
 pub mod research;
 #[cfg(not(target_arch = "wasm32"))]

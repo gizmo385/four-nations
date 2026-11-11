@@ -211,12 +211,16 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
     lint::check(&root())?;
     println!("$ xtask lint test-modules");
     lint_test_modules(&root())?;
-    let clippy: Vec<&str> =
-        [&["clippy", "--workspace", "--all-targets"][..], &profile, &["--", "-D", "warnings"]]
-            .concat();
+    let clippy: Vec<&str> = [
+        &["clippy", "--workspace", "--all-targets"][..],
+        EXCLUDED,
+        &profile,
+        &["--", "-D", "warnings"],
+    ]
+    .concat();
     cargo_env(&clippy, &env)?;
     clippy_wasm(&profile, &env)?;
-    cargo_env(&test_args(&["--workspace"], &profile)?, &env)?;
+    cargo_env(&test_args(&[&["--workspace"][..], EXCLUDED].concat(), &profile)?, &env)?;
     println!("ci OK");
     Ok(())
 }
@@ -280,6 +284,10 @@ fn nextest_installed() -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
+/// Workspace members the gate leaves out: `fn_gui`, the egui window spike (#842), which pulls in a
+/// windowing and GPU stack the gate has no use for. `cargo test -p fn_gui` runs its own tests.
+const EXCLUDED: &[&str] = &["--exclude", "fn_gui"];
+
 /// The crates the web replayer (#595) builds for the browser.
 const WASM_CRATES: [&str; 5] = ["fn_runfmt", "fn_sim", "fn_ui", "fn_tui", "fn_web"];
 pub(crate) const WASM_TARGET: &str = "wasm32-unknown-unknown";
@@ -327,9 +335,13 @@ fn check(crates: &[String], fast: bool) -> Result {
     lint::check(&root())?;
     println!("$ xtask lint test-modules");
     lint_test_modules(&root())?;
-    let clippy: Vec<&str> =
-        [&["clippy", "--workspace", "--all-targets"][..], &profile, &["--", "-D", "warnings"]]
-            .concat();
+    let clippy: Vec<&str> = [
+        &["clippy", "--workspace", "--all-targets"][..],
+        EXCLUDED,
+        &profile,
+        &["--", "-D", "warnings"],
+    ]
+    .concat();
     cargo_env(&clippy, &env)?;
     clippy_wasm(&profile, &env)?;
 

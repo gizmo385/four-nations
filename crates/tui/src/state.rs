@@ -329,6 +329,14 @@ impl UiState {
         self.follow();
     }
 
+    /// Puts the cursor on `pos` (clamped to the map) and scrolls the view to keep it in sight:
+    /// a pointer's click (`crate::pointer`, #842/#843), where the arrows step one tile at a time.
+    pub fn point_at(&mut self, pos: Pos) {
+        self.following = false;
+        self.cursor = self.clamp_to_map(pos);
+        self.follow();
+    }
+
     /// Jumps the view `(dx, dy)` quarter screens and carries the cursor the same distance
     /// (Ctrl+arrows, PageUp and PageDown).
     pub fn jump(&mut self, dx: i32, dy: i32) {
