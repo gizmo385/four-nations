@@ -197,6 +197,12 @@ pub struct Overlays {
     /// The front-middle footprint cell of every building with anyone inside (#226, #229),
     /// with how many: drawn as a digit (`+` above 9) in place of the building's own glyph there.
     occupants: BTreeMap<Pos, u32>,
+    /// While a chute's foot is being picked (#683, `UiState::linking`): every tile the foot may
+    /// go on, tinted like a reach.
+    feet: BTreeSet<Pos>,
+    /// The `:` line from a chute's head to its foot (#683), while the head is under the cursor
+    /// or its foot is being picked: the tiles between them, both ends left out.
+    link: BTreeSet<Pos>,
 }
 
 impl Overlays {
@@ -272,6 +278,11 @@ impl Overlays {
                 .or_else(|| glows.iter().find(|g| g.pos == cursor).map(|g| (g.pos, g.radius))),
             powered: power_reaches(session, ui, cursor, &ghosts),
             occupants: occupant_counts(world),
+            feet: ui
+                .linking
+                .map(|head| fn_ui::chute::foot_tiles(session, head).into_iter().collect())
+                .unwrap_or_default(),
+            link: link_tiles(session, ui),
         }
     }
 
@@ -309,6 +320,19 @@ fn power_reaches(
         reaches.extend(ghosts.iter().map(|g| (g.footprint, reach)));
     }
     reaches
+}
+
+/// The `:` line's tiles (#683): from the chute being linked to the cursor while its foot is
+/// being picked, else from the chute under the cursor to the foot it points at, if any.
+fn link_tiles(session: &Session, ui: &UiState) -> BTreeSet<Pos> {
+    let (head, foot) = match ui.linking {
+        Some(head) => (head, Some(ui.cursor)),
+        None if fn_ui::chute::is_head(session, ui.cursor) => {
+            (ui.cursor, session.world.link_at(ui.cursor))
+        }
+        None => return BTreeSet::new(),
+    };
+    foot.map(|foot| fn_ui::chute::link_line(head, foot).into_iter().collect()).unwrap_or_default()
 }
 
 /// The ring tile below the middle of the bottom row, same side as `Footprint::entrance` but one
@@ -507,6 +531,8 @@ pub enum Thing {
     /// A resource resting after being harvested, greyed until it regrows.
     RestingResource(ResourceId),
     Resource(ResourceId),
+    /// A tile on a chute's link line (#683): `:` between the head and its foot.
+    Link,
     /// Nothing on top: the terrain or biome itself draws.
     Ground,
 }
@@ -546,6 +572,8 @@ pub enum Mark {
     /// The reach of a finished power source under the cursor, or one the Build tool is about to
     /// place (issue #428, #429).
     Powered,
+    /// A tile a chute's foot may go on, while it is being picked (#683): tinted like a reach.
+    FootReach,
     /// The Avatar's own background: the nation's accent, not his tile's own (#237, #242).
     AvatarAccent,
 }
@@ -610,6 +638,8 @@ pub fn cell_look(
         }
     } else if let Some(stack) = over.ground.get(&pos).copied().or_else(|| world.stored_at(pos)) {
         Thing::Item(stack.item)
+    } else if over.link.contains(&pos) {
+        Thing::Link
     } else if let Some(&ability) = over.flames.get(&pos) {
         flame_thing(ability, defs)
     } else if let Some(r) = tile.resource {
@@ -676,6 +706,9 @@ pub fn cell_look(
     }
     if over.is_powered(pos) {
         marks.push(Mark::Powered);
+    }
+    if over.feet.contains(&pos) {
+        marks.push(Mark::FootReach);
     }
     if over.avatar == Some(pos) {
         marks.push(Mark::AvatarAccent);
@@ -795,6 +828,10 @@ fn thing_look(
             let s = &g.overlay.sapling;
             (s.glyph(ascii), s.fg)
         }
+        Thing::Link => {
+            let l = &g.overlay.link;
+            (l.glyph(ascii), l.fg)
+        }
         Thing::RestingResource(r) => {
             // Growing back: the client greys its sprite, so grey the glyph.
             let look = &g.resource[&defs.resource(*r).id];
@@ -907,7 +944,7 @@ pub fn style_cell(look: &CellLook, defs: &Defs, palette: &Palette) -> TileCell {
         palette.tinted(base_bg, Tint::Wet)
     } else if look.marks.contains(&Mark::Warm) {
         palette.tinted(base_bg, Tint::Warm)
-    } else if look.marks.contains(&Mark::Powered) {
+    } else if look.marks.contains(&Mark::Powered) || look.marks.contains(&Mark::FootReach) {
         palette.tinted(base_bg, Tint::Powered)
     } else if look.marks.contains(&Mark::AvatarAccent) {
         // The Avatar's own background (#237, #242): the nation's accent, not his tile's own, so

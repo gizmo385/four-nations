@@ -456,6 +456,8 @@ fn build() -> Vec<Entry> {
         help(in_tool, "Also sites, stockpiles (Cancel)"),
     );
     only.set(None);
+    // Select mode's `O` on a chute (#683): in no hint bar, only in the key help.
+    add(&[], &[], "O", "foot", help(in_tool, "Move a chute's foot (Select)"));
 
     let time = Some(Group::Time);
     add(&[Mode::Anywhere], &[Action::TogglePause], "Space", "pause", help(time, "Pause or run"));
@@ -629,7 +631,7 @@ mod tests {
     }
 
     /// A tool's toggle is a row of its own (#781): in the tool modes' hints for that tool only,
-    /// and one `O` row a tool in the key help.
+    /// and one `O` row a tool in the key help, plus Select's `O` on a chute (#683).
     #[test]
     fn a_tools_toggles_are_its_own_rows() {
         let text = |mode, tool| {
@@ -647,8 +649,9 @@ mod tests {
         assert!(!text(Mode::Select, Tool::Harvest).contains("O "));
         assert_eq!(line(Mode::Tool), "Arrows move · Enter set corner · Esc leave tool");
         let rows: Vec<_> = help_rows().into_iter().filter(|r| r.keys == "O").collect();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|r| r.group == Group::InTool));
+        assert!(rows[2].what.contains("chute"));
     }
 
     #[test]

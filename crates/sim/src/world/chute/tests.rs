@@ -120,3 +120,32 @@ fn the_link_survives_a_save_round_trip() {
     assert_eq!(w2.anchored(HEAD).unwrap().link, Some(FOOT));
     assert_eq!(w2.chute_foot(HEAD, &defs), Some(FOOT));
 }
+
+#[test]
+fn a_site_takes_its_foot_and_hands_it_to_the_finished_chute() {
+    let defs = Defs::bundled();
+    let mut w = World::with_map(1, slope(), Nation::Earth, &[at(3, 6)], &defs);
+    let site = at(1, 3);
+    let chute = defs.building_id("chute").unwrap();
+    // Straight onto the map as a site: designating needs the tech, which isn't the point here.
+    w.sites.insert(site, super::super::build::Site::gate(chute, [1, 1]));
+    w.apply(Command::SetLink { pos: site, to: at(12, 3) }, &defs).unwrap();
+    assert_eq!(w.link_at(site), Some(at(12, 3)));
+    assert_eq!(w.chute_foot(site, &defs), None, "a site sends nothing");
+    assert_eq!(
+        w.apply(Command::SetLink { pos: site, to: at(2, 3) }, &defs),
+        Err(CommandError::Link(LinkError::NotDownhill))
+    );
+}
+
+#[test]
+fn the_chute_counts_what_it_sends() {
+    let (mut w, defs) = setup(at(3, 5));
+    let stone = defs.item_id("stone").unwrap();
+    w.apply(Command::SetLink { pos: HEAD, to: FOOT }, &defs).unwrap();
+    w.designate_stockpile(at(13, 5)).unwrap();
+    w.ground.insert(at(2, 6), Stack { item: stone, count: 4 });
+    w.ensure_haul_job(at(2, 6));
+    run_until(&mut w, &defs, 1200, |w| !w.chute_sent(HEAD).is_empty());
+    assert_eq!(w.chute_sent(HEAD), [Stack { item: stone, count: 4 }]);
+}

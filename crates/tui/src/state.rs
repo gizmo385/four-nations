@@ -119,6 +119,10 @@ pub struct UiState {
     /// stockpile down by accident. The same `O` key as `repeating`, just read for a different
     /// tool; the two never both apply at once. Resets whenever the tool changes (`set_tool`).
     pub teardown: bool,
+    /// The chute whose foot is being picked (#683, `fn_ui::chute`): set when the Build tool places
+    /// a chute site, or by `O` on a chute in Select mode. While set, `Enter` on the map sets the
+    /// foot at the cursor and `Esc` leaves it unset; changing tools drops it.
+    pub linking: Option<Pos>,
     /// The building the Build tool places, kept across tool changes so `U` returns to it
     /// (`fn_ui::tools::switch_tool`; the client keeps the same choice in its own `BuildChoice`
     /// resource, since it belongs to the frontend, not the `Session`).
@@ -221,6 +225,7 @@ impl UiState {
             tool: Tool::Select,
             repeating: false,
             teardown: false,
+            linking: None,
             choice: None,
             anchor: None,
             tool_list: None,
@@ -333,6 +338,7 @@ impl UiState {
         self.marked = None;
         self.repeating = false;
         self.teardown = false;
+        self.linking = None;
         // Entering a tool shows the banner (#307), which the view must keep the cursor clear
         // of.
         self.follow();
@@ -355,9 +361,10 @@ impl UiState {
     }
 
     /// The building the Build tool's ghosts would place (`fn_ui::build::valid_choice`): `None`
-    /// outside the Build tool, or with nothing placeable yet.
+    /// outside the Build tool, with nothing placeable yet, or while a chute's foot is being
+    /// picked (#683), when the cursor points at the foot instead.
     pub fn ghost_building(&self, session: &Session) -> Option<BuildingId> {
-        if self.tool != Tool::Build {
+        if self.tool != Tool::Build || self.linking.is_some() {
             return None;
         }
         fn_ui::build::valid_choice(&fn_ui::build::picker_rows(session), self.choice)
