@@ -725,7 +725,7 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
         Tool::CancelHarvest => counts = tally.counts(),
         _ => {}
     }
-    let why = last_error.map(|e| build::describe_error(session, e));
+    let why = last_error.clone().map(|e| build::describe_error(session, e));
     let cost = match (tool, building) {
         (Tool::Build, Some(id)) if done > 0 => Some(build::cost_of(session, id, done)),
         _ => None,

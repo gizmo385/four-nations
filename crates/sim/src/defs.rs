@@ -343,6 +343,8 @@ impl Defs {
             self.chi.max,
             &self.mastery,
         )?;
+        // A tech's `requires.chapter` can only be checked now that the chapters are known.
+        research::check_chapters(&self.techs, &self.endeavor.chapters)?;
         Ok(self)
     }
 

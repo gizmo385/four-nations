@@ -3,7 +3,7 @@
 //! see is the sim's (`Defs::techs_for`). Choosing a tech issues `Command::SetResearch`; `fn_sim`
 //! does the rest (`docs/design/research.md`).
 
-use fn_sim::research::{Feature, MILLIS_PER_POINT, Research, TechDef, TechId};
+use fn_sim::research::{Facts, Feature, MILLIS_PER_POINT, Research, TechDef, TechId};
 use fn_sim::{Defs, Nation, World};
 
 use crate::session::Session;
@@ -86,8 +86,9 @@ pub enum TechState {
     /// In the current queue: either the chosen target or one of its unknown prereqs.
     Queued,
     Available,
-    /// At least one prereq isn't known yet. Still selectable: `Research::set_target` queues the
-    /// whole chain.
+    /// At least one prereq isn't known yet, or a `requires` condition isn't met. Still
+    /// selectable while only prereqs are missing: `Research::set_target` queues the whole chain.
+    /// A condition it refuses (`ResearchError::NotYet`) until it holds.
     Locked,
 }
 
@@ -102,12 +103,20 @@ impl TechState {
     }
 }
 
-pub fn tech_state(research: &Research, id: TechId, def: &TechDef) -> TechState {
+pub fn tech_state(
+    research: &Research,
+    facts: &Facts<'_>,
+    defs: &Defs,
+    id: TechId,
+    def: &TechDef,
+) -> TechState {
     if research.is_known(id) {
         TechState::Known
     } else if research.queue().contains(&id) {
         TechState::Queued
-    } else if def.prereqs.iter().all(|p| research.is_known(*p)) {
+    } else if def.prereqs.iter().all(|p| research.is_known(*p))
+        && def.requires.unmet(facts, defs).is_empty()
+    {
         TechState::Available
     } else {
         TechState::Locked
@@ -202,6 +211,26 @@ pub fn missing_prereqs(research: &Research, defs: &Defs, def: &TechDef) -> Vec<S
         .collect()
 }
 
+/// What `def` still needs besides prereqs (`TechDef::requires`), as the Locked line words it:
+/// "3 scrolls read", "Known on the road". A condition that is met drops off, the way a known
+/// prereq does (`missing_prereqs`).
+pub fn unmet_conditions(facts: &Facts<'_>, defs: &Defs, def: &TechDef) -> Vec<String> {
+    def.requires.unmet(facts, defs).iter().map(ToString::to_string).collect()
+}
+
+/// Everything a Locked card still needs, in the order it is listed: missing prereqs first
+/// (`missing_prereqs`), then unmet conditions (`unmet_conditions`).
+pub fn missing_needs(
+    research: &Research,
+    facts: &Facts<'_>,
+    defs: &Defs,
+    def: &TechDef,
+) -> Vec<String> {
+    let mut needs = missing_prereqs(research, defs, def);
+    needs.extend(unmet_conditions(facts, defs, def));
+    needs
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct TechCard {
     pub id: TechId,
@@ -214,7 +243,8 @@ pub struct TechCard {
     /// `screen {"research"}`'s own parity with the rendered frame (docs/design/agent-play.md,
     /// "Observation containment").
     pub unlock: String,
-    /// "Masonry, Carpentry" while `state` is `Locked`; empty otherwise (`missing_prereqs`).
+    /// "Masonry, Carpentry" while `state` is `Locked`, with unmet conditions after the prereqs
+    /// ("Writing, 3 scrolls read"); empty otherwise (`missing_needs`).
     pub needs: String,
     /// The current research target (the last tech of the queue): the one tech the player chose,
     /// as against the prereqs queued ahead of it (#659).
@@ -232,6 +262,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
     let defs = &session.defs;
     let nation = session.world.nation;
     let research = session.world.research();
+    let facts = session.world.facts();
     let depths = tech_depths(&defs.techs);
     let target = research.queue().last().copied();
     let mut columns: Vec<Vec<TechCard>> = Vec::new();
@@ -240,7 +271,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         if columns.len() <= depth {
             columns.resize(depth + 1, Vec::new());
         }
-        let state = tech_state(research, id, def);
+        let state = tech_state(research, &facts, defs, id, def);
         columns[depth].push(TechCard {
             id,
             name: def.name.clone(),
@@ -253,7 +284,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
             } else {
                 unlock_summary(defs, nation, id, def)
             },
-            needs: missing_prereqs(research, defs, def).join(", "),
+            needs: missing_needs(research, &facts, defs, def).join(", "),
             target: target == Some(id),
         });
     }
@@ -263,7 +294,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
 #[cfg(test)]
 mod tests {
     use fn_sim::Nation;
-    use fn_sim::research::Unlocks;
+    use fn_sim::research::{Requires, Unlocks};
     use fn_sim::world::Command;
 
     use super::*;
@@ -279,6 +310,7 @@ mod tests {
             prereqs: prereqs.to_vec(),
             unlocks: Unlocks::default(),
             core: true,
+            requires: Requires::default(),
         }
     }
 
@@ -302,13 +334,20 @@ mod tests {
     fn tech_state_reflects_known_queued_and_locked() {
         let s = Session::new(7, Nation::Fire, 48, 32);
         let research = s.world.research();
+        let facts = s.world.facts();
         let defs = &s.defs;
         let fm = defs.tech_id("fire_making").unwrap();
-        assert_eq!(tech_state(research, fm, defs.tech(fm)), TechState::Known);
+        assert_eq!(tech_state(research, &facts, defs, fm, defs.tech(fm)), TechState::Known);
         let shelter = defs.tech_id("shelter").unwrap();
-        assert_eq!(tech_state(research, shelter, defs.tech(shelter)), TechState::Available);
+        assert_eq!(
+            tech_state(research, &facts, defs, shelter, defs.tech(shelter)),
+            TechState::Available
+        );
         let masonry = defs.tech_id("masonry").unwrap();
-        assert_eq!(tech_state(research, masonry, defs.tech(masonry)), TechState::Locked);
+        assert_eq!(
+            tech_state(research, &facts, defs, masonry, defs.tech(masonry)),
+            TechState::Locked
+        );
     }
 
     #[test]
@@ -317,9 +356,16 @@ mod tests {
         let masonry = s.defs.tech_id("masonry").unwrap();
         s.apply(Command::SetResearch { tech: masonry }).unwrap();
         let research = s.world.research();
-        assert_eq!(tech_state(research, masonry, s.defs.tech(masonry)), TechState::Queued);
+        let facts = s.world.facts();
+        assert_eq!(
+            tech_state(research, &facts, &s.defs, masonry, s.defs.tech(masonry)),
+            TechState::Queued
+        );
         let carpentry = s.defs.tech_id("carpentry").unwrap();
-        assert_eq!(tech_state(research, carpentry, s.defs.tech(carpentry)), TechState::Queued);
+        assert_eq!(
+            tech_state(research, &facts, &s.defs, carpentry, s.defs.tech(carpentry)),
+            TechState::Queued
+        );
     }
 
     #[test]
@@ -403,8 +449,12 @@ mod tests {
         let s = Session::new(7, Nation::Fire, 48, 32);
         let defs = &s.defs;
         let research = s.world.research();
+        let facts = s.world.facts();
         let masonry = defs.tech_id("masonry").unwrap();
-        assert_eq!(tech_state(research, masonry, defs.tech(masonry)), TechState::Locked);
+        assert_eq!(
+            tech_state(research, &facts, defs, masonry, defs.tech(masonry)),
+            TechState::Locked
+        );
         // Fire starts knowing only `fire_making`, so both of masonry's prereqs are still missing
         // (the issue's evidence: a Locked card alone never said which techs would unlock it).
         assert_eq!(
@@ -413,6 +463,39 @@ mod tests {
         );
         let fire_making = defs.tech_id("fire_making").unwrap();
         assert!(missing_prereqs(research, defs, defs.tech(fire_making)).is_empty());
+    }
+
+    /// The Locked line lists unmet conditions after the prereqs, and a met one drops off.
+    #[test]
+    fn a_locked_cards_needs_lists_unmet_conditions_after_prereqs() {
+        let s = Session::new(7, Nation::Fire, 48, 32);
+        let defs = &s.defs;
+        let research = s.world.research();
+        let writing = defs.tech_id("writing").unwrap();
+        let mut gated = def(None, 100, &[writing]);
+        gated.requires =
+            Requires { scrolls_read: Some(3), chapter: Some("known_on_the_road".to_owned()) };
+        let id = TechId(defs.techs.len() as u16);
+        let needs = |facts: &Facts<'_>| missing_needs(research, facts, defs, &gated);
+        let state = |facts: &Facts<'_>| tech_state(research, facts, defs, id, &gated);
+
+        let none = Facts::default();
+        assert_eq!(needs(&none), ["Writing", "3 scrolls read", "Known on the road"]);
+        assert_eq!(state(&none), TechState::Locked);
+        let two = Facts { scrolls_read: 2, ..Facts::default() };
+        assert_eq!(needs(&two), ["Writing", "3 scrolls read", "Known on the road"]);
+        let three = Facts { scrolls_read: 3, ..Facts::default() };
+        assert_eq!(needs(&three), ["Writing", "Known on the road"]);
+        let road = Facts { scrolls_read: 3, chapters_met: vec!["known_on_the_road"] };
+        assert_eq!(needs(&road), ["Writing"]);
+
+        // With no prereq in the way, only a condition keeps a tech Locked, and then nothing does.
+        let mut open = def(None, 100, &[]);
+        open.requires = gated.requires.clone();
+        let state = |facts: &Facts<'_>| tech_state(research, facts, defs, id, &open);
+        assert_eq!(unmet_conditions(&three, defs, &open), ["Known on the road"]);
+        assert_eq!(state(&three), TechState::Locked, "the chapter is still unmet");
+        assert_eq!(state(&road), TechState::Available);
     }
 
     #[test]

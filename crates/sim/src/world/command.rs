@@ -81,7 +81,7 @@ pub enum Command {
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandError {
     Designate(DesignateError),
     Research(ResearchError),

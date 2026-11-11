@@ -864,6 +864,13 @@ impl World {
         self.research.grant(tech);
     }
 
+    /// Counts `n` scrolls read at once, for tests outside `world` (`autoplay`'s, #707) that need
+    /// the tally a `requires.scrolls_read` condition checks.
+    #[cfg(test)]
+    pub(crate) fn count_scrolls_for_test(&mut self, n: u32) {
+        self.tallies.count_scrolls(n);
+    }
+
     /// Is something whose `unlocked_by` is `unlocked_by` available to this settlement right now:
     /// no tech locks it (`None`), or the nation knows the one that does (`Unlocks::buildings`,
     /// `Unlocks::jobs`, issue #22).
@@ -874,7 +881,22 @@ impl World {
     /// Sets the research target: the queue becomes `tech` plus its unknown prereqs. Banked
     /// knowledge is kept. Reached through `Command::SetResearch`.
     fn set_research(&mut self, tech: TechId, defs: &Defs) -> Result<(), ResearchError> {
-        self.research.set_target(tech, self.nation, defs)
+        // Built from the fields, not `self.facts()`, so `research` stays free to borrow mutably.
+        let facts = research::Facts {
+            scrolls_read: self.tallies.scrolls_read(),
+            chapters_met: self.endeavor_log.chapters_met().collect(),
+        };
+        self.research.set_target(tech, self.nation, &facts, defs)
+    }
+
+    /// What `Requires` conditions are checked against right now: scrolls read and the chapters
+    /// met (`research::Facts`). Only ever grows, which is why `Research::set_target` checks
+    /// conditions once at queue time.
+    pub fn facts(&self) -> research::Facts<'_> {
+        research::Facts {
+            scrolls_read: self.tallies.scrolls_read(),
+            chapters_met: self.endeavor_log.chapters_met().collect(),
+        }
     }
 
     /// Spends the draw that once picked a unit's sprite variant (removed in #607). Every nation

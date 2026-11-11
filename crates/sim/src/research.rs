@@ -130,6 +130,87 @@ pub struct Unlocks {
     pub features: Vec<Feature>,
 }
 
+/// Largest `requires.scrolls_read` a tech may ask for (the smallest is 1).
+pub const MAX_SCROLLS_REQUIRED: u32 = 20;
+
+/// What a tech needs beyond its prereqs before it can be queued (`requires = { ... }` on a
+/// `[[tech]]`, docs/design/horizons-phase-3.md, "Research conditions"). Every key is optional and
+/// all that are set must hold. The table is `deny_unknown_fields`, so a key that doesn't exist
+/// yet (phase 6 adds population, masters, residents) fails to load instead of being ignored.
+///
+/// Each condition is checked against [`Facts`] when a target is set (`Research::set_target`), not
+/// again as research goes on, so a condition has to be one that only ever becomes true: a tally
+/// never falls and a chapter stays met. A condition that can fall again needs a recheck on every
+/// completion first.
+///
+/// To add a key: a field here, a check in `ResearchFile::resolve` (and in `check_chapters` if it
+/// names other data), a field on `Facts` that `World::facts` fills, an arm in `Requires::unmet`
+/// and a `Condition` variant with its `Display`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Requires {
+    /// Scrolls read at a study hall so far (`Tallies::scrolls_read`), 1 to
+    /// `MAX_SCROLLS_REQUIRED`.
+    #[serde(default)]
+    pub scrolls_read: Option<u32>,
+    /// The id of a `[[chapter]]` in `data/endeavor.toml` that must be met (`World::chapter_met`).
+    /// Checked against the endeavor once it loads (`Defs::with_endeavor`).
+    #[serde(default)]
+    pub chapter: Option<String>,
+}
+
+/// What the world knows that `Requires` asks about: filled by `World::facts`, so `research`
+/// never reaches into the world. `Facts::default()` is a settlement that has done nothing yet.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Facts<'a> {
+    /// Scrolls read so far, a count that never falls.
+    pub scrolls_read: u32,
+    /// Ids of the chapters met so far; a chapter stays met.
+    pub chapters_met: Vec<&'a str>,
+}
+
+/// One unmet `Requires` key, as the player reads it: `Display` is `3 scrolls read` or the
+/// chapter's name (`Known on the road`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Condition {
+    /// At least this many scrolls read.
+    ScrollsRead(u32),
+    /// A chapter's display name.
+    Chapter(String),
+}
+
+impl std::fmt::Display for Condition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ScrollsRead(1) => f.write_str("1 scroll read"),
+            Self::ScrollsRead(n) => write!(f, "{n} scrolls read"),
+            Self::Chapter(name) => f.write_str(name),
+        }
+    }
+}
+
+impl Requires {
+    /// Whether no key is set.
+    pub fn is_empty(&self) -> bool {
+        self.scrolls_read.is_none() && self.chapter.is_none()
+    }
+
+    /// The keys `facts` doesn't meet yet, in a fixed order (scrolls, then chapter). Empty once
+    /// they are all met, and always for a tech with no `requires`. A chapter reads as its name
+    /// from `defs.endeavor`, or its id if the endeavor isn't loaded.
+    pub fn unmet(&self, facts: &Facts<'_>, defs: &Defs) -> Vec<Condition> {
+        let mut out = Vec::new();
+        if let Some(n) = self.scrolls_read.filter(|&n| facts.scrolls_read < n) {
+            out.push(Condition::ScrollsRead(n));
+        }
+        if let Some(id) = self.chapter.as_deref().filter(|id| !facts.chapters_met.contains(id)) {
+            let name = defs.endeavor.chapters.iter().find(|c| c.id == id).map_or(id, |c| &c.name);
+            out.push(Condition::Chapter(name.to_owned()));
+        }
+        out
+    }
+}
+
 /// A closed list of things a tech can switch on that are neither a building, a job, an ability
 /// nor a modifier (`unlocks.features`). An unknown name fails to load. A feature no tech names
 /// is available from the start, like every other unlock kind.
@@ -176,6 +257,8 @@ pub struct TechDef {
     /// unlocks. Defaults to false, so a later tech can't lengthen the gate by forgetting a line
     /// (docs/design/horizons-phase-1.md, "The rule every phase-1 tech follows").
     pub core: bool,
+    /// Conditions beyond `prereqs` (`Requires`); none for most techs.
+    pub requires: Requires,
 }
 
 impl TechDef {
@@ -219,6 +302,8 @@ struct RawTech {
     unlocks: Unlocks,
     #[serde(default)]
     core: bool,
+    #[serde(default)]
+    requires: Requires,
 }
 
 fn nation_label(n: Option<Nation>) -> &'static str {
@@ -272,6 +357,13 @@ impl ResearchFile {
                         return Err(err(format!("nation {} listed twice", n.as_str())));
                     }
                 }
+            }
+            if let Some(n) = raw.requires.scrolls_read
+                && !(1..=MAX_SCROLLS_REQUIRED).contains(&n)
+            {
+                return Err(err(format!(
+                    "requires.scrolls_read = {n} must be 1 to {MAX_SCROLLS_REQUIRED}"
+                )));
             }
             for (field, m) in raw.unlocks.modifiers.iter() {
                 if !(m.is_finite() && m > 0.0 && m <= MAX_MULTIPLIER) {
@@ -333,10 +425,31 @@ impl ResearchFile {
                 prereqs,
                 unlocks: raw.unlocks,
                 core: raw.core,
+                requires: raw.requires,
             });
         }
         Ok((s, techs))
     }
+}
+
+/// Checks that every `requires.chapter` names a `[[chapter]]` in `chapters`. Chapters live in
+/// `data/endeavor.toml`, which loads after the research file, so `Defs::with_endeavor` runs this
+/// once it has them.
+pub(crate) fn check_chapters(
+    techs: &[TechDef],
+    chapters: &[crate::endeavor::ChapterDef],
+) -> Result<(), DefsError> {
+    for t in techs {
+        if let Some(c) = &t.requires.chapter
+            && !chapters.iter().any(|ch| ch.id == *c)
+        {
+            return Err(DefsError(format!(
+                "tech {}: requires.chapter: unknown chapter {c:?} (not a [[chapter]] in endeavor.toml)",
+                t.id
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Resolves a nation's `starting_techs`: each must exist and be shared or the nation's own, and
@@ -384,22 +497,27 @@ pub struct TechCompleted {
     pub tick: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResearchError {
     /// No tech with this id exists.
     UnknownTech,
     /// The tech belongs to another nation's branch.
     WrongNation,
     AlreadyKnown,
+    /// A tech the target would queue (the target itself or a prereq) has a `Requires` condition
+    /// the settlement doesn't meet yet. Holds the first one, reads `needs 3 scrolls read` or
+    /// `needs Known on the road`.
+    NotYet(Condition),
 }
 
 impl std::fmt::Display for ResearchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::UnknownTech => "no such tech",
-            Self::WrongNation => "that tech belongs to another nation",
-            Self::AlreadyKnown => "that tech is already known",
-        })
+        match self {
+            Self::UnknownTech => f.write_str("no such tech"),
+            Self::WrongNation => f.write_str("that tech belongs to another nation"),
+            Self::AlreadyKnown => f.write_str("that tech is already known"),
+            Self::NotYet(c) => write!(f, "needs {c}"),
+        }
     }
 }
 
@@ -492,11 +610,14 @@ impl Research {
     }
 
     /// Replaces the queue with `tech` plus its unknown prereqs, in ascending `TechId` order.
-    /// Knowledge already banked is kept.
+    /// Knowledge already banked is kept. Refuses with `ResearchError::NotYet`, leaving the queue
+    /// as it was, if any tech it would queue has a `Requires` condition `facts` doesn't meet.
+    /// Conditions are checked here only, once, because every one so far only ever becomes true.
     pub fn set_target(
         &mut self,
         tech: TechId,
         nation: Nation,
+        facts: &Facts<'_>,
         defs: &Defs,
     ) -> Result<(), ResearchError> {
         let def = defs.techs.get(tech.0 as usize).ok_or(ResearchError::UnknownTech)?;
@@ -516,10 +637,16 @@ impl Research {
                 }
             }
         }
-        self.queue = (0..needed.len())
+        let queue: Vec<TechId> = (0..needed.len())
             .filter(|&i| needed[i] && !self.known[i])
             .map(|i| TechId(i as u16))
             .collect();
+        for &t in &queue {
+            if let Some(c) = defs.tech(t).requires.unmet(facts, defs).into_iter().next() {
+                return Err(ResearchError::NotYet(c));
+            }
+        }
+        self.queue = queue;
         Ok(())
     }
 
@@ -815,7 +942,8 @@ mod tests {
         let defs = with_techs(&src).unwrap();
         let a = defs.tech_id("a").unwrap();
         for n in Nation::ALL {
-            let r = super::Research::new(n, &defs).set_target(a, n, &defs);
+            let r =
+                super::Research::new(n, &defs).set_target(a, n, &super::Facts::default(), &defs);
             let listed = matches!(n, Nation::Earth | Nation::Fire);
             assert_eq!(r.is_ok(), listed, "{n:?}");
             if !listed {
@@ -934,5 +1062,116 @@ mod tests {
         let calendar = defs.tech_id("calendar").unwrap();
         assert_eq!(defs.feature_tech(super::Feature::Almanac), Some(calendar));
         assert!(!defs.tech(calendar).core, "an optional horizons tech");
+    }
+
+    // Research conditions (`requires`, docs/design/horizons-phase-3.md).
+
+    use super::{Condition, Facts, Research, ResearchError};
+
+    /// The bundled files plus one extra tech, `gated`, with `extra` as its keys.
+    fn with_gated(extra: &str) -> Result<Defs, DefsError> {
+        let mut files = crate::defs::BUNDLED_FILES;
+        let research = format!(
+            "{}\n[[tech]]\nid = \"gated\"\nname = \"Gated\"\ndescription = \"\"\ncost = 10\n{extra}\n",
+            files[3]
+        );
+        files[3] = &research;
+        Defs::from_files(files)
+    }
+
+    const BOTH: &str = "requires = { scrolls_read = 3, chapter = \"known_on_the_road\" }";
+
+    #[test]
+    fn requires_takes_either_key_or_both() {
+        let none = with_gated("").unwrap();
+        assert!(none.tech(none.tech_id("gated").unwrap()).requires.is_empty());
+        for (extra, scrolls, chapter) in [
+            ("requires = { scrolls_read = 3 }", Some(3), None),
+            ("requires = { scrolls_read = 1 }", Some(1), None),
+            ("requires = { chapter = \"known_on_the_road\" }", None, Some("known_on_the_road")),
+            (BOTH, Some(3), Some("known_on_the_road")),
+            ("requires = { scrolls_read = 20 }", Some(20), None),
+        ] {
+            let defs = with_gated(extra).unwrap();
+            let r = &defs.tech(defs.tech_id("gated").unwrap()).requires;
+            assert_eq!((r.scrolls_read, r.chapter.as_deref()), (scrolls, chapter), "{extra}");
+        }
+    }
+
+    #[test]
+    fn requires_is_checked_strictly() {
+        for bad in ["0", "21", "1000"] {
+            let e = with_gated(&format!("requires = {{ scrolls_read = {bad} }}")).unwrap_err();
+            assert!(e.0.contains("scrolls_read") && e.0.contains("1 to 20"), "{bad}: {e}");
+        }
+        let e = with_gated("requires = { scrolls_read = -1 }").unwrap_err();
+        assert!(e.0.contains("scrolls_read"), "{e}");
+        let e = with_gated("requires = { chapter = \"nowhere\" }").unwrap_err();
+        assert!(e.0.contains("gated") && e.0.contains("unknown chapter \"nowhere\""), "{e}");
+        let e = with_gated("requires = { population = 5 }").unwrap_err();
+        assert!(e.0.contains("population"), "an unknown key fails to load: {e}");
+    }
+
+    #[test]
+    fn a_refused_target_leaves_the_queue_alone_and_names_the_condition() {
+        let defs = with_gated(BOTH).unwrap();
+        let gated = defs.tech_id("gated").unwrap();
+        let mut r = Research::new(Nation::Fire, &defs);
+        let shelter = defs.tech_id("shelter").unwrap();
+        r.set_target(shelter, Nation::Fire, &Facts::default(), &defs).unwrap();
+        let queue = r.queue().to_vec();
+
+        let refused = r.set_target(gated, Nation::Fire, &Facts::default(), &defs);
+        assert_eq!(refused, Err(ResearchError::NotYet(Condition::ScrollsRead(3))));
+        assert_eq!(refused.unwrap_err().to_string(), "needs 3 scrolls read");
+        assert_eq!(r.queue(), queue, "a refusal changes nothing");
+
+        // The scrolls alone aren't enough, and then the error names the chapter.
+        let scrolls = Facts { scrolls_read: 3, ..Facts::default() };
+        let refused = r.set_target(gated, Nation::Fire, &scrolls, &defs).unwrap_err();
+        assert_eq!(refused.to_string(), "needs Known on the road");
+        assert_eq!(r.queue(), queue);
+        let near = Facts { scrolls_read: 2, chapters_met: vec!["known_on_the_road"] };
+        let refused = r.set_target(gated, Nation::Fire, &near, &defs).unwrap_err();
+        assert_eq!(refused.to_string(), "needs 3 scrolls read");
+    }
+
+    #[test]
+    fn a_target_is_accepted_once_its_conditions_are_met() {
+        let defs = with_gated(BOTH).unwrap();
+        let gated = defs.tech_id("gated").unwrap();
+        let mut r = Research::new(Nation::Fire, &defs);
+        let met = Facts { scrolls_read: 3, chapters_met: vec!["known_on_the_road"] };
+        r.set_target(gated, Nation::Fire, &met, &defs).unwrap();
+        assert_eq!(r.queue(), [gated]);
+        // More than enough counts too.
+        let lots = Facts { scrolls_read: 9, ..met };
+        r.set_target(gated, Nation::Fire, &lots, &defs).unwrap();
+    }
+
+    #[test]
+    fn a_gated_prereq_refuses_the_techs_that_need_it() {
+        let src = tech("gate", "cost = 1\nrequires = { scrolls_read = 1 }")
+            + &tech("after", "cost = 1\nprereqs = ['gate']");
+        let defs = with_techs(&src).unwrap();
+        let after = defs.tech_id("after").unwrap();
+        let mut r = Research::new(Nation::Fire, &defs);
+        let e = r.set_target(after, Nation::Fire, &Facts::default(), &defs).unwrap_err();
+        assert_eq!(e.to_string(), "needs 1 scroll read");
+        let one = Facts { scrolls_read: 1, ..Facts::default() };
+        r.set_target(after, Nation::Fire, &one, &defs).unwrap();
+        assert_eq!(r.queue().len(), 2);
+    }
+
+    #[test]
+    fn a_known_gated_tech_no_longer_blocks_its_dependants() {
+        let src = tech("gate", "cost = 1\nrequires = { scrolls_read = 1 }")
+            + &tech("after", "cost = 1\nprereqs = ['gate']");
+        let defs = with_techs(&src).unwrap();
+        let (gate, after) = (defs.tech_id("gate").unwrap(), defs.tech_id("after").unwrap());
+        let mut r = Research::new(Nation::Fire, &defs);
+        r.grant(gate);
+        r.set_target(after, Nation::Fire, &Facts::default(), &defs).unwrap();
+        assert_eq!(r.queue(), [after]);
     }
 }
