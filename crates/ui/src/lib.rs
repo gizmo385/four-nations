@@ -31,6 +31,7 @@ pub mod keys;
 pub mod link;
 pub mod meter;
 pub mod msglog;
+pub mod recipe;
 pub mod research;
 pub mod saves;
 pub mod session;

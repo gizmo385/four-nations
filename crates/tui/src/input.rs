@@ -132,6 +132,7 @@ fn build_table() -> Vec<Binding> {
         }
     }
     add(Key::ch('o'), Action::ToggleRepeat);
+    add(Key::ch('r'), Action::NextRecipe);
     // The tool list (#664). `/` is free in every mode: no screen reads text, the save names are
     // made for the player.
     add(Key::ch('/'), Action::ShowTools);
@@ -176,7 +177,7 @@ pub fn spectator_allowed(action: Action) -> bool {
         Action::Move { .. } | Action::Jump { .. } => true,
         Action::PickTool(Tool::Build) => true,
         Action::PickTool(_) => false,
-        Action::ToggleRepeat => false,
+        Action::ToggleRepeat | Action::NextRecipe => false,
         Action::Confirm => true,
         Action::Cancel => false,
         Action::NextUnit | Action::PrevUnit | Action::Follow => true,
@@ -315,10 +316,11 @@ mod tests {
         assert_eq!(map_key(key(KeyCode::Char('='))), Some(Action::Faster));
         assert_eq!(map_key(key(KeyCode::Char('-'))), Some(Action::Slower));
         assert_eq!(map_key(key(KeyCode::Char('.'))), Some(Action::Step));
-        // `Q` and `R` are not keys any more (#655): quit and new map live in the game menu.
+        // `Q` is not a key any more (#655): quit lives in the game menu. `R` no longer starts a
+        // new map either; it switches a Workshop's recipe (#712).
         assert_eq!(map_key(key(KeyCode::Char('q'))), None);
         assert_eq!(map_key(key(KeyCode::Char('Q'))), None);
-        assert_eq!(map_key(key(KeyCode::Char('r'))), None);
+        assert_eq!(map_key(key(KeyCode::Char('r'))), Some(Action::NextRecipe));
         assert_eq!(map_key(key(KeyCode::F(1))), None);
     }
 
@@ -434,6 +436,7 @@ mod tests {
             Action::PickTool(Tool::Sow),
             Action::PickTool(Tool::Select),
             Action::ToggleRepeat,
+            Action::NextRecipe,
             Action::Cancel,
             Action::ShowSaves,
             Action::QuickSave,

@@ -371,9 +371,19 @@ fn materials_rows(session: &Session, width: usize) -> Vec<(Row, usize)> {
 /// The Settlement glance's Research row (#416, docs/design/side-panel-v2.md "Zone 1"): the
 /// target's name, its bar and its percent, all on one row ("Masonry ██████░░░░ 68%"). With no
 /// target, "Research: none set" in Warn -- the state that most needs the player's attention, not
-/// a dim aside (unlike the old two-row shape's "No target set" / "N pts banked").
+/// a dim aside (unlike the old two-row shape's "No target set" / "N pts banked"). With an Archive
+/// standing and no target it reads the scribing progress instead ("Copying scrolls: 90/150").
 fn research_row(view: &SideView, marks: &Marks) -> Row {
     let r = &view.research;
+    // An Archive with no target: the scribing counter takes the row (#712).
+    if let Some(text) = &r.copying {
+        // The paused text fills the panel's width, so it goes without its key.
+        return if text.chars().count() > 23 {
+            Row::text(text.clone(), Tone::Text)
+        } else {
+            Row::pair(text.clone(), Tone::Text, "[T]", Tone::Dim)
+        };
+    }
     if r.frac == 0.0 && r.label == "No target set" {
         return Row::pair("Research: none set", Tone::Warn, "[T]", Tone::Dim);
     }

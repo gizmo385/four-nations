@@ -37,4 +37,4 @@
 │ Keep a flame alive: cook food and stay warm.                                                                         │
 │ Unlocks Campfire                                                                                                     │
 ┗───────────────────────────────────────────────────────────────────────────────────────────────────── tiers 1-4 of 6 ─┛
- RESEARCH  Arrows choose · Enter set as target · Esc or T close                                           PAUSED ? keys
+ RESEARCH  Arrows choose · Enter set as target · Esc or T close · X clear target                          PAUSED ? keys

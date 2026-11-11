@@ -230,7 +230,8 @@ fn help_opens_the_key_help_screen() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The freed keys (#655): R, 1-4 and Q do nothing on the map and in a tool.
+// The freed keys (#655): 1-4 and Q do nothing on the map and in a tool. R no longer starts a new
+// map either; in Select mode it switches a Workshop's recipe (#712), and does nothing in a tool.
 // ---------------------------------------------------------------------------------------------
 
 #[test]
@@ -239,11 +240,21 @@ fn r_1_to_4_and_q_do_nothing_on_the_map_or_in_a_tool() {
         let mut a = app(None);
         run(&mut a, prelude);
         let before = (a.ui.clone(), text(&mut a, SIZE));
-        run(&mut a, "r R 1 2 3 4 q Q");
+        run(&mut a, "1 2 3 4 q Q");
         assert_eq!((a.ui.clone(), text(&mut a, SIZE)), before, "after {prelude:?}");
         assert_eq!(a.ui.prompt, None, "no prompt opens");
         assert!(!a.ui.quit && !a.reopen_embark);
         assert_eq!(a.session.world.nation, Nation::Earth);
+        // `R` opens no prompt and leaves the game alone; off a Workshop it only says so.
+        run(&mut a, "r R");
+        assert_eq!(a.ui.prompt, None, "no prompt opens");
+        assert!(!a.ui.quit && !a.reopen_embark);
+        assert_eq!(a.session.world.nation, Nation::Earth);
+        if a.ui.tool == Tool::Select {
+            assert_eq!(a.ui.notice, "Can't switch recipe: nothing to switch here");
+        } else {
+            assert_eq!((a.ui.clone(), text(&mut a, SIZE)), before, "after {prelude:?}");
+        }
     }
 }
 

@@ -160,6 +160,17 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
             (_, None) => "Idle: not winter".to_owned(),
         });
     }
+    // A Tea House reads as a house, not a fuel bunker (docs/design/horizons-phase-3.md,
+    // "`tea_ceremony`"): `Open` or `Closed: out of herbs`, then its herbs, `Herbs: 7/10`.
+    if let (Some(open), Some((have, fuel))) = (world.tea_house_open(anchor, defs), bunker) {
+        lines.push(if open {
+            "Open".to_owned()
+        } else {
+            format!("Closed: out of {}", fuel.names(defs).to_lowercase())
+        });
+        lines.push(format!("{}: {}/{}", fuel.names(defs), have.count, fuel.bunker));
+        return lines;
+    }
     // A beast's home keeps its food in the bunker: `beast_lines` says it, as `Food: 5/8`.
     if let Some((have, fuel)) = bunker.filter(|_| world.beast_housed_at(anchor).is_none()) {
         if have.count > 0 {
@@ -174,6 +185,53 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
         lines.push(format!("Picked: {}  Eaten: {}", p.picked, p.eaten));
     }
     lines
+}
+
+/// "Tool" as "Tools" and "Wares" as "Wares": an item named as what a building makes.
+fn plural(name: &str) -> String {
+    if name.ends_with('s') { name.to_owned() } else { format!("{name}s") }
+}
+
+/// A production building with a second recipe says which it is on (docs/design/horizons-phase-3.md,
+/// "`trade_wares`"): `Making: Wares`, then `Idle: 30 Wares in stores` while its recipe's stock
+/// limit holds it. A building with one recipe says nothing, as before.
+pub fn recipe_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    let Some(b) = world.building_at(anchor) else { return Vec::new() };
+    if defs.building(b).alt_recipes.is_empty() {
+        return Vec::new();
+    }
+    let Some(recipe) = world.recipe_at(anchor, defs) else { return Vec::new() };
+    let made = plural(&defs.item(recipe.output.item).name);
+    let mut lines = vec![format!("Making: {made}")];
+    if world.craft_idle(anchor, defs) {
+        lines.push(format!("Idle: {} {made} in stores", recipe.stock_limit));
+    }
+    lines
+}
+
+/// An Archive's readout (docs/design/horizons-phase-3.md, "`archives`"): the halls its seats
+/// reach, what scribing is doing and the copies made so far. `Halls in reach: 2`, `Copying:
+/// 90/150` (or `Copying paused: 12 in stores`, or `Copying paused: target set`), `Copies made: 9`.
+pub fn archive_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    use crate::research::{Scribing, scribing};
+    let Some(archive) = world.building_at(anchor).and_then(|b| defs.building(b).archive) else {
+        return Vec::new();
+    };
+    let Some(foot) = world.footprint_at(anchor) else { return Vec::new() };
+    let halls = world
+        .buildings()
+        .filter(|h| h.id == archive.hall && h.footprint().gap(foot) <= archive.radius as i32)
+        .count();
+    let copying = match scribing(world, &archive) {
+        Scribing::Off => "Copying paused: target set".to_owned(),
+        Scribing::Paused { in_stores } => format!("Copying paused: {in_stores} in stores"),
+        Scribing::Copying { points, per } => format!("Copying: {points}/{per}"),
+    };
+    vec![
+        format!("Halls in reach: {halls}"),
+        copying,
+        format!("Copies made: {}", world.scrolls_copied()),
+    ]
 }
 
 /// A chute's foot and what it has sent (docs/design/horizons-phase-1.md, "`omashu_chutes`"):
@@ -441,6 +499,8 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         if let Some(building) = world.building_at(tile) {
             lines.extend(power_lines(world, defs, at, building).into_iter().map(Line::Detail));
         }
+        lines.extend(recipe_lines(world, defs, at).into_iter().map(Line::Detail));
+        lines.extend(archive_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(chute_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(pair_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(dock_lines(world, defs, at).into_iter().map(Line::Detail));
@@ -1630,5 +1690,54 @@ mod tests {
             })
             .unwrap();
         assert!(!reachable_line.contains("no settler can reach it"), "{reachable_line}");
+    }
+
+    /// The Tea House (#710, #712): open while it holds an herb, closed and counting when it is dry.
+    #[test]
+    fn a_tea_house_says_open_or_closed_and_its_herbs() {
+        let mut s = Session::new(7, Nation::Water, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "tea_house", pos);
+        assert_eq!(
+            details(&s, pos)[1..],
+            ["Closed: out of herbs".to_owned(), "Herbs: 0/10".to_owned()]
+        );
+        let s = spliced(s, None, Some(7));
+        assert_eq!(details(&s, pos)[1..], ["Open".to_owned(), "Herbs: 7/10".to_owned()]);
+    }
+
+    /// A Workshop names its recipe (#708, #712) and the stock limit that idles it.
+    #[test]
+    fn a_workshop_says_what_it_is_making() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "workshop", pos);
+        assert!(details(&s, pos).contains(&"Making: Tools".to_owned()), "{:?}", details(&s, pos));
+        let mut s = spliced(s, Some("trade_wares"), None);
+        s.apply(Command::SetRecipe { pos, recipe: Some(0) }).unwrap();
+        let lines = details(&s, pos);
+        assert!(lines.contains(&"Making: Wares".to_owned()), "{lines:?}");
+        assert!(lines.iter().all(|l| !l.starts_with("Idle")), "{lines:?}");
+        // Nothing else with one recipe says anything.
+        let forge = spot(&s);
+        put(&mut s, "smelter", forge);
+        assert!(details(&s, forge).iter().all(|l| !l.starts_with("Making")));
+    }
+
+    /// The Archive (#709, #712): the halls in reach, the copying and the tally.
+    #[test]
+    fn an_archive_says_its_halls_its_copying_and_its_copies() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "archive", pos);
+        let lines = details(&s, pos);
+        assert_eq!(lines[1..], ["Halls in reach: 0", "Copying: 0/150", "Copies made: 0"]);
+        let hall = spot(&s);
+        put(&mut s, "study_hall", hall);
+        assert_eq!(details(&s, pos)[1], "Halls in reach: 1");
+        // A target set pauses it.
+        let target = s.defs.tech_id("fire_making").unwrap();
+        s.apply(Command::SetResearch { tech: target }).unwrap();
+        assert_eq!(details(&s, pos)[2], "Copying paused: target set");
     }
 }

@@ -35,6 +35,9 @@ pub struct CampView {
     pub left: String,
     /// Its deals, then its request: one row per slot, in slot order.
     pub offers: Vec<OfferRow>,
+    /// "Tea House: 1 more deal" when the visit shows more deals than a visit usually does, which
+    /// only an open Tea House at arrival adds (#710, #712); `None` otherwise.
+    pub tea: Option<String>,
 }
 
 /// One slot of the visit.
@@ -125,7 +128,13 @@ pub fn view(session: &Session) -> TradersView {
             }
         })
         .collect();
-    TradersView::Camp(CampView { name: caravan.name.clone(), left: left_text(secs), offers })
+    let deals = visit.offers.iter().filter(|o| matches!(o.kind, OfferKind::Deal(_))).count();
+    let usual = defs.trade.schedule.as_ref().map_or(deals, |s| s.deals_per_visit as usize);
+    let tea = deals
+        .checked_sub(usual)
+        .filter(|&n| n > 0)
+        .map(|n| format!("Tea House: {n} more deal{}", if n == 1 { "" } else { "s" }));
+    TradersView::Camp(CampView { name: caravan.name.clone(), left: left_text(secs), offers, tea })
 }
 
 /// What the screen says with no caravan camped.

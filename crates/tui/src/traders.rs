@@ -68,6 +68,9 @@ pub fn rows(
     for o in camp.offers.iter().filter(|o| !o.request) {
         offer(&mut out, o, format!("{} for {}", o.give, o.get));
     }
+    if let Some(tea) = &camp.tea {
+        out.push(Row::text(fit(&format!("    {tea}"), width, marks.ellipsis), Tone::Dim));
+    }
     if let Some(r) = camp.offers.iter().find(|o| o.request) {
         out.push(Row::text("", Tone::Text));
         out.push(Row::text("REQUEST", Tone::Accent));
@@ -108,5 +111,45 @@ pub fn draw(view: &TradersView, at: usize, palette: &Palette, page: &Page, buf: 
     }
     if let Some(i) = chosen.filter(|&i| i < usize::from(body.height)) {
         page::highlight(buf, Rect::new(body.x, body.y + i as u16, body.width, 1), palette);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn offer(slot: u8, request: bool) -> OfferRow {
+        OfferRow {
+            slot,
+            request,
+            name: if request { "Food for the families".to_owned() } else { String::new() },
+            give: "30 food".to_owned(),
+            get: "2 metal".to_owned(),
+            taken: "0 of 2 taken".to_owned(),
+            stores: "212 food in stores".to_owned(),
+            under_way: None,
+            can_take: true,
+            can_cancel: false,
+        }
+    }
+
+    /// The Tea House's line sits under the deals and above the request (#712).
+    #[test]
+    fn the_tea_line_closes_the_deals() {
+        let camp = CampView {
+            name: "Fire Nation traders".to_owned(),
+            left: "11:00 left".to_owned(),
+            offers: vec![offer(0, false), offer(1, false), offer(2, true)],
+            tea: Some("Tea House: 1 more deal".to_owned()),
+        };
+        let marks = Marks::new(false);
+        let (shown, _) = rows(&TradersView::Camp(camp.clone()), 0, 60, &marks);
+        let text: Vec<String> = shown.iter().map(Row::plain).collect();
+        let tea = text.iter().position(|l| l.trim() == "Tea House: 1 more deal");
+        let request = text.iter().position(|l| l == "REQUEST");
+        assert!(tea.is_some() && tea < request, "{text:?}");
+        let none = CampView { tea: None, ..camp };
+        let (shown, _) = rows(&TradersView::Camp(none), 0, 60, &marks);
+        assert!(shown.iter().all(|r| !r.plain().contains("Tea House")));
     }
 }

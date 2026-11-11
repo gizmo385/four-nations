@@ -47,6 +47,9 @@ pub enum Action {
     /// and stockpiles (#335). No effect in any other tool. Each tool's toggle is its own table
     /// row (#781), so the hint bar names the one that is active.
     ToggleRepeat,
+    /// `R`: in Select mode with the cursor on a building that has another recipe (the Workshop),
+    /// switches it to the next one (`Command::SetRecipe`, #712).
+    NextRecipe,
     /// `Enter`: in Select mode, select the unit under the cursor (again: the next one there); in
     /// a tool, set a corner or apply the rectangle.
     Confirm,
@@ -342,6 +345,7 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Research], &[step], "Arrows", "choose", None);
     add(&[Mode::Research], &[Action::Confirm], "Enter", "set as target", None);
     add(&[Mode::Research], &[Action::Cancel, Action::ShowResearch], "Esc or T", "close", None);
+    add(&[Mode::Research], &[Action::PickTool(Tool::CancelHarvest)], "X", "clear target", None);
 
     add(&[Mode::Nation], &[step], "Up/Down", "choose", None);
     add(&[Mode::Nation], &[Action::Confirm], "Enter", "select", None);
@@ -528,6 +532,14 @@ fn build() -> Vec<Entry> {
     only.set(Some(Tool::Bend));
     add(IN_TOOL, &[Action::ShowAbilities], "I", "abilities", None);
     only.set(None);
+    // Select mode's `R` on a Workshop (#712): in no hint bar, only in the key help.
+    add(
+        &[],
+        &[Action::NextRecipe],
+        "R",
+        "recipe",
+        help(units, "Switch a Workshop's recipe (Select)"),
+    );
     // Select mode's `O` on a chute (#683): in no hint bar, only in the key help.
     add(&[], &[], "O", "link", help(in_tool, "Move a chute foot or partner (Select)"));
 
@@ -684,7 +696,10 @@ mod tests {
 
     #[test]
     fn the_research_hints_read_as_the_issue_words_them() {
-        assert_eq!(line(Mode::Research), "Arrows choose · Enter set as target · Esc or T close");
+        assert_eq!(
+            line(Mode::Research),
+            "Arrows choose · Enter set as target · Esc or T close · X clear target"
+        );
     }
 
     /// Select mode has one key for the tools, `/`, not a run of their letters (#664); the list
@@ -773,11 +788,11 @@ mod tests {
     #[test]
     fn fit_drops_whole_items_from_the_end() {
         let items = hints(Mode::Research);
-        let all: usize = items.iter().map(Hint::width).sum::<usize>() + 2 * 3;
-        assert_eq!(fit(&items, 200, 3), 3);
-        assert_eq!(fit(&items, all, 3), 3);
-        // One cell short of all three: the last goes, the rest stay whole.
-        assert_eq!(fit(&items, all - 3 - 1, 3), 2);
+        let all: usize = items.iter().map(Hint::width).sum::<usize>() + 3 * 3;
+        assert_eq!(fit(&items, 200, 3), 4);
+        assert_eq!(fit(&items, all, 3), 4);
+        // One cell short of all four: the last goes, the rest stay whole.
+        assert_eq!(fit(&items, all - 3 - 1, 3), 3);
         assert_eq!(fit(&items, items[0].width(), 3), 1);
         assert_eq!(fit(&items, items[0].width() - 1, 3), 0);
     }

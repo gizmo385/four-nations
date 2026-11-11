@@ -475,6 +475,11 @@ Hand-edited from `fn_tui --scenario water-year-two --frame --ascii --size 110x34
 and the default frame of `earth-year-two`. The new lines are marked `<`, and the TUI follow-up
 settles the keys.
 
+The keys (#712): `R` in Select mode sets the building under the cursor to its next recipe, and
+`X` on the Research screen clears the target. The Traders line reads `Tea House: 1 more deal`
+whenever the visit shows more deals than `deals_per_visit`, and the mockups below differ from the
+frames in layout (the Archive's lines follow `Built (x, y)`, and no batch line is drawn yet).
+
 The Research detail for the three techs, Water, before the chapter and with 2 scrolls read:
 
 ```text

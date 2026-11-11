@@ -27,6 +27,7 @@ mod nation;
 mod pairs;
 mod panel_alerts;
 mod panels;
+mod phase3;
 mod rail;
 mod reference_goldens;
 mod research;
