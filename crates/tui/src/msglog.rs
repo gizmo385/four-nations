@@ -1,6 +1,7 @@
 //! The message log screen (`L`, #661): the log as a player reads it. The newest line is at the
 //! top, a run of the same event is one line (`Right` opens it, `Left` folds it), a row of
-//! filters picks one kind of line (`1` to `5`, `0` for all), the cursor moves a line at a time,
+//! filters picks one kind of line (`1` to `5`, `0` for all; `Tab` in the `--watch` spectator,
+//! where the studio has the digits, #774), the cursor moves a line at a time,
 //! and `Enter` goes to where the line is about.
 //!
 //! ```text
@@ -49,8 +50,9 @@ fn line_tone(kind: Kind, category: Category) -> Tone {
 }
 
 /// The filter row: `Show  [All]  1 Alerts  2 People ...`, the one that is on in brackets and the
-/// title tone, the rest dim.
-pub fn filter_row(filter: Option<Category>) -> Row {
+/// title tone, the rest dim. For the `--watch` spectator (`spectating`) the chips carry no
+/// digits: they are not its keys, `Tab` steps through them.
+pub fn filter_row(filter: Option<Category>, spectating: bool) -> Row {
     let mut spans = vec![("Show".to_owned(), Tone::Dim)];
     let mut chip = |on: bool, text: String| {
         spans.push(("  ".to_owned(), Tone::Text));
@@ -62,7 +64,9 @@ pub fn filter_row(filter: Option<Category>) -> Row {
     };
     chip(filter.is_none(), "All".to_owned());
     for c in Category::ALL {
-        chip(filter == Some(c), format!("{} {}", c.key(), c.label()));
+        let text =
+            if spectating { c.label().to_owned() } else { format!("{} {}", c.key(), c.label()) };
+        chip(filter == Some(c), text);
     }
     Row::spans(spans)
 }
@@ -82,6 +86,7 @@ pub fn body(
     session: &Session,
     lines: &[Line],
     filter: Option<Category>,
+    spectating: bool,
     at: Option<LineKey>,
     width: usize,
     marks: &Marks,
@@ -89,6 +94,9 @@ pub fn body(
     if lines.is_empty() {
         let none = match filter {
             None => "Nothing has happened yet: no bends, no discoveries, no deaths.".to_owned(),
+            Some(c) if spectating => {
+                format!("Nothing under {} yet. Press Tab to go on to the next kind.", c.label())
+            }
             Some(c) => format!(
                 "Nothing under {} yet. Press {} again to see everything.",
                 c.label(),
@@ -191,11 +199,19 @@ pub fn draw(
     let head = (HEAD_ROWS as u16).min(body_area.height);
     let mut strip =
         Painter::new(buf, Rect::new(body_area.x, body_area.y, body_area.width, head), palette);
-    strip.row(&filter_row(ui.log_filter));
+    strip.row(&filter_row(ui.log_filter, ui.spectating));
     let below =
         Rect::new(body_area.x, body_area.y + head, body_area.width, body_area.height - head);
     let all = lines(ui);
-    let laid = body(session, &all, ui.log_filter, ui.log_cursor, usize::from(below.width), &marks);
+    let laid = body(
+        session,
+        &all,
+        ui.log_filter,
+        ui.spectating,
+        ui.log_cursor,
+        usize::from(below.width),
+        &marks,
+    );
     let shown = usize::from(below.height);
     let start = window(ui.scroll, laid.cursor.as_ref(), shown, laid.rows.len());
     let mut p = Painter::new(buf, below, palette);
@@ -222,7 +238,8 @@ pub fn draw(
 fn keep_in_view(ui: &mut UiState, session: &Session) {
     let all = lines(ui);
     let width = crate::screens::text_size(ui.page()).0;
-    let laid = body(session, &all, ui.log_filter, ui.log_cursor, width, &Marks::new(false));
+    let laid =
+        body(session, &all, ui.log_filter, ui.spectating, ui.log_cursor, width, &Marks::new(false));
     let shown = shown(ui.page());
     ui.scroll = window(ui.scroll, laid.cursor.as_ref(), shown, laid.rows.len());
 }
@@ -268,13 +285,25 @@ pub fn act(ui: &mut UiState, session: &Session, action: Action) -> bool {
 /// all. `true` when the key was a filter's.
 pub fn press(ui: &mut UiState, session: &Session, key: char) -> bool {
     let Some(filter) = model::filter_after(ui.log_filter, key) else { return false };
+    set_filter(ui, session, filter);
+    true
+}
+
+/// `Tab` (`back`: `Shift+Tab`) in the `--watch` spectator's log: the next (previous) kind of
+/// line, going round through all (#774). Reads and writes only the spectator's own [`UiState`].
+pub fn cycle(ui: &mut UiState, session: &Session, back: bool) {
+    let filter = model::filter_cycled(ui.log_filter, back);
+    set_filter(ui, session, filter);
+}
+
+/// Shows `filter`'s lines, the cursor on the top one.
+fn set_filter(ui: &mut UiState, session: &Session, filter: Option<Category>) {
     ui.log_filter = filter;
     // The line the cursor was on may be gone from the new set: read as the top.
     let all = lines(ui);
     ui.log_cursor = all.first().map(|l| l.key);
     ui.scroll = 0;
     keep_in_view(ui, session);
-    true
 }
 
 /// Moves the cursor `dy` lines, stopping at the ends.
@@ -353,12 +382,17 @@ mod tests {
     #[test]
     fn the_filter_row_brackets_the_one_that_is_on() {
         assert_eq!(
-            filter_row(None).plain(),
+            filter_row(None, false).plain(),
             "Show  [All]  1 Alerts  2 People  3 Knowledge  4 Bending  5 Work"
         );
         assert_eq!(
-            filter_row(Some(Category::Knowledge)).plain(),
+            filter_row(Some(Category::Knowledge), false).plain(),
             "Show  All  1 Alerts  2 People  [3 Knowledge]  4 Bending  5 Work"
+        );
+        // The watch spectator's chips have no digits (#774).
+        assert_eq!(
+            filter_row(Some(Category::Knowledge), true).plain(),
+            "Show  All  Alerts  People  [Knowledge]  Bending  Work"
         );
     }
 

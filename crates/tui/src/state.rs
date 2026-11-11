@@ -156,6 +156,9 @@ pub struct UiState {
     pub screen: Option<Screen>,
     /// The first row of the open screen that shows.
     pub scroll: usize,
+    /// Whether this is the `--watch` spectator's own state (#774): its message log is filtered
+    /// with `Tab`, not the digits the studio takes for its panes.
+    pub spectating: bool,
     /// The message log's filter (`1` to `5`): one kind of line, or `None` for all (#661).
     pub log_filter: Option<Category>,
     /// The message log's cursor: the line it is on, by id so a new line at the top does not move
@@ -232,6 +235,7 @@ impl UiState {
             following: false,
             screen: None,
             scroll: 0,
+            spectating: false,
             log_filter: None,
             log_cursor: None,
             log_open: Vec::new(),

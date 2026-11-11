@@ -506,7 +506,13 @@ impl Watcher {
             crate::surface::prelude::run(app, &prelude);
         }
         let spectator = match &shell.mode {
-            Mode::Game(app) => UiState::new(&app.session, cli::DEFAULT_SIZE),
+            Mode::Game(app) => {
+                let mut ui = UiState::new(&app.session, cli::DEFAULT_SIZE);
+                ui.spectating = true;
+                // What the prelude did is already in the log (#774); as a toast it would be news.
+                ui.alerts.update(&app.session, f32::MAX);
+                ui
+            }
             _ => unreachable!("Shell::for_args with a seed and a nation always builds a game"),
         };
         Ok(Self {
@@ -598,6 +604,16 @@ impl Watcher {
     fn push_agent(&mut self, tick: u64, text: String) {
         self.app_mut().ui.alerts.push_agent(tick, text.clone());
         self.spectator.alerts.push_agent(tick, text);
+    }
+
+    /// Turns what the world logged since the last call into lines of [`Self::spectator`]'s own
+    /// message log (#774), beside the Agent lines [`Self::push_agent`] adds: without it the
+    /// spectator's log held nothing but those, and its filters had one kind to pick. Reads the
+    /// `Session` only; every toast ages out at once, as the spectator draws none.
+    fn log_world_events(&mut self) {
+        if let Mode::Game(app) = &self.shell.mode {
+            self.spectator.alerts.update(&app.session, f32::MAX);
+        }
     }
 
     pub fn turn(&self) -> u32 {
@@ -1089,6 +1105,7 @@ impl Watcher {
             return;
         }
         self.app_mut().run_ticks(run);
+        self.log_world_events();
         let Some(Current::Ticks { remaining }) = &mut self.current else {
             unreachable!("just matched Some(Current::Ticks) above")
         };
@@ -2226,6 +2243,80 @@ mod tests {
         w.free_look_key(KeyEvent::from(KeyCode::Char('l')));
         assert!(w.spectator.full_screen());
         assert!(!reversed(&w.render(&palette, (120, 40))), "nothing over the Log screen");
+    }
+
+    /// The spectator's message log (#774) holds the world's own lines beside the Agent ones, and
+    /// `Tab`/`Shift+Tab` filter it by kind, since the studio has the digits: those still switch
+    /// panes with the log open, and change no filter.
+    #[test]
+    fn the_spectator_s_log_filters_with_tab_not_the_digits() {
+        use fn_ui::alerts::Category;
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([
+            LogLine::Keys { keys: "h".to_owned(), label: Some("harvest".into()), note: None },
+            LogLine::Turn { index: 1, tick: 100 },
+            LogLine::Turn { index: 2, tick: 200 },
+        ]);
+        w.fast_forward_to_turn(2);
+        let kinds = |w: &Watcher| -> Vec<Category> {
+            crate::msglog::lines(&w.spectator).iter().map(|l| l.category).collect()
+        };
+        w.free_look_key(KeyEvent::from(KeyCode::Char('l')));
+        assert_eq!(w.spectator.screen, Some(crate::state::Screen::Log));
+        let all = kinds(&w);
+        assert!(all.contains(&Category::Work), "the Agent line: {all:?}");
+        assert!(all.iter().any(|&c| c != Category::Work), "a world line too: {all:?}");
+
+        // The studio takes the digit; the log's filter stays on All.
+        assert!(w.key(digit('3')));
+        assert_eq!(w.tab, Pane::Feed);
+        assert_eq!(w.spectator.log_filter, None);
+        assert!(w.key(digit('2')));
+
+        let tab = |shift| {
+            if shift {
+                KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)
+            } else {
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)
+            }
+        };
+        // Tab walks All -> Alerts -> People -> Knowledge -> Bending -> Work -> All.
+        let mut seen = Vec::new();
+        for _ in 0..6 {
+            assert!(!w.key(tab(false)), "the studio has no use for Tab");
+            w.free_look_key(tab(false));
+            seen.push(w.spectator.log_filter);
+        }
+        let want: Vec<_> = Category::ALL.iter().map(|&c| Some(c)).chain([None]).collect();
+        assert_eq!(seen, want);
+        // Each filter shows only its kind; Shift+Tab goes back.
+        w.free_look_key(tab(true));
+        assert_eq!(w.spectator.log_filter, Some(Category::Work));
+        let work = kinds(&w);
+        assert!(!work.is_empty() && work.iter().all(|&c| c == Category::Work), "{work:?}");
+        w.free_look_key(tab(false)); // All
+        w.free_look_key(tab(false)); // Alerts
+        let alerts = kinds(&w);
+        assert!(alerts.iter().all(|&c| c == Category::Alert), "{alerts:?}");
+        assert!(alerts.len() < all.len());
+
+        // The row carries no digits, and the hint bar and key help name Tab.
+        let palette = Palette::new(w.defs(), w.nation(), ColorDepth::TrueColor, false);
+        let frame = w.render(&palette, (120, 40));
+        let text: String = (0..40u16)
+            .flat_map(|y| (0..120u16).map(move |x| (x, y)))
+            .map(|(x, y)| frame[(x, y)].symbol().to_owned())
+            .collect();
+        assert!(text.contains("Show  All  [Alerts]  People"), "the filter row is on screen");
+        assert!(!text.contains("1 Alerts"), "digits are not this log's keys");
+        let mode = crate::draw::hint_mode(&w.app().session, &w.spectator);
+        assert_eq!(mode, fn_ui::keys::Mode::WatchLog);
+        let hints = fn_ui::keys::hints(mode);
+        assert!(hints.iter().any(|h| h.keys == "Tab" && h.verb == "filter"));
+        assert!(hints.iter().all(|h| !h.keys.contains("Esc") && !h.keys.contains("1-5")));
+        assert!(
+            fn_ui::keys::help_rows().iter().any(|r| r.keys == "Tab" && r.what.contains("--watch"))
+        );
     }
 
     /// Every finished `Keys` act logs an `Agent:` line naming its label and note.

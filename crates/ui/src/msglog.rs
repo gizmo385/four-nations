@@ -209,6 +209,16 @@ pub fn filter_after(filter: Option<Category>, key: char) -> Option<Option<Catego
     Some(if filter == Some(picked) { None } else { Some(picked) })
 }
 
+/// The filter after `Tab` (`back` false) or `Shift+Tab` in the watch spectator, where the digits
+/// are the studio's: All, then each category in turn, then All again.
+pub fn filter_cycled(filter: Option<Category>, back: bool) -> Option<Category> {
+    // All is slot 0, the categories 1 to N.
+    let slots = Category::ALL.len() + 1;
+    let at = filter.map_or(0, |c| 1 + Category::ALL.iter().position(|&x| x == c).unwrap_or(0));
+    let to = if back { (at + slots - 1) % slots } else { (at + 1) % slots };
+    to.checked_sub(1).map(|i| Category::ALL[i])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,6 +344,23 @@ mod tests {
         assert_eq!(filter_after(None, 'x'), None);
         for c in Category::ALL {
             assert_eq!(Category::from_key(c.key()), Some(c));
+        }
+    }
+
+    #[test]
+    fn tab_cycles_all_then_every_category_and_round() {
+        let mut f = None;
+        let mut seen = Vec::new();
+        for _ in 0..=Category::ALL.len() {
+            f = filter_cycled(f, false);
+            seen.push(f);
+        }
+        let want: Vec<_> = Category::ALL.iter().map(|&c| Some(c)).chain([None]).collect();
+        assert_eq!(seen, want);
+        assert_eq!(filter_cycled(None, true), Some(Category::Work));
+        assert_eq!(filter_cycled(Some(Category::Alert), true), None);
+        for c in Category::ALL {
+            assert_eq!(filter_cycled(filter_cycled(Some(c), false), true), Some(c));
         }
     }
 

@@ -138,6 +138,9 @@ pub enum Mode {
     Endeavor,
     Nation,
     Log,
+    /// The message log in the `--watch` spectator (#774): the studio keeps `1`-`3` and `0` for
+    /// its panes, so the filters are on `Tab`, and `Esc` is refused (`L` closes it).
+    WatchLog,
     Help,
     Saves,
     /// Typing a name for a new save, on the Saves screen.
@@ -171,7 +174,7 @@ impl Mode {
             Self::Research => "RESEARCH",
             Self::Endeavor => "ENDEAVOR",
             Self::Nation => "NATION",
-            Self::Log => "LOG",
+            Self::Log | Self::WatchLog => "LOG",
             Self::Help => "KEYS",
             Self::Saves => "SAVES",
             Self::SaveName => "NAME",
@@ -325,6 +328,14 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Log], &[jump], "PgUp/PgDn", "page", None);
     add(&[Mode::Log], &[Action::Cancel, Action::ShowLog], "Esc or L", "close", None);
 
+    // The same log in the watch spectator: `Tab` for the filters, `L` the only way out.
+    add(&[Mode::WatchLog], &[step], "Up/Down", "choose", None);
+    add(&[Mode::WatchLog], &[Action::Confirm], "Enter", "jump there", None);
+    add(&[Mode::WatchLog], &[], "Right", "open", None);
+    add(&[Mode::WatchLog], &[Action::NextUnit, Action::PrevUnit], "Tab", "filter", None);
+    add(&[Mode::WatchLog], &[jump], "PgUp/PgDn", "page", None);
+    add(&[Mode::WatchLog], &[Action::ShowLog], "L", "close", None);
+
     add(&[Mode::Help], &[step], "Up/Down", "scroll", None);
     add(&[Mode::Help], &[Action::Cancel, Action::ShowHelp], "Esc or ?", "close", None);
     add(&[Mode::Help], &[jump], "PgUp/PgDn", "page", None);
@@ -457,6 +468,10 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Anywhere], &[Action::ShowResearch], "T", "research", help(game, "Research"));
     add(&[Mode::Anywhere], &[Action::ShowEndeavor], "G", "endeavor", help(game, "Endeavor"));
     add(&[Mode::Anywhere], &[Action::ShowLog], "L", "log", help(game, "Message log"));
+    // The log's own filters: in no hint bar here (`Mode::Log` and `Mode::WatchLog` have them),
+    // only in the key help.
+    add(&[], &[], "1-5", "filter", help(game, "Log: one kind of line (0: all)"));
+    add(&[], &[], "Tab", "filter", help(game, "Log in --watch: next kind"));
     add(&[Mode::Anywhere], &[Action::ShowHelp], "?", "keys", help(game, "Key help and legend"));
     add(&[Mode::Anywhere], &[Action::QuickSave], "F5", "quicksave", help(game, "Quicksave"));
     add(

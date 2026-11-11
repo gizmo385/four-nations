@@ -125,6 +125,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             return Mode::SaveName;
         }
         return match screen {
+            Screen::Log if ui.spectating => Mode::WatchLog,
             Screen::Log => Mode::Log,
             Screen::Help => Mode::Help,
             Screen::Endeavor => Mode::Endeavor,

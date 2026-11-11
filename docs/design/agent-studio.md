@@ -340,6 +340,7 @@ Watcher keys win over free look (#330). Free look passes every other key to the 
 | `1` `2` `3` | Zoom or tab: code, game, feed | Digits are the game's nation switch, which free look already refuses (`input::spectator_allowed`), so they're free |
 | `0` | Back to the studio split | Same reason |
 | `j` `k` / `J` `K` | Scroll the code pane a line / half a pane | Not bound anywhere in the game (`input::build_table`) |
+| `Tab` `Shift+Tab` | In the message log (free look): the next / previous kind of line (#774) | The log's own filters are the digits, which are the studio's here; `Tab` is free in a log screen. The hint bar and key help list it (`Mode::WatchLog`) |
 | `{` `}` | Previous / next revision of the shown script (#502) | The owner suggested `[`/`]`, but `]` already jumps to the end of the next turn. Decided in #505 |
 
 No F-keys (WSL never delivers them). Every studio key goes through one new
