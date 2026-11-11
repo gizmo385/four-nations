@@ -21,9 +21,9 @@
 │ P  Stockpile                                                                                                         │
 │ B  Bend: channel the nation's ability                      IN A TOOL                                                 │
 │ U  Build                                                   Enter  Set a corner, then apply                           │
-│ C  Sow a farm plot                                         O      Standing order (Harvest)                           │
-│                                                            Esc    Drop the corner, then leave                        │
-│                                                                                                                      │
+│ C  Sow a farm plot                                         Esc    Drop the corner, then leave                        │
+│                                                            O      Standing order (Harvest)                           │
+│                                                            O      Also sites, stockpiles (Cancel)                    │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

@@ -183,26 +183,6 @@ impl Tool {
         }
     }
 
-    /// A short clause naming what the tool does, for the TUI's active-tool banner (#307),
-    /// without the verb its own name badge already says ("HARVEST" already says this designates
-    /// a harvest) and without the stale Shift text #305 dropped from `label`. `""` where the
-    /// name alone says enough (`Select`, `Clear`, `Stockpile`, `Bend`, `Build`, `Sow`): the
-    /// banner's badge already names Clear's mode (`CLEAR ground`, `crate::banner` in `fn_tui`).
-    pub fn brief(self) -> &'static str {
-        match self {
-            Self::Select
-            | Self::Clear
-            | Self::Deconstruct
-            | Self::Stockpile
-            | Self::Bend
-            | Self::Build
-            | Self::Sow
-            | Self::Gate => "",
-            Self::Harvest => "chop, mine, gather",
-            Self::CancelHarvest => "harvest, bend, sow or clear mark (O: also stockpile/site)",
-        }
-    }
-
     /// `label`, except that `Bend` names the ability it channels, since "channel the nation's
     /// ability" alone doesn't say which (docs/design/bending.md). With more than one usable it
     /// says how to move on to the next.
@@ -1052,21 +1032,6 @@ mod tests {
             }
         }
         assert_eq!(Tool::from_letter('Z'), None);
-    }
-
-    /// The banner's brief (#307) never repeats #305's dropped "hold Shift to repeat", and is
-    /// empty exactly for the tools whose name badge already says enough on its own.
-    #[test]
-    fn brief_has_no_stale_shift_text_and_is_empty_where_the_name_says_enough() {
-        for tool in Tool::ALL {
-            assert!(!tool.brief().contains("Shift"), "{tool:?}");
-        }
-        for tool in [Tool::Select, Tool::Clear, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow]
-        {
-            assert_eq!(tool.brief(), "", "{tool:?}");
-        }
-        assert_eq!(Tool::Harvest.brief(), "chop, mine, gather");
-        assert!(!Tool::CancelHarvest.brief().is_empty());
     }
 
     #[test]

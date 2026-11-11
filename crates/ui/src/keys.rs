@@ -17,6 +17,7 @@
 //! The wording rule: a key label, then a verb ("Esc or T close", "Enter set as target"). Lists
 //! say "Up/Down", grids say "Arrows". Hints join with ` · ` (the frontend picks the glyph).
 
+use std::cell::Cell;
 use std::sync::LazyLock;
 
 use crate::Tool;
@@ -40,9 +41,11 @@ pub enum Action {
     /// `/`: opens the list of the designation tools in the panel's tool section (#664), or
     /// closes it again.
     ShowTools,
-    /// `O`: in the Harvest tool, toggles the next rectangle between a one-off designation and a
-    /// standing order (#81, #277, stands in for the client's held Shift, which a terminal can't
-    /// reliably report). No effect in any other tool.
+    /// `O`: the active tool's toggle. In Harvest it flips the next rectangle between a one-off
+    /// designation and a standing order (#81, #277, stands in for the client's held Shift, which
+    /// a terminal can't reliably report); in Cancel it flips whether it also takes build sites
+    /// and stockpiles (#335). No effect in any other tool. Each tool's toggle is its own table
+    /// row (#781), so the hint bar names the one that is active.
     ToggleRepeat,
     /// `Enter`: in Select mode, select the unit under the cursor (again: the next one there); in
     /// a tool, set a corner or apply the rectangle.
@@ -212,6 +215,9 @@ pub struct Entry {
     pub verb: &'static str,
     /// Its key help row, if it has one.
     pub help: Option<Help>,
+    /// The one tool whose hint bar shows it (a tool's own toggle, #781); `None` for a key that
+    /// works the same whichever tool is up. The key help lists every row, tool or not.
+    pub tool: Option<Tool>,
 }
 
 /// One item of a hint bar: "Esc or T close".
@@ -242,6 +248,7 @@ pub struct HelpRow {
 
 const MAP: &[Mode] = &[Mode::Select, Mode::Selected, Mode::Tool, Mode::ToolCorner];
 const IN_SELECT: &[Mode] = &[Mode::Select, Mode::Selected];
+const IN_TOOL: &[Mode] = &[Mode::Tool, Mode::ToolCorner];
 
 /// Every key the game answers to.
 pub fn table() -> &'static [Entry] {
@@ -258,6 +265,8 @@ pub fn tool_keys() -> String {
 
 fn build() -> Vec<Entry> {
     let mut t: Vec<Entry> = Vec::new();
+    // The tool the rows being added belong to (#781); `None` for the rest.
+    let only = Cell::new(None);
     let mut add = |modes: &'static [Mode],
                    actions: &[Action],
                    keys: &str,
@@ -269,6 +278,7 @@ fn build() -> Vec<Entry> {
             keys: keys.to_owned(),
             verb,
             help: help.map(|(group, what)| Help { group, what: what.to_owned() }),
+            tool: only.get(),
         });
     };
     let step = Action::Move { dx: 0, dy: -1, tiles: 1 };
@@ -417,18 +427,24 @@ fn build() -> Vec<Entry> {
     );
     add(
         &[Mode::Map],
-        &[Action::ToggleRepeat],
-        "O",
-        "repeat",
-        help(in_tool, "Standing order (Harvest)"),
-    );
-    add(
-        &[Mode::Map],
         &[Action::Cancel],
         "Esc",
         "drop corner",
         help(in_tool, "Drop the corner, then leave"),
     );
+    // A tool's toggles (#781): one row each, in the hint bar only while that tool is up. They
+    // are the Tool section's settings (`toolpanel`), as short verbs.
+    only.set(Some(Tool::Harvest));
+    add(IN_TOOL, &[Action::ToggleRepeat], "O", "repeat", help(in_tool, "Standing order (Harvest)"));
+    only.set(Some(Tool::CancelHarvest));
+    add(
+        IN_TOOL,
+        &[Action::ToggleRepeat],
+        "O",
+        "teardown",
+        help(in_tool, "Also sites, stockpiles (Cancel)"),
+    );
+    only.set(None);
 
     let time = Some(Group::Time);
     add(&[Mode::Anywhere], &[Action::TogglePause], "Space", "pause", help(time, "Pause or run"));
@@ -482,11 +498,18 @@ fn tool_help(tool: Tool) -> &'static str {
     }
 }
 
-/// The hint bar's items for `mode`, in the table's order. Leaves out the tail ([`tail`]).
+/// The hint bar's items for `mode`, in the table's order, without any tool's own rows
+/// ([`hints_for`]). Leaves out the tail ([`tail`]).
 pub fn hints(mode: Mode) -> Vec<Hint> {
+    hints_for(mode, Tool::Select)
+}
+
+/// [`hints`] with what `tool`, the active tool, adds: its own toggles (#781). Only a tool mode
+/// has any.
+pub fn hints_for(mode: Mode, tool: Tool) -> Vec<Hint> {
     table()
         .iter()
-        .filter(|e| e.modes.contains(&mode))
+        .filter(|e| e.modes.contains(&mode) && e.tool.is_none_or(|t| t == tool))
         .map(|e| Hint { keys: e.keys.clone(), verb: e.verb })
         .collect()
 }
@@ -588,6 +611,29 @@ mod tests {
             line(Mode::Tools),
             "Up/Down choose · Enter pick · Esc or / close · H X E P B U C by letter"
         );
+    }
+
+    /// A tool's toggle is a row of its own (#781): in the tool modes' hints for that tool only,
+    /// and one `O` row a tool in the key help.
+    #[test]
+    fn a_tools_toggles_are_its_own_rows() {
+        let text = |mode, tool| {
+            let items: Vec<String> = hints_for(mode, tool).iter().map(Hint::text).collect();
+            items.join(" · ")
+        };
+        for mode in [Mode::Tool, Mode::ToolCorner] {
+            assert!(text(mode, Tool::Harvest).ends_with(" · O repeat"));
+            assert!(text(mode, Tool::CancelHarvest).ends_with(" · O teardown"));
+            for tool in [Tool::Clear, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow] {
+                assert!(!text(mode, tool).contains("O "), "{tool:?}");
+            }
+        }
+        // The other modes never carry one, and `hints` is the tool-less list.
+        assert!(!text(Mode::Select, Tool::Harvest).contains("O "));
+        assert_eq!(line(Mode::Tool), "Arrows move · Enter set corner · Esc leave tool");
+        let rows: Vec<_> = help_rows().into_iter().filter(|r| r.keys == "O").collect();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r.group == Group::InTool));
     }
 
     #[test]

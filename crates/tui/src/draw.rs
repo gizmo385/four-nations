@@ -226,7 +226,7 @@ fn draw_status(session: &Session, ui: &UiState, palette: &Palette, area: Rect, b
     match body {
         Some(text) => buf.set_string(start, area.y, fit(&text, room, ellipsis), panel),
         None => {
-            let items = keys::hints(hint_mode(session, ui));
+            let items = keys::hints_for(hint_mode(session, ui), ui.tool);
             let sep = format!(" {} ", marks.dot);
             let n = keys::fit(&items, room, sep.chars().count());
             let accent =
