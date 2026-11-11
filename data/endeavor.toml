@@ -35,7 +35,10 @@
 #               the nations named; the rest use `target`. Neither applies to a computed kind
 #               (`beds_for_all`, `every_building`, `branch_complete`).
 # - spare:      `every_building` only: kinds the player may skip, at least 0 (the default) and
-#               below the smallest nation's reachable count.
+#               below the smallest nation's reachable count. An `every_building` sign may instead
+#               take a plain `target` ("4 kinds"), with no `spare`.
+# - chapter:    optional, default false; true makes it a chapter's sign (#439): a `[[chapter]]`
+#               must list it, and it never counts toward the gate's Ready check or its count.
 # - hint:       optional; what the UI suggests while the sign isn't met. Ignored for `masters`:
 #               the UI always computes that one (`fn_ui::endeavor::masters_hint`, #382), so it
 #               can name the Bend tool's real key instead of a fixed string.
@@ -44,6 +47,14 @@
 #               cartography until it is researched). The tech must exist.
 # - hint_uncharted: optional, `tally = "scrolls_read"` only; the hint once the `hint_until` tech
 #               is known but no Map Room has finished a chart (#403).
+#
+# [[chapter]] (#439, docs/design/pacing.md section 3): an intermediate goal on the way to the
+# gate. It is met, for good, the first moment all its signs are met at once; its reward is a door
+# (data/trade.toml's `opens` names a chapter).
+# - id:    unique; saves refer to chapters by id.
+# - name:  what the UI calls it.
+# - hint:  one line under its signs until it is met: what it brings.
+# - signs: the ids of its `chapter = true` signs, in the order the UI shows them.
 #
 # [[stage]], built in the order listed once the player has placed the site (issue #236):
 # - id:   unique; saves refer to stages by id.
@@ -92,6 +103,45 @@
 name = "The Harmony Gate"
 building = "harmony_gate"
 description = "A great work with the Avatar. When every sign is met, word of the settlement reaches Aang."
+
+# The one chapter (#439, docs/design/pacing.md section 3): about minute 40 to 60, where the
+# harness found no new decision. Meeting it opens the caravans (data/trade.toml).
+[[chapter]]
+id = "known_on_the_road"
+name = "Known on the road"
+hint = "Traders come once the road knows you"
+signs = ["chapter_population", "chapter_kinds", "chapter_food"]
+
+[[sign]]
+id = "chapter_population"
+chapter = true
+group = "people"
+name = "Population"
+short = "people"
+kind = "population"
+target = 10
+hint = "Spare beds and food draw newcomers"
+
+[[sign]]
+id = "chapter_kinds"
+chapter = true
+group = "buildings"
+name = "Kinds of building"
+short = "kinds"
+kind = "every_building"
+target = 4
+hint = "Raise something new"
+
+[[sign]]
+id = "chapter_food"
+chapter = true
+group = "stores"
+name = "Food in stores"
+short = "food"
+kind = "stored"
+food = true
+target = 60
+hint = "Stockpile food"
 
 [[sign]]
 id = "population"
