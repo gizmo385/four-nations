@@ -48,8 +48,12 @@ pub enum Command {
     CancelEndeavor,
     /// Plant the empty farm plot on a tile (`data/buildings.toml`, `[building.farm]`, #198).
     Sow { pos: Pos },
-    /// Withdraw a Sow designation. Work already done on it is lost.
+    /// Withdraw a Sow designation, and the plot's standing sow order. Work already done on it is
+    /// lost.
     CancelSow { pos: Pos },
+    /// Set (`on`) or clear the standing sow order on a farm plot (docs/design/horizons-phase-1.md):
+    /// it re-sows itself whenever it's empty. Needs the `standing_sow` feature (`calendar`).
+    StandingSow { pos: Pos, on: bool },
     /// Mark the resource on a tile to be removed for good (`docs/design/clearing.md`, issue
     /// #411/#424): a unit uproots it (`[harvest.clear]`) or works its ordinary harvest, which
     /// already clears it. Withdraws any harvest designation or standing order on the tile; a
@@ -198,6 +202,7 @@ impl World {
             Command::CancelEndeavor => self.cancel_endeavor(defs)?,
             Command::Sow { pos } => self.designate_sow(pos, defs).map(drop)?,
             Command::CancelSow { pos } => self.cancel_sow(pos)?,
+            Command::StandingSow { pos, on } => self.set_standing_sow(pos, on, defs)?,
             Command::DesignateClear { pos } => self.designate_clear(pos, defs).map(drop)?,
             Command::CancelClear { pos } => self.cancel_clear(pos)?,
             Command::Deconstruct { pos } => self.designate_deconstruct(pos, defs).map(drop)?,

@@ -3,7 +3,7 @@
 //! see is the sim's (`Defs::techs_for`). Choosing a tech issues `Command::SetResearch`; `fn_sim`
 //! does the rest (`docs/design/research.md`).
 
-use fn_sim::research::{MILLIS_PER_POINT, Research, TechDef, TechId};
+use fn_sim::research::{Feature, MILLIS_PER_POINT, Research, TechDef, TechId};
 use fn_sim::{Defs, Nation, World};
 
 use crate::session::Session;
@@ -162,6 +162,7 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
     parts.extend(
         defs.abilities.iter().filter(|a| a.unlocked_by == Some(id)).map(|a| a.name.clone()),
     );
+    parts.extend(def.unlocks.features.iter().map(|f| feature_name(*f).to_owned()));
     if !parts.is_empty() {
         return parts.join(", ");
     }
@@ -178,6 +179,14 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
         "-".to_owned()
     } else {
         format!("Leads to {}", dependents.join(", "))
+    }
+}
+
+/// A feature (`Unlocks::features`) as the Research screen names it.
+pub fn feature_name(feature: Feature) -> &'static str {
+    match feature {
+        Feature::Almanac => "Almanac",
+        Feature::StandingSow => "Standing sow order",
     }
 }
 
@@ -326,6 +335,11 @@ mod tests {
         assert_eq!(
             unlock_summary(&defs, Nation::Fire, carpentry, defs.tech(carpentry)),
             "Construction x1.1, Workshop"
+        );
+        let calendar = defs.tech_id("calendar").unwrap();
+        assert_eq!(
+            unlock_summary(&defs, Nation::Earth, calendar, defs.tech(calendar)),
+            "Almanac, Standing sow order"
         );
         let fishing = defs.tech_id("fishing").unwrap();
         assert_eq!(

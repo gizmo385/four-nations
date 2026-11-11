@@ -124,6 +124,22 @@ pub struct Unlocks {
     /// once the buildings load.
     #[serde(default)]
     pub upgrades: Vec<Upgrade>,
+    /// Named features the sim knows (`Feature`), docs/design/horizons-phase-1.md: each is
+    /// unlocked by at most one tech, and systems ask `World::has_feature`, never a tech id.
+    #[serde(default)]
+    pub features: Vec<Feature>,
+}
+
+/// A closed list of things a tech can switch on that are neither a building, a job, an ability
+/// nor a modifier (`unlocks.features`). An unknown name fails to load. A feature no tech names
+/// is available from the start, like every other unlock kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Feature {
+    /// `World::almanac`: when the next frost (and later caravan) comes.
+    Almanac,
+    /// `Command::StandingSow`: a farm plot that re-sows itself whenever it's empty.
+    StandingSow,
 }
 
 /// One `[[tech.unlocks.upgrades]]` entry: a building and exactly one property to raise. `seats`
@@ -223,6 +239,17 @@ impl ResearchFile {
                 if !(m.is_finite() && m > 0.0 && m <= MAX_MULTIPLIER) {
                     return Err(err(format!(
                         "multiplier {field} = {m} must be finite and in (0, {MAX_MULTIPLIER}]"
+                    )));
+                }
+            }
+            for (k, f) in raw.unlocks.features.iter().enumerate() {
+                if raw.unlocks.features[..k].contains(f) {
+                    return Err(err(format!("feature {f:?} listed twice")));
+                }
+                if let Some(other) = techs.iter().find(|t| t.unlocks.features.contains(f)) {
+                    return Err(err(format!(
+                        "feature {f:?} is already unlocked by {:?}; a feature has one tech",
+                        other.id
                     )));
                 }
             }
@@ -780,5 +807,26 @@ mod tests {
     #[test]
     fn unknown_starting_tech_is_rejected() {
         assert_err(with_air_start("['levitation']"), "levitation");
+    }
+
+    #[test]
+    fn features_are_a_closed_list_with_one_tech_each() {
+        let with = |extra: &str| {
+            let mut files = crate::defs::BUNDLED_FILES;
+            let research = format!(
+                "{}\n[[tech]]\nid = \"t\"\nname = \"T\"\ndescription = \"\"\ncost = 10\n\
+                 [tech.unlocks]\n{extra}\n",
+                files[3]
+            );
+            files[3] = &research;
+            Defs::from_files(files).map(|_| ())
+        };
+        assert!(with("features = [\"weather\"]").is_err(), "unknown name");
+        let e = with("features = [\"almanac\"]").unwrap_err().0;
+        assert!(e.contains("already unlocked by \"calendar\""), "{e}");
+        let defs = Defs::bundled();
+        let calendar = defs.tech_id("calendar").unwrap();
+        assert_eq!(defs.feature_tech(super::Feature::Almanac), Some(calendar));
+        assert!(!defs.tech(calendar).core, "an optional horizons tech");
     }
 }

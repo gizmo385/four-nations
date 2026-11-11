@@ -27,6 +27,11 @@
 //! * The first frost of winter (`World::tick_season`) also takes an unharvested **ripe** crop on
 //!   a frost-band tile (#311): `frost_plot` sends it back to **empty**, the same way frost sends
 //!   a ripe wild plant back to resting, and the frost event's count includes it.
+//! * A **standing sow order** (`Command::StandingSow`, docs/design/horizons-phase-1.md, needs
+//!   the `standing_sow` feature, which `calendar` unlocks) is per plot, the way a standing
+//!   harvest order is per tile: whenever a standing plot is empty with no Sow job (just built,
+//!   reaped, or stripped by frost), `tick_farms` queues one. `CancelSow` clears the order too, so
+//!   a cancelled sow doesn't come straight back.
 //! * Farm plots are shared-tier (`farming`, every nation), unlike the orchard's Air-only tech, so
 //!   there's no nation gate in this module at all: `designate_build` already refuses a farm plot
 //!   to a nation that hasn't researched `farming`.
@@ -35,6 +40,7 @@ use super::*;
 
 use crate::building::{FarmDef, IrrigationDef};
 use crate::jobs::JobKind;
+use crate::research::Feature;
 
 /// What a farm plot (`[building.farm]`) is doing right now. Read through `World::plot_stage`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -53,12 +59,15 @@ pub(super) struct FarmPlot {
     pub(super) stage: PlotStage,
     /// Seconds left to ripen while `Growing`; meaningless (and left at 0) otherwise.
     growing_left: f32,
+    /// A standing sow order (`Command::StandingSow`): re-sow whenever it's empty.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) standing: bool,
 }
 
 impl FarmPlot {
     /// Nothing planted.
     pub(super) fn empty() -> Self {
-        Self { stage: PlotStage::Empty, growing_left: 0.0 }
+        Self { stage: PlotStage::Empty, growing_left: 0.0, standing: false }
     }
 }
 
@@ -87,10 +96,53 @@ impl World {
         self.anchored(pos)?.plot.as_ref()
     }
 
-    /// Puts the farm plot anchored on `pos` into `plot`'s state. A no-op with no building there.
+    /// Whether the farm plot anchored on `pos` has a standing sow order.
+    pub fn is_standing_sow(&self, pos: Pos) -> bool {
+        self.plot(pos).is_some_and(|p| p.standing)
+    }
+
+    /// Puts the farm plot anchored on `pos` into `plot`'s stage and growth, keeping its standing
+    /// order. A no-op with no building there.
     fn set_plot(&mut self, pos: Pos, plot: FarmPlot) {
         if let Some(b) = self.anchored_mut(pos) {
-            b.plot = Some(plot);
+            let standing = b.plot.as_ref().is_some_and(|p| p.standing);
+            b.plot = Some(FarmPlot { standing, ..plot });
+        }
+    }
+
+    /// Sets or clears the standing sow order on the farm plot anchored on `pos`. Refused without
+    /// the `standing_sow` feature (`NotResearched`, naming the tech that unlocks it), or on a
+    /// tile with no farm plot. Turning it on queues a Sow at once if the plot is empty.
+    pub(super) fn set_standing_sow(
+        &mut self,
+        pos: Pos,
+        on: bool,
+        defs: &Defs,
+    ) -> Result<(), DesignateError> {
+        self.map.get(pos).ok_or(DesignateError::OutOfBounds)?;
+        if !self.has_feature(Feature::StandingSow, defs) {
+            let tech = defs.feature_tech(Feature::StandingSow).expect("has_feature said no");
+            return Err(DesignateError::NotResearched(tech));
+        }
+        if self.farm_def(pos, defs).is_none() || self.plot(pos).is_none() {
+            return Err(DesignateError::NoFarmPlot);
+        }
+        let plot = self.anchored_mut(pos).and_then(|b| b.plot.as_mut()).expect("checked");
+        plot.standing = on;
+        self.queue_standing_sows(defs);
+        Ok(())
+    }
+
+    /// Queues a Sow on every standing plot that is empty and has none.
+    fn queue_standing_sows(&mut self, _defs: &Defs) {
+        let want: Vec<Pos> = self
+            .of_kind(Kind::Farm)
+            .filter(|b| b.plot.as_ref().is_some_and(|p| p.standing && p.stage == PlotStage::Empty))
+            .map(|b| b.anchor)
+            .filter(|&pos| !self.jobs.iter().any(|j| j.kind == JobKind::Sow { pos }))
+            .collect();
+        for pos in want {
+            self.add_job(JobKind::Sow { pos });
         }
     }
 
@@ -155,11 +207,16 @@ impl World {
         Ok(self.add_job(JobKind::Sow { pos }))
     }
 
-    /// Withdraws a Sow designation on `pos`. Work already done on it is lost.
+    /// Withdraws a Sow designation on `pos`, and its standing sow order if it has one, so the
+    /// sow doesn't come straight back. Work already done on it is lost.
     pub(super) fn cancel_sow(&mut self, pos: Pos) -> Result<(), DesignateError> {
         let before = self.jobs.len();
         self.jobs.retain(|j| j.kind != JobKind::Sow { pos });
-        if self.jobs.len() == before {
+        let standing = self.is_standing_sow(pos);
+        if let Some(plot) = self.anchored_mut(pos).and_then(|b| b.plot.as_mut()) {
+            plot.standing = false;
+        }
+        if self.jobs.len() == before && !standing {
             return Err(DesignateError::NotDesignated);
         }
         Ok(())
@@ -189,7 +246,10 @@ impl World {
             return;
         }
         self.jobs.remove(idx);
-        self.set_plot(pos, FarmPlot { stage: PlotStage::Growing, growing_left: def.grow_seconds });
+        self.set_plot(
+            pos,
+            FarmPlot { stage: PlotStage::Growing, growing_left: def.grow_seconds, standing: false },
+        );
         self.finish_job(i);
     }
 
@@ -218,6 +278,8 @@ impl World {
         self.tallies.count_crops(def.harvest_count);
         self.place_ground(pos, Stack { item: def.crop, count: def.harvest_count });
         self.set_plot(pos, FarmPlot::empty());
+        // A standing order re-sows it at once, rather than on the next farm tick.
+        self.queue_standing_sows(defs);
         self.finish_job(i);
     }
 
@@ -248,6 +310,7 @@ impl World {
                 self.add_job(JobKind::Reap { pos });
             }
         }
+        self.queue_standing_sows(defs);
     }
 }
 
