@@ -6,7 +6,8 @@
 //! **Zone 1, the header and the Settlement glance (fixed; never trimmed but for its one optional
 //! row):** the header (two rows, #654: run/pause and speed, then the season, year and time
 //! left, or the day with seasons off); one `SETTLEMENT` heading; People (the
-//! total and Idle, #310 -- the activity breakdown moved to the Nation screen, `N`, #308); need
+//! total and Idle, #310 -- the activity breakdown moved to the Nation screen, `N`, #308); Beasts
+//! (the count and how many are hungry, #699; hidden with no beast); need
 //! flags (hidden with nobody flagged); Food (the total and each settler's share); the winter row;
 //! Materials (non-food items, packed, `+N` fold, a second row with spare height); Research
 //! (target, bar, percent, one row; "Research: none set" in Warn with no target); the Gate (the
@@ -56,8 +57,8 @@ use fn_ui::endeavor::EndeavorStatus;
 use fn_ui::inspect::Hint;
 use fn_ui::toolpanel::{self, Emphasis, Line as ToolLine, ToolState};
 use fn_ui::view::{
-    Activity, SeasonView, SideView, activity_counts, food_in_stores, materials, need_flags,
-    season_view, side_view,
+    Activity, SeasonView, SideView, activity_counts, beast_count, food_in_stores, materials,
+    need_flags, season_view, side_view,
 };
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
@@ -165,6 +166,8 @@ struct Data {
     view: SideView,
     /// The Settlement glance's People row (#416): "People N" left, "Idle N" right.
     people: Row,
+    /// The Beasts row (#699): `None` with no beast in the settlement, which hides the row.
+    beasts: Option<Row>,
     /// The need-flags row (#310): `None` when nobody is flagged, which hides the row.
     need_flags_row: Option<Row>,
     /// The Settlement glance's Food row (#416): the total and each settler's share.
@@ -274,6 +277,21 @@ fn people_row(session: &Session, view: &SideView) -> Row {
         format!("Idle {idle}"),
         Tone::Text,
     )
+}
+
+/// The Settlement glance's Beasts row (#699): "Beasts 2" left, and "Hungry 1" right in the warn
+/// tone while any rests at home with an empty bunker. `None` with no beast, which hides the row.
+fn beasts_row(session: &Session) -> Option<Row> {
+    let count = beast_count(session);
+    if count.total == 0 {
+        return None;
+    }
+    let left = format!("Beasts {}", count.total);
+    Some(if count.hungry == 0 {
+        Row::text(left, Tone::Text)
+    } else {
+        Row::pair(left, Tone::Text, format!("Hungry {}", count.hungry), Tone::Warn)
+    })
 }
 
 /// The tone a need-flag word wears (#310): the "bad" half of each `fn_ui::view::need_word` pair
@@ -596,6 +614,7 @@ fn gather(
     let gate = view.endeavor.as_ref().map(gate_rows).unwrap_or_default();
     Data {
         people,
+        beasts: beasts_row(session),
         need_flags_row: need_flags_row(session),
         food,
         winter,
@@ -617,6 +636,7 @@ fn gather(
 /// Never empty, so [`Section::visible`] always keeps the SETTLEMENT heading on screen.
 fn settlement_rows(d: &Data, k: Knobs) -> Vec<Row> {
     let mut rows = vec![d.people.clone()];
+    rows.extend(d.beasts.clone());
     if let Some(flags) = &d.need_flags_row {
         rows.push(flags.clone());
     }

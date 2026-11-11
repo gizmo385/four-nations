@@ -239,6 +239,18 @@ pub fn tooltip_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> 
     tile_lines(session, tool, tile)
 }
 
+/// What a beast says of its home (#699): `Home: Bison Stable`, then the home's food bunker if it
+/// has one (`Fuel: 4/6 Fish`, or `Out of fish` while the beast is hungry). Empty for a unit that
+/// is not a beast.
+pub fn beast_home_lines(session: &Session, unit: &Unit) -> Vec<String> {
+    let (world, defs) = (&session.world, &session.defs);
+    let Some(beast) = unit.beast else { return Vec::new() };
+    let Some(b) = world.building_at(beast.home) else { return Vec::new() };
+    let mut lines = vec![format!("Home: {}", defs.building(b).display_name(world.nation))];
+    lines.extend(horizons_lines(world, defs, beast.home));
+    lines
+}
+
 /// A unit's own lines (docs/design/side-panel-v2.md "Zone 3"): its name, its task and, once
 /// selected, `Enter: select`. The own-nation prefix (`Fire Nation - `) only earns its keep once
 /// the settlement has more than one nation (#248, "the transformation") -- on a single-nation
@@ -260,12 +272,12 @@ fn unit_lines(session: &Session, tool: Tool, unit: &Unit) -> Lines {
         .find(|g| g.unit == unit.id)
         .map(|g| format!(" - Warm {}", clock(g.seconds_left)))
         .or_else(|| {
-            world
-                .is_cold(unit.pos, defs)
+            // A beast has no exposure (`world/beast.rs`): the cold never touches it.
+            (!unit.is_beast() && world.is_cold(unit.pos, defs))
                 .then(|| " - Cold: tiring faster (no fire near)".to_owned())
         })
         .unwrap_or_default();
-    let multi_nation = crate::view::population_by_nation(world, defs).len() > 1;
+    let multi_nation = !unit.is_beast() && crate::view::population_by_nation(world, defs).len() > 1;
     let detail = if multi_nation {
         format!("{} - {task}{status}", defs.nation(world.nation_of(unit)).name)
     } else {
@@ -275,6 +287,7 @@ fn unit_lines(session: &Session, tool: Tool, unit: &Unit) -> Lines {
     if unit.carrying.is_some() {
         lines.push(Line::Detail(format!("Carrying: {}", describe_stack(defs, unit.carrying))));
     }
+    lines.extend(beast_home_lines(session, unit).into_iter().map(Line::Detail));
     if tool == Tool::Select {
         lines.push(Line::Hint(Hint::SelectUnit));
     }
@@ -359,6 +372,14 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
     let Some(res) = t.resource else {
         lines.push(Line::Title(place));
         lines.push(Line::Detail(format!("Elevation {}", t.elevation)));
+        // A carved canal (#695, #699) says what it is for and what it counts as.
+        if t.terrain == Terrain::Canal {
+            lines.push(Line::Detail(format!(
+                "Irrigates plots within {} tiles",
+                defs.canal.irrigation_radius
+            )));
+            lines.push(Line::Detail("Fresh water".to_owned()));
+        }
         // The climate band's winter effects (#299, docs/design/difficulty.md "Readable
         // simulation"): only once a difficulty preset turns seasons on, which is also when
         // `World::tick_needs` and `World::growth_rate` start reading it.

@@ -93,6 +93,10 @@ fn describe(
             let unit = Thing::Unit { nation, selected: false, master: *master };
             (LegendGroup::People, name.to_owned(), unit)
         }
+        Thing::Beast { beast, .. } => {
+            let name = defs.beast(*beast).name.clone();
+            (LegendGroup::People, name, Thing::Beast { beast: *beast, selected: false })
+        }
         // The Build tool's ghost and a building with people in it draw their building's glyph.
         Thing::Ghost { building: b, .. } | Thing::Occupied { building: b, .. } => {
             let plain = Thing::Building { building: *b, rail_mask: None };

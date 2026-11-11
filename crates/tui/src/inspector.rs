@@ -189,6 +189,7 @@ pub fn inspect(
 ) -> Inspector {
     let settler = if ui.tool == Tool::Select { ui.selected_unit(session) } else { None };
     match settler {
+        Some(unit) if unit.is_beast() => beast_inspector(session, unit, width, marks),
         Some(unit) => settler_inspector(session, unit, width, marks),
         None => tile_inspector(session, ui, choice, width, marks),
     }
@@ -266,6 +267,41 @@ fn settler_inspector(session: &Session, unit: &Unit, width: usize, marks: &Marks
         view.name.clone(),
         view.rank_title.clone(),
         vec![doing, meters, rank, standing],
+        width,
+        (floor, 2),
+        marks,
+    )
+}
+
+/// A selected beast (#699): its row's name, what it is doing and carrying, its home and the
+/// home's food, and the tile it stands on. It has no meters, rank or chi to show: a beast has no
+/// needs, and never bends or learns.
+fn beast_inspector(session: &Session, unit: &Unit, width: usize, marks: &Marks) -> Inspector {
+    let paragraph = |text: &str, tone: Tone| -> Vec<Row> {
+        wrap(text, width, WRAP_LINES, marks.ellipsis)
+            .into_iter()
+            .map(|l| Row::text(l, tone))
+            .collect()
+    };
+    let view = unit_view(session, unit);
+    let mut doing = paragraph(&view.task, Tone::Text);
+    doing.push(Row::text(format!("Carrying {}", view.carrying), Tone::Text));
+    let home: Vec<Row> = fn_ui::inspect::beast_home_lines(session, unit)
+        .iter()
+        .flat_map(|line| paragraph(line, Tone::Text))
+        .collect();
+    let tail = format!("({}, {})", view.tile.x, view.tile.y);
+    let ground = ground_phrase(session, view.tile).unwrap_or_default().to_lowercase();
+    let standing: Vec<Row> =
+        wrap_with_tail(&format!("Standing on {ground}"), &tail, width, marks.ellipsis)
+            .into_iter()
+            .map(|l| Row::text(l, Tone::Dim))
+            .collect();
+    let floor = doing.len() + home.len();
+    Inspector::new(
+        view.name,
+        "Beast".to_owned(),
+        vec![doing, home, standing],
         width,
         (floor, 2),
         marks,

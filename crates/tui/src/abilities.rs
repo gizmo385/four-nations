@@ -115,6 +115,9 @@ fn detail_rows(row: &AbilityRow, width: usize, ellipsis: char) -> Vec<Row> {
         rows.extend(wrapped(&format!("{why}: Enter picks nothing until then."), Tone::Warn));
     }
     rows.extend(wrapped(&row.what, Tone::Text));
+    for effect in &row.effects {
+        rows.extend(wrapped(effect, Tone::Dim));
+    }
     if row.current {
         rows.extend(wrapped("The Bend tool channels it now.", Tone::Dim));
     }

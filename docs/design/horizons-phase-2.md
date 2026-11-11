@@ -160,6 +160,13 @@ min_trip = 10           # takes only trips of at least 10 tiles, pickup to drop 
   settlers still refuel its bunker (a beast refuels it too while it has some left). Beasts act
   before settlers each tick, so the long trips reach them first. A bunker that takes several
   fuels may hold a mix; it remembers the item last tipped in, which is what teardown returns.
+- **In the terminal (#699).** A beast draws as its own glyph and colour, one `[beast.<id>]` entry
+  in `data/tui.toml` per row of `data/beasts.toml` (a test fails if a row has none), bold like a
+  unit and in reverse video when selected. A settler standing on the same tile draws over it. The
+  Settlement panel gains a `Beasts N` row under People, with `Hungry N` on the right while any
+  rests at home with an empty bunker; it is hidden with no beast. A beast under the cursor, or
+  selected, is inspected as its row's name, its task, what it carries and `Home: Bison Stable`
+  with the home's food line, with no meters or rank. The legend lists it with the people.
 
 ### 4. Canal: a land-to-water reshape
 
@@ -186,6 +193,14 @@ min_trip = 10           # takes only trips of at least 10 tiles, pickup to drop 
 - **Irrigation.** A canal tile irrigates farm plots within a radius, read by
   `World::crop_growth_rate` with the Irrigation Channel's rule: the best boost in reach applies,
   and two don't stack.
+- **In the terminal (#699).** A canal keeps the river's wave and its ASCII `=`, in a lighter blue
+  on a lighter bed (`[terrain.canal]`), so the two read apart in colour only. Hovering one reads
+  `Canal`, `Irrigates plots within 2 tiles`, `Fresh water`. The Bend tool and the abilities
+  screen list what Carve Canal does after its description (`Turns land beside fresh water into a
+  canal`, `Irrigates plots within 2 tiles`, `Permanent`), read from the ability's `reshape`
+  (`AbilityDef::cut`) and `[canal]` rather than written twice. A refusal shows in the Tool
+  section's preview with a capital, as every bend's does: `Needs fresh water beside it`, `Would
+  cut the land in two`.
 
 ```toml
 # data/bending.toml, a new top-level table: the terrain that Carve Canal makes

@@ -1826,6 +1826,7 @@ fn describe_thing(session: &Session, thing: &Thing, pos: Pos) -> String {
             .unit_name_at(pos)
             .map(|name| format!("settler ({name})"))
             .unwrap_or_else(|| "settler".to_owned()),
+        Thing::Beast { beast, .. } => format!("beast ({})", defs.beast(*beast).name),
         Thing::Ghost { building, free } => {
             let name = defs.building(*building).display_name(nation);
             format!("{name} ghost ({})", if *free { "fits" } else { "blocked" })
@@ -4764,7 +4765,8 @@ mod tests {
                 // a mono human would see apart from that -- not a parity problem, just this
                 // thing's own look already covering what the mark would say.
                 let self_reverses = matches!(cell.thing, Thing::Avatar { .. })
-                    || matches!(cell.thing, Thing::Unit { selected: true, .. });
+                    || matches!(cell.thing, Thing::Unit { selected: true, .. })
+                    || matches!(cell.thing, Thing::Beast { selected: true, .. });
                 if self_reverses {
                     continue;
                 }

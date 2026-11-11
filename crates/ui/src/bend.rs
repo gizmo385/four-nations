@@ -19,6 +19,7 @@
 //! The abilities screen (`I`, #719) is wider than the banner: [`abilities`] lists the ones that
 //! can't be used yet too, with what each needs, which `B` never visits.
 
+use fn_sim::Terrain;
 use fn_sim::bending::AbilityId;
 use fn_sim::world::BendError;
 
@@ -79,6 +80,58 @@ pub fn view(session: &Session) -> BendView {
     BendView { rows }
 }
 
+/// The words for a terrain in an effect line: land and coast are both "land", the rest are named
+/// for what they are.
+fn terrain_word(t: Terrain) -> String {
+    match t {
+        Terrain::Land | Terrain::Coast => "land".to_owned(),
+        other => format!("{other:?}").to_lowercase(),
+    }
+}
+
+/// `words` as a list ("river, lake or canal"), each once.
+fn word_list(words: impl IntoIterator<Item = String>) -> String {
+    let mut seen: Vec<String> = Vec::new();
+    for w in words {
+        if !seen.contains(&w) {
+            seen.push(w);
+        }
+    }
+    match seen.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+        Some((last, _)) => last.clone(),
+        None => String::new(),
+    }
+}
+
+/// What a bend's rules say beyond its description, a line each (docs/design/horizons-phase-2.md,
+/// "`canals`: Carve Canal", Hover): `Turns land beside fresh water into a canal`, `Irrigates
+/// plots within 2 tiles` and `Permanent`. Only a bend that cuts from a source has any
+/// (`AbilityDef::cut`); every other ability's description says it all, so its lines are empty.
+pub fn effect_lines(session: &Session, id: AbilityId) -> Vec<String> {
+    let defs = &session.defs;
+    let Some(cut) = defs.ability(id).cut() else { return Vec::new() };
+    let source = if cut.source.iter().all(|t| t.is_fresh()) {
+        "fresh water".to_owned()
+    } else {
+        word_list(cut.source.iter().map(|&t| terrain_word(t)))
+    };
+    let to = terrain_word(cut.to);
+    let mut lines = vec![format!(
+        "Turns {} beside {source} into {} {to}",
+        word_list(cut.from.iter().map(|&t| terrain_word(t))),
+        article(&to),
+    )];
+    // `[canal]` is what the terrain Carve Canal makes does for the fields beside it.
+    if cut.to == Terrain::Canal {
+        lines.push(format!("Irrigates plots within {} tiles", defs.canal.irrigation_radius));
+    }
+    if cut.permanent {
+        lines.push("Permanent".to_owned());
+    }
+    lines
+}
+
 /// One ability on the abilities screen (#719): what it does and whether it can be used now.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct AbilityRow {
@@ -87,6 +140,8 @@ pub struct AbilityRow {
     pub name: String,
     /// What it does, from the data.
     pub what: String,
+    /// What its rules add to that ([`effect_lines`]); empty for most.
+    pub effects: Vec<String>,
     /// The count beside it ("20 benders", "no master"): `text::caster_label`. Empty for one
     /// still locked behind a tech, which nobody can bend yet.
     pub casters: String,
@@ -134,6 +189,7 @@ pub fn abilities(session: &Session) -> Vec<AbilityRow> {
             id,
             name: def.name.clone(),
             what: def.description.clone(),
+            effects: effect_lines(session, id),
             casters: casters_label,
             current: Some(id) == current,
             unusable,

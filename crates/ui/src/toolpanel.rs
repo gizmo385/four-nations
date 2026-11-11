@@ -244,6 +244,17 @@ pub fn blocks(session: &Session, st: &ToolState) -> Vec<Block> {
         }
     }
     blocks.push(settings(st));
+    // What a bend's rules say beyond its description, last so a short panel drops it first.
+    if st.tool == Tool::Bend
+        && let Some(id) = bend_ability(session)
+    {
+        blocks.push(
+            crate::bend::effect_lines(session, id)
+                .into_iter()
+                .map(|l| Line::Text(l, Emphasis::Dim))
+                .collect(),
+        );
+    }
     blocks.retain(|b| !b.is_empty());
     blocks
 }

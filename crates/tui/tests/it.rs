@@ -7,6 +7,7 @@
 
 mod abilities;
 mod agent_parity;
+mod beasts_canals;
 mod binary;
 mod browser;
 mod browser_campaigns;
