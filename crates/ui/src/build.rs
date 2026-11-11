@@ -36,6 +36,17 @@ pub struct PickerRow {
     pub work: String,
     /// "Requires Fire Making" when the nation hasn't unlocked it; `None` when it can be placed.
     pub requires: Option<String>,
+    /// What it costs alone, with no size on the end: "5 Wood", "10 Wood, 2 Stone" or "free"
+    /// (`cost` has the size too, for the side panel's one-line row). The Build screen's cost
+    /// column (#658).
+    pub price: String,
+    /// "1x1", "2x2" (`BuildingDef::footprint`): the Build screen's size column.
+    pub size: String,
+    /// The name of the tech that unlocks it, while it is locked: the Build screen's needs column.
+    pub tech: Option<String>,
+    /// Whether stores hold the whole cost now (stand-ins counted, #371). The Build screen draws
+    /// a cost the settlement cannot pay in the warning colour.
+    pub affordable: bool,
 }
 
 impl PickerRow {
@@ -73,18 +84,30 @@ fn cost_item_text(session: &Session, item: ItemId) -> String {
     }
 }
 
-/// What a building costs, as "5 Wood" (comma-separated for several items), followed by its
-/// size if it covers more than one tile ("10 Wood, 2x2"). A cost item that a stand-in may pay
-/// (brick for stone, issue #371) names it: "10 Stone (or brick)".
-fn cost_text(session: &Session, def: &BuildingDef) -> String {
-    let mut parts: Vec<String> = def
+/// A footprint as the Build screen's size column writes it: "1x1", "2x2".
+fn size_text(def: &BuildingDef) -> String {
+    let (w, h) = def.footprint;
+    format!("{w}x{h}")
+}
+
+/// What a building costs and nothing else: "5 Wood", "10 Wood, 2 Stone" or "free".
+fn price_text(session: &Session, def: &BuildingDef) -> String {
+    if def.cost.is_empty() {
+        return "free".into();
+    }
+    let parts: Vec<String> = def
         .cost
         .iter()
         .map(|c| format!("{} {}", c.count, cost_item_text(session, c.item)))
         .collect();
-    if parts.is_empty() {
-        parts.push("free".into());
-    }
+    parts.join(", ")
+}
+
+/// What a building costs, as "5 Wood" (comma-separated for several items), followed by its
+/// size if it covers more than one tile ("10 Wood, 2x2"). A cost item that a stand-in may pay
+/// (brick for stone, issue #371) names it: "10 Stone (or brick)".
+fn cost_text(session: &Session, def: &BuildingDef) -> String {
+    let mut parts = vec![price_text(session, def)];
     let (w, h) = def.footprint;
     if (w, h) != (1, 1) {
         parts.push(format!("{w}x{h}"));
@@ -225,12 +248,13 @@ fn available_to_nation(session: &Session, def: &BuildingDef) -> bool {
             .is_none_or(|n| n == session.world.nation)
 }
 
-/// Every building the current nation can build or may yet unlock, in file order, by its name for
-/// them, with cost and work, and the tech it still needs if it's locked. Buildings behind
-/// another nation's tech are left out (issue #137), and so is the endeavor's gate (#236).
+/// Every building the current nation can build or may yet unlock, by its name for them, with
+/// cost and work, and the tech it still needs if it's locked: the buildable ones first, then the
+/// locked ones (#658), each group in file order. Buildings behind another nation's tech are left
+/// out (issue #137), and so is the endeavor's gate (#236).
 pub fn picker_rows(session: &Session) -> Vec<PickerRow> {
     let nation = session.world.nation;
-    session
+    let mut rows: Vec<PickerRow> = session
         .defs
         .buildings
         .iter()
@@ -245,8 +269,18 @@ pub fn picker_rows(session: &Session) -> Vec<PickerRow> {
                 .unlocked_by
                 .filter(|&t| !session.world.is_unlocked(Some(t)))
                 .map(|t| format!("Requires {}", session.defs.tech(t).name)),
+            price: price_text(session, def),
+            size: size_text(def),
+            tech: def
+                .unlocked_by
+                .filter(|&t| !session.world.is_unlocked(Some(t)))
+                .map(|t| session.defs.tech(t).name.clone()),
+            affordable: def.cost.iter().all(|c| stored_with_stand_in(session, c.item) >= c.count),
         })
-        .collect()
+        .collect();
+    // Stable, so each group keeps the data's order.
+    rows.sort_by_key(PickerRow::locked);
+    rows
 }
 
 /// `current` if it can be placed, else the first building that can. `None` only if every
@@ -383,34 +417,89 @@ pub fn occupant_rows(session: &Session, pos: Pos) -> Vec<OccupantRow> {
 #[derive(Clone, PartialEq, Debug)]
 pub struct BuildingDetail {
     pub name: String,
-    /// "5 Wood (12 in stores)" per item costed, or "free" for a building with none. A stone
-    /// cost reads "10 Stone (or brick) (12 in stores)" for a nation that can make brick, and the
-    /// figure counts both (issue #371).
-    pub cost: Vec<String>,
+    /// One entry per item costed, with what stores hold of it; empty for a free building. A
+    /// stone cost reads "10 Stone (or brick)" for a nation that can make brick, and the figure
+    /// counts both (issue #371).
+    pub costs: Vec<CostLine>,
     /// "1x1" or "2x2" (`BuildingDef::footprint`).
     pub footprint: String,
+    /// Where it can go, as a sentence: "Goes on clear, dry land." plus the rule of its `beside`
+    /// (#373) or its door (#226), if it has one (#658).
+    pub placement: String,
     /// What it does once finished: a line per fact the data carries (study seats, a bed, a kept
     /// fire, a rail, an orchard, power, issue #429). Capacity (#226) isn't here yet; add it once
     /// `BuildingDef` carries it. "Nothing beyond shelter" for a building with none of those.
     pub effects: Vec<String>,
     /// "Requires Fire Making" when the nation hasn't unlocked it; `None` when it can be placed.
     pub requires: Option<String>,
+    /// The name of the tech it still needs, while it is locked (#658).
+    pub tech: Option<String>,
+}
+
+/// One item of a building's cost against what stores hold (#658).
+#[derive(Clone, PartialEq, Debug)]
+pub struct CostLine {
+    /// "5 Wood" or "10 Stone (or brick)".
+    pub text: String,
+    /// How many of it stores hold now, a stand-in's included (#371).
+    pub have: u32,
+    /// How many more of it the cost needs than stores hold; 0 when it is covered.
+    pub short: u32,
+    /// The item's bare name, "Wood" (what "Short of 3 Wood" names).
+    pub item: String,
+}
+
+impl CostLine {
+    /// "2180 in stores".
+    pub fn stores(&self) -> String {
+        format!("{} in stores", self.have)
+    }
+}
+
+impl BuildingDetail {
+    /// The cost against stores in one line: "5 Wood · 2180 in stores", "8 Wood · 12 in stores,
+    /// 4 Stone · 3 in stores", or "free".
+    pub fn cost_line(&self) -> String {
+        if self.costs.is_empty() {
+            return "free".to_owned();
+        }
+        let parts: Vec<String> =
+            self.costs.iter().map(|c| format!("{} \u{b7} {}", c.text, c.stores())).collect();
+        parts.join(", ")
+    }
+
+    /// What stores are short of, "3 Wood and 2 Stone"; `None` when the cost is covered.
+    pub fn short_of(&self) -> Option<String> {
+        let short: Vec<String> = self
+            .costs
+            .iter()
+            .filter(|c| c.short > 0)
+            .map(|c| format!("{} {}", c.short, c.item))
+            .collect();
+        match short.as_slice() {
+            [] => None,
+            [only] => Some(only.clone()),
+            [init @ .., last] => Some(format!("{} and {last}", init.join(", "))),
+        }
+    }
 }
 
 /// [`BuildingDetail`] for `id`, for the Build modal's detail pane.
 pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     let def = session.defs.building(id);
-    let cost = if def.cost.is_empty() {
-        vec!["free".to_owned()]
-    } else {
-        def.cost
-            .iter()
-            .map(|c| {
-                let have = stored_with_stand_in(session, c.item);
-                format!("{} {} ({have} in stores)", c.count, cost_item_text(session, c.item))
-            })
-            .collect()
-    };
+    let costs: Vec<CostLine> = def
+        .cost
+        .iter()
+        .map(|c| {
+            let have = stored_with_stand_in(session, c.item);
+            CostLine {
+                text: format!("{} {}", c.count, cost_item_text(session, c.item)),
+                have,
+                short: c.count.saturating_sub(have),
+                item: session.defs.item(c.item).name.clone(),
+            }
+        })
+        .collect();
     let (w, h) = def.footprint;
     let mut effects = Vec::new();
     if def.seats > 0 {
@@ -466,12 +555,24 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
         .unlocked_by
         .filter(|&t| !session.world.is_unlocked(Some(t)))
         .map(|t| format!("Requires {}", session.defs.tech(t).name));
+    let mut placement = "Goes on clear, dry land.".to_owned();
+    if let Some(word) = def.beside_word() {
+        placement.push_str(&format!(" Must touch {word}."));
+    }
+    if def.capacity > 0 {
+        placement.push_str(" Needs a free tile at its door.");
+    }
     BuildingDetail {
         name: def.display_name(session.world.nation).to_owned(),
-        cost,
+        costs,
         footprint: format!("{w}x{h}"),
+        placement,
         effects,
         requires,
+        tech: def
+            .unlocked_by
+            .filter(|&t| !session.world.is_unlocked(Some(t)))
+            .map(|t| session.defs.tech(t).name.clone()),
     }
 }
 
@@ -513,15 +614,11 @@ mod tests {
         for nation in Nation::ALL {
             let session = session(nation);
             let rows = picker_rows(&session);
-            let mine: Vec<&BuildingDef> = session
-                .defs
-                .buildings
-                .iter()
-                .filter(|d| available_to_nation(&session, d))
-                .collect();
-            assert_eq!(rows.len(), mine.len());
+            let mine = session.defs.buildings.iter().filter(|d| available_to_nation(&session, d));
+            assert_eq!(rows.len(), mine.count());
             assert!(rows.len() < session.defs.buildings.len(), "{nation:?} has hidden buildings");
-            for (row, def) in rows.iter().zip(mine) {
+            for row in &rows {
+                let def = session.defs.building(row.id);
                 assert_eq!(row.name, def.display_name(nation));
                 assert_eq!(row.work, format!("{:.0}s work", def.work));
             }
@@ -546,13 +643,59 @@ mod tests {
         assert_eq!(row(&picker_rows(&earth), &earth, "workshop").cost, "8 Wood, 4 Stone, 2x2");
     }
 
+    /// The Build screen lists what can be built first and what is locked after (#658), each
+    /// group in the data's order, and a row carries the columns the screen draws.
+    #[test]
+    fn buildable_rows_come_before_locked_ones_each_in_file_order() {
+        for nation in Nation::ALL {
+            let session = session(nation);
+            let rows = picker_rows(&session);
+            let first_locked = rows.iter().position(PickerRow::locked).expect("some are locked");
+            assert!(first_locked > 0, "{nation:?} starts with something buildable");
+            assert!(rows[first_locked..].iter().all(PickerRow::locked), "{nation:?}");
+            for group in [&rows[..first_locked], &rows[first_locked..]] {
+                assert!(group.windows(2).all(|w| w[0].id.0 < w[1].id.0), "{nation:?}");
+            }
+            for row in &rows {
+                assert_eq!(row.tech.is_some(), row.locked());
+                let (w, h) = session.defs.building(row.id).footprint;
+                assert_eq!(row.size, format!("{w}x{h}"));
+                assert!(row.cost.starts_with(&row.price), "{} / {}", row.cost, row.price);
+            }
+        }
+    }
+
+    /// A row is affordable once stores hold its whole cost, and the detail names what is short.
+    #[test]
+    fn a_row_the_stores_cannot_pay_is_unaffordable_and_the_detail_names_what_is_short() {
+        let earth = session(Nation::Earth);
+        let wood = earth.defs.item_id("wood").unwrap();
+        let bed = earth.defs.building_id("bed").unwrap();
+        let have = earth.world.stored_total(wood);
+        let rows = picker_rows(&earth);
+        assert_eq!(row(&rows, &earth, "bed").affordable, have >= 5);
+        let short = building_detail(&earth, bed).short_of();
+        assert_eq!(short, (have < 5).then(|| format!("{} Wood", 5 - have)));
+        // Every row agrees with the stores, item by item.
+        for r in picker_rows(&earth) {
+            let enough = earth
+                .defs
+                .building(r.id)
+                .cost
+                .iter()
+                .all(|c| stored_with_stand_in(&earth, c.item) >= c.count);
+            assert_eq!(r.affordable, enough, "{}", r.name);
+            assert_eq!(building_detail(&earth, r.id).short_of().is_none(), enough, "{}", r.name);
+        }
+    }
+
     #[test]
     fn buildings_a_nation_has_not_unlocked_are_locked_with_the_tech_named() {
         for nation in Nation::ALL {
             let session = session(nation);
             let rows = picker_rows(&session);
-            let mine = session.defs.buildings.iter().filter(|d| available_to_nation(&session, d));
-            for (row, def) in rows.iter().zip(mine) {
+            for row in &rows {
+                let def = session.defs.building(row.id);
                 assert_eq!(row.locked(), !session.world.is_unlocked(def.unlocked_by), "{}", def.id);
                 if let Some(t) = def.unlocked_by.filter(|_| row.locked()) {
                     assert_eq!(
@@ -694,7 +837,8 @@ mod tests {
         let bed = earth.defs.building_id("bed").unwrap();
         let detail = building_detail(&earth, bed);
         assert_eq!(detail.name, "Bed");
-        assert_eq!(detail.cost, vec!["5 Wood (0 in stores)".to_owned()]);
+        assert_eq!(detail.cost_line(), "5 Wood \u{b7} 0 in stores");
+        assert_eq!(detail.short_of().as_deref(), Some("5 Wood"));
         assert_eq!(detail.footprint, "1x1");
         assert!(detail.effects.iter().any(|e| e.starts_with("Bed:")), "{:?}", detail.effects);
         assert_eq!(detail.requires, None);
@@ -760,7 +904,7 @@ mod tests {
 
         // The endeavor's gate has no cost of its own (#236): its stages do.
         let gate = earth.defs.building_id("harmony_gate").unwrap();
-        assert_eq!(building_detail(&earth, gate).cost, vec!["free".to_owned()]);
+        assert_eq!(building_detail(&earth, gate).cost_line(), "free");
     }
 
     /// A power source's detail (issue #428, #429) names its reach, already scaled for the

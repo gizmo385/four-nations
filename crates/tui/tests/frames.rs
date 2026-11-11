@@ -901,25 +901,35 @@ fn a_build_site_then_the_finished_building_read_in_the_inspector() {
     assert!(text.contains("Can't build here: a bed is"), "{text}");
 }
 
-/// The Build modal itself (#285): a placeable building highlighted, then a locked one, so the
-/// reviewer can see both the list and the detail pane (the tech it still needs) at a glance.
+/// The Build screen itself (#285, #658): the buildable rows first, the locked ones after with the
+/// tech that unlocks each in the needs column, and the highlighted building's detail in the
+/// strip under the rule. Enter on a locked row does nothing.
 #[test]
 fn the_build_modal_lists_buildings_and_details_the_locked_ones() {
     let mut app = play("u");
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.contains("◆ BUILD ◆"), "{text}");
-    assert!(text.contains("▸ Bed                  5 Wood"), "the first row is chosen:\n{text}");
-    assert!(text.contains("Campfire             Locked"), "{text}");
-    assert!(text.contains("Footprint: 1x1"), "the detail pane:\n{text}");
+    assert!(text.contains("BUILDING"), "{text}");
+    assert!(text.contains("▸ Bed "), "the first row is chosen:\n{text}");
+    assert!(text.contains("Size 1x1."), "the detail strip:\n{text}");
     let status = text.lines().last().unwrap();
     assert!(status.contains("Up/Down choose · Enter build · Esc or U close"), "{status}");
 
     let rows = fn_ui::build::picker_rows(&app.session);
     let locked = rows.iter().position(|r| r.locked()).expect("Earth has a locked building");
+    assert!(rows[..locked].iter().all(|r| !r.locked()), "buildable rows come first");
     app.play(&keys::parse(&format!("<down*{locked}>")).unwrap());
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.contains(&format!("▸ {}", rows[locked].name)), "the pointer moved:\n{text}");
-    assert!(text.contains("Requires "), "the locked building names the tech it needs:\n{text}");
+    let tech = rows[locked].tech.as_deref().unwrap();
+    assert!(text.contains(&format!("Needs {tech}.")), "the strip names the tech:\n{text}");
+
+    // Enter on a locked row does nothing: the screen stays, and so do the tool and the choice.
+    app.play(&keys::parse("<enter>").unwrap());
+    assert_eq!(app.ui.modal, Some(Modal::Build));
+    assert_eq!((app.ui.tool, app.ui.choice), (Tool::Select, None));
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains(&format!("Needs {tech}.")), "{text}");
 }
 
 /// A Fire picker row whose stone cost names brick as a stand-in (issue #371): "N Stone (or
