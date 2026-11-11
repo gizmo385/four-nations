@@ -2,9 +2,8 @@
 //! that still has room and food to spare draws newcomers, so the end game's population sign
 //! isn't stuck at the starting six forever.
 //!
-//! Every `[growth].arrival_minutes` (`data/needs.toml`), if the beds hold more than the living
-//! settlers (#552, #513) and at
-//! least `food_per_newcomer` food items sit in stores, one newcomer joins: an ordinary unit
+//! When draw reaches 1.0 (`world/draw.rs`, #435), if the beds hold more than the living settlers
+//! (#552, #513) and at least `food_per_newcomer` food items sit in stores, one newcomer joins: an ordinary unit
 //! (`Unit`, no `guest`) added to `World::units`, on the outskirts: the walkable tile in the
 //! settlement's own region nearest the map edge (owner decision, 2026-11-03). Mapgen rings every
 //! map with sea (`MapGenConfig::water_border`), so the literal map edge is never walkable; the
@@ -62,7 +61,7 @@ pub(super) fn new_newcomer_rng(seed: u64) -> SimRng {
     rng::stream(seed, "endeavor.newcomers")
 }
 
-/// A newcomer who joined the settlement (`World::tick_population`).
+/// A newcomer who joined the settlement (`World::tick_draw`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Arrival {
     pub tick: u64,
@@ -81,26 +80,6 @@ impl World {
         let used = settlers.map(|u| u.id.0).chain(self.deaths().map(|d| d.id.0)).max();
         if let Some(m) = used {
             self.next_unit = self.next_unit.max(m + 1);
-        }
-    }
-
-    /// Checks population growth once every `arrival_minutes` and joins one newcomer if a bed
-    /// and enough food are both there for it. Named `tick_population` (not `tick_growth`,
-    /// already resource regrowth's name in `work.rs`). A newcomer who actually joins also takes
-    /// the difficulty preset's `newcomer_food` from stores (`take_newcomer_food`, #294), on top
-    /// of this threshold; identity's `newcomer_food` is 0, so nothing is taken by default.
-    pub(super) fn tick_population(&mut self, defs: &Defs) {
-        let growth = defs.needs.growth;
-        let interval = (growth.arrival_minutes * 60.0 * TICKS_PER_SECOND as f32).round() as u64;
-        if interval == 0 || !self.tick.is_multiple_of(interval) {
-            return;
-        }
-        if !self.has_room_for_newcomer(defs) || self.stored_food(defs) < growth.food_per_newcomer {
-            return;
-        }
-        if self.spawn_newcomer(defs) {
-            let newcomer_food = self.knobs(defs).newcomer_food;
-            self.take_newcomer_food(newcomer_food, defs);
         }
     }
 
@@ -123,7 +102,7 @@ impl World {
     /// growth gated by food alone. A bed that is destroyed, or a settler who dies, changes the
     /// answer at the next check; nobody is evicted when capacity drops below the headcount, growth
     /// just pauses. Reachability doesn't matter here, as no particular unit is looking for a bed.
-    fn has_room_for_newcomer(&self, defs: &Defs) -> bool {
+    pub(super) fn has_room_for_newcomer(&self, defs: &Defs) -> bool {
         let settlers = self.units.iter().filter(|u| !u.is_avatar()).count() as u32;
         self.bed_capacity(defs) > settlers
     }
@@ -159,7 +138,7 @@ impl World {
     /// The walkable tile reachable from the settlement that is nearest the map's rectangular
     /// edge, ties by squared distance to `anchor` and then by `Pos`. The region is flooded from
     /// `start`, or from the first living unit when there is none. This runs once per arrival
-    /// check (every `arrival_minutes`), so one flood and one map pass are cheap enough.
+    /// check, so one flood and one map pass are cheap enough.
     fn nearest_edge_tile(&self, anchor: Pos) -> Option<Pos> {
         let first = self.units.iter().find(|u| !u.is_avatar());
         let origin = self.start.or_else(|| first.map(|u| u.pos))?;
@@ -226,9 +205,9 @@ impl World {
     /// Adds one newcomer on the settlement's outskirts (`nearest_edge_tile`), of a nation drawn
     /// by `newcomer_nation` and named from that nation's pool (`draw_newcomer_name`). Does
     /// nothing, and returns `false`, if the settlement has no walkable tile at all; `true`
-    /// otherwise, so `tick_population` only spends `newcomer_food` (#294) when someone actually
+    /// otherwise, so `tick_draw` only spends `newcomer_food` (#294) when someone actually
     /// joined.
-    fn spawn_newcomer(&mut self, defs: &Defs) -> bool {
+    pub(super) fn spawn_newcomer(&mut self, defs: &Defs) -> bool {
         let Some(pos) = self.nearest_edge_tile(self.settlement_anchor()) else { return false };
         let drawn = self.newcomer_nation(defs);
         let nation = defs.nation(drawn);
@@ -277,7 +256,7 @@ impl World {
     /// difficulty preset's `newcomer_food` knob, #294): the nearest stack to the settlement
     /// first, then by position, the same rule `found` uses for starting stores. Takes whatever
     /// is there if stores hold less than `amount`; a no-op for 0 (identity's default).
-    fn take_newcomer_food(&mut self, amount: u32, defs: &Defs) {
+    pub(super) fn take_newcomer_food(&mut self, amount: u32, defs: &Defs) {
         if amount == 0 {
             return;
         }

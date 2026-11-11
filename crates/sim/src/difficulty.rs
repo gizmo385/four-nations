@@ -38,7 +38,7 @@ pub struct Knobs {
     /// researched (`Research::tick`, `Research::add_toward_target`; #284).
     pub research_cost: f32,
     /// Food items a newcomer's arrival takes from stores, on top of #232's
-    /// `food_per_newcomer` threshold (`World::tick_population`).
+    /// `food_per_newcomer` threshold (`World::tick_draw`).
     pub newcomer_food: u32,
     /// What `World::found` stockpiles near the start, one kind of item per tile
     /// (`defs.jobs.stockpile_stack` per tile).
