@@ -7,7 +7,9 @@
 <!-- fn_gui (the egui game) in the browser (#843, #859). `cargo xtask web-gui` builds the wasm,
      binds it with the wasm-bindgen CLI (at Cargo.lock's version) into target/replayer/gui/ and
      copies this file next to it; add `--serve` to serve it at http://127.0.0.1:8595/gui/.
-     The query picks the game: ?seed=7&nation=2&size=0. -->
+     The query picks the game: ?seed=7&nation=2&size=0. F5 quicksaves, F9 quickloads and F6 opens
+     the saves screen; saves live in the browser's localStorage (#860), so they survive a reload
+     (`node web/gui/check-saves.cjs` checks it in headless Chromium). -->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #121212; }
   #the_canvas { display: block; width: 100%; height: 100%; }

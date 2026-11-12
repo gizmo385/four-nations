@@ -33,7 +33,7 @@ fn main() -> ExitCode {
         }
     };
     let depth = ColorDepth::detect(args.color, |k| std::env::var(k).ok());
-    let saves = fn_ui::saves::default_save_dir();
+    let saves = fn_ui::saves::DiskStore::default_shared();
 
     if let Some(path) = &args.watch {
         if let Some(out) = &args.record {
@@ -163,7 +163,7 @@ fn seed_hint() -> u64 {
 fn print_frame(
     args: &Args,
     depth: ColorDepth,
-    saves: Option<std::path::PathBuf>,
+    saves: Option<fn_ui::saves::Store>,
 ) -> Result<(), String> {
     let mut shell = Shell::for_args(args, args.size, saves, seed_hint())?;
     let mut steps = Vec::new();

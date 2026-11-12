@@ -9,6 +9,7 @@
 //! 3. runs the ticks the elapsed time is worth;
 //! 4. redraws if anything changed, at most 30 times a second.
 
+use fn_ui::saves::Store;
 use std::io::{self, Stdout, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -92,7 +93,7 @@ pub(crate) fn setup() -> io::Result<Terminal<CrosstermBackend<Stdout>>> {
 pub fn run(
     args: &Args,
     depth: ColorDepth,
-    saves: Option<PathBuf>,
+    saves: Option<Store>,
     runs: Option<PathBuf>,
     seed_hint: u64,
 ) -> io::Result<()> {

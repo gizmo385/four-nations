@@ -4,7 +4,6 @@
 //! Like `fn_tui::run`, this is the only place that reads the clock: each frame hands the shell
 //! the keys egui collected and the real seconds since the last frame.
 
-use std::path::PathBuf;
 use web_time::Instant;
 
 use eframe::egui::{self, Color32, FontFamily, FontId, Rect, vec2};
@@ -36,12 +35,15 @@ pub struct GuiApp {
     /// whole frame.
     timings: (f32, f32, f32),
     first_cell: Option<f32>,
+    /// The state last written onto the page (`crate::page::publish`).
+    #[cfg(target_arch = "wasm32")]
+    published: String,
 }
 
 impl GuiApp {
     /// The shell `fn_tui`'s own arguments describe (the title screen with none, a game with
     /// `SEED NATION`, `--start`, `--map-size` and the rest, as `fn_tui --help` lists them).
-    pub fn new(saves: Option<PathBuf>, seed_hint: u64) -> Self {
+    pub fn new(saves: Option<fn_ui::saves::Store>, seed_hint: u64) -> Self {
         // `--keys SCRIPT` is taken out first: `fn_tui`'s parser allows it only with `--frame`.
         let mut raw: Vec<String> = std::env::args().skip(1).collect();
         let mut keys = Vec::new();
@@ -90,6 +92,8 @@ impl GuiApp {
             show_panel: true,
             timings: (0.0, 0.0, 0.0),
             first_cell: None,
+            #[cfg(target_arch = "wasm32")]
+            published: String::new(),
         }
     }
 
@@ -109,6 +113,8 @@ impl GuiApp {
             }
             self.shell.key(key);
         }
+        #[cfg(target_arch = "wasm32")]
+        crate::page::publish(&self.shell, &mut self.published);
         if self.shell.quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

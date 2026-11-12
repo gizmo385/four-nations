@@ -32,7 +32,7 @@ impl Drop for TempDir {
 
 fn app(dir: Option<PathBuf>) -> App {
     let mut app = App::new(new_session(7, fn_sim::Nation::Earth), SIZE);
-    app.saves = dir;
+    app.saves = dir.map(fn_ui::saves::DiskStore::shared);
     app
 }
 

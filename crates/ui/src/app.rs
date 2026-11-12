@@ -1,10 +1,8 @@
 //! The app: the game session plus what the player sees of it, and the one place keys change them.
 
-use std::path::PathBuf;
-
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crate::research::screen_view;
-use crate::saves;
+use crate::saves::{self, Store};
 use crate::toolpanel;
 use crate::tools::{Order, apply_order, cycle_ability, switch_tool};
 use crate::{Session, Tool};
@@ -18,7 +16,7 @@ use crate::screens::{self, abilities, build as build_screen, msglog, nation, res
 use crate::script::Step;
 use crate::state::{HelpTab, Modal, Prompt, Screen, UiState};
 
-/// What `F5`, `F9` and `F6` say when there is no save directory.
+/// What `F5`, `F9` and `F6` say when there is nowhere to keep saves.
 const NO_SAVE_DIR: &str = "Save failed: this platform has no data directory (set FN_SAVE_DIR)";
 
 /// The game and what the player sees of it. All input goes through [`App::key`].
@@ -31,8 +29,9 @@ pub struct App {
     /// The terminal's size, for a new map's view.
     screen: (u16, u16),
     /// Where `F5` and `F9` keep the quicksave (`crate::saves`); `None` when there is nowhere,
-    /// and then both keys say so. The binary sets it from the environment; tests set their own.
-    pub saves: Option<PathBuf>,
+    /// and then both keys say so. The binary sets it from the environment (a directory on
+    /// disk, or the browser's storage); tests set their own.
+    pub saves: Option<Store>,
     /// New map…, confirmed: `Shell` reopens embark on the next seed instead of restarting in place
     /// (#290, docs/design/embark.md, "In the game"), since only it can leave the game
     /// behind for a pre-game screen.
@@ -615,13 +614,13 @@ impl App {
     /// "Save, then …": writes the game to a new slot ([`saves::new_name`]), so no earlier save is
     /// replaced. Says in the status line why not if it can't, and returns whether it did.
     fn save_new_slot(&mut self) -> bool {
-        let Some(dir) = self.saves.clone() else {
+        let Some(store) = self.saves.clone() else {
             self.ui.status = NO_SAVE_DIR.to_owned();
             return false;
         };
         self.refresh_saves();
         let name = saves::new_name(&self.ui.save_slots);
-        match saves::save(&dir, &name, &self.session) {
+        match saves::save(&*store, &name, &self.session) {
             Ok(()) => {
                 self.ui.saved_at = Some(self.session.world.tick);
                 true
@@ -674,11 +673,11 @@ impl App {
     fn quicksave(&mut self) {
         self.ui.status = match self.saves.as_deref() {
             None => NO_SAVE_DIR.to_owned(),
-            Some(dir) => match saves::quicksave(dir, &self.session) {
+            Some(store) => match saves::quicksave(store, &self.session) {
                 Ok(()) => {
                     self.ui.saved_at = Some(self.session.world.tick);
-                    let path = saves::slot_path(dir, saves::QUICKSAVE);
-                    format!("Quicksaved to {} (tick {})", path.display(), self.session.world.tick)
+                    let place = store.place(saves::QUICKSAVE);
+                    format!("Quicksaved to {place} (tick {})", self.session.world.tick)
                 }
                 Err(why) => format!("Quicksave failed: {why}"),
             },
@@ -690,7 +689,7 @@ impl App {
     fn quickload(&mut self) {
         let loaded = match self.saves.as_deref() {
             None => Err(NO_SAVE_DIR.to_owned()),
-            Some(dir) => saves::quickload(dir, &self.session.defs)
+            Some(store) => saves::quickload(store, &self.session.defs)
                 .map_err(|why| format!("Quickload failed: {why}")),
         };
         match loaded {
@@ -718,7 +717,7 @@ impl App {
     fn refresh_saves(&mut self) {
         self.ui.save_slots = match self.saves.as_deref() {
             None => Vec::new(),
-            Some(dir) => match saves::list(dir) {
+            Some(store) => match saves::list(store) {
                 Ok(slots) => slots,
                 Err(why) => {
                     self.ui.status = why;
@@ -756,7 +755,7 @@ impl App {
     fn load_save(&mut self, name: &str) {
         let loaded = match self.saves.as_deref() {
             None => Err(NO_SAVE_DIR.to_owned()),
-            Some(dir) => saves::load(dir, name, &self.session.defs)
+            Some(store) => saves::load(store, name, &self.session.defs)
                 .map_err(|why| format!("Load failed: {why}")),
         };
         match loaded {
@@ -773,11 +772,11 @@ impl App {
     fn save_over(&mut self, name: &str) {
         self.ui.status = match self.saves.as_deref() {
             None => NO_SAVE_DIR.to_owned(),
-            Some(dir) => match saves::save(dir, name, &self.session) {
+            Some(store) => match saves::save(store, name, &self.session) {
                 Ok(()) => {
                     self.ui.saved_at = Some(self.session.world.tick);
-                    let path = saves::slot_path(dir, name);
-                    format!("Saved to {} (tick {})", path.display(), self.session.world.tick)
+                    let place = store.place(name);
+                    format!("Saved to {place} (tick {})", self.session.world.tick)
                 }
                 Err(why) => format!("Save failed: {why}"),
             },

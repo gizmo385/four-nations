@@ -1158,12 +1158,14 @@ dependencies = [
 name = "fn_gui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "eframe",
  "egui_kittest",
  "egui_ratatui",
  "fn_sim",
  "fn_tui",
  "fn_ui",
+ "miniz_oxide 0.9.1",
  "ratatui",
  "soft_ratatui",
  "wasm-bindgen",
