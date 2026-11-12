@@ -630,6 +630,15 @@ pub struct AuraDef {
     pub study: f32,
 }
 
+/// What a power source gets on the bank (`bank` upgrade, `steam_power`, #757).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BankDef {
+    /// Terrains at least one tile of the footprint's ring must touch: the source is on the bank.
+    pub beside: Vec<Terrain>,
+    /// The base power radius (before `power_generation`) it has there, if larger than its own.
+    pub radius: u32,
+}
+
 /// How a power source's yard runs its recipe buildings with no crafter (`automate` upgrade,
 /// `great_works`, #725, `world/automate.rs`).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -794,6 +803,9 @@ pub struct BuildingDef {
     /// The tech after which recipe buildings near this power source run with no crafter, with
     /// how (`automate` upgrade, #725), or `None`.
     pub automate_upgrade: Option<(TechId, AutomateDef)>,
+    /// The tech after which a power source on the bank burns no fuel and reaches further (`bank`
+    /// upgrade, `steam_power`, #757), or `None`.
+    pub bank_upgrade: Option<(TechId, BankDef)>,
     /// An aura over units and halls nearby (`AuraDef`), or `None`.
     pub aura: Option<AuraDef>,
     /// At most one per settlement, counting sites, and it can't be taken down (`landmark =
@@ -1679,6 +1691,7 @@ impl BuildingsFile {
                 heat_aura_upgrade: None,
                 fuel_free_upgrade: None,
                 automate_upgrade: None,
+                bank_upgrade: None,
                 aura,
                 landmark: b.landmark,
             });
@@ -2269,12 +2282,14 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                     .filter(|&&n| n)
                     .count()
                 + usize::from(up.automate.is_some())
+                + usize::from(up.bank.is_some())
                 + usize::from(up.spirit_seats.is_some())
                 + usize::from(up.vials_per_year.is_some());
             if named != 1 {
                 return err(format!(
                     "{name:?} must name exactly one property: seats, recipe, free, shelter, \
-                     boost, aura, fuel_free, automate, spirit_seats or vials_per_year"
+                     boost, aura, fuel_free, automate, bank, spirit_seats or \
+                     vials_per_year"
                 ));
             }
             if let Some(n) = tech.nation {
@@ -2359,6 +2374,26 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                 }
                 b.automate_upgrade =
                     Some((TechId(t as u16), AutomateDef { rate: a.rate, radius: a.radius }));
+            }
+            if let Some(bank) = &up.bank {
+                if b.power.is_none() {
+                    return err(format!(
+                        "{name:?} is no power source; bank needs [building.power]"
+                    ));
+                }
+                if bank.beside.is_empty() {
+                    return err(format!("{name:?}: bank beside must name at least one terrain"));
+                }
+                if !(1..=12).contains(&bank.radius) {
+                    return err(format!("bank radius = {} must be 1 to 12", bank.radius));
+                }
+                if let Some((other, _)) = b.bank_upgrade {
+                    return taken(other, "bank");
+                }
+                b.bank_upgrade = Some((
+                    TechId(t as u16),
+                    BankDef { beside: bank.beside.clone(), radius: bank.radius },
+                ));
             }
             if let Some(boost) = up.boost {
                 if b.power.is_none() {

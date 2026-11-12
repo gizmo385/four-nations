@@ -40,11 +40,31 @@ pub struct PowerAt {
 }
 
 impl World {
-    /// The `PowerDef` of the building on `pos`, if it is a power source.
-    /// A known `boost` upgrade (#722) replaces the def's boost.
-    fn power_def(&self, pos: Pos, defs: &Defs) -> Option<PowerDef> {
-        let def = defs.building(self.building_at(pos)?);
+    /// Whether the finished building `b` is on the bank (`bank` upgrade, `steam_power`, #757):
+    /// the tech is known and a tile of its footprint's ring is one of the upgrade's `beside`
+    /// terrains. Nothing else about a building changes with it, until the tech.
+    pub fn on_bank(&self, b: &buildings::Building, defs: &Defs) -> bool {
+        let Some((tech, bank)) = &defs.building(b.id).bank_upgrade else { return false };
+        self.research.is_known(*tech)
+            && b.footprint()
+                .ring()
+                .filter_map(|p| self.map.get(p))
+                .any(|t| bank.beside.contains(&t.terrain))
+    }
+
+    /// The `PowerDef` of the building on `pos`, if it is a power source, as it stands now: a
+    /// known `boost` upgrade (#722) replaces the def's boost, and on the bank (#757) the base
+    /// radius becomes the larger of its own and the bank's. Frontends read the reach through it
+    /// (`PowerDef::radius_for`), so the cursor panel and the map agree with the sim.
+    pub fn power_def(&self, pos: Pos, defs: &Defs) -> Option<PowerDef> {
+        let b = self.building_record(pos)?;
+        let def = defs.building(b.id);
         let mut power = def.power?;
+        if let Some((_, bank)) = &def.bank_upgrade
+            && self.on_bank(b, defs)
+        {
+            power.radius = power.radius.max(bank.radius);
+        }
         if let Some((tech, boost, millis)) = def.boost_upgrade
             && self.research.is_known(tech)
         {

@@ -67,10 +67,12 @@ impl World {
         Some((b.fuel?, defs.building(b.id).fuel.as_ref()?))
     }
 
-    /// Whether `b`'s bunker no longer matters: its `fuel_free` upgrade (#724) is known. It never
-    /// burns, no Refuel is posted, and its effect stays on with the bunker empty.
+    /// Whether `b`'s bunker no longer matters: its `fuel_free` upgrade (#724) is known, or it is
+    /// on the bank (`bank` upgrade, #757). It never burns, no Refuel is posted, and its effect
+    /// stays on with the bunker empty.
     pub fn fuel_free(&self, b: &buildings::Building, defs: &Defs) -> bool {
         defs.building(b.id).fuel_free_upgrade.is_some_and(|t| self.research.is_known(t))
+            || self.on_bank(b, defs)
     }
 
     /// Whether `b`'s effect may run: `Building::fuel_lit`, or fuel-free (#724).

@@ -350,7 +350,7 @@ fn power_reaches(
 ) -> Vec<(Footprint, u32)> {
     let (world, defs) = (&session.world, &session.defs);
     let mut reaches = Vec::new();
-    if let Some(power) = world.building_at(cursor).and_then(|b| defs.building(b).power)
+    if let Some(power) = world.building_record(cursor).and_then(|b| world.power_def(b.anchor, defs))
         && let Some(footprint) = world.footprint_at(cursor)
     {
         reaches.push((footprint, power.radius_for(world.modifiers().power_generation)));

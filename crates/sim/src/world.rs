@@ -30,6 +30,8 @@ mod automate;
 mod avatar;
 mod balloon;
 #[cfg(test)]
+mod bank_tests;
+#[cfg(test)]
 mod bath_tests;
 mod beast;
 mod bending;
