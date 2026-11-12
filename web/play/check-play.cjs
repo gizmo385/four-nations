@@ -11,7 +11,7 @@
 // It never installs anything: `require('playwright')` and `chromium.launch()` as found.
 //
 // The game is pixels, so state comes from what fn_gui publishes on the canvas (`data-fn-mode`,
-// `-tick`, `-seed`; crates/gui/src/page.rs), and "the map draws" is read from a screenshot:
+// `-page` on the title screen, `-tick`, `-seed`; crates/gui/src/page.rs), and "the map draws" is read from a screenshot:
 // the canvas holds many distinct colours (terrain, units, panel), where a blank or failed one
 // holds one or two. Exits 1 on the first failed check.
 
@@ -64,6 +64,20 @@ function ok(cond, what) {
 
 const attr = (page, name) => page.getAttribute('#the_canvas', `data-fn-${name}`);
 
+// Waits for the title screen's step (`menu`, `nation`, `seed`, `load`): the native title (#880)
+// is egui rows, so the step is read from the canvas's attribute, not from the pixels.
+async function titlePage(page, want, timeout = 30000) {
+  await page
+    .waitForFunction(
+      (p) => document.getElementById('the_canvas')?.getAttribute('data-fn-page') === p,
+      want,
+      { timeout },
+    )
+    .catch(async () => {
+      throw new Error(`title step never became ${want}; it is ${JSON.stringify(await attr(page, 'page'))}`);
+    });
+}
+
 async function mode(page, want, timeout = 180000) {
   await page
     .waitForFunction(
@@ -112,6 +126,7 @@ async function colours(page) {
     // 1. No query: the title screen, drawn.
     await page.goto(base);
     await mode(page, 'title');
+    await titlePage(page, 'menu');
     await page.focus('#the_canvas');
     await page.waitForTimeout(500);
     const title = await colours(page);
@@ -119,7 +134,9 @@ async function colours(page) {
 
     // 2. New game, the first nation, seed 7, the small map (the default size): embark.
     await page.keyboard.press('Enter'); // New game
+    await titlePage(page, 'nation');
     await page.keyboard.press('Enter'); // the first nation
+    await titlePage(page, 'seed');
     await page.keyboard.type('7');
     await page.keyboard.press('Enter'); // the seed step's default rows: Small, Exact survey
     await mode(page, 'embark');

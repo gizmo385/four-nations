@@ -122,6 +122,32 @@ pub fn bar(app: &App, palette: &Palette, cols: u16) -> Bar {
     }
 }
 
+/// The bar for a title step (#880): the step's name (`TITLE`, `NATION`, `SEED`, `LOAD`) as the
+/// badge and its keys, the same words `fn_tui::title::draw_title` puts on its bottom row. The
+/// title has no `? keys` tail and no pause.
+pub fn title_bar(mode: Mode, palette: &Palette, cols: u16) -> Bar {
+    let theme = &palette.theme;
+    let colour = |rgb| to_egui(palette.token(rgb), Color32::GRAY);
+    let badge = format!(" {} ", mode.name());
+    let room = usize::from(cols).saturating_sub(badge.chars().count() + 2);
+    let all = keys::hints(mode);
+    let n = keys::fit(&all, room, SEP.chars().count());
+    Bar {
+        badge,
+        badge_fg: colour(theme.on_accent),
+        badge_bg: colour(theme.accent),
+        message: None,
+        items: all.into_iter().take(n).collect(),
+        paused: false,
+        tail: None,
+        dim: colour(theme.dim),
+        accent: colour(theme.accent),
+        fill: colour(theme.panel),
+        warn: colour(theme.warn),
+        on_accent: colour(theme.on_accent),
+    }
+}
+
 /// Draws `bar` into `ui`, which is the bottom panel's one row.
 pub fn show(ui: &mut Ui, bar: &Bar, font: &FontId) {
     ui.spacing_mut().item_spacing.x = 0.0;

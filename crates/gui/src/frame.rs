@@ -27,7 +27,7 @@ use eframe::egui::{
 use fn_tui::color::Palette;
 use fn_tui::layout::{MIN_HEIGHT, MIN_WIDTH};
 use fn_tui::shell::{self, Mode, Shell};
-use fn_tui::{ask, banner, draw, menu};
+use fn_tui::{ask, banner, draw, menu, title};
 use fn_ui::app::App;
 use fn_ui::keyev::KeyEvent;
 use fn_ui::state::{BANNER_HEIGHT, Modal, Prompt, Screen, UiState};
@@ -56,6 +56,8 @@ pub enum BoxKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
     Native,
+    /// The title screen's steps (`fn_gui::title`), natively.
+    Title,
     CellsFull,
     CellsBox(BoxKind),
 }
@@ -67,7 +69,8 @@ pub fn surface(shell: &Shell) -> Surface {
         return Surface::CellsFull;
     }
     match &shell.mode {
-        Mode::Title(_) | Mode::Embark(_) => Surface::CellsFull,
+        Mode::Title(_) => Surface::Title,
+        Mode::Embark(_) => Surface::CellsFull,
         Mode::Game(app) => game_surface(&app.ui),
     }
 }
@@ -182,6 +185,10 @@ impl Frame {
             (Mode::Game(app), Surface::Native | Surface::CellsBox(_)) => {
                 self.show_native(root, app, surface, palette, &metrics, (cols, rows));
             }
+            (Mode::Title(_), Surface::Title) => {
+                self.map = None;
+                self.show_title(root, shell, palette, &metrics, cols);
+            }
             _ => {
                 self.map = None;
                 self.show_cells(root, shell, palette, &metrics, (cols, rows));
@@ -215,6 +222,32 @@ impl Frame {
                 self.timings.cells = started.elapsed().as_secs_f32() * 1000.0;
             },
         );
+    }
+
+    /// The native title screen (#880): its step, and the hint bar with the step's keys. The
+    /// clicks come back as keys, queued for the shell like the side panel's ([`Frame::take_keys`]).
+    fn show_title(
+        &mut self,
+        root: &mut Ui,
+        shell: &mut Shell,
+        palette: &Palette,
+        metrics: &Metrics,
+        cols: u16,
+    ) {
+        let Mode::Title(screen) = &shell.mode else { return };
+        let bar = hints::title_bar(title::hint_mode(&screen.page), palette, cols);
+        self.hint_text = bar.text();
+        egui::Panel::bottom("hints")
+            .exact_size(metrics.cell.y)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE.fill(bar.fill))
+            .show(root, |ui| hints::show(ui, &bar, &metrics.font));
+        let mut keys = Vec::new();
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
+            keys = crate::title::show(ui, screen, shell.defs(), palette);
+        });
+        self.keys.extend(keys);
     }
 
     /// The native game: hint bar, side panel, map, banner, and a box over the map if one is

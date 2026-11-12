@@ -11,8 +11,10 @@
 //!   with a designate tool active makes the rectangle (`fn_ui::pointer`).
 //! - **The side panel** ([`side`]) is `fn_ui::panel::SidePanel` as egui widgets; its clicks are
 //!   the keys they stand for. Its inspector is still the terminal's cells (#882).
-//! - **Cells** ([`cells`]) paint a ratatui buffer as egui shapes: the unconverted screens, the
-//!   title and embark, and boxes.
+//! - **The title** ([`title`]) is native: the steps of `fn_tui::title` as egui rows and buttons,
+//!   every click a key press.
+//! - **Cells** ([`cells`]) paint a ratatui buffer as egui shapes: the unconverted screens,
+//!   embark, and boxes.
 //!
 //! Nothing here reads the clock but [`app`]'s frame time.
 
@@ -30,6 +32,7 @@ pub mod mapview;
 pub mod page;
 pub mod side;
 pub mod theme;
+pub mod title;
 
 /// What a new window or page sets up once: the bundled fonts ([`fonts`]) and the dark theme
 /// ([`theme`]). Both entry points (`main.rs`, native and web) call it.

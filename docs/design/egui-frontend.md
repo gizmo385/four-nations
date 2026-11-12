@@ -177,7 +177,7 @@ One row is roughly one agent PR (the #842 estimates). "Words" means a row-model 
 | 3 | Inspector (#882) | `fn_gui::inspector` | `fn_tui::inspector::settler_view`, tile and placement rows | 1 |
 | 4 | Map mouse: click, select, one-tile apply, hover tooltip, overview cache (#878) | `mapview.rs` | none (`fn_ui::inspect::tooltip_lines`) | 1 |
 | 5 | Game menu, Quit and confirm boxes, prompts, embark exit prompt (#879) | `fn_gui::boxes` | `fn_tui::menu` items, `fn_tui::ask` | 1 |
-| 6 | Title, nation picker, seed step, Load (#880) | `fn_gui::title` | `fn_tui::title` steps | 1 |
+| 6 | Title, nation picker, seed step, Load (#880; done) | `fn_gui::title` | `fn_tui::title` steps | 1 |
 | 7 | Embark (#883) | `fn_gui::embark`, reusing `MapView` | `fn_tui::embark` report | 1.5 |
 | 8 | Shared page frame and the Build screen (#881) | `fn_gui::page`, `fn_gui::screens::build` | (`fn_ui::build` has them) | 1.5 |
 | 9 | Research tree and the school box (#884) | `fn_gui::screens::research` | (`fn_ui::research` has most) | 2 |

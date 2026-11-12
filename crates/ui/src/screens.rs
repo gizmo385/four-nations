@@ -21,6 +21,7 @@ pub mod msglog;
 pub mod nation;
 pub mod research;
 pub mod saves;
+pub mod title;
 pub mod traders;
 
 /// How many rows the Legend tab of the key help has at a text width: what the frontend that draws

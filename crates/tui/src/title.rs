@@ -13,6 +13,7 @@ use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::embark::SurveyMode;
 use fn_sim::{Defs, Nation, World};
 use fn_ui::keys;
+use fn_ui::screens::title as words;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -96,7 +97,7 @@ pub enum SeedRow {
 }
 
 impl SeedRow {
-    const ALL: [SeedRow; 4] =
+    pub const ALL: [SeedRow; 4] =
         [SeedRow::Digits, SeedRow::Size, SeedRow::Survey, SeedRow::Difficulty];
 }
 
@@ -457,7 +458,7 @@ fn toggle_survey(mode: SurveyMode) -> SurveyMode {
 }
 
 /// The seed step's hint for whichever row is highlighted (#290, #298).
-fn seed_row_hint(
+pub fn seed_row_hint(
     row: SeedRow,
     defs: &Defs,
     size_idx: usize,
@@ -465,17 +466,11 @@ fn seed_row_hint(
     difficulty_idx: usize,
 ) -> String {
     match row {
-        SeedRow::Digits => "Type digits, Backspace to edit.".to_owned(),
-        SeedRow::Size => match defs.embark.map_sizes.get(size_idx) {
-            Some(s) => format!("{}: {}x{} tiles.", s.name, s.width, s.height),
-            None => String::new(),
-        },
-        SeedRow::Survey => match survey {
-            SurveyMode::Exact => "Exact: you'll see exactly what's at every site.".to_owned(),
-            SurveyMode::Rough => {
-                "Rough: you won't know exactly what's there until you arrive.".to_owned()
-            }
-        },
+        SeedRow::Digits => words::SEED_HINT.to_owned(),
+        SeedRow::Size => {
+            defs.embark.map_sizes.get(size_idx).map(words::size_hint).unwrap_or_default()
+        }
+        SeedRow::Survey => words::survey_hint(survey).to_owned(),
         SeedRow::Difficulty => match defs.difficulty.presets.get(difficulty_idx) {
             Some(p) => p.hint.clone(),
             None => String::new(),
@@ -575,7 +570,7 @@ pub fn draw_title(
 }
 
 fn draw_menu(screen: &TitleScreen, p: &mut Painter) {
-    p.row(&Row::text("Welcome to the Four Nations.", Tone::Dim));
+    p.row(&Row::text(words::WELCOME, Tone::Dim));
     p.blank();
     for (i, item) in screen.items().into_iter().enumerate() {
         let pointer = if i == screen.cursor { p.marks.pointer } else { " " };
@@ -589,7 +584,7 @@ fn draw_menu(screen: &TitleScreen, p: &mut Painter) {
 }
 
 fn draw_nation(defs: &Defs, cursor: usize, p: &mut Painter) {
-    p.row(&Row::text("Choose a nation (arrows or 1-4):", Tone::Dim));
+    p.row(&Row::text(words::NATION_PROMPT, Tone::Dim));
     p.blank();
     for (i, nation) in Nation::ALL.into_iter().enumerate() {
         let def = defs.nation(nation);
@@ -619,26 +614,29 @@ fn draw_seed(
     p: &mut Painter,
 ) {
     let def = defs.nation(nation);
-    p.row(&Row::text(format!("{} — new game:", def.name), Tone::Title));
+    p.row(&Row::text(words::seed_heading(&def.name), Tone::Title));
     p.blank();
     let pointer = p.marks.pointer;
     let mark = |r: SeedRow| if r == row { pointer } else { " " };
     let tone = |r: SeedRow| if r == row { Tone::Title } else { Tone::Text };
-    p.row(&Row::text(format!("{} Seed: {digits}", mark(SeedRow::Digits)), tone(SeedRow::Digits)));
-    let size_name = defs.embark.map_sizes.get(size_idx).map_or("Small", |s| s.name.as_str());
-    p.row(&Row::text(format!("{} Size: {size_name}", mark(SeedRow::Size)), tone(SeedRow::Size)));
-    let survey_name = match survey {
-        SurveyMode::Exact => "Exact",
-        SurveyMode::Rough => "Rough",
-    };
     p.row(&Row::text(
-        format!("{} Survey: {survey_name}", mark(SeedRow::Survey)),
+        format!("{} {}: {digits}", mark(SeedRow::Digits), words::SEED_LABEL),
+        tone(SeedRow::Digits),
+    ));
+    let size_name = defs.embark.map_sizes.get(size_idx).map_or("Small", |s| s.name.as_str());
+    p.row(&Row::text(
+        format!("{} {}: {size_name}", mark(SeedRow::Size), words::SIZE_LABEL),
+        tone(SeedRow::Size),
+    ));
+    let survey_name = words::survey_name(survey);
+    p.row(&Row::text(
+        format!("{} {}: {survey_name}", mark(SeedRow::Survey), words::SURVEY_LABEL),
         tone(SeedRow::Survey),
     ));
     let difficulty_name =
         defs.difficulty.presets.get(difficulty_idx).map_or("Normal", |p| p.name.as_str());
     p.row(&Row::text(
-        format!("{} Difficulty: {difficulty_name}", mark(SeedRow::Difficulty)),
+        format!("{} {}: {difficulty_name}", mark(SeedRow::Difficulty), words::DIFFICULTY_LABEL),
         tone(SeedRow::Difficulty),
     ));
     p.blank();
@@ -655,7 +653,7 @@ fn draw_seed(
 fn draw_load(screen: &TitleScreen, defs: &Defs, palette: &Palette, inner: Rect, buf: &mut Buffer) {
     if screen.save_slots.is_empty() {
         let mut p = Painter::new(buf, inner, palette);
-        p.row(&Row::text("No saves yet.", Tone::Dim));
+        p.row(&Row::text(words::NO_SAVES, Tone::Dim));
         return;
     }
     save_rows::draw(&screen.save_slots, screen.load_cursor, defs, palette, inner, buf);

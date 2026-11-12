@@ -32,12 +32,17 @@ fn the_map_is_native_and_every_screen_is_cells_for_now() {
 }
 
 #[test]
-fn the_title_screen_and_embark_are_cells() {
-    let title = Shell::new_title(SIZE, None, 1);
+fn the_title_screen_is_native_and_embark_is_cells() {
+    // Every step of the title is the native title (#880), not only the menu.
+    let mut title = Shell::new_title(SIZE, None, 1);
+    assert_eq!(surface(&title), Surface::Title);
+    title.play(&fn_ui::script::parse("<enter>").unwrap());
+    assert_eq!(surface(&title), Surface::Title);
+    title.play(&fn_ui::script::parse("<enter>").unwrap());
+    assert_eq!(surface(&title), Surface::Title);
+    // Enter on the seed step opens embark.
+    title.play(&fn_ui::script::parse("<enter>").unwrap());
     assert_eq!(surface(&title), Surface::CellsFull);
-    let mut next = Shell::new_title(SIZE, None, 1);
-    next.play(&fn_ui::script::parse("<enter>").unwrap());
-    assert_eq!(surface(&next), Surface::CellsFull);
 }
 
 #[test]
