@@ -16,7 +16,7 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 | Path | What | Rules |
 |---|---|---|
 | `crates/sim` (`fn_sim`) | All game rules and state | Headless and deterministic (see below) |
-| `crates/ui` (`fn_ui`) | Frontend logic shared by every UI (tools, text, view models, theme, clock) | Depends on `fn_sim` only. No wall-clock reads. No I/O except `fn_ui::saves`, the one module that reads and writes save files |
+| `crates/ui` (`fn_ui`) | Frontend logic shared by every UI (tools, text, view models, theme, clock, the UI state `App` and its key and pointer handling) | Depends on `fn_sim` only. No wall-clock reads. No I/O except `fn_ui::saves`, the one module that reads and writes save files |
 | `crates/tui` (`fn_tui`) | The terminal frontend (ratatui + crossterm); `cargo run` plays it | Reads `World`, changes it only via sim APIs. Headless by construction: see below |
 | `crates/runfmt` (`fn_runfmt`) | The file formats the agent tooling passes around: the run log's header and lines, the handoff, the campaign ledger (#606) | Depends on `serde` and `serde_json` only (builds for wasm32), so `xtask` can share them without `fn_sim` or `fn_tui`. Game types in them are type parameters or strings; `fn_tui` fixes the typed ones |
 | `crates/harness` (`fn_harness`) | The balance harness (docs/design/balance-harness.md): play styles so far; reads `data/harness.toml` | Depends on `fn_sim`. The only crate that reads `data/harness.toml`; `fn_sim` never does |
