@@ -56,6 +56,9 @@ fn every_name_parses_and_a_bad_one_says_why() {
         "care.close_calls_per_10ph",
         "care.depleted_per_ph",
         "care.suffering",
+        "stage_minute.3",
+        "school_minute",
+        "tally.ice_paid",
     ] {
         assert_eq!(parse(name).name(), name, "name() is parse()'s inverse");
     }
@@ -67,6 +70,30 @@ fn every_name_parses_and_a_bad_one_says_why() {
     assert!(err("food_per_head.summer.2").contains("winter"));
     assert!(err("deaths.5").contains("unknown metric"));
     assert!(err("care.love").contains("unknown metric"));
+    assert!(err("stage_minute.0").contains("no stage"));
+    assert!(err("stage_minute.9").contains("no stage"));
+    assert!(err("tally.gold").contains("no tally"));
+}
+
+/// horizons-phase-4.md, "Measuring it" (#731): the stage minute, the first school learned and a
+/// school's tally.
+#[test]
+fn stage_school_and_tally_read_off_the_record() {
+    let mut rec = record(Nation::Earth, 1);
+    rec.stage_minutes = vec![
+        ("foundation".to_owned(), Some(150.0)),
+        ("pillars".to_owned(), Some(190.0)),
+        ("arch".to_owned(), None),
+        ("rite".to_owned(), None),
+    ];
+    assert_eq!(read("stage_minute.2", &rec), Some(190.0));
+    assert_eq!(read("stage_minute.3", &rec), Some(f64::INFINITY), "unfinished");
+    assert_eq!(read("school_minute", &rec), Some(f64::INFINITY), "no school yet");
+    rec.techs = vec![("fire_making".to_owned(), 6.0), ("metal_city".to_owned(), 171.5)];
+    assert_eq!(read("school_minute", &rec), Some(171.5));
+    assert_eq!(read("tally.rail_powered", &rec), None, "an older record has none");
+    rec.school_tallies = vec![("rail_powered".to_owned(), 2)];
+    assert_eq!(read("tally.rail_powered", &rec), Some(2.0));
 }
 
 #[test]

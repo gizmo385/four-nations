@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use fn_sim::balance::{Flag, FlagClass, Raised, RunRecord};
 use fn_sim::{Defs, Nation};
 
-use crate::config::{Bar, Config, Pair, Target};
+use crate::config::{Bar, Config, Fork, Pair, Target};
 use crate::style::Play;
 
 /// How many other nations must meet a target on a seed for a miss there to be an outlier.
@@ -142,6 +142,25 @@ pub struct PairVerdict {
     pub status: PairStatus,
 }
 
+/// One nation's side of a fork: paired runs, who won each, and whether either won too often.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForkNation {
+    pub nation: Nation,
+    pub paired: u32,
+    pub a_wins: u32,
+    pub b_wins: u32,
+    pub ties: u32,
+    pub status: Status,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForkVerdict {
+    pub fork: Fork,
+    pub nations: Vec<ForkNation>,
+    /// Fail if any nation fails, else Pass if any passes, else no data.
+    pub status: Status,
+}
+
 /// The care rates of one (style, preset), pooled over a nation's runs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CareRow {
@@ -180,6 +199,7 @@ pub struct FlaggedRun {
 pub struct Verdict {
     pub targets: Vec<TargetVerdict>,
     pub pairs: Vec<PairVerdict>,
+    pub forks: Vec<ForkVerdict>,
     pub care: Vec<CareRow>,
     pub hard_sites: Vec<HardSites>,
     pub flagged: Vec<FlaggedRun>,
@@ -201,9 +221,9 @@ impl Verdict {
             .collect()
     }
 
-    /// Whether any target fails (the binary's exit status).
+    /// Whether any target or fork fails (the binary's exit status).
     pub fn failed(&self) -> bool {
-        self.count(Status::Fail) > 0
+        self.count(Status::Fail) > 0 || self.forks.iter().any(|f| f.status == Status::Fail)
     }
 }
 
@@ -415,6 +435,69 @@ fn judge_pair(config: &Config, pair: &Pair, runs: &[Run], defs: &Defs) -> PairVe
     }
 }
 
+/// A fork (`[[fork]]`, #731): per nation, pairs the two sides' runs by seed (both without a
+/// sim-lock or harness-gap flag), counts a win for the side that reads lower by more than `tie`,
+/// and fails a nation where either side wins more than `max_share` of its paired runs.
+fn judge_fork(config: &Config, fork: &Fork, runs: &[Run], defs: &Defs) -> ForkVerdict {
+    let side = |style: &str, preset: &str| -> BTreeMap<(usize, u64), f64> {
+        let idle_style = is_idle(config, style);
+        runs.iter()
+            .filter(|r| r.style == style && r.preset == preset)
+            .filter(|r| {
+                let sim = flags_of(&r.record, FlagClass::SimLock, r.record.minutes, idle_style);
+                let gap = flags_of(&r.record, FlagClass::HarnessGap, r.record.minutes, idle_style);
+                sim.is_empty() && gap.is_empty()
+            })
+            .filter_map(|r| {
+                let nation = Nation::ALL.iter().position(|&n| n == r.record.nation)?;
+                Some(((nation, r.record.seed), fork.metric.read(&r.record, defs)?))
+            })
+            .collect()
+    };
+    let a = side(&fork.a.style, &fork.a.preset);
+    let b = side(&fork.b.style, &fork.b.preset);
+    let nations: Vec<ForkNation> = Nation::ALL
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| fork.nations.is_empty() || fork.nations.iter().any(|x| x == n.as_str()))
+        .map(|(k, &nation)| {
+            let (mut paired, mut a_wins, mut b_wins, mut ties) = (0u32, 0u32, 0u32, 0u32);
+            let mut reached = 0u32;
+            for (key, &va) in a.iter().filter(|((n, _), _)| *n == k) {
+                let Some(&vb) = b.get(key) else { continue };
+                paired += 1;
+                reached += u32::from(va.is_finite() || vb.is_finite());
+                // Two runs that never got there tie, however the infinities compare.
+                if (va.is_infinite() && vb.is_infinite()) || (va - vb).abs() <= fork.tie {
+                    ties += 1;
+                } else if va < vb {
+                    a_wins += 1;
+                } else {
+                    b_wins += 1;
+                }
+            }
+            let too_many = |w: u32| f64::from(w) > fork.max_share * f64::from(paired) + 1e-9;
+            // Pairs where neither side ever got there say nothing about which side is ahead.
+            let status = if paired < config.panel.min_runs.max(1) || reached == 0 {
+                Status::NoData
+            } else if too_many(a_wins) || too_many(b_wins) {
+                Status::Fail
+            } else {
+                Status::Pass
+            };
+            ForkNation { nation, paired, a_wins, b_wins, ties, status }
+        })
+        .collect();
+    let status = if nations.iter().any(|n| n.status == Status::Fail) {
+        Status::Fail
+    } else if nations.iter().any(|n| n.status == Status::Pass) {
+        Status::Pass
+    } else {
+        Status::NoData
+    };
+    ForkVerdict { fork: fork.clone(), nations, status }
+}
+
 fn care_rows(runs: &[Run]) -> Vec<CareRow> {
     let mut combos: Vec<(String, String)> = Vec::new();
     for r in runs {
@@ -540,9 +623,11 @@ pub fn judge(config: &Config, runs: &[Run], defs: &Defs) -> Verdict {
     let targets: Vec<TargetVerdict> =
         config.targets.iter().map(|t| judge_target(config, t, runs, defs)).collect();
     let pairs = config.pairs.iter().map(|p| judge_pair(config, p, runs, defs)).collect();
+    let forks = config.forks.iter().map(|f| judge_fork(config, f, runs, defs)).collect();
     let flagged = flagged_runs(&targets, runs);
     Verdict {
         pairs,
+        forks,
         care: care_rows(runs),
         hard_sites: hard_sites(config, runs, defs),
         flagged,

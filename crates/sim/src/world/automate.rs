@@ -148,6 +148,7 @@ impl World {
             if state.progress >= work {
                 b.craft = None;
                 self.place_ground(pos, Stack { item: output.item, count: output.count });
+                self.tallies.count_school("automated_batches", 1);
             }
         }
     }

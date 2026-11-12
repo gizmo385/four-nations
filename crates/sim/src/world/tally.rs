@@ -28,6 +28,12 @@ pub struct Tallies {
     /// read: a copy has no knowledge to give.
     #[serde(default)]
     scrolls_copied: u32,
+    /// What each school has done (docs/design/horizons-phase-4.md, "Measuring it", #731), by
+    /// tally name: `shore_fish` (shore catches), `automated_batches` (batches a yard finished
+    /// with no crafter), `ice_paid` (ice delivered for stone) and `packed_refund` (items a
+    /// packed-up building gave back). The harness reads the others off the world.
+    #[serde(default)]
+    school: BTreeMap<String, u32>,
 }
 
 impl Tallies {
@@ -51,6 +57,16 @@ impl Tallies {
 
     pub fn scrolls_copied(&self) -> u32 {
         self.scrolls_copied
+    }
+
+    /// The school tally `name` (`Tallies::school`'s doc); 0 if never counted.
+    pub fn school(&self, name: &str) -> u32 {
+        self.school.get(name).copied().unwrap_or(0)
+    }
+
+    pub(super) fn count_school(&mut self, name: &str, count: u32) {
+        let n = self.school.entry(name.to_owned()).or_insert(0);
+        *n = n.saturating_add(count);
     }
 
     pub(super) fn count_copy(&mut self) {

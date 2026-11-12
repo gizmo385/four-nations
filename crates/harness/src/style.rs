@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use fn_sim::autoplay::{BedPolicy, Economy, HealingPolicy, Player, ResearchOrder};
+use fn_sim::autoplay::{BedPolicy, Economy, HealingPolicy, Player, ResearchOrder, SchoolPick};
 use serde::Deserialize;
 
 /// The bundled `data/harness.toml`, compiled in the same way `fn_sim::Defs::bundled` compiles
@@ -48,6 +48,13 @@ enum RawBeds {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+enum RawSchool {
+    First,
+    Second,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum RawResearch {
     SharedFirst,
     BranchFirst,
@@ -65,6 +72,7 @@ struct RawStyle {
     beds: Option<RawBeds>,
     bed_margin: Option<u32>,
     research: Option<RawResearch>,
+    school: Option<RawSchool>,
 }
 
 /// The whole file, as far as styles are concerned: `[[style]]` is read here, and the other
@@ -84,6 +92,8 @@ struct RawFile {
     target: Vec<toml::Value>,
     #[serde(default)]
     pair: Vec<toml::Value>,
+    #[serde(default)]
+    fork: Vec<toml::Value>,
     #[serde(default)]
     noise: Option<toml::Value>,
 }
@@ -107,6 +117,7 @@ impl RawStyle {
             beds,
             bed_margin,
             research: self.research.or(parent.research),
+            school: self.school.or(parent.school),
         }
     }
 }
@@ -117,7 +128,13 @@ pub enum Play {
     /// `opening = "none"`: no command, ever.
     Idle,
     /// `opening = "economy"`, with every knob settled.
-    Economy { farms: bool, healing: HealingPolicy, beds: BedPolicy, research: ResearchOrder },
+    Economy {
+        farms: bool,
+        healing: HealingPolicy,
+        beds: BedPolicy,
+        research: ResearchOrder,
+        school: Option<SchoolPick>,
+    },
 }
 
 /// A play style with `inherits` followed and defaults filled in.
@@ -133,12 +150,13 @@ impl Style {
     pub fn player(&self, people: u32) -> Player {
         match self.play {
             Play::Idle => Player::Idle,
-            Play::Economy { farms, healing, beds, research } => Player::Economy(
+            Play::Economy { farms, healing, beds, research, school } => Player::Economy(
                 Economy::new(people)
                     .with_farms(farms)
                     .with_healing(healing)
                     .with_beds(beds)
-                    .with_research(research),
+                    .with_research(research)
+                    .with_school(school),
             ),
         }
     }
@@ -158,6 +176,7 @@ impl Style {
                     ("beds", raw.beds.is_some()),
                     ("bed_margin", raw.bed_margin.is_some()),
                     ("research", raw.research.is_some()),
+                    ("school", raw.school.is_some()),
                 ];
                 if let Some((field, _)) = extra.iter().find(|(_, set)| *set) {
                     return err(format!(
@@ -199,6 +218,10 @@ impl Style {
                         healing,
                         beds,
                         research,
+                        school: raw.school.map(|s| match s {
+                            RawSchool::First => SchoolPick::First,
+                            RawSchool::Second => SchoolPick::Second,
+                        }),
                     },
                 })
             }

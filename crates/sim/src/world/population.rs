@@ -215,41 +215,47 @@ impl World {
         self.discard_legacy_variant_draw();
         let id = UnitId(self.next_unit);
         self.next_unit += 1;
-        self.units.push(Unit {
-            id,
-            name: name.clone(),
-            // `None` means the settlement's own nation (`World::nation_of`); only a unit of
-            // another nation needs the field set.
-            nation: (drawn != self.nation).then_some(drawn),
-            pos,
-            needs: Needs::full(&defs.needs),
-            chi: defs.chi.max,
-            carrying: None,
-            need_task: None,
-            job_task: None,
-            route: None,
-            work: 0.0,
-            bed: None,
-            healing: None,
-            need_retry_at: [0; 3],
-            healing_retry_at: 0,
-            claim_retry_at: 0,
-            move_progress: 0.0,
-            idle_until: 0,
-            wander_left: 0,
-            bends: 0,
-            bends_by: BTreeMap::new(),
-            rank_credited: Rank::Novice,
-            inside: None,
-            guest: None,
-            beast: None,
-            unhappy_since: None,
-            last_harm: None,
-            exposed_alerted: false,
-            sick_until: None,
-            remedy_retry_at: 0,
-            glider: Glider::default(),
-        });
+        // `units` stays sorted by id, and the Avatar's id is the largest there is: a newcomer
+        // who joins while he is here goes in before him.
+        let at = self.units.partition_point(|u| u.id < id);
+        self.units.insert(
+            at,
+            Unit {
+                id,
+                name: name.clone(),
+                // `None` means the settlement's own nation (`World::nation_of`); only a unit of
+                // another nation needs the field set.
+                nation: (drawn != self.nation).then_some(drawn),
+                pos,
+                needs: Needs::full(&defs.needs),
+                chi: defs.chi.max,
+                carrying: None,
+                need_task: None,
+                job_task: None,
+                route: None,
+                work: 0.0,
+                bed: None,
+                healing: None,
+                need_retry_at: [0; 3],
+                healing_retry_at: 0,
+                claim_retry_at: 0,
+                move_progress: 0.0,
+                idle_until: 0,
+                wander_left: 0,
+                bends: 0,
+                bends_by: BTreeMap::new(),
+                rank_credited: Rank::Novice,
+                inside: None,
+                guest: None,
+                beast: None,
+                unhappy_since: None,
+                last_harm: None,
+                exposed_alerted: false,
+                sick_until: None,
+                remedy_retry_at: 0,
+                glider: Glider::default(),
+            },
+        );
         self.log_event(Arrival { tick: self.tick, unit: id, name });
         true
     }

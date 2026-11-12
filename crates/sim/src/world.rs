@@ -862,6 +862,11 @@ impl World {
     }
 
     /// What the settlement has done over the whole game (`tally.rs`).
+    /// Whether `pos` carries a standing harvest order (`Command::DesignateRepeatingHarvest`).
+    pub fn is_standing_harvest(&self, pos: Pos) -> bool {
+        self.standing_harvest.contains(&pos)
+    }
+
     pub fn tallies(&self) -> &Tallies {
         &self.tallies
     }

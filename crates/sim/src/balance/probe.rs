@@ -499,7 +499,9 @@ impl Probe {
         let queue_empty = world.research().queue().is_empty();
         let research_waiting = queue_empty
             && defs.techs_for(world.nation).any(|(id, t)| {
+                // A school option closed by its sibling can never be set (horizons-phase-4.md).
                 !world.research().is_known(id)
+                    && world.research().closed_by(id, defs).is_none()
                     && t.prereqs.iter().all(|&p| world.research().is_known(p))
             });
 

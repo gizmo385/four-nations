@@ -66,6 +66,10 @@ pub fn plan(config: &Config, seeds: &[u64], filter: &Filter) -> Vec<Job> {
         want(&p.lower.style, &p.lower.preset, p.minutes, p.first_seeds);
         want(&p.higher.style, &p.higher.preset, p.minutes, p.first_seeds);
     }
+    for f in &config.forks {
+        want(&f.a.style, &f.a.preset, f.minutes, f.first_seeds);
+        want(&f.b.style, &f.b.preset, f.minutes, f.first_seeds);
+    }
 
     let keep = |list: &Option<Vec<String>>, id: &str| {
         list.as_ref().is_none_or(|l| l.iter().any(|x| x == id))

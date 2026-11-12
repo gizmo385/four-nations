@@ -115,6 +115,9 @@ impl World {
         // A building raised with no bill (#727) gives none back.
         for cost in def.cost.iter().filter(|_| !record.free) {
             let count = crate::building::DeconstructDef::share_of(cost.count, refund);
+            if self.has_feature(crate::research::Feature::PackUp, defs) {
+                self.tallies.count_school("packed_refund", count);
+            }
             if count > 0 {
                 self.place_ground(pos, Stack { item: cost.item, count });
             }

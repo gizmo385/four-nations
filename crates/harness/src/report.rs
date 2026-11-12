@@ -399,6 +399,47 @@ pub fn render(verdict: &Verdict, header: &Header) -> String {
         block(&mut out, "sensitivity", &pair_lines);
     }
 
+    let fork_lines: Vec<String> = verdict
+        .forks
+        .iter()
+        .flat_map(|f| {
+            let head = format!(
+                "{}  {}  [{}/{} vs {}/{}, ties within {}, max {}]  {}",
+                f.fork.id,
+                match f.status {
+                    Status::Pass => "pass",
+                    Status::Fail => "FAIL",
+                    Status::NoData => "no data",
+                },
+                f.fork.a.style,
+                f.fork.a.preset,
+                f.fork.b.style,
+                f.fork.b.preset,
+                f.fork.tie,
+                share_text(f.fork.max_share),
+                doc_short(&f.fork.doc)
+            );
+            std::iter::once(head).chain(f.nations.iter().map(|n| {
+                format!(
+                    "  {:<6} {} a, {} b, {} ties of {}{}",
+                    n.nation.as_str(),
+                    n.a_wins,
+                    n.b_wins,
+                    n.ties,
+                    n.paired,
+                    match n.status {
+                        Status::Fail => "  FAIL",
+                        Status::NoData => "  no data",
+                        Status::Pass => "",
+                    }
+                )
+            }))
+        })
+        .collect();
+    if !fork_lines.is_empty() {
+        block(&mut out, "forks", &fork_lines);
+    }
+
     block(&mut out, "verdict", &[verdict_line(verdict)]);
     out
 }
@@ -429,6 +470,15 @@ pub fn verdict_line(verdict: &Verdict) -> String {
     }
     let _ = write!(line, "; {} outliers", verdict.outliers().len());
     let _ = write!(line, "; {} flagged runs", verdict.flagged.len());
+    let forks_failing: Vec<&str> = verdict
+        .forks
+        .iter()
+        .filter(|f| f.status == Status::Fail)
+        .map(|f| f.fork.id.as_str())
+        .collect();
+    if !forks_failing.is_empty() {
+        let _ = write!(line, "; forks fail ({})", forks_failing.join(", "));
+    }
     let cant = verdict.pairs.iter().filter(|p| p.status == PairStatus::CantFail).count();
     if cant > 0 {
         let _ = write!(line, "; {cant} sensitivity checks can't fail");

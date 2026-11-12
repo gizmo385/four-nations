@@ -1944,6 +1944,7 @@ impl World {
             // Shore fishing (#727): nothing is used up or rests, so a standing order queues
             // the next catch at once.
             self.tallies.count_harvest(h.item, h.count);
+            self.tallies.count_school("shore_fish", h.count);
             self.place_ground(pos, Stack { item: h.item, count: h.count });
             if self.standing_harvest.contains(&pos) {
                 self.add_job(JobKind::Harvest { pos });

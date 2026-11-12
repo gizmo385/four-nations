@@ -14,6 +14,9 @@
 #                target plus `bed_margin` (#513); "ahead": one ahead, no ceiling
 #   bed_margin   only with beds = "to_target"; absent means the economy opening's own margin
 #   research     "shared_first" (the shared tier, then the nation's branch) or "branch_first"
+#   school       "first" or "second": which of the nation's school techs, in file order, the
+#                opening targets as soon as its capstone is known, ahead of everything else
+#                (horizons-phase-4.md, "Measuring it"); absent: the school is reached in file order
 #   inherits     another style's id; every field not set here comes from it
 #
 # A field left out of a style that doesn't inherit takes the economy opening's own default.
@@ -41,6 +44,17 @@ beds = "ahead"
 id = "branch_first"
 inherits = "steady"
 research = "branch_first"
+
+# horizons-phase-4.md's two school styles: the school straight after its capstone.
+[[style]]
+id = "school_first"
+inherits = "steady"
+school = "first"
+
+[[style]]
+id = "school_second"
+inherits = "steady"
+school = "second"
 
 # difficulty.md's no-input row.
 [[style]]
@@ -277,6 +291,98 @@ metric = "ready_minute"
 at_least = 130                # "ignoring masters and scrolls"
 at_most = 170
 
+# horizons-phase-4.md, "Measuring it": the school arrives in time, and each school does something.
+# A nation's first school, in file order: high_temple (air), northern_city (water),
+# agrarian_ring (earth), sun_warriors (fire); the second: nomad_way, southern_ways, metal_city,
+# great_works.
+[[target]]
+id = "school_by_200_first"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_first"
+metric = "school_minute"
+at_most = 200
+minutes = 300
+
+[[target]]
+id = "school_by_200_second"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_second"
+metric = "school_minute"
+at_most = 200
+minutes = 300
+
+[[target]]
+id = "agrarian_ring_shelters"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_first"
+metric = "tally.sheltered_tiles"
+at_least = 1
+minutes = 300
+nations = ["earth"]
+
+[[target]]
+id = "metal_city_powers"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_second"
+metric = "tally.rail_powered"
+at_least = 1
+minutes = 300
+nations = ["earth"]
+
+[[target]]
+id = "sun_warriors_heal"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_first"
+metric = "tally.aura_heal"
+at_least = 1
+minutes = 300
+nations = ["fire"]
+
+[[target]]
+id = "great_works_automates"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_second"
+metric = "tally.automated_batches"
+at_least = 1
+minutes = 300
+nations = ["fire"]
+
+[[target]]
+id = "northern_city_ice"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_first"
+metric = "tally.ice_paid"
+at_least = 1
+minutes = 300
+nations = ["water"]
+
+[[target]]
+id = "southern_ways_fish"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_second"
+metric = "tally.shore_fish"
+at_least = 1
+minutes = 300
+nations = ["water"]
+
+[[target]]
+id = "high_temple_study"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_first"
+metric = "tally.temple_study"
+at_least = 1
+minutes = 300
+nations = ["air"]
+
+[[target]]
+id = "nomad_way_packs"
+doc = "horizons-phase-4.md#measuring-it"
+style = "school_second"
+metric = "tally.packed_refund"
+at_least = 1
+minutes = 300
+nations = ["air"]
+
 # Rows of those tables that are not targets here yet: the walk per meal at minute 90 against
 # minute 15 (a path-length median from `fn_sim::balance::run`, which `balance sweep` still
 # prints), "population 16 on a beds-only opening" (needs a style that doesn't exist), and
@@ -299,3 +405,33 @@ metric = "deaths"
 lower = { style = "steady", preset = "normal" }
 higher = { style = "steady", preset = "hard" }
 first_seeds = 12
+
+# --- Forks (horizons-phase-4.md, "Measuring it", #731) ---
+# Two runs that must NOT separate too far, per nation: the side that reads lower on `metric` by
+# more than `tie` wins a paired seed, and neither side may win more than `max_share` of them.
+#
+#   a, b        { style, preset }
+#   tie         readings within this are a tie (two runs that never got there tie too)
+#   max_share   default 0.75
+#   minutes     default [panel] minutes
+#   nations     only these nations (default: all)
+[[fork]]
+id = "schools_both_viable"
+doc = "horizons-phase-4.md#measuring-it"
+metric = "stage_minute.3"     # the minute the endeavor's third stage finished
+a = { style = "school_first", preset = "normal" }
+b = { style = "school_second", preset = "normal" }
+tie = 5.0
+max_share = 0.75
+minutes = 300
+
+[[fork]]
+id = "schools_both_viable_hard"
+doc = "horizons-phase-4.md#measuring-it"
+metric = "stage_minute.3"
+a = { style = "school_first", preset = "hard" }
+b = { style = "school_second", preset = "hard" }
+tie = 5.0
+max_share = 0.75
+minutes = 300
+nations = ["earth", "air"]
