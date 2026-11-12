@@ -9,6 +9,7 @@ mod glyphs;
 mod inspector;
 mod keys;
 mod page;
+mod research;
 mod semantic;
 mod side;
 #[cfg(feature = "shots")]

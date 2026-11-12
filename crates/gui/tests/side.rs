@@ -118,7 +118,7 @@ fn clicking_t_opens_research() {
     h.run_steps(3);
     drop(h);
     assert_eq!(state(&app).ui.screen, Some(Screen::Research));
-    assert_eq!(app.frame().surface, Some(Surface::CellsFull));
+    assert_eq!(app.frame().surface, Some(Surface::Page(fn_gui::frame::PageKind::Research)));
 }
 
 #[test]

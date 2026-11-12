@@ -10,7 +10,8 @@
 //!   the map in the middle ([`MapView`]) with the tool banner on its top edge. The side panel
 //!   is native ([`crate::side`], inspector included).
 //! - [`Surface::Page`]: a full screen as egui widgets in the page frame ([`crate::page`]): the
-//!   whole window above the hint bar, the side panel and the map hidden. Build (#881) so far.
+//!   whole window above the hint bar, the side panel and the map hidden. Build (#881) and
+//!   Research (#884) so far.
 //! - [`Surface::Title`] and [`Surface::Embark`]: the title's steps and the embark screen, as
 //!   egui widgets of their own ([`crate::title`], [`crate::embark`]) with the hint bar below.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
@@ -63,6 +64,8 @@ pub enum BoxKind {
 pub enum PageKind {
     /// The Build picker (`fn_gui::screens::build`).
     Build,
+    /// The tech tree (`fn_gui::screens::research`), and its CHOOSE A SCHOOL box.
+    Research,
 }
 
 /// What the shell shows now, as far as the window is concerned.
@@ -111,10 +114,10 @@ fn game_surface(ui: &UiState) -> Surface {
 /// Every screen is cells until its own native painter lands (rows 5 to 13 of the order).
 fn screen_surface(screen: Screen) -> Surface {
     match screen {
+        Screen::Research => Surface::Page(PageKind::Research),
         Screen::Log
         | Screen::Help
         | Screen::Endeavor
-        | Screen::Research
         | Screen::Saves
         | Screen::Nation
         | Screen::Abilities
@@ -298,6 +301,7 @@ impl Frame {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             let clicks = match kind {
                 PageKind::Build => screens::build::show(ui, app, palette, metrics),
+                PageKind::Research => screens::research::show(ui, app, palette, metrics),
             };
             self.keys.extend(clicks);
         });

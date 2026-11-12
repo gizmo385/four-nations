@@ -181,6 +181,38 @@ pub fn confirm_lines(session: &Session, tech: TechId) -> Vec<String> {
     out
 }
 
+/// The CHOOSE A SCHOOL box's title, on its top edge.
+pub const CONFIRM_TITLE: &str = "CHOOSE A SCHOOL";
+
+/// How wide the CHOOSE A SCHOOL box is, in text cells, at most (the border and its padding
+/// come to four more).
+pub const CONFIRM_WIDTH: usize = 64;
+
+/// The box's body as rows wrapped to `text` cells, never cut: the question and what choosing
+/// gives up in the title's tone and the rest as text, a blank row between them
+/// ([`confirm_lines`], less its last line, the keys: [`confirm_buttons`] words those).
+pub fn confirm_body(session: &Session, tech: TechId, marks: &Marks, text: usize) -> Vec<Row> {
+    let mut lines = confirm_lines(session, tech);
+    lines.pop();
+    let mut rows = Vec::new();
+    for (i, line) in lines.into_iter().enumerate() {
+        if line.is_empty() {
+            rows.push(Row::text(String::new(), Tone::Text));
+            continue;
+        }
+        let tone = if i == 0 { Tone::Title } else { Tone::Text };
+        for piece in wrap(&line, text.max(1), usize::MAX, marks.ellipsis) {
+            rows.push(Row::text(piece, tone));
+        }
+    }
+    rows
+}
+
+/// What the box's two answers are called: `Enter` chooses `tech`, `Esc` goes back.
+pub fn confirm_buttons(session: &Session, tech: TechId) -> (String, String) {
+    (format!("Choose {} [Enter]", session.defs.tech(tech).name), "Back [Esc]".to_owned())
+}
+
 pub fn state_tone(state: TechState) -> Tone {
     match state {
         TechState::Known => Tone::Dim,

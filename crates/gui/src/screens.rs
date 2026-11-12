@@ -4,3 +4,4 @@
 //! words are `fn_ui`'s.
 
 pub mod build;
+pub mod research;
