@@ -48,17 +48,8 @@
 //! of a tile) always stay with no tool; the inspector drops its own rows from the bottom
 //! (`Inspector::fitted`).
 
-use fn_sim::building::BuildingId;
-use fn_ui::alerts::Category;
-use fn_ui::bend;
-use fn_ui::build;
-use fn_ui::endeavor::EndeavorStatus;
 use fn_ui::inspect::Hint;
-use fn_ui::toolpanel::{self, Emphasis, Line as ToolLine, ToolState};
-use fn_ui::view::{
-    Activity, SeasonView, SideView, activity_counts, beast_count, food_in_stores, materials,
-    need_flags, season_view, side_view,
-};
+use fn_ui::panel::{ChoiceTones, SidePanel, ToolLine, ToolSection, fold_alerts, fold_kinds};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -67,7 +58,7 @@ use ratatui::style::Color;
 use crate::color::{Palette, Tint};
 use crate::inspector::{Inspector, fit_blocks, inspect};
 use crate::state::UiState;
-use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, meter, wrap};
+use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, wrap};
 pub use fn_ui::view::channel_text;
 
 /// How an action hint reads in the terminal, if it can be taken yet.
@@ -119,8 +110,6 @@ const TOOL_LINES: usize = 5;
 /// At most this many Materials rows show at once, even with room for more (#416,
 /// docs/design/side-panel-v2.md "Zone 1": "Spare height adds a second materials row").
 const MATERIALS_ROWS_MAX: usize = 2;
-/// A research bar is this many cells.
-const BAR_CELLS: usize = 10;
 
 /// A heading (`crate::widgets::heading_row`) and the rows under it.
 struct Section {
@@ -163,32 +152,14 @@ impl Section {
 
 /// Everything the sections show, computed once; the fitting loop picks how much of it to use.
 struct Data {
-    view: SideView,
-    /// The Settlement glance's People row (#416): "People N" left, "Idle N" right.
-    people: Row,
-    /// The Beasts row (#699): `None` with no beast in the settlement, which hides the row.
-    beasts: Option<Row>,
-    /// The need-flags row (#310): `None` when nobody is flagged, which hides the row.
-    need_flags_row: Option<Row>,
-    /// The Settlement glance's Food row (#416): the total and each settler's share.
-    food: Row,
-    /// The winter row (#663): the climate band's winter effects, labelled; `None` with seasons
-    /// off.
-    winter: Option<Row>,
+    /// The words (`fn_ui::panel`): the header, the Settlement glance, the alerts and the Tool
+    /// section, built with no width; the rest of this struct is those words laid out for it.
+    model: SidePanel,
     /// The Settlement glance's Materials rows (#416): non-food items packed into as few rows as
     /// fit the panel's width, each paired with how many distinct kinds it and every row before
     /// it account for, so a dropped tail folds into `+N` kinds. At most [`MATERIALS_ROWS_MAX`]
     /// of them.
     materials: Vec<(Row, usize)>,
-    /// The Settlement glance's Research row (#416): short shape (target, bar, percent), or
-    /// "Research: none set" in Warn with no target.
-    research: Row,
-    /// Under it while the front tech's item bill is short (#729): "Metal 5/8 on the way" or
-    /// "Waiting for 3 Metal", indented.
-    research_bill: Option<Row>,
-    /// The Settlement glance's Gate rows (#416, #235, #242, #663): the signs met, then what is
-    /// still needed; empty with no endeavor in the data.
-    gate: Vec<Row>,
     /// The Tool section's rows (#657), in groups: what the tool does, the Build tool's chosen
     /// building or the Bend tool's current ability, then the rectangle's preview or what the
     /// last one marked, then the tool's toggles. Empty off a tool.
@@ -198,20 +169,11 @@ struct Data {
     alerts: Vec<AlertItem>,
     /// The last section (#653): what the player is looking at, named in its own heading.
     inspector: Inspector,
-    /// The tool list (`/`, #664) is open: the Tool section is that list under a DESIGNATE
-    /// heading, with any tool or none active.
-    tool_list: bool,
-    /// "Harvest · repeating" while the standing-order toggle is on, "Cancel · teardown" while
-    /// the Cancel tool's own toggle is (`UiState::repeating_label`, #277/#335); `None` the rest
-    /// of the time.
-    repeating_label: Option<String>,
 }
 
 /// One open alert in the Alerts section (#656): every row it wraps to, never cut.
 struct AlertItem {
     rows: Vec<Row>,
-    /// Counted in the heading; a notice (news, not a problem) is not.
-    alert: bool,
 }
 
 /// How much of each trimmable block to show. The Settlement glance (#416) isn't knobbed: it
@@ -228,120 +190,17 @@ struct Knobs {
     materials: usize,
 }
 
-/// The People section's header count (#248, docs/design/endgame.md "The transformation"): the
-/// plain total while the settlement is one nation, else the total with the breakdown by nation
-/// ("12 (Water 7, Earth 3, Fire 2)"), in `Nation::ALL`'s order (`view::population_by_nation`).
-fn population_label(view: &SideView) -> String {
-    if view.population.len() <= 1 {
-        return view.people.to_string();
-    }
-    let by_nation: Vec<String> = view.population.iter().map(|(n, c)| format!("{n} {c}")).collect();
-    format!("{} ({})", view.people, by_nation.join(", "))
-}
-
-/// The header (docs/design/side-panel.md "Sections, top to bottom", #654): two rows with the same
-/// shape from the first tick on. The run state and the speed ("▶ Running x1", "‖ Paused x1"),
-/// then the game's one clock (`fn_ui::time::clock_text`): the season, the year and the time left
-/// in it ("Spring Y2 · 15:00 left"), or the day with seasons off. The pair doesn't fit one row of
-/// a 32-column panel. The seed is the panel's own bottom edge, and `Space + -` is the status
-/// line's and the key help's.
-fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
-    let (icon, tone) =
-        if view.paused { (marks.pause, Tone::Paused) } else { (marks.run, Tone::Running) };
-    let word = if view.paused { "Paused" } else { "Running" };
-    vec![
-        Row::text(format!("{icon} {word} x{}", view.speed), tone),
-        Row::text(crate::widgets::clock(&view.clock, marks), Tone::Text),
-    ]
-}
-
-/// The Settlement glance's People row (#416, docs/design/side-panel-v2.md "Zone 1"): "People N"
-/// left, "Idle N" right; the activity breakdown (Haul, Craft, ...) moved to the Nation screen
-/// (`N`, #308), which already groups settlers the same way (`fn_ui::view::activity_counts`).
-fn people_row(session: &Session, view: &SideView) -> Row {
-    let idle = activity_counts(session)
-        .into_iter()
-        .find(|&(a, _)| a == Activity::Idle)
-        .map_or(0, |(_, n)| n);
-    Row::pair(
-        format!("People {}", population_label(view)),
-        Tone::Text,
-        format!("Idle {idle}"),
-        Tone::Text,
-    )
-}
-
-/// The Settlement glance's Beasts row (#699): "Beasts 2" left, and "Hungry 1" right in the warn
-/// tone while any rests at home with an empty bunker. `None` with no beast, which hides the row.
-fn beasts_row(session: &Session) -> Option<Row> {
-    let count = beast_count(session);
-    if count.total == 0 {
-        return None;
-    }
-    let left = format!("Beasts {}", count.total);
-    Some(if count.hungry == 0 {
-        Row::text(left, Tone::Text)
-    } else {
-        Row::pair(left, Tone::Text, format!("Hungry {}", count.hungry), Tone::Warn)
-    })
-}
-
-/// The tone a need-flag word wears (#310): the "bad" half of each `fn_ui::view::need_word` pair
-/// is `Tone::Bad`, the "warn" half `Tone::Warn`.
-fn need_flag_tone(word: &str) -> Tone {
-    match word {
-        "Starving" | "Parched" | "Exhausted" | "Dying" => Tone::Bad,
-        _ => Tone::Warn,
-    }
-}
-
-/// The People section's need-flags row (#310): "Hungry 2  Exhausted 1", each word in its own
-/// tone. `None` when nobody is flagged, which hides the row.
-fn need_flags_row(session: &Session) -> Option<Row> {
-    let flags = need_flags(session);
-    if flags.is_empty() {
-        return None;
-    }
-    let mut spans = Vec::new();
-    for (i, (word, n)) in flags.iter().enumerate() {
-        if i > 0 {
-            spans.push(("  ".to_owned(), Tone::Text));
-        }
-        spans.push((format!("{word} {n}"), need_flag_tone(word)));
-    }
-    Some(Row::spans(spans))
-}
-
-/// The Settlement glance's Food row (#416, #663, docs/design/side-panel-v2.md "Zone 1"): the
-/// total in stores and each settler's share of it ("Food 159 · 13 each").
-fn food_row(session: &Session, view: &SideView, marks: &Marks) -> Row {
-    let food = food_in_stores(session);
-    let each = food / (view.people as u32).max(1);
-    Row::text(format!("Food {food} {} {each} each", marks.dot), Tone::Text)
-}
-
-/// The Settlement glance's winter row (#416, #663), with seasons on: the climate band's winter
-/// effects, labelled ("Winter: mild", "Winter: cold, frost"), Warn-toned exactly when
-/// `season.food_warn` is (autumn or winter, below `winter_food_per_head`). Its own row, since a
-/// labelled outlook no longer fits beside the Food row. `None` with seasons off.
-fn winter_row(season: Option<&SeasonView>) -> Option<Row> {
-    let s = season.filter(|s| !s.outlook.is_empty())?;
-    let tone = if s.food_warn { Tone::Warn } else { Tone::Text };
-    Some(Row::text(format!("Winter: {}", s.outlook), tone))
-}
-
-/// The Settlement glance's Materials rows (#416): non-food items ("Wood 149  Stone 395",
-/// `fn_ui::view::materials`, in the item data's own order), packed into as few rows as fit
-/// `width`, each paired with how many distinct kinds it and every row before it account for, so
-/// a dropped tail folds into `+N` kinds (`sections`'s own job, since the fold has to land on
-/// whichever row fitting actually keeps).
-fn materials_rows(session: &Session, width: usize) -> Vec<(Row, usize)> {
+/// The Settlement glance's Materials rows (#416): the model's items ("Wood 149", in the item
+/// data's own order), packed into as few rows as fit `width`, each paired with how many distinct
+/// kinds it and every row before it account for, so a dropped tail folds into `+N` kinds
+/// (`settlement_rows`'s own job, since the fold has to land on whichever row fitting actually
+/// keeps).
+fn materials_rows(entries: &[String], width: usize) -> Vec<(Row, usize)> {
     let mut rows = Vec::new();
     let mut line = String::new();
     let mut kinds = 0usize;
     let mut cumulative = 0usize;
-    for (name, count) in materials(session) {
-        let entry = format!("{name} {count}");
+    for entry in entries {
         if !line.is_empty() && line.chars().count() + 2 + entry.chars().count() > width {
             cumulative += kinds;
             rows.push((Row::text(std::mem::take(&mut line), Tone::Text), cumulative));
@@ -350,7 +209,7 @@ fn materials_rows(session: &Session, width: usize) -> Vec<(Row, usize)> {
         if !line.is_empty() {
             line.push_str("  ");
         }
-        line.push_str(&entry);
+        line.push_str(entry);
         kinds += 1;
     }
     if !line.is_empty() {
@@ -360,93 +219,19 @@ fn materials_rows(session: &Session, width: usize) -> Vec<(Row, usize)> {
     rows
 }
 
-/// The Settlement glance's Research row (#416, docs/design/side-panel-v2.md "Zone 1"): the
-/// target's name, its bar and its percent, all on one row ("Masonry ██████░░░░ 68%"). With no
-/// target, "Research: none set" in Warn -- the state that most needs the player's attention, not
-/// a dim aside (unlike the old two-row shape's "No target set" / "N pts banked"). With an Archive
-/// standing and no target it reads the scribing progress instead ("Copying scrolls: 90/150").
-fn research_row(view: &SideView, marks: &Marks) -> Row {
-    let r = &view.research;
-    // An Archive with no target: the scribing counter takes the row (#712).
-    if let Some(text) = &r.copying {
-        // The paused text fills the panel's width, so it goes without its key.
-        return if text.chars().count() > 23 {
-            Row::text(text.clone(), Tone::Text)
-        } else {
-            Row::pair(text.clone(), Tone::Text, "[T]", Tone::Dim)
-        };
-    }
-    if r.frac == 0.0 && r.label == "No target set" {
-        return Row::pair("Research: none set", Tone::Warn, "[T]", Tone::Dim);
-    }
-    let [full, empty, flag] = meter(r.frac, BAR_CELLS, Tone::Accent, false, marks);
-    Row::spans(vec![
-        (format!("{} ", r.label), Tone::Strong),
-        full,
-        empty,
-        flag,
-        (format!("{:>3.0}%", r.frac * 100.0), Tone::Text),
-    ])
-}
-
-/// The Settlement glance's Gate rows (#416, #235, #242, #663): the signs met ("Gate 3 of 9
-/// signs") with `[G]`, then under it what the gate still needs ("Needs 4 more people",
-/// `fn_ui::endeavor::gate_detail`) while any sign is missing; once nothing is missing, the line
-/// the old Endeavor section's bar used to sit above (signs met, Ready, or the endeavor's own
-/// stage). Two rows, since the panel's width has no room for both on one. No endeavor in the data
-/// hides them.
-fn gate_rows(e: &EndeavorStatus) -> Vec<Row> {
-    let tone = if e.next.is_empty() { Tone::Text } else { Tone::Warn };
-    vec![
-        Row::pair(format!("Gate {}", e.count), tone, "[G]", Tone::Dim),
-        Row::text(fn_ui::endeavor::gate_detail(&e.next, &e.line), tone),
-    ]
-}
-
-/// The Tool section's one row for the Build tool's current choice (#111, #285): its name marked
-/// and its cost on the right; dimmed with the tech it still needs in place of the cost if it's
-/// somehow locked (the Build modal only ever lets the player choose an unlocked one). A name and
-/// cost too wide to share `width` ("Mine Shaft" and "10 Stone, 6 Wood, 2 Tool, 2x2") take a
-/// row each, the cost right-aligned under the name, rather than the cost crowding the name out.
-fn picker_rows(
-    row: &build::PickerRow,
-    chosen: Option<BuildingId>,
-    marks: &Marks,
-    width: usize,
-) -> Vec<Row> {
-    let mark = if Some(row.id) == chosen { marks.pointer } else { " " };
-    let (name_tone, right, right_tone) = match &row.requires {
-        Some(requires) => (Tone::Dim, requires.clone(), Tone::Warn),
-        None if Some(row.id) == chosen => (Tone::Title, row.cost.clone(), Tone::Dim),
-        None => (Tone::Text, row.cost.clone(), Tone::Dim),
+/// The Tool section's rows for the Build tool's current choice (`fn_ui::panel`'s `picker_row`):
+/// a name and cost too wide to share `width` ("Mine Shaft" and "10 Stone, 6 Wood, 2 Tool, 2x2")
+/// take a row each, the cost right-aligned under the name, rather than the cost crowding the name
+/// out.
+fn picker_rows(row: &Row, width: usize) -> Vec<Row> {
+    let (Some((name, name_tone)), Some((right, right_tone))) = (row.left.first(), &row.right)
+    else {
+        return vec![row.clone()];
     };
-    let name = format!("{mark}{}", row.name);
     if name.chars().count() + 1 + right.chars().count() <= width {
-        return vec![Row::pair(name, name_tone, right, right_tone)];
+        return vec![row.clone()];
     }
-    vec![Row::text(name, name_tone), Row::pair("", Tone::Dim, right, right_tone)]
-}
-
-/// The Tool section's one row while the Bend tool is active (#418, docs/design/side-panel-v2.md
-/// "Zone 3"): the current ability (the one `B` would channel next, or cycles to, #248) and how
-/// many in the settlement could cast it ("Hearthflame 20 benders", `World::caster_count`), or,
-/// for a rank-gated ability, how many hold the rank itself ("2 adepts", "no master",
-/// `fn_ui::text::caster_label`, docs/design/bending.md "Seeing it", #361) -- it stays listed
-/// here even while nobody holds the rank (`usable_abilities` only gates on nation and tech, not
-/// rank), so the player can see what's coming and cycle to it with `B`. The same shape the
-/// Build tool's `picker_rows` gives its one chosen building. `B` already cycles, and the active
-/// tool banner already says `B: next ability` (#307), so the rest of the list moved out rather
-/// than grow a row per ability learned. Empty off the Bend tool, or with nothing castable, which
-/// keeps the Build tool's `picker_rows` in the same slot.
-fn bend_ability_rows(session: &Session, marks: &Marks) -> Vec<Row> {
-    let view = bend::view(session);
-    let Some(current) = view.current() else { return Vec::new() };
-    vec![Row::pair(
-        format!("{}{}", marks.pointer, current.name),
-        Tone::Title,
-        current.casters.clone(),
-        Tone::Dim,
-    )]
+    vec![Row::text(name.clone(), *name_tone), Row::pair("", Tone::Dim, right.clone(), *right_tone)]
 }
 
 /// The Tool section's rows, in groups (`fn_ui::toolpanel`, #657), before the panel knows how
@@ -474,27 +259,25 @@ impl ToolRows {
 /// "Standing order: off" with its state in the tone of on or off.
 fn tool_line_rows(line: &ToolLine, width: usize, marks: &Marks) -> Vec<Row> {
     match line {
-        ToolLine::Text(text, emphasis) => {
-            let tone = if *emphasis == Emphasis::Dim { Tone::Dim } else { Tone::Text };
-            wrap(text, width, TOOL_LINES, marks.ellipsis)
-                .into_iter()
-                .map(|l| Row::text(l, tone))
-                .collect()
-        }
-        ToolLine::Choice { selected, key, name, what, usable } => {
-            vec![choice_row(*selected, *key, name, what, *usable, width, marks)]
-        }
-        ToolLine::Setting { label, value } => {
-            let text = format!("{label}: {value}");
+        ToolLine::Text(text, tone) => wrap(text, width, TOOL_LINES, marks.ellipsis)
+            .into_iter()
+            .map(|l| Row::text(l, *tone))
+            .collect(),
+        ToolLine::Setting { label, value, value_tone } => {
+            let text = ToolLine::setting_text(label, value);
             if text.chars().count() > width {
                 return wrap(&text, width, TOOL_LINES, marks.ellipsis)
                     .into_iter()
                     .map(|l| Row::text(l, Tone::Text))
                     .collect();
             }
-            let tone = if value == "on" { Tone::Ok } else { Tone::Dim };
-            vec![Row::spans(vec![(format!("{label}: "), Tone::Text), (value.clone(), tone)])]
+            vec![Row::spans(vec![(format!("{label}: "), Tone::Text), (value.clone(), *value_tone)])]
         }
+        ToolLine::Choice { selected, key, name, what, tones } => {
+            vec![choice_row(*selected, *key, name, what, *tones, width, marks)]
+        }
+        ToolLine::Building(row) => picker_rows(row, width),
+        ToolLine::Ability(row) => vec![row.clone()],
     }
 }
 
@@ -510,7 +293,7 @@ fn choice_row(
     key: char,
     name: &str,
     what: &str,
-    usable: bool,
+    tones: ChoiceTones,
     width: usize,
     marks: &Marks,
 ) -> Row {
@@ -518,58 +301,23 @@ fn choice_row(
     let head = format!("{mark} ");
     let room = width.saturating_sub(head.chars().count() + 2 + LIST_NAME + 2);
     let what = wrap(what, room.max(1), 1, marks.ellipsis).into_iter().next().unwrap_or_default();
-    let (key_tone, name_tone, what_tone) = match (usable, selected) {
-        (false, _) => (Tone::Dim, Tone::Dim, Tone::Dim),
-        (true, true) => (Tone::Accent, Tone::Title, Tone::Text),
-        (true, false) => (Tone::Accent, Tone::Text, Tone::Dim),
-    };
     Row::spans(vec![
-        (head, if selected { Tone::Title } else { Tone::Text }),
-        (format!("{key} "), key_tone),
-        (format!("{name:<LIST_NAME$}  "), name_tone),
-        (what, what_tone),
+        (head, tones.head),
+        (format!("{key} "), tones.key),
+        (format!("{name:<LIST_NAME$}  "), tones.name),
+        (what, tones.what),
     ])
 }
 
-/// The Tool section's rows for the active tool: `fn_ui::toolpanel`'s groups as rows, with the
-/// Build tool's building or the Bend tool's ability (`picker`) under the description, and the
-/// Gate tool's last result (`notice`, the one tool with no rectangle to report on) after them.
-fn tool_rows(
-    session: &Session,
-    ui: &UiState,
-    picker: Vec<Row>,
-    notice: &str,
-    width: usize,
-    marks: &Marks,
-) -> ToolRows {
-    let state = ToolState {
-        tool: ui.tool,
-        anchor: ui.anchor,
-        cursor: ui.cursor,
-        repeating: ui.repeating,
-        teardown: ui.teardown,
-        choice: ui.choice,
-        marked: ui.marked_now(),
-        list: ui.tool_list,
-    };
-    let mut blocks: Vec<Vec<Row>> = toolpanel::blocks(session, &state)
+/// The Tool section's rows for the active tool: the model's groups as rows `width` cells wide.
+fn tool_rows(tool: Option<&ToolSection>, width: usize, marks: &Marks) -> ToolRows {
+    let Some(tool) = tool else { return ToolRows { blocks: Vec::new(), keep: 0 } };
+    let blocks = tool
+        .blocks
         .iter()
         .map(|b| b.iter().flat_map(|l| tool_line_rows(l, width, marks)).collect())
         .collect();
-    if blocks.is_empty() {
-        return ToolRows { blocks, keep: 0 };
-    }
-    // The list is the whole section: no building or ability row under it.
-    let picker = if ui.tool_list.is_some() { Vec::new() } else { picker };
-    let keep = if picker.is_empty() { 1 } else { 2 };
-    if !picker.is_empty() {
-        blocks.insert(1, picker);
-    }
-    if ui.tool == Tool::Gate && ui.tool_list.is_none() && !notice.is_empty() {
-        let text = ToolLine::Text(notice.to_owned(), Emphasis::Plain);
-        blocks.push(tool_line_rows(&text, width, marks));
-    }
-    ToolRows { blocks, keep }
+    ToolRows { blocks, keep: tool.keep }
 }
 
 fn gather(
@@ -579,76 +327,42 @@ fn gather(
     width: usize,
     winter_food_per_head: u32,
 ) -> Data {
-    let view = side_view(session, ui.tool, &ui.notice, ui.choice, &ui.alerts);
-    let ellipsis = marks.ellipsis;
-    // Just the chosen building (#285 moved the rest of the picker to the Build modal); the Bend
-    // tool uses the same slot for its current ability's one row instead (#248, #418). They sit
-    // in the Tool section under what the tool does (#657).
-    let picker: Vec<Row> = if ui.tool == Tool::Bend {
-        bend_ability_rows(session, marks)
-    } else {
-        view.picker
-            .iter()
-            .find(|row| Some(row.id) == view.choice)
-            .map(|row| picker_rows(row, view.choice, marks, width))
-            .unwrap_or_default()
-    };
-    let tool = tool_rows(session, ui, picker, &view.notice, width, marks);
+    let model = SidePanel::build(session, ui, marks, winter_food_per_head);
+    let tool = tool_rows(model.tool.as_ref(), width, marks);
     // Every alert wraps across as many rows as it needs (#656); what doesn't fit folds away
     // whole, never cut.
-    let alerts = ui
+    let alerts = model
         .alerts
-        .open()
-        .into_iter()
-        .map(|t| {
-            let alert = t.category == Category::Alert;
-            let tone = if alert { Tone::Warn } else { crate::screens::kind_tone(t.kind) };
-            let rows =
-                wrap(&t.text, width, usize::MAX, ellipsis).into_iter().map(|l| Row::text(l, tone));
-            AlertItem { rows: rows.collect(), alert }
+        .entries
+        .iter()
+        .map(|a| {
+            let rows = wrap(&a.text, width, usize::MAX, marks.ellipsis)
+                .into_iter()
+                .map(|l| Row::text(l, a.tone));
+            AlertItem { rows: rows.collect() }
         })
         .collect();
-    let season = season_view(session, winter_food_per_head);
-    let people = people_row(session, &view);
-    let food = food_row(session, &view, marks);
-    let winter = winter_row(season.as_ref());
-    let research = research_row(&view, marks);
-    let research_bill = view.research.bill.as_ref().map(|text| {
-        let tone = if text.starts_with("Waiting") { Tone::Warn } else { Tone::Dim };
-        Row::text(format!("  {text}"), tone)
-    });
-    let gate = view.endeavor.as_ref().map(gate_rows).unwrap_or_default();
     Data {
-        people,
-        beasts: beasts_row(session),
-        need_flags_row: need_flags_row(session),
-        food,
-        winter,
-        materials: materials_rows(session, width),
-        research,
-        research_bill,
-        gate,
+        materials: materials_rows(&model.settlement.materials, width),
         tool,
         alerts,
-        inspector: inspect(session, ui, view.choice, width, marks),
-        tool_list: ui.tool_list.is_some(),
-        repeating_label: ui.repeating_label(),
-        view,
+        inspector: inspect(session, ui, model.choice, width, marks),
+        model,
     }
 }
 
 /// The Settlement glance's own rows (#416, docs/design/side-panel-v2.md "Zone 1"), in order:
-/// People, need flags (if any), Food, Materials (`k.materials` of them, the rest folded into
-/// `+N` kinds on the last one shown), Research, and the Gate (if the data has an endeavor).
-/// Never empty, so [`Section::visible`] always keeps the SETTLEMENT heading on screen.
+/// People, Beasts (if any), need flags (if any), Food, the winter row (with seasons on),
+/// Materials (`k.materials` of them, the rest folded into `+N` kinds on the last one shown),
+/// Research, and the Gate (if the data has an endeavor). Never empty, so [`Section::visible`]
+/// always keeps the SETTLEMENT heading on screen.
 fn settlement_rows(d: &Data, k: Knobs) -> Vec<Row> {
-    let mut rows = vec![d.people.clone()];
-    rows.extend(d.beasts.clone());
-    if let Some(flags) = &d.need_flags_row {
-        rows.push(flags.clone());
-    }
-    rows.push(d.food.clone());
-    rows.extend(d.winter.clone());
+    let s = &d.model.settlement;
+    let mut rows = vec![s.people.clone()];
+    rows.extend(s.beasts.clone());
+    rows.extend(s.need_flags.clone());
+    rows.push(s.food.clone());
+    rows.extend(s.winter.clone());
     let shown = k.materials.min(d.materials.len());
     rows.extend(d.materials.iter().take(shown).map(|(row, _)| row.clone()));
     if shown < d.materials.len() {
@@ -656,23 +370,23 @@ fn settlement_rows(d: &Data, k: Knobs) -> Vec<Row> {
         let total = d.materials.last().map_or(0, |&(_, n)| n);
         let dropped = total.saturating_sub(accounted);
         match rows.last_mut() {
-            Some(last) => last.left.push((format!("  +{dropped}"), Tone::Dim)),
+            Some(last) => last.left.push((fold_kinds(dropped), Tone::Dim)),
             None => rows.push(Row::text(format!("+{dropped}"), Tone::Dim)),
         }
     }
-    rows.push(d.research.clone());
-    rows.extend(d.research_bill.iter().cloned());
-    rows.extend(d.gate.iter().cloned());
+    rows.push(s.research.clone());
+    rows.extend(s.research_bill.iter().cloned());
+    rows.extend(s.gate.iter().cloned());
     rows
 }
 
-/// The active tool's tint ([`crate::banner::tint`]'s own logic, over `Data` rather than
-/// `UiState`, since `sections` doesn't otherwise need the latter): `None` off a tool (Select).
-fn tool_tint(d: &Data) -> Option<Tint> {
-    if d.view.tool == Tool::Harvest && d.repeating_label.is_some() {
+/// The active tool's tint ([`crate::banner::tint`]'s own logic, over the model rather than
+/// `UiState`): `None` off a tool (Select).
+fn tool_tint(t: &ToolSection) -> Option<Tint> {
+    if t.tool == Tool::Harvest && t.repeating {
         Some(Tint::RepeatingHarvest)
     } else {
-        Tint::for_tool(d.view.tool)
+        Tint::for_tool(t.tool)
     }
 }
 
@@ -689,7 +403,7 @@ fn alert_rows(alerts: &[AlertItem], shown: usize) -> Vec<Row> {
         rows.extend(alert.rows.iter().cloned());
     }
     if shown < alerts.len() {
-        rows.push(Row::text(format!("and {} more, press L", alerts.len() - shown), Tone::Dim));
+        rows.push(Row::text(fold_alerts(alerts.len() - shown), Tone::Dim));
     }
     rows
 }
@@ -708,28 +422,20 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
     // RESEARCH and ENDEAVOR headings (#416): the zone never gives up a row, so it's always
     // visible and never knobbed down past `settlement_rows`'s own growth (the Materials section's
     // second row).
-    let settlement = Section::new("SETTLEMENT", "[N]", settlement_rows(d, k)).always();
-    // How many alerts are open, then the key that lists them all (#656).
-    let open = d.alerts.iter().filter(|a| a.alert).count();
-    let right = if open == 0 {
-        "[L]".to_owned()
-    } else {
-        format!("{open} {} [L]", Marks::new(palette.ascii).dot)
-    };
-    let alerts = Section::new("ALERTS", right, alert_rows(&d.alerts, k.alerts));
+    let s = &d.model.settlement;
+    let settlement = Section::new(&s.title, &s.right, settlement_rows(d, k)).always();
+    let a = &d.model.alerts;
+    let alerts = Section::new(&a.title, &a.right, alert_rows(&d.alerts, k.alerts));
     // Just above Here, in the tool's own tint (docs/design/side-panel.md "Headings"). Select
     // mode has no tool to talk about.
-    let tool = (d.view.tool != Tool::Select || d.tool_list).then(|| {
+    let tool = d.model.tool.as_ref().map(|t| {
         let rows = fit_blocks(&d.tool.blocks, d.tool.keep, k.tool);
         // The list has its own heading, in the plain heading tone: it is about no one tool.
-        if d.tool_list {
-            return Section::new("DESIGNATE", "[/]", rows).always();
+        if t.list {
+            return Section::new(&t.title, &t.right, rows).always();
         }
-        // "Harvest · repeating" or "Cancel · teardown" while the tool's own `O` toggle is on
-        // (#277/#335), else just the tool's name.
-        let name = d.repeating_label.clone().unwrap_or_else(|| d.view.tool.name().to_owned());
-        let tone = tool_tint(d).map_or(Tone::Heading, |t| Tone::Custom(palette.tint_rgb(t)));
-        Section::new(name, format!("[{}]", d.view.tool.key()), rows).always().tint(tone)
+        let tone = tool_tint(t).map_or(Tone::Heading, |tint| Tone::Custom(palette.tint_rgb(tint)));
+        Section::new(&t.title, &t.right, rows).always().tint(tone)
     });
     // The inspector, which comes last and takes every row left (#653), is drawn after these.
     let all = [Some(settlement), Some(alerts), tool];
@@ -759,15 +465,15 @@ pub fn draw_panel(
     let inner = Rect::new(area.left() + 2, area.top() + 1, area.width - 4, area.height - 2);
     let winter_food_per_head = palette.glyphs.season.winter_food_per_head;
     let d = gather(session, ui, &marks, usize::from(inner.width), winter_food_per_head);
-    let title = format!(" {0} {1} {0} ", marks.seal, d.view.nation.to_uppercase());
-    let footer = format!("seed {}", d.view.seed);
+    let title = format!(" {} ", d.model.title);
+    let footer = d.model.footer.clone();
     draw_frame(buf, area, palette, &title, TitleAt::Centre, &footer);
 
     // Fit: the Settlement glance (#416) never gives up a row, so only Alerts and the Tool's
     // groups (from the last) shrink here, until the inspector keeps the rows it is never left
     // without; the glance's own growth -- a second Materials row -- is a separate pass below,
     // once this settles.
-    let head = header(&d.view, &marks);
+    let head = d.model.header.clone();
     let materials_cap = d.materials.len().min(MATERIALS_ROWS_MAX);
     // Fitting gives up alerts beyond the newest, but never the newest itself while at least one
     // is live (#415): the ALERTS heading on its own, with every row gone, would otherwise read as
@@ -780,7 +486,7 @@ pub fn draw_panel(
     let glance = head.len() + 1 + settlement_rows(&d, k).len();
     let below = usize::from(inner.height).saturating_sub(glance);
     k.alerts = alerts_within(&d.alerts, below / 2);
-    let tool_active = d.view.tool != Tool::Select || d.tool_list;
+    let tool_active = d.model.tool.is_some();
     let needs = |k: Knobs| height(head.len(), &sections(&d, k, palette), &d.inspector, tool_active);
     while needs(k) > usize::from(inner.height) {
         if k.alerts > alerts_floor {
@@ -854,48 +560,21 @@ mod tests {
         );
     }
 
-    /// The Build tool's picker row (#111, #275): the chosen building is marked and keeps its
-    /// cost; a locked one is dimmed, with the tech it still needs in place of the cost.
-    #[test]
-    fn a_picker_row_marks_the_chosen_building_and_dims_a_locked_one() {
-        use fn_sim::Nation;
-        let session = Session::new(7, Nation::Earth, 48, 32);
-        let rows = build::picker_rows(&session);
-        let marks = Marks::new(false);
-        let bed = rows.iter().find(|r| r.name == "Bed").unwrap();
-        let one = |r, chosen| {
-            let mut rows = picker_rows(r, chosen, &marks, 60);
-            assert_eq!(rows.len(), 1);
-            rows.remove(0)
-        };
-        let chosen = one(bed, Some(bed.id));
-        assert_eq!(chosen.plain(), format!("{}Bed {}", marks.pointer, bed.cost));
-        assert_eq!(chosen.left[0].1, Tone::Title);
-
-        let unchosen = one(bed, None);
-        assert!(unchosen.plain().starts_with(' '), "{}", unchosen.plain());
-
-        let locked = rows.iter().find(|r| r.locked()).expect("Earth has a locked building");
-        let row = one(locked, None);
-        assert_eq!(row.left[0].1, Tone::Dim);
-        assert_eq!(row.right.as_ref().unwrap().0, *locked.requires.as_ref().unwrap());
-        assert_eq!(row.right.as_ref().unwrap().1, Tone::Warn);
-    }
-
     /// A name and cost too wide to share the panel take a row each, so the name isn't crowded
-    /// out by the cost (the Mine Shaft's "10 Stone, 6 Wood, 2 Tool, 2x2").
+    /// out by the cost (the Mine Shaft's "10 Stone, 6 Wood, 2 Tool, 2x2"); one that fits stays
+    /// one row.
     #[test]
     fn a_picker_row_too_wide_for_the_panel_puts_the_cost_on_its_own_row() {
-        use fn_sim::Nation;
-        let session = Session::new(7, Nation::Earth, 48, 32);
-        let rows = build::picker_rows(&session);
         let marks = Marks::new(false);
-        let bed = rows.iter().find(|r| r.name == "Bed").unwrap();
-        let width = 1 + "Bed".len() + 1 + bed.cost.len() - 1;
-        let split = picker_rows(bed, Some(bed.id), &marks, width);
+        let cost = "5 Wood, 1x1";
+        let row = Row::pair(format!("{}Bed", marks.pointer), Tone::Title, cost, Tone::Dim);
+        let width = 1 + "Bed".len() + 1 + cost.len();
+        assert_eq!(picker_rows(&row, width), vec![row.clone()]);
+        let split = picker_rows(&row, width - 1);
         assert_eq!(split.len(), 2);
         assert_eq!(split[0].plain(), format!("{}Bed", marks.pointer));
-        assert_eq!(split[1].right.as_ref().unwrap().0, bed.cost);
+        assert_eq!(split[0].left[0].1, Tone::Title);
+        assert_eq!(split[1].right.as_ref().unwrap(), &(cost.to_owned(), Tone::Dim));
     }
 
     /// A unit standing on its tile and channelling (#278) names the ability and the time left;
