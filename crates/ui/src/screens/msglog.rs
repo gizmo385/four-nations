@@ -43,26 +43,92 @@ pub fn line_tone(kind: Kind, category: Category) -> Tone {
     if category == Category::Alert { Tone::Warn } else { kind_tone(kind) }
 }
 
+/// One filter of the log's filter row: what a window shows as a button, and the key it presses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Chip {
+    /// The digit that picks it: `0` for all, `1` to `5` for a kind of line.
+    pub key: char,
+    /// "All", "Alerts", ...
+    pub label: &'static str,
+    /// What it shows: `None` for all.
+    pub filter: Option<Category>,
+    /// Whether it is the filter that is on.
+    pub on: bool,
+}
+
+/// The filters, All first and then each kind of line, with the one that is on marked.
+pub fn chips(filter: Option<Category>) -> Vec<Chip> {
+    let mut chips = vec![Chip { key: '0', label: "All", filter: None, on: filter.is_none() }];
+    chips.extend(Category::ALL.iter().map(|&c| Chip {
+        key: c.key(),
+        label: c.label(),
+        filter: Some(c),
+        on: filter == Some(c),
+    }));
+    chips
+}
+
 /// The filter row: `Show  [All]  1 Alerts  2 People ...`, the one that is on in brackets and the
 /// title tone, the rest dim. For the `--watch` spectator (`spectating`) the chips carry no
 /// digits: they are not its keys, `Tab` steps through them.
 pub fn filter_row(filter: Option<Category>, spectating: bool) -> Row {
     let mut spans = vec![("Show".to_owned(), Tone::Dim)];
-    let mut chip = |on: bool, text: String| {
+    for chip in chips(filter) {
         spans.push(("  ".to_owned(), Tone::Text));
-        if on {
+        let text = if spectating || chip.filter.is_none() {
+            chip.label.to_owned()
+        } else {
+            format!("{} {}", chip.key, chip.label)
+        };
+        if chip.on {
             spans.push((format!("[{text}]"), Tone::Title));
         } else {
             spans.push((text, Tone::Dim));
         }
-    };
-    chip(filter.is_none(), "All".to_owned());
-    for c in Category::ALL {
-        let text =
-            if spectating { c.label().to_owned() } else { format!("{} {}", c.key(), c.label()) };
-        chip(filter == Some(c), text);
     }
     Row::spans(spans)
+}
+
+/// What stands before a line of the log: the heading where its season (or day) begins, and the
+/// time left in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stamp {
+    /// "WINTER, YEAR 1": on the first line of a stretch of game time. An open fold's own lines
+    /// sit under it, in its heading, and never have one.
+    pub heading: Option<String>,
+    /// "8:11 left".
+    pub left: String,
+}
+
+/// The stamps of `lines`, one each.
+pub fn stamps(session: &Session, lines: &[Line]) -> Vec<Stamp> {
+    let seasons = session.world.knobs(&session.defs).seasons;
+    let mut period: Option<Period> = None;
+    lines
+        .iter()
+        .map(|line| {
+            let time = game_time(&session.defs, line.tick, seasons);
+            let mut heading = None;
+            if !line.key.sub && period.as_ref() != Some(&time.period) {
+                heading = Some(time.heading());
+                period = Some(time.period.clone());
+            }
+            Stamp { heading, left: time.left() }
+        })
+        .collect()
+}
+
+/// What the log says when no line shows under `filter`.
+pub fn empty_text(filter: Option<Category>, spectating: bool) -> String {
+    match filter {
+        None => "Nothing has happened yet: no bends, no discoveries, no deaths.".to_owned(),
+        Some(c) if spectating => {
+            format!("Nothing under {} yet. Press Tab to go on to the next kind.", c.label())
+        }
+        Some(c) => {
+            format!("Nothing under {} yet. Press {} again to see everything.", c.label(), c.key())
+        }
+    }
 }
 
 /// The log's rows below the filter row, `width` cells wide, and where the cursor's line is in
@@ -86,27 +152,15 @@ pub fn body(
     marks: &Marks,
 ) -> Body {
     if lines.is_empty() {
-        let none = match filter {
-            None => "Nothing has happened yet: no bends, no discoveries, no deaths.".to_owned(),
-            Some(c) if spectating => {
-                format!("Nothing under {} yet. Press Tab to go on to the next kind.", c.label())
-            }
-            Some(c) => format!(
-                "Nothing under {} yet. Press {} again to see everything.",
-                c.label(),
-                c.key()
-            ),
-        };
+        let none = empty_text(filter, spectating);
         let rows = wrap(&none, width, usize::MAX, marks.ellipsis)
             .into_iter()
             .map(|line| Row::text(line, Tone::Dim))
             .collect();
         return Body { rows, cursor: None };
     }
-    let seasons = session.world.knobs(&session.defs).seasons;
-    let times: Vec<_> = lines.iter().map(|l| game_time(&session.defs, l.tick, seasons)).collect();
-    let stamps: Vec<String> = times.iter().map(|t| t.left()).collect();
-    let stamp_width = stamps.iter().map(|s| s.chars().count()).max().unwrap_or(0);
+    let stamped = stamps(session, lines);
+    let stamp_width = stamped.iter().map(|s| s.left.chars().count()).max().unwrap_or(0);
     // The pointer, the stamp, the fold's sign: "▸ 8:11 left + text".
     let lead = 2 + stamp_width + 1 + 2;
     let room = width.saturating_sub(lead).max(1);
@@ -114,12 +168,9 @@ pub fn body(
     let cursor = model::index_of(lines, at);
     let mut rows = Vec::new();
     let mut span = None;
-    let mut period: Option<&Period> = None;
-    for (i, ((line, stamp), time)) in lines.iter().zip(&stamps).zip(&times).enumerate() {
-        // An open fold's own lines sit under it, in its heading.
-        if !line.key.sub && period != Some(&time.period) {
-            period = Some(&time.period);
-            let heading = format!("{rule} {} {rule}", time.heading());
+    for (i, (line, stamp)) in lines.iter().zip(&stamped).enumerate() {
+        if let Some(heading) = &stamp.heading {
+            let heading = format!("{rule} {heading} {rule}");
             rows.push(Row::text(fit(&heading, width, marks.ellipsis), Tone::Title));
         }
         let first = rows.len();
@@ -135,7 +186,7 @@ pub fn body(
         let text = wrap(&line.text, room.saturating_sub(indent).max(1), usize::MAX, marks.ellipsis);
         for (n, part) in text.into_iter().enumerate() {
             let head = if n == 0 {
-                format!("{stamp:>stamp_width$} ")
+                format!("{:>stamp_width$} ", stamp.left)
             } else {
                 " ".repeat(stamp_width + 1)
             };
@@ -324,6 +375,28 @@ mod tests {
     use fn_sim::world::UnitId;
 
     use super::*;
+
+    /// A window's buttons are the filter row's chips: All on `0`, each kind on its digit.
+    #[test]
+    fn the_chips_are_the_filter_rows_with_their_keys() {
+        let chips = chips(Some(Category::People));
+        let words: Vec<_> = chips.iter().map(|c| (c.key, c.label, c.on)).collect();
+        assert_eq!(
+            words,
+            [
+                ('0', "All", false),
+                ('1', "Alerts", false),
+                ('2', "People", true),
+                ('3', "Knowledge", false),
+                ('4', "Bending", false),
+                ('5', "Work", false),
+            ]
+        );
+        for chip in &chips {
+            assert_eq!(chip.filter, Category::from_key(chip.key));
+        }
+        assert!(super::chips(None)[0].on);
+    }
 
     #[test]
     fn the_filter_row_brackets_the_one_that_is_on() {

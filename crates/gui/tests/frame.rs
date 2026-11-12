@@ -19,7 +19,7 @@ fn game(script: &str) -> Shell {
 }
 
 #[test]
-fn the_map_is_native_and_every_screen_is_cells_for_now() {
+fn the_map_and_every_full_screen_are_native() {
     assert_eq!(surface(&game("")), Surface::Native);
     // A tool, a rectangle corner and a selected settler are all the map.
     assert_eq!(surface(&game("h")), Surface::Native);
@@ -33,11 +33,10 @@ fn the_map_is_native_and_every_screen_is_cells_for_now() {
     assert_eq!(surface(&game("m")), Surface::Page(PageKind::Traders));
     assert_eq!(surface(&game("n")), Surface::Page(PageKind::Nation));
     assert_eq!(surface(&game("g")), Surface::Page(PageKind::Endeavor));
-    // The other full screens: key help and the message log (Saves needs a store, which these
-    // shells have none of).
-    for keys in ["?", "l"] {
-        assert_eq!(surface(&game(keys)), Surface::CellsFull, "{keys}");
-    }
+    // And the message log and the key help (#888).
+    assert_eq!(surface(&game("l")), Surface::Page(PageKind::Log));
+    assert_eq!(surface(&game("?")), Surface::Page(PageKind::Help));
+    // Saves needs a store, which these shells have none of; its page is tested in saves.rs.
 }
 
 #[test]
@@ -83,7 +82,7 @@ fn the_game_menu_and_its_questions_are_boxes_over_the_native_map() {
 #[test]
 fn a_question_over_a_screen_or_a_page_is_a_box_over_it() {
     for (keys, base) in [
-        ("?", Surface::CellsFull),
+        ("?", Surface::Page(PageKind::Help)),
         ("u", Surface::Page(PageKind::Build)),
         ("n", Surface::Page(PageKind::Nation)),
     ] {
@@ -190,10 +189,15 @@ fn the_menu_is_a_box_and_the_bar_says_so() {
     assert!(app.frame().hint_text.starts_with("MENU"), "{}", app.frame().hint_text);
 }
 
-/// A full screen is cells over the whole window: no hint bar of its own, the terminal's row.
+/// What is still the terminal's (the LOST TEACHING box, #743) is cells over the whole window:
+/// no hint bar of its own, the terminal's row. Every full screen is a native page now (#888).
 #[test]
 fn a_full_screen_is_the_whole_window_in_cells() {
-    let mut app = GuiApp::with_shell(game("?"));
+    let mut shell = game("");
+    if let fn_tui::shell::Mode::Game(app) = &mut shell.mode {
+        app.ui.modal = Some(fn_ui::state::Modal::Teaching);
+    }
+    let mut app = GuiApp::with_shell(shell);
     let mut h = harness(&mut app, egui::vec2(1600.0, 960.0));
     h.run_steps(2);
     drop(h);

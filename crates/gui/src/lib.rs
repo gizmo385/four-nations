@@ -16,7 +16,7 @@
 //!   every click a key press.
 //! - **Pages** ([`page`], [`screens`]): the full screens as egui widgets in one frame, over the
 //!   whole window above the hint bar. Build (#881), Research (#884), Abilities and Traders (#886),
-//!   Saves (#885), the Nation roster and Endeavor (#887) so far.
+//!   Saves (#885), the Nation roster and Endeavor (#887), the message log and the key help (#888).
 //! - **Embark** ([`embark`]) is native: the survey on square tiles and the site report as a side
 //!   panel (`fn_ui::embark`'s rows); a click on the map is the arrow keys to that block.
 //! - **Boxes** ([`boxes`]): the game menu, the confirm boxes and embark's exit prompt as

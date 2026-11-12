@@ -11,8 +11,8 @@
 //!   is native ([`crate::side`], inspector included).
 //! - [`Surface::Page`]: a full screen as egui widgets in the page frame ([`crate::page`]): the
 //!   whole window above the hint bar, the side panel and the map hidden. Build (#881), Research
-//!   (#884), Abilities and Traders (#886), Saves (#885), the Nation roster and Endeavor (#887) so
-//!   far.
+//!   (#884), Abilities and Traders (#886), Saves (#885), the Nation roster and Endeavor (#887),
+//!   the message log and the key help (#888): every full screen.
 //! - [`Surface::Title`] and [`Surface::Embark`]: the title's steps and the embark screen, as
 //!   egui widgets of their own ([`crate::title`], [`crate::embark`]) with the hint bar below.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
@@ -69,6 +69,10 @@ pub enum BoxKind {
 pub enum PageKind {
     /// The Build picker (`fn_gui::screens::build`).
     Build,
+    /// The message log (`fn_gui::screens::log`).
+    Log,
+    /// The key help and its legend (`fn_gui::screens::help`).
+    Help,
     /// The tech tree (`fn_gui::screens::research`), and its CHOOSE A SCHOOL box.
     Research,
     /// The abilities list (`fn_gui::screens::abilities`).
@@ -124,7 +128,8 @@ fn screen_surface(screen: Screen) -> Surface {
         Screen::Saves => Surface::Page(PageKind::Saves),
         Screen::Nation => Surface::Page(PageKind::Nation),
         Screen::Endeavor => Surface::Page(PageKind::Endeavor),
-        Screen::Log | Screen::Help => Surface::CellsFull,
+        Screen::Log => Surface::Page(PageKind::Log),
+        Screen::Help => Surface::Page(PageKind::Help),
     }
 }
 
@@ -337,6 +342,8 @@ impl Frame {
                 PageKind::Saves => screens::saves::show(ui, app, palette, metrics),
                 PageKind::Nation => screens::nation::show(ui, app, palette, metrics),
                 PageKind::Endeavor => screens::endeavor::show(ui, app, palette, metrics),
+                PageKind::Log => screens::log::show(ui, app, palette, metrics),
+                PageKind::Help => screens::help::show(ui, app, palette, metrics),
             };
             self.keys.extend(clicks);
         });
