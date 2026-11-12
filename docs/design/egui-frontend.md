@@ -288,22 +288,28 @@ device. v1 leaves it on keyboard wording.
 
 ## Testing in CI
 
-Today `xtask` excludes `fn_gui` from `cargo xtask ci` (`EXCLUDED` in `xtask/src/main.rs`). Its
-one snapshot test panics with "No adapter found" without a GPU or lavapipe.
+`fn_gui` is in `cargo xtask ci` (#875). Its one pixel test needs a GPU or lavapipe ("No adapter
+found" otherwise), so it sits behind the `shots` feature, which the gate leaves off.
 
-**Recommended: semantic UI tests, no pixels (#875).**
+**Semantic UI tests, no pixels (#875).**
 
-- Remove `fn_gui` from `EXCLUDED`. The gate builds, lints and tests it. Building needs no native
-  libraries (they are `dlopen`ed at run time), and no test opens a window.
+- The gate builds, lints and tests `fn_gui`. Building needs no native libraries (they are
+  `dlopen`ed at run time), and no test opens a window.
 - `egui_kittest` without its `wgpu` feature: a `Harness` runs `GuiApp` frames headlessly, and
   tests find widgets through the AccessKit tree (`get_by_label("People 6")`,
   `.click()`, key presses). That covers "the panel shows X", "clicking the alert puts the
   cursor there" and "Esc opens the menu box". The cost is a software tree walk, not a renderer.
+  Cell-painted text is invisible to AccessKit, so `fn_gui::cells::expose` labels each non-blank
+  row of a region with its text (the side panel and hint bar while the map widget shows, the
+  whole frame on a page or the title). `tests/semantic.rs` finds `Running x1` that way, presses
+  Space, and finds `Paused x1`. Native widgets (#877) carry their own labels; the same words
+  keep the tests valid.
 - Logic tests stay as they are: key translation, camera maths, glyph coverage, and click-vs-key
   command logs.
-- Clippy for `fn_gui` on `wasm32-unknown-unknown` joins `WASM_CRATES`. #859 adds the full web
+- Clippy for `fn_gui` on `wasm32-unknown-unknown` is in `WASM_CRATES`. #859 adds the full web
   build to CI.
-- The pixel snapshot moves behind a `shots` cargo feature, off in the gate.
+- The pixel snapshot and the `gui-shot` example are behind the `shots` cargo feature, off in the
+  gate (so the gate does not compile wgpu, and does not lint `examples/shot.rs`).
 
 **Not in the gate: pixel snapshots.** They would need `mesa-vulkan-drivers` on the runner,
 committed PNGs with a tolerance, and agents reviewing image diffs on every palette tweak. The

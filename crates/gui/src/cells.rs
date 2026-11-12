@@ -8,6 +8,10 @@
 //!    then one text shape per glyph, in the bundled monospace font ([`crate::fonts`]), with
 //!    colours through [`crate::color`].
 //!
+//! 3. [`expose`] tells the accessibility tree what the shapes say. Painted glyphs are not text
+//!    to AccessKit, so a screen reader and the kittest semantic tests (#875) would see an empty
+//!    window. It adds one label per row of a region, holding that row's text.
+//!
 //! This replaces `egui_ratatui` + `soft_ratatui`, which rasterised every cell on the CPU and
 //! uploaded a texture each frame (5 to 7 ms in release at the spike's size). Here the GPU
 //! draws the glyphs from egui's own font atlas, and the CPU only builds shapes.
@@ -19,7 +23,8 @@
 
 use eframe::egui::epaint::text::FontsView;
 use eframe::egui::{
-    self, Color32, FontFamily, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2,
+    self, Color32, FontFamily, FontId, Mesh, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2,
+    WidgetInfo, pos2, vec2,
 };
 use ratatui::buffer::{Buffer, Cell};
 use ratatui::style::Modifier;
@@ -230,4 +235,46 @@ pub fn shapes(
 pub fn paint(painter: &Painter, origin: Pos2, metrics: &Metrics, layout: &CellLayout<'_>) {
     let shapes = painter.fonts_mut(|fonts| shapes(fonts, origin, metrics, layout));
     painter.extend(shapes);
+}
+
+/// The text of `layout`'s row `row` between columns `cols`, trimmed. Glyphs come in column
+/// order; a blank between two is one space (a wide glyph's second cell holds no glyph).
+fn row_text(layout: &CellLayout<'_>, row: u16, cols: std::ops::Range<u16>) -> String {
+    let mut text = String::new();
+    let mut at = cols.start;
+    for g in layout.glyphs.iter().filter(|g| g.row == row && cols.contains(&g.col)) {
+        for _ in at..g.col {
+            text.push(' ');
+        }
+        text.push_str(g.symbol);
+        at = g.col + g.width;
+    }
+    text.trim().to_owned()
+}
+
+/// Gives each non-blank row of `area` (in cells) an accessibility label with its text, so
+/// AccessKit and `egui_kittest` can find what the cells show: `get_by_label_contains("People")`.
+///
+/// The labels are hover-only nodes over the rows' rectangles, so they take no clicks from the
+/// widgets under them, and egui builds the nodes only while an accessibility consumer (a screen
+/// reader, or a test harness) is attached.
+pub fn expose(
+    ui: &Ui,
+    origin: Pos2,
+    metrics: &Metrics,
+    layout: &CellLayout<'_>,
+    area: ratatui::layout::Rect,
+) {
+    let cols = area.x..area.x.saturating_add(area.width).min(layout.cols);
+    for row in area.y..area.y.saturating_add(area.height).min(layout.rows) {
+        let text = row_text(layout, row, cols.clone());
+        if text.is_empty() {
+            continue;
+        }
+        let at = vec2(f32::from(cols.start) * metrics.cell.x, f32::from(row) * metrics.cell.y);
+        let size = vec2(f32::from(cols.end - cols.start) * metrics.cell.x, metrics.cell.y);
+        let id = ui.scope_id().with(("cell row", cols.start, row));
+        let response = ui.interact(Rect::from_min_size(origin + at, size), id, Sense::hover());
+        response.widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
+    }
 }

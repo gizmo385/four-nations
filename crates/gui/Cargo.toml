@@ -1,6 +1,6 @@
 [package]
 name = "fn_gui"
-description = "Spike (#842): an egui window around the game: a pan/zoom glyph map, the existing screens painted as ratatui buffers, and one side-panel section as real egui widgets. Not in default-members or `cargo xtask ci`."
+description = "Spike (#842): an egui window around the game: a pan/zoom glyph map, the existing screens painted as ratatui buffers, and one side-panel section as real egui widgets. In `cargo xtask ci` (no GPU needed), not in default-members."
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -39,6 +39,18 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [dev-dependencies]
-# Snapshot tests of the map widget (#842's question: do they run headless in CI?). wgpu renders
-# them; with no GPU it needs a software adapter (Mesa's lavapipe for Vulkan, or llvmpipe via GL).
-egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
+# Semantic UI tests (#875): a `Harness` runs `GuiApp` headlessly and finds widgets through the
+# AccessKit tree. No renderer, so no GPU: this is what the gate builds. Not its `eframe` feature:
+# that pulls in accesskit_winit and zbus (50 crates). The pixel path is the `shots` feature.
+egui_kittest = "0.37"
+
+[features]
+# The pixel path (#875): kittest renders through wgpu, which needs an adapter (a GPU, or Mesa's
+# lavapipe). Off in the gate; `cargo xtask gui-shot` turns it on, as does
+# `cargo test -p fn_gui --features shots`.
+shots = ["egui_kittest/wgpu", "egui_kittest/snapshot"]
+
+[[example]]
+name = "shot"
+path = "examples/shot.rs"
+required-features = ["shots"]
