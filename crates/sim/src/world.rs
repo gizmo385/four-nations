@@ -45,6 +45,7 @@ mod draw;
 mod enclosure;
 mod endeavor;
 mod events;
+mod exchange;
 mod farm;
 mod forge;
 mod found;
@@ -108,6 +109,7 @@ pub use endeavor::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
 pub use events::{Event, FindEvent};
+pub use exchange::{Exchange, ExchangeEntry, ExchangeKind, ExchangeNeed, ExchangeStanding};
 pub use farm::PlotStage;
 use forge::CraftState;
 pub use forge::RecipeError;
@@ -886,7 +888,12 @@ impl World {
         {
             return avatar.modifiers;
         }
-        research::effective_modifiers(self.nation_of(unit), self.research.known_techs(), defs)
+        research::effective_modifiers(
+            self.nation_of(unit),
+            self.nation,
+            self.research.known_techs(),
+            defs,
+        )
     }
 
     /// Progress `u` gains toward a step each tick: its row's own `speed` if it is a beast with
@@ -907,12 +914,22 @@ impl World {
         name: &str,
         defs: &'d Defs,
     ) -> Vec<(&'d str, f32)> {
-        research::modifier_breakdown(name, self.nation_of(unit), self.research.known_techs(), defs)
+        research::modifier_breakdown(
+            name,
+            self.nation_of(unit),
+            self.nation,
+            self.research.known_techs(),
+            defs,
+        )
     }
 
     fn refresh_modifiers(&mut self, defs: &Defs) {
-        self.modifiers =
-            research::effective_modifiers(self.nation, self.research.known_techs(), defs);
+        self.modifiers = research::effective_modifiers(
+            self.nation,
+            self.nation,
+            self.research.known_techs(),
+            defs,
+        );
         self.refresh_heat_radii(defs);
         self.refresh_biome_speeds(defs);
     }
@@ -1104,8 +1121,14 @@ impl World {
         let united = self.united();
         let facts =
             roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster, united);
-        let completed =
-            self.research.tick_scribing(self.tick, defs, research_cost, scribing, Some(&facts));
+        let completed = self.research.tick_scribing(
+            self.tick,
+            defs,
+            research_cost,
+            self.nation,
+            scribing,
+            Some(&facts),
+        );
         if !completed.is_empty() {
             self.refresh_modifiers(defs);
             self.sync_seats(defs);
@@ -1704,7 +1727,12 @@ mod tests {
         assert!(a.research().known_techs().eq(b.research().known_techs()));
         assert_eq!(bits(a.modifiers()), bits(b.modifiers()));
         // And both match a recomputation from the known set alone.
-        let fresh = research::effective_modifiers(Nation::Earth, a.research().known_techs(), &defs);
+        let fresh = research::effective_modifiers(
+            Nation::Earth,
+            Nation::Earth,
+            a.research().known_techs(),
+            &defs,
+        );
         assert_eq!(bits(a.modifiers()), bits(&fresh));
     }
 

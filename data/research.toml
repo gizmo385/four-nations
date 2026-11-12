@@ -8,6 +8,11 @@
 #   (`herding`: Earth, Fire, Water). Unlisted nations never see it and can't research it. Its
 #   prereqs must be shared techs, and no tech may require it.
 # - `cost` is in knowledge points, > 0. Cost tiers: 25 / 60 / 120 / 250 / 500.
+# - `teachable = true` (docs/design/horizons-phase-6.md, "Borrowed techs"): once the Harmony Gate
+#   stands, a settlement of another nation can learn the tech at `[settings] borrow_cost` times its
+#   cost while `borrow_residents` people of its nation live there. Needs a single `nation`, no
+#   abilities, no school, no fusion and no `cost_items`. A borrower skips its prereqs of that
+#   nation that aren't teachable, and its modifiers help only residents of its own nation.
 # - `[tech.unlocks]` `modifiers` multiply a nation's modifiers (data/nations.toml) once the tech
 #   is known. Each multiplier must be in (0, 4]; unknown modifier names fail to load.
 #
@@ -50,6 +55,8 @@ study_knowledge_per_minute = 9.0     # per scholar, before the `study` modifier
 idle_knowledge_cap = 10.0            # points the pool may hold with no target queued (#284)
 cost_items_from = 1000               # only a tech costing at least this may have cost_items
 bill_hall = "study_hall"             # takes research bills' deliveries; must have seats (#718)
+borrow_cost = 2.0                    # a borrowed tech costs this many times its own cost (provisional, #752)
+borrow_residents = 3                 # residents of its nation needed to borrow a tech (provisional, #752)
 
 # ---------------------------------------------------------------------------------------------
 # Shared civilization tier
@@ -219,6 +226,7 @@ core = true
 name = "Earthen Walls"
 description = "Raise walls and flood barriers straight from the ground."
 nation = "earth"
+teachable = true
 cost = 120
 prereqs = ["earth_shaping", "masonry"]
 # Later: buildings = ["flood_barrier", "terrace"] once something gives them a job to do (#136)
@@ -250,6 +258,7 @@ core = true
 name = "Earth Rail"
 description = "Stone carts pushed along rails by earthbenders, as in Ba Sing Se."
 nation = "earth"
+teachable = true
 cost = 250
 prereqs = ["earthen_walls"]
 # Unlocks the rail building (#135, docs/design/research.md): carts run along a line of it. Being
@@ -316,6 +325,7 @@ core = true
 name = "Brickmaking"
 description = "Fire bricks by the thousand for strong, quick building."
 nation = "fire"
+teachable = true
 cost = 120
 prereqs = ["forging", "pottery"]
 [tech.unlocks]
@@ -328,6 +338,7 @@ core = true
 name = "Smelting"
 description = "Draw metal out of ore with steady firebending heat."
 nation = "fire"
+teachable = true
 cost = 120
 prereqs = ["forging"]
 [tech.unlocks]
@@ -352,6 +363,7 @@ core = true
 name = "Steam Engines"
 description = "Boil water to drive mills and pumps."
 nation = "fire"
+teachable = true
 cost = 250
 prereqs = ["smelting", "brickmaking"]
 [tech.unlocks]
@@ -412,6 +424,7 @@ core = true
 name = "Healing"
 description = "Guide the body's own energy with water to mend wounds."
 nation = "water"
+teachable = true
 cost = 120
 prereqs = ["herbalism"]
 # The Healing Hut (issue #375, narrowing #125): hurt settlers rest and mend there. The healer
@@ -425,6 +438,7 @@ core = true
 name = "Tide Mills"
 description = "Push and pull the tide to turn coastal mills."
 nation = "water"
+teachable = true
 cost = 250
 prereqs = ["irrigation"]
 # The Tide Mill (issue #200, docs/design/power.md): Water's first power source, built on the
@@ -439,6 +453,7 @@ core = true
 name = "Water Travel"
 description = "Canoes and ice skiffs carry people across the water."
 nation = "water"
+teachable = true
 cost = 250
 prereqs = ["fishing", "ice_construction"]
 # The Fishing Dock (issue #374): Water's orchard, on the water. Crossing water tiles itself
@@ -468,6 +483,7 @@ core = true
 name = "Orchards"
 description = "Plant and tend fruit trees for food that needs no fire."
 nation = "air"
+teachable = true
 cost = 25
 # Wild fruit trees stay pickable by every nation (owner decision, #142), so this unlocks only the
 # orchard building, which plants and tends new fruit trees (docs/design/research.md, "The
@@ -539,6 +555,7 @@ core = true
 name = "Wind Turbines"
 description = "Airbenders spin turbines that power workshops."
 nation = "air"
+teachable = true
 cost = 250
 prereqs = ["windmills"]
 # The Wind Turbine (issue #204, docs/design/power.md): Air's second power source, a 1x1 that
@@ -590,6 +607,7 @@ id = "lemur_keeping"
 name = "Lemur Keeping"
 description = "Winged lemurs pick ripe fruit and carry it home."
 nation = "air"
+teachable = true
 cost = 120
 prereqs = ["orchards"]
 [tech.unlocks]
@@ -600,6 +618,7 @@ id = "oil_lamps"
 name = "Oil Lamps"
 description = "Burn fish oil in stone lamps for heat where no trees grow."
 nation = "water"
+teachable = true
 cost = 120
 prereqs = ["fishing"]
 [tech.unlocks]
@@ -610,6 +629,7 @@ id = "hothouses"
 name = "Hothouses"
 description = "Brick and glass rooms keep crops growing through winter."
 nation = "fire"
+teachable = true
 cost = 250
 prereqs = ["brickmaking", "farming"]
 [tech.unlocks]
@@ -620,6 +640,7 @@ id = "omashu_chutes"
 name = "Omashu Chutes"
 description = "Earthbenders cut stone slides that carry goods down the mountain."
 nation = "earth"
+teachable = true
 cost = 250
 prereqs = ["earth_rail"]
 [tech.unlocks]
@@ -652,6 +673,7 @@ id = "wind_gates"
 name = "Wind Gates"
 description = "Paired towers where airbenders ride the wind from one to the other."
 nation = "air"
+teachable = true
 cost = 250
 prereqs = ["gliders", "windmills"]
 # The Wind Gate (docs/design/horizons-phase-2.md, "`wind_gates`"): people glide between a pair.
@@ -663,6 +685,7 @@ id = "cargo_balloons"
 name = "Cargo Balloons"
 description = "Hot-air balloons carry goods between two docks over any ground."
 nation = "fire"
+teachable = true
 cost = 500
 prereqs = ["steam_engines"]
 [tech.unlocks]

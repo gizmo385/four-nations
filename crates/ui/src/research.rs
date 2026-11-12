@@ -119,7 +119,8 @@ pub fn research_status(world: &World, defs: &Defs) -> ResearchStatus {
             bill: None,
         };
     };
-    let cost = f64::from(defs.tech(front).cost);
+    // A borrowed tech costs more than its own `cost` (docs/design/horizons-phase-6.md).
+    let cost = f64::from(defs.tech(front).cost_for(world.nation, defs.research.borrow_cost));
     ResearchStatus {
         label: defs.tech(front).name.clone(),
         frac: (pool / cost).clamp(0.0, 1.0) as f32,
@@ -642,6 +643,7 @@ mod tests {
             cost_items: Vec::new(),
             teaching: None,
             fusion: None,
+            teachable: false,
         }
     }
 

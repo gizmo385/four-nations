@@ -105,7 +105,13 @@ impl World {
             let research_cost = self.knobs(defs).research_cost;
             let scribing = self.scribing_on(defs);
             for _ in 0..foxes {
-                self.research.add_toward_target(rate.round() as u64, defs, research_cost, scribing);
+                self.research.add_toward_target(
+                    rate.round() as u64,
+                    defs,
+                    research_cost,
+                    self.nation,
+                    scribing,
+                );
             }
         }
     }
@@ -213,7 +219,13 @@ impl World {
         let rate = self.study_millis_at(anchor, defs) as f32 * self.modifiers().study;
         let research_cost = self.knobs(defs).research_cost;
         let scribing = self.scribing_on(defs);
-        self.research.add_toward_target(rate.round() as u64, defs, research_cost, scribing);
+        self.research.add_toward_target(
+            rate.round() as u64,
+            defs,
+            research_cost,
+            self.nation,
+            scribing,
+        );
     }
 
     /// How many units are seated at a study hall and producing knowledge right now, as opposed

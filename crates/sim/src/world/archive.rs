@@ -68,10 +68,17 @@ impl World {
     pub(super) fn study_wanted(&self, defs: &Defs) -> bool {
         let research_cost = self.knobs(defs).research_cost;
         // Facts are only built when the front tech has a condition that could be holding it.
-        let gated =
-            self.research.queue().first().is_some_and(|&t| !defs.tech(t).requires.is_empty());
-        let waiting = self.research.waiting_on_bill(defs, research_cost)
-            || (gated && self.research.waiting_on(&self.facts(), defs, research_cost).is_some());
+        // A borrowed tech always has one: the residents of its nation.
+        let gated = self.research.queue().first().is_some_and(|&t| {
+            let tech = defs.tech(t);
+            !tech.requires.is_empty() || tech.borrowed_from(self.nation).is_some()
+        });
+        let waiting = self.research.waiting_on_bill(defs, research_cost, self.nation)
+            || (gated
+                && self
+                    .research
+                    .waiting_on(&self.facts(), defs, research_cost, self.nation)
+                    .is_some());
         (!self.research.queue().is_empty() && !waiting) || self.scribing_on(defs)
     }
 

@@ -118,15 +118,15 @@ fn a_tech_completes_only_with_its_knowledge_and_its_bill_and_items_are_never_sca
     let mut r = Research::new(Nation::Earth, &defs);
     r.set_target(t, Nation::Earth, &Facts::default(), &defs).unwrap();
     r.bank_for_test(2_000_000);
-    assert!(r.tick(1, &defs, 2.0).is_empty(), "the bill is short");
-    assert!(r.waiting_on_bill(&defs, 2.0));
+    assert!(r.tick(1, &defs, 2.0, Nation::Earth).is_empty(), "the bill is short");
+    assert!(r.waiting_on_bill(&defs, 2.0, Nation::Earth));
     assert_eq!(r.pay_bill(wood, 9, &defs), 5, "never more than owed");
     assert_eq!(r.pay_bill(wood, 1, &defs), 0);
     assert_eq!(r.bill(t, &defs), [(wood, 5, 5), (scroll, 0, 1)]);
-    assert!(r.tick(2, &defs, 2.0).is_empty());
+    assert!(r.tick(2, &defs, 2.0, Nation::Earth).is_empty());
     assert_eq!(r.pay_bill(scroll, 1, &defs), 1);
     // Hard's research_cost doubles the knowledge, never the items.
-    let done = r.tick(3, &defs, 2.0);
+    let done = r.tick(3, &defs, 2.0, Nation::Earth);
     assert_eq!(done.iter().map(|c| c.tech).collect::<Vec<_>>(), [t]);
     assert!(r.is_known(t));
     assert_eq!(r.bills_owed(&defs).count(), 0);

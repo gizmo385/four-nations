@@ -692,6 +692,23 @@ impl Defs {
             .map(|(i, t)| (TechId(i as u16), t))
     }
 
+    /// The prereqs of `tech` that a settlement borrowing it still needs: the shared ones and its
+    /// teachable ones. A prereq of the tech's own nation that isn't teachable is waived, because
+    /// newcomers bring the craft without the bending (`brickmaking` needs `pottery`; `forging`,
+    /// which unlocks Weld, is waived). In `tech`'s own order. Only meaningful for a tech
+    /// `TechDef::borrowed_from` names; `Research::set_target` queues these as borrowed techs too.
+    pub fn borrow_prereqs(&self, tech: TechId) -> Vec<TechId> {
+        self.tech(tech)
+            .prereqs
+            .iter()
+            .copied()
+            .filter(|&p| {
+                let prereq = self.tech(p);
+                prereq.nation.is_none() || prereq.teachable
+            })
+            .collect()
+    }
+
     pub fn ability_id(&self, id: &str) -> Option<AbilityId> {
         self.abilities.iter().position(|a| a.id == id).map(|i| AbilityId(i as u16))
     }

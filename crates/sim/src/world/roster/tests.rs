@@ -139,7 +139,7 @@ fn a_tech_waits_at_the_front_when_a_condition_falls_and_finishes_when_it_returns
     }
     let cost = w.knobs(&defs).research_cost;
     assert_eq!(
-        w.research().waiting_on(&w.facts(), &defs, cost),
+        w.research().waiting_on(&w.facts(), &defs, cost, w.nation),
         Some(Condition::Residents { nation: Nation::Earth, need: 2, have: 1 })
     );
     assert!(!w.study_wanted(&defs), "seats are not claimed while the tech waits");
@@ -169,7 +169,7 @@ fn a_master_who_dies_holds_the_tech_until_another_is_made() {
     assert!(!w.research().is_known(t));
     let cost = w.knobs(&defs).research_cost;
     assert_eq!(
-        w.research().waiting_on(&w.facts(), &defs, cost),
+        w.research().waiting_on(&w.facts(), &defs, cost, w.nation),
         Some(Condition::Masters { count: 1, of: vec![Nation::Earth, Nation::Fire] })
     );
     // Population is 4, which is what the tech asks for; a resident ranking up finishes it.
