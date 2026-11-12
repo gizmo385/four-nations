@@ -76,7 +76,11 @@ pub fn list() -> Vec<Value> {
                              tool is active: the abilities this settlement can use now, in the \
                              order the bend key cycles them (name, caster count, and which \
                              one the banner names now). An ability it can't use yet isn't \
-                             listed, as the banner never shows one.",
+                             listed, as the banner never shows one. `research` also has \
+                             `teachings` once a teaching scroll has been read: the drafts \
+                             waiting (oldest first, each teaching's name, cost, unlock and \
+                             reason), the teachings kept and lost, and how many are left to \
+                             find.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {
@@ -105,7 +109,10 @@ pub fn list() -> Vec<Value> {
                              press: designate {tool: harvest|cancel|clear|stockpile|bend|sow, \
                              from, to, standing?, teardown?, ability?}, build {building, from, \
                              to}, select {x,y} or {name}, research {tech}, cursor {x,y}, keys \
-                             {script}, gate {x,y}, cancel_gate. `gate` places the endeavor's \
+                             {script}, gate {x,y}, cancel_gate, keep_teaching {tech}. \
+                             `keep_teaching` keeps a teaching from the oldest pending draft \
+                             (screen research's `teachings.offers`) and loses the rest of it. \
+                             `gate` places the endeavor's \
                              gate with its top-left tile on (x,y) once the endeavor is Ready \
                              (screen endeavor's `action` says so); `cancel_gate` withdraws its \
                              site before work on it starts. `standing` (harvest only) re-queues the designation when \
@@ -140,7 +147,7 @@ pub fn list() -> Vec<Value> {
                                     "type": "string",
                                     "enum": [
                                         "designate", "build", "select", "research", "cursor",
-                                        "keys", "gate", "cancel_gate",
+                                        "keys", "gate", "cancel_gate", "keep_teaching",
                                     ],
                                 },
                                 "tool": {
@@ -304,7 +311,7 @@ fn sdk_reference_tool() -> Value {
                          each porcelain entry is #{name, params, doc}, doc straight from the \
                          function's own /// comment. action_steps names every shape act's own \
                          steps argument accepts (designate, build, select, research, cursor, \
-                         keys, gate, cancel_gate), each a #{step, fields, example}. Probes (inline run_script code) \
+                         keys, gate, cancel_gate, keep_teaching), each a #{step, fields, example}. Probes (inline run_script code) \
                          may call only the reads -- observe, look, inspect, cells, can_build, \
                          screen, events, plan, log, find, store, idle, need -- and never act, \
                          keys, wait or the helpers built on them; those need a saved script.",
