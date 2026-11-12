@@ -6,6 +6,7 @@ mod cells;
 mod frame;
 mod glyphs;
 mod keys;
+mod page;
 mod semantic;
 mod side;
 #[cfg(feature = "shots")]

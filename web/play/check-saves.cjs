@@ -5,7 +5,7 @@
 //
 // Needs Playwright (`require('playwright')`) and its Chromium, both preinstalled where this is
 // run; it never installs anything. The game is pixels, so it reads the state fn_gui publishes
-// on the canvas (`data-fn-mode`, `-tick`, `-seed`, `-status`; crates/gui/src/page.rs).
+// on the canvas (`data-fn-mode`, `-tick`, `-seed`, `-status`; crates/gui/src/webpage.rs).
 //
 // What it checks: F5 saves into localStorage and says so; a fresh page load of a different
 // game (so the state really came from the save) has F9 bring the saved game back; the saves

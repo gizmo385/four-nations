@@ -11,7 +11,7 @@
 // It never installs anything: `require('playwright')` and `chromium.launch()` as found.
 //
 // The game is pixels, so state comes from what fn_gui publishes on the canvas (`data-fn-mode`,
-// `-page` on the title screen, `-tick`, `-seed`; crates/gui/src/page.rs), and "the map draws" is read from a screenshot:
+// `-page` on the title screen, `-tick`, `-seed`; crates/gui/src/webpage.rs), and "the map draws" is read from a screenshot:
 // the canvas holds many distinct colours (terrain, units, panel), where a blank or failed one
 // holds one or two. Exits 1 on the first failed check.
 
