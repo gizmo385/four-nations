@@ -1,4 +1,4 @@
-//! Reference goldens (#455): thirteen whole-screen snapshots, one per screen type, kept for a reviewer
+//! Reference goldens (#455): fourteen whole-screen snapshots, one per screen type, kept for a reviewer
 //! to look at -- not the regression net. That job belongs to the layout properties
 //! (`layout_properties.rs`, #454) and the `contains`-style assertions beside each feature.
 //!
@@ -41,7 +41,7 @@ const SEED: u64 = 1;
 const SETTLERS: [&str; 2] = ["Juni", "Shen"];
 
 /// Every reference screen, by golden name.
-const SCREENS: [&str; 13] = [
+const SCREENS: [&str; 14] = [
     "ref_title",
     "ref_embark",
     "ref_game_80x24",
@@ -55,6 +55,7 @@ const SCREENS: [&str; 13] = [
     "ref_help",
     "ref_log",
     "ref_tool",
+    "ref_school_choose",
 ];
 
 fn golden(name: &str, actual: &str) {
@@ -173,6 +174,26 @@ fn game_text(defs: &Defs, seed: u64, size: (u16, u16), script: &str) -> String {
     to_text(&render_app(&mut app, &p, size))
 }
 
+/// The research screen with the cursor on Metal City and `Enter` pressed: the CHOOSE A SCHOOL
+/// box (#729).
+fn school_text(defs: &Defs, seed: u64) -> String {
+    let session = fixed_world(defs, seed);
+    let want = defs.tech_id("metal_city").expect("Earth's school");
+    let view = fn_ui::research::screen_view(&session);
+    let (c, r) = view
+        .columns
+        .iter()
+        .enumerate()
+        .find_map(|(c, col)| col.iter().position(|t| t.id == want).map(|r| (c, r)))
+        .expect("Metal City is in Earth's tree");
+    let mut app = App::new(session, SIZE);
+    let step = |key: &str, n: usize| if n == 0 { String::new() } else { format!("<{key}*{n}> ") };
+    let script = format!("t <up*20> <left*20> {}{}<enter>", step("right", c), step("down", r));
+    app.play(&keys::parse(&script).expect("a valid script"));
+    let p = Palette::new(&app.session.defs, app.session.world.nation, ColorDepth::TrueColor, false);
+    to_text(&render_app(&mut app, &p, SIZE))
+}
+
 /// The message log over a log written by hand (the run's own lines, `push_agent`: nothing a tick
 /// computed), over two days and with the cursor on the second line.
 fn log_text(defs: &Defs, seed: u64) -> String {
@@ -218,6 +239,8 @@ fn screen_text(name: &str, defs: &Defs, seed: u64) -> String {
         // The Harvest tool with a corner set and the cursor over both oaks: the Tool section's
         // description, the rectangle's size and what applying would mark (#657).
         "ref_tool" => game_text(defs, seed, SIZE, "h <enter> <right*7> <up*2>"),
+        // The CHOOSE A SCHOOL box over the research screen (#729): Enter on Metal City.
+        "ref_school_choose" => school_text(defs, seed),
         other => panic!("no reference screen {other:?}"),
     }
 }
@@ -250,6 +273,11 @@ fn reference_game_at_80x24() {
 fn reference_game_at_a_wide_terminal() {
     assert_eq!(layout::panel_width(WIDE.0), 36, "160 columns is past the 140 threshold");
     reference("ref_game_wide");
+}
+
+#[test]
+fn reference_school_choose() {
+    reference("ref_school_choose");
 }
 
 #[test]

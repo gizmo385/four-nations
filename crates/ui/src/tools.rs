@@ -219,6 +219,14 @@ impl Tool {
                 "Take back the harvest, bend, sow and clear marks inside the rectangle.".to_owned()
             }
             Self::Clear => "Clear the trees, rock and plants inside the rectangle for good.".into(),
+            // Once `nomad_way` is known (#728, #730), packing up is quick and loses nothing.
+            Self::Deconstruct
+                if session.world.has_feature(fn_sim::research::Feature::PackUp, &session.defs) =>
+            {
+                "Take down the finished buildings the rectangle touches. Buildings come down \
+                 twice as fast and return everything."
+                    .into()
+            }
             Self::Deconstruct => "Take down the finished buildings the rectangle touches.".into(),
             Self::Stockpile => "Mark the rectangle as stockpile, where goods are kept.".into(),
             Self::Bend => match bend_ability(session) {

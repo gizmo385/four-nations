@@ -547,6 +547,8 @@ fn build() -> Vec<Entry> {
     );
     // Select mode's `O` on a chute (#683): in no hint bar, only in the key help.
     add(&[], &[], "O", "link", help(in_tool, "Move a chute foot or partner (Select)"));
+    // Select mode's `O` on a building in a Lightning Station's yard (#725, #730).
+    add(&[], &[], "O", "automate", help(in_tool, "Automate a machine in a yard (Select)"));
 
     let time = Some(Group::Time);
     add(&[Mode::Anywhere], &[Action::TogglePause], "Space", "pause", help(time, "Pause or run"));
@@ -754,9 +756,10 @@ mod tests {
         assert!(!text(Mode::Select, Tool::Harvest).contains("O "));
         assert_eq!(line(Mode::Tool), "Arrows move · Enter set corner · Esc leave tool");
         let rows: Vec<_> = help_rows().into_iter().filter(|r| r.keys == "O").collect();
-        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.len(), 4);
         assert!(rows.iter().all(|r| r.group == Group::InTool));
         assert!(rows[2].what.contains("chute"));
+        assert!(rows[3].what.contains("Automate"), "#730");
     }
 
     /// The title and embark screens' hints (#686), as their old footers worded them, in the

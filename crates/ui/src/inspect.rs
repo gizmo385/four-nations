@@ -125,7 +125,20 @@ fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) ->
         ]
     } else if def.uses_power {
         let powered = world.footprint_at(anchor).and_then(|f| world.power_for(f, defs));
+        let by_rail = world.footprint_at(anchor).is_some_and(|f| world.powered_by_rail(f, defs));
         let line = match powered {
+            // Along a Metal Rail run (#722, #730): "Powered x1.5 by rail from Hot Spring Mill
+            // (8, 4)".
+            Some(p) if by_rail => {
+                let source = world.building_at(p.source).expect("a registered source stands here");
+                format!(
+                    "Powered x{} by rail from {} ({}, {})",
+                    crate::text::boost_label(p.boost).trim_end_matches('x'),
+                    defs.building(source).display_name(world.nation),
+                    p.source.x,
+                    p.source.y
+                )
+            }
             Some(p) => {
                 let source = world.building_at(p.source).expect("a registered source stands here");
                 format!(
@@ -184,7 +197,66 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     if let Some(p) = world.pickers_at(anchor) {
         lines.push(format!("Picked: {}  Eaten: {}", p.picked, p.eaten));
     }
+    lines.extend(automation_line(world, defs, anchor));
     lines
+}
+
+/// A recipe building in an automating yard (`great_works`, #725, #730): `Automated: Batch 2/3
+/// Metal, 40%`, `Automated: waiting for inputs`, or `Automation off: O to turn it on`.
+pub fn automation_line(world: &World, defs: &Defs, anchor: Pos) -> Option<String> {
+    if !world.automatable(anchor, defs) {
+        return None;
+    }
+    if world.automated(anchor, defs).is_none() {
+        return Some("Automation off: O to turn it on".to_owned());
+    }
+    let (inputs, done) = world.craft_batch(anchor, defs)?;
+    let started = done > 0.0 || inputs.iter().any(|&(_, got, _)| got > 0);
+    if !started && !inputs.is_empty() {
+        return Some("Automated: waiting for inputs".to_owned());
+    }
+    let short: Vec<String> = inputs
+        .iter()
+        .filter(|&&(_, got, need)| got < need)
+        .map(|&(item, got, need)| format!("{got}/{need} {}", defs.item(item).name))
+        .collect();
+    let pct = (done * 100.0).round() as u32;
+    Some(if short.is_empty() {
+        format!("Automated: {pct}%")
+    } else {
+        format!("Automated: Batch {}, {pct}%", short.join(", "))
+    })
+}
+
+/// A tile inside a closed ring (`agrarian_ring`, #721, #730): `Sheltered: inside a ring of 84
+/// tiles`.
+fn sheltered_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
+    world.ring_size(tile, defs).map(|n| format!("Sheltered: inside a ring of {n} tiles"))
+}
+
+/// A settler in reach of an aura (#724, #730): `By a sun-warmed fire: healing 2x` beside a
+/// campfire, `Near the High Temple: chi 2x` by a standing aura.
+fn aura_line(world: &World, defs: &Defs, unit: &Unit) -> Option<String> {
+    let here = fn_sim::geom::Footprint::single(unit.pos);
+    let (foot, aura) =
+        world.auras(defs).into_iter().find(|(f, a)| f.gap(here) <= a.radius as i32)?;
+    let mut parts = Vec::new();
+    if aura.heal > 1.0 {
+        parts.push(format!("healing {}", crate::text::boost_label(aura.heal)));
+    }
+    if aura.chi_regen > 1.0 {
+        parts.push(format!("chi {}", crate::text::boost_label(aura.chi_regen)));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let def = defs.building(world.building_at(foot.anchor)?);
+    let by = if def.heat_aura_upgrade.is_some() {
+        "By a sun-warmed fire".to_owned()
+    } else {
+        format!("Near the {}", def.display_name(world.nation))
+    };
+    Some(format!("{by}: {}", parts.join(", ")))
 }
 
 /// "Tool" as "Tools" and "Wares" as "Wares": an item named as what a building makes.
@@ -421,6 +493,11 @@ fn unit_lines(session: &Session, tool: Tool, unit: &Unit) -> Lines {
         lines.push(Line::Detail(format!("Carrying: {}", describe_stack(defs, unit.carrying))));
     }
     lines.extend(beast_home_lines(session, unit).into_iter().map(Line::Detail));
+    if !unit.is_beast()
+        && let Some(line) = aura_line(world, defs, unit)
+    {
+        lines.push(Line::Detail(line));
+    }
     if tool == Tool::Select {
         lines.push(Line::Hint(Hint::SelectUnit));
     }
@@ -545,6 +622,18 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
                 (false, false) => "mild",
             };
             lines.push(Line::Detail(format!("{} climate: {effects} in winter", c.name)));
+        }
+        if let Some(line) = sheltered_line(world, defs, tile) {
+            lines.push(Line::Detail(line));
+        }
+        // A shore tile once `southern_ways` is known (#726, #730): the Harvest tool fishes it.
+        if world.harvest_at(tile, defs).is_some() {
+            lines.push(Line::Detail("Fish from the shore".to_owned()));
+            lines.push(Line::Hint(if tool == Tool::Harvest {
+                Hint::ApplyTool(Tool::Harvest)
+            } else {
+                Hint::StartTool(Tool::Harvest)
+            }));
         }
         // A lit flame or a wet patch (#72): the result of a bend, so hovering explains it
         // (pillar 4, "readable simulation").

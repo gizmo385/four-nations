@@ -219,6 +219,9 @@ pub struct Overlays {
     link: BTreeSet<Pos>,
     /// The caravan camped now (#438): its camp's top-left tile and whose it is.
     camp: Option<(Pos, Nation)>,
+    /// Every sheltered tile (#721), while the Build tool holds a ring wall (#730); empty
+    /// otherwise.
+    sheltered: BTreeSet<Pos>,
 }
 
 impl Overlays {
@@ -309,6 +312,7 @@ impl Overlays {
                 .unwrap_or_default(),
             link: link_tiles(session, ui),
             camp: world.caravan().map(|v| (v.camp, v.nation)),
+            sheltered: sheltered_tiles(session, ui),
         }
     }
 
@@ -349,11 +353,35 @@ fn power_reaches(
     {
         reaches.push((footprint, power.radius_for(world.modifiers().power_generation)));
     }
+    let source = reaches.first().copied();
     if let Some(power) = ui.ghost_building(session).and_then(|b| defs.building(b).power) {
         let reach = power.radius_for(world.modifiers().power_generation);
         reaches.extend(ghosts.iter().map(|g| (g.footprint, reach)));
     }
+    // Live rail runs (#722, #730): the runs the source under the cursor feeds, or the run under
+    // the cursor while something powers it, each tile with the run's own reach.
+    for run in world.rail_runs(defs) {
+        let fed = match source {
+            Some((foot, reach)) => run.tiles.iter().any(|&t| foot.distance(t) <= reach as i32),
+            None => run.tiles.contains(&cursor) && world.power_at(cursor, defs).is_some(),
+        };
+        if fed {
+            reaches.extend(run.tiles.iter().map(|&t| (Footprint::single(t), run.reach)));
+        }
+    }
     reaches
+}
+
+/// Every sheltered tile (#721, #730), while the Build tool holds a building that closes a ring
+/// (an Earth Wall, a Ring Gate): where the ring already keeps winter out. Empty otherwise.
+fn sheltered_tiles(session: &Session, ui: &UiState) -> BTreeSet<Pos> {
+    let (world, defs) = (&session.world, &session.defs);
+    let walls = defs.seasons.enclosure.as_ref().map(|e| e.walls.as_slice()).unwrap_or_default();
+    let holding = ui.ghost_building(session).is_some_and(|b| walls.contains(&b));
+    if !holding || !world.has_feature(fn_sim::research::Feature::ShelteredRings, defs) {
+        return BTreeSet::new();
+    }
+    world.map.iter().map(|(p, _)| p).filter(|&p| world.is_sheltered(p, defs)).collect()
 }
 
 /// The `:` line's tiles (#683, #698): from the chute or pair end being linked to the cursor while
@@ -624,6 +652,9 @@ pub enum Mark {
     FootReach,
     /// The Avatar's own background: the nation's accent, not his tile's own (#237, #242).
     AvatarAccent,
+    /// A tile inside a closed ring (#721), shown only while the Build tool holds a ring wall
+    /// (#730): tinted like warmth.
+    Sheltered,
 }
 
 /// What `pos` shows: its `thing`, its `ground`, and every mark on it (#314, #313). The shared
@@ -764,6 +795,9 @@ pub fn cell_look(
     }
     if over.feet.contains(&pos) {
         marks.push(Mark::FootReach);
+    }
+    if over.sheltered.contains(&pos) {
+        marks.push(Mark::Sheltered);
     }
     if over.avatar == Some(pos) {
         marks.push(Mark::AvatarAccent);
@@ -1014,7 +1048,7 @@ pub fn style_cell(look: &CellLook, defs: &Defs, palette: &Palette) -> TileCell {
         palette.tinted(base_bg, tint)
     } else if look.marks.contains(&Mark::Wet) {
         palette.tinted(base_bg, Tint::Wet)
-    } else if look.marks.contains(&Mark::Warm) {
+    } else if look.marks.contains(&Mark::Warm) || look.marks.contains(&Mark::Sheltered) {
         palette.tinted(base_bg, Tint::Warm)
     } else if look.marks.contains(&Mark::Powered) || look.marks.contains(&Mark::FootReach) {
         palette.tinted(base_bg, Tint::Powered)

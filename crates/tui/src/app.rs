@@ -160,6 +160,15 @@ impl App {
                 self.ui.linking = fn_ui::link::head_at(&self.session, self.ui.cursor);
                 self.foot_hint();
             }
+            // `O` on a recipe building in an automating yard (#725, #730) turns automation on or
+            // off.
+            Action::ToggleRepeat if self.ui.tool == Tool::Select => {
+                if let Some(outcome) =
+                    fn_ui::recipe::toggle_automation(&mut self.session, self.ui.cursor)
+                {
+                    self.ui.notice = outcome.unwrap_or_else(|why| why);
+                }
+            }
             Action::ToggleRepeat => {}
             // `R` switches the Workshop under the cursor in Select mode (#712); in a tool it does
             // nothing, like `F`.

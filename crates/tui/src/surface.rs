@@ -1894,6 +1894,7 @@ pub(crate) fn describe_mark(mark: &Mark) -> String {
         Mark::Warm => "warmth",
         Mark::Powered => "powered",
         Mark::FootReach => "foot reach",
+        Mark::Sheltered => "sheltered",
         Mark::AvatarAccent => "avatar",
     }
     .to_owned()
