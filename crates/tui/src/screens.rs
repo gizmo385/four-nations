@@ -274,7 +274,13 @@ pub fn draw_screen(
     };
     let page = page::draw(buf, area, palette, title(screen), detail_rows);
     let position = match screen {
-        Screen::Research => research::draw(session, ui.tech, palette, &page, buf),
+        Screen::Research => {
+            let position = research::draw(session, ui.tech, palette, &page, buf);
+            if let Some(tech) = ui.school_confirm {
+                research::draw_confirm(session, tech, palette, area, buf);
+            }
+            position
+        }
         Screen::Saves => {
             // A name being typed (#704) takes the body's last row; the list gets the rest.
             let body = page.body;

@@ -38,6 +38,8 @@ pub struct Marks {
     /// cards or columns out of sight.
     pub known: &'static str,
     pub locked: &'static str,
+    /// A school option closed by its mate (#729).
+    pub closed: &'static str,
     pub pointer: &'static str,
     pub up: &'static str,
     pub down: &'static str,
@@ -74,6 +76,7 @@ impl Marks {
                 dot: "-",
                 known: "+",
                 locked: "-",
+                closed: "x",
                 pointer: ">",
                 up: "^",
                 down: "v",
@@ -105,6 +108,7 @@ impl Marks {
                 dot: "·",
                 known: "✓",
                 locked: "·",
+                closed: "×",
                 pointer: "▸",
                 up: "▲",
                 down: "▼",

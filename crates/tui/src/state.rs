@@ -198,6 +198,9 @@ pub struct UiState {
     pub saved_at: Option<u64>,
     /// The research screen's cursor: a column of the tech tree and a card in it.
     pub tech: (usize, usize),
+    /// The CHOOSE A SCHOOL box over the research screen (#729): the school option `Enter` asked
+    /// about. While set, `Enter` sets it as the target and `Esc` backs out.
+    pub school_confirm: Option<fn_sim::research::TechId>,
     /// The Nation screen's cursor: an index into its roster (`crate::nation::roster`), in the
     /// screen's own grouped order.
     pub nation_cursor: usize,
@@ -265,6 +268,7 @@ impl UiState {
             ask_can_save: false,
             saved_at: None,
             tech: (0, 0),
+            school_confirm: None,
             nation_cursor: 0,
             ability_cursor: 0,
             trade_cursor: 0,

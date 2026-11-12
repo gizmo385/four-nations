@@ -143,6 +143,8 @@ pub enum Mode {
     /// A designation tool with a corner set.
     ToolCorner,
     Research,
+    /// The CHOOSE A SCHOOL box over the research screen (#729).
+    ChooseSchool,
     Endeavor,
     Nation,
     /// The abilities screen (`I`, #719).
@@ -197,6 +199,7 @@ impl Mode {
             Self::Select | Self::Selected | Self::Map => "SELECT",
             Self::Tool | Self::ToolCorner => "TOOL",
             Self::Research => "RESEARCH",
+            Self::ChooseSchool => "CHOOSE A SCHOOL",
             Self::Endeavor => "ENDEAVOR",
             Self::Nation => "NATION",
             Self::Abilities => "ABILITIES",
@@ -346,6 +349,8 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Research], &[Action::Confirm], "Enter", "set as target", None);
     add(&[Mode::Research], &[Action::Cancel, Action::ShowResearch], "Esc or T", "close", None);
     add(&[Mode::Research], &[Action::PickTool(Tool::CancelHarvest)], "X", "clear target", None);
+    add(&[Mode::ChooseSchool], &[Action::Confirm], "Enter", "choose", None);
+    add(&[Mode::ChooseSchool], &[Action::Cancel], "Esc", "back", None);
 
     add(&[Mode::Nation], &[step], "Up/Down", "choose", None);
     add(&[Mode::Nation], &[Action::Confirm], "Enter", "select", None);

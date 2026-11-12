@@ -260,13 +260,38 @@ impl App {
     /// What the keys do while a screen is open: they scroll it and close it, and the clock, the
     /// prompts and quitting still work. Everything else waits until it is closed.
     fn act_in_screen(&mut self, action: Action) {
+        if self.ui.screen == Some(Screen::Research)
+            && let Some(tech) = self.ui.school_confirm
+        {
+            // The CHOOSE A SCHOOL box (#729) takes the keys until it closes; the clock and
+            // quitting still work.
+            match action {
+                Action::Confirm => {
+                    self.ui.school_confirm = None;
+                    return research::confirm_school(&mut self.session, tech);
+                }
+                Action::Cancel | Action::ShowResearch => {
+                    self.ui.school_confirm = None;
+                    return;
+                }
+                Action::Move { .. } | Action::Jump { .. } | Action::PickTool(_) => return,
+                _ => {}
+            }
+        }
         if self.ui.screen == Some(Screen::Research) {
             // The tree has a cursor on its cards, not a scroll: the arrows move it (a Shift
             // step is still one card) and Enter chooses.
             match action {
                 Action::Move { dx, dy, .. } => return self.move_tech(dx, dy),
                 Action::Jump { dy, .. } => return self.move_tech(0, dy * self.tech_page()),
-                Action::Confirm => return research::choose(&mut self.session, self.ui.tech),
+                Action::Confirm => {
+                    // A school option asks first (#729): choosing it closes its mate.
+                    if let Some(tech) = research::needs_confirm(&self.session, self.ui.tech) {
+                        self.ui.school_confirm = Some(tech);
+                        return;
+                    }
+                    return research::choose(&mut self.session, self.ui.tech);
+                }
                 Action::PickTool(Tool::CancelHarvest) => return self.clear_research(),
                 _ => {}
             }
