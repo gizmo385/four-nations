@@ -22,30 +22,9 @@ use crate::state::UiState;
 use crate::surface::{describe_ground, describe_mark};
 use crate::widgets::{Tone, ToneStyle};
 
-/// Where the legend lists a glyph, in the order it lists the groups.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LegendGroup {
-    People,
-    Plants,
-    Terrain,
-    Buildings,
-    Marks,
-}
-
-impl LegendGroup {
-    pub const ALL: [LegendGroup; 5] =
-        [Self::People, Self::Plants, Self::Terrain, Self::Buildings, Self::Marks];
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Self::People => "People",
-            Self::Plants => "Plants",
-            Self::Terrain => "Terrain",
-            Self::Buildings => "Buildings and goods",
-            Self::Marks => "Marks",
-        }
-    }
-}
+// The groups and the rows' shape are `fn_ui`'s (words, no look); the entries need the map's
+// cells, so they stay here.
+pub use fn_ui::legend::{GAP, LegendGroup, LegendLine};
 
 /// One glyph of the legend: how a tile draws it on the map, and what to call it.
 #[derive(Clone, Debug, PartialEq)]
@@ -55,15 +34,6 @@ pub struct LegendEntry {
     /// The glyph's colours and weight as the map draws it.
     pub style: Style,
     pub name: String,
-}
-
-/// A row of the legend page.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LegendLine {
-    Heading(LegendGroup),
-    Blank,
-    /// Indices into the entries, one per column.
-    Cells(Vec<usize>),
 }
 
 /// What `thing` is called in the legend, the group it is listed in, and its look with everything
@@ -197,30 +167,14 @@ pub fn entries(session: &Session, ui: &UiState, palette: &Palette) -> Vec<Legend
 
 /// How wide a legend cell is: the glyph, a space and the longest name.
 fn cell_width(entries: &[LegendEntry]) -> usize {
-    2 + entries.iter().map(|e| e.name.chars().count()).max().unwrap_or(0)
+    fn_ui::legend::cell_width(entries.iter().map(|e| e.name.chars().count()).max().unwrap_or(0))
 }
-
-/// The space between two columns of cells.
-const GAP: usize = 3;
 
 /// The legend as rows `width` cells wide: each group's heading, then its entries filling rows
 /// left to right in columns as wide as the longest name, and a blank row between groups.
 pub fn layout(entries: &[LegendEntry], width: usize) -> Vec<LegendLine> {
-    let per_row = ((width + GAP) / (cell_width(entries) + GAP)).max(1);
-    let mut out = Vec::new();
-    for group in LegendGroup::ALL {
-        let members: Vec<usize> =
-            (0..entries.len()).filter(|&i| entries[i].group == group).collect();
-        if members.is_empty() {
-            continue;
-        }
-        if !out.is_empty() {
-            out.push(LegendLine::Blank);
-        }
-        out.push(LegendLine::Heading(group));
-        out.extend(members.chunks(per_row).map(|row| LegendLine::Cells(row.to_vec())));
-    }
-    out
+    let groups: Vec<LegendGroup> = entries.iter().map(|e| e.group).collect();
+    fn_ui::legend::layout(&groups, cell_width(entries), width)
 }
 
 /// How many rows the legend has at `width`.

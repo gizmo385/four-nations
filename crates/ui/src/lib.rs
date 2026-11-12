@@ -42,6 +42,7 @@ pub mod inspector;
 pub mod keyev;
 pub mod keys;
 pub mod layout;
+pub mod legend;
 pub mod link;
 pub mod menu;
 pub mod meter;

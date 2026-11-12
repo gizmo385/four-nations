@@ -235,6 +235,15 @@ fn bold(painter: &egui::Painter, at: Pos2, galley: Arc<Galley>) {
     painter.galley(at + vec2(BOLD_OFFSET, 0.0), galley, Color32::WHITE);
 }
 
+/// `galley` at `at`, bold or plain: for a screen that lays out its own (wrapped) text.
+pub fn paint_galley(painter: &egui::Painter, at: Pos2, galley: Arc<Galley>, bold_text: bool) {
+    if bold_text {
+        bold(painter, at, galley);
+    } else {
+        painter.galley(at, galley, Color32::WHITE);
+    }
+}
+
 /// `row`'s text painted into `rect` (one cell high): its left spans, and its right-hand text (if
 /// any) flush right, bold when `bold`. Returns the row's words as the accessibility tree has
 /// them. The background is the caller's.

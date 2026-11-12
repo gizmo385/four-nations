@@ -131,16 +131,33 @@ pub const TWO_COLUMNS_FROM: usize = 96;
 /// The cells between the two columns.
 pub const COLUMN_GAP: usize = 2;
 
+/// The key help's tabs, left to right, and the words on each.
+pub const HELP_TABS: [(HelpTab, &str); 2] = [(HelpTab::Keys, "Keys"), (HelpTab::Legend, "Legend")];
+
+/// What the tab strip says `Tab` does, flush right.
+pub const TAB_NOTE: &str = "Tab switches";
+
 /// The tab strip: `[Keys]  Legend`, the open tab in brackets and the title tone, and what `Tab`
 /// does flush right.
 pub fn help_tabs(tab: HelpTab) -> Row {
-    let name = |this: HelpTab, text: &str| {
+    let name = |(this, text): (HelpTab, &str)| {
         if this == tab { (format!("[{text}]"), Tone::Title) } else { (text.to_owned(), Tone::Dim) }
     };
-    let (keys, legend) = (name(HelpTab::Keys, "Keys"), name(HelpTab::Legend, "Legend"));
+    let [keys, legend] = HELP_TABS.map(name);
     let mut row = Row::spans(vec![keys, ("  ".to_owned(), Tone::Text), legend]);
-    row.right = Some(("Tab switches".to_owned(), Tone::Dim));
+    row.right = Some((TAB_NOTE.to_owned(), Tone::Dim));
     row
+}
+
+/// The key help's groups, each with its rows, in the order the help lists them: what a window
+/// that lays the keys out itself (wrapping the wording as it likes) shows.
+pub fn help_groups() -> Vec<(Group, Vec<HelpRow>)> {
+    let rows = help_rows();
+    Group::ALL
+        .into_iter()
+        .map(|g| (g, rows.iter().filter(|r| r.group == g).cloned().collect::<Vec<_>>()))
+        .filter(|(_, rows)| !rows.is_empty())
+        .collect()
 }
 
 /// One group of the key help as rows: its heading, then a row per key, the keys in a column as
