@@ -7,7 +7,7 @@
 //! Like [`crate::state::UiState`], nothing here touches the terminal, so the keys and the golden
 //! frames can drive it directly.
 
-use std::path::Path;
+use fn_ui::saves::SaveStore;
 
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
 use fn_sim::embark::SurveyMode;
@@ -146,7 +146,7 @@ pub struct TitleScreen {
 }
 
 impl TitleScreen {
-    pub fn new(saves: Option<&Path>, seed_hint: u64) -> Self {
+    pub fn new(saves: Option<&dyn SaveStore>, seed_hint: u64) -> Self {
         let save_slots = list_slots(saves);
         let continue_slot = save_slots.iter().find(|s| s.loadable()).cloned();
         Self {
@@ -200,7 +200,7 @@ impl TitleScreen {
     }
 
     /// Handles one key, returning what `Shell` should do about it.
-    pub fn key(&mut self, key: KeyEvent, defs: &Defs, saves: Option<&Path>) -> Outcome {
+    pub fn key(&mut self, key: KeyEvent, defs: &Defs, saves: Option<&dyn SaveStore>) -> Outcome {
         if key.kind == KeyEventKind::Release {
             return Outcome::None;
         }
@@ -217,7 +217,7 @@ impl TitleScreen {
         }
     }
 
-    fn key_menu(&mut self, key: KeyEvent, defs: &Defs, saves: Option<&Path>) -> Outcome {
+    fn key_menu(&mut self, key: KeyEvent, defs: &Defs, saves: Option<&dyn SaveStore>) -> Outcome {
         let items = self.items();
         match key.code {
             KeyCode::Up | KeyCode::Char('w' | 'W') => {
@@ -235,7 +235,7 @@ impl TitleScreen {
         Outcome::None
     }
 
-    fn choose(&mut self, item: MenuItem, defs: &Defs, saves: Option<&Path>) -> Outcome {
+    fn choose(&mut self, item: MenuItem, defs: &Defs, saves: Option<&dyn SaveStore>) -> Outcome {
         match item {
             MenuItem::NewGame => {
                 self.page = Page::Nation { cursor: 0 };
@@ -256,12 +256,12 @@ impl TitleScreen {
         }
     }
 
-    fn load_named(&mut self, name: &str, defs: &Defs, saves: Option<&Path>) -> Outcome {
-        let Some(dir) = saves else {
+    fn load_named(&mut self, name: &str, defs: &Defs, saves: Option<&dyn SaveStore>) -> Outcome {
+        let Some(store) = saves else {
             self.status = NO_SAVE_DIR.to_owned();
             return Outcome::None;
         };
-        match fn_ui::saves::load(dir, name, defs) {
+        match fn_ui::saves::load(store, name, defs) {
             Ok(world) => Outcome::Loaded(Box::new(world)),
             Err(why) => {
                 self.status = format!("Load failed: {why}");
@@ -383,7 +383,7 @@ impl TitleScreen {
         Outcome::None
     }
 
-    fn key_load(&mut self, key: KeyEvent, defs: &Defs, saves: Option<&Path>) -> Outcome {
+    fn key_load(&mut self, key: KeyEvent, defs: &Defs, saves: Option<&dyn SaveStore>) -> Outcome {
         match key.code {
             KeyCode::Up | KeyCode::Char('w' | 'W') => {
                 self.load_cursor = step(self.save_slots.len(), self.load_cursor, -1);
@@ -407,10 +407,10 @@ impl TitleScreen {
     }
 }
 
-/// Every save in `saves`, newest first, or none without a directory. A listing error is folded
+/// Every save in `saves`, newest first, or none without a store. A listing error is folded
 /// into an empty list; it would otherwise have nowhere to show before the Load page is even open.
-fn list_slots(saves: Option<&Path>) -> Vec<fn_ui::saves::Slot> {
-    saves.map(|dir| fn_ui::saves::list(dir).unwrap_or_default()).unwrap_or_default()
+fn list_slots(saves: Option<&dyn SaveStore>) -> Vec<fn_ui::saves::Slot> {
+    saves.map(|store| fn_ui::saves::list(store).unwrap_or_default()).unwrap_or_default()
 }
 
 /// The highlight after a step of `dy` rows (its sign only), stopping at the edges, as

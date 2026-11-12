@@ -35,7 +35,7 @@ impl Drop for TempDir {
 
 fn app(dir: Option<PathBuf>) -> App {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
-    app.saves = dir;
+    app.saves = dir.map(fn_ui::saves::DiskStore::shared);
     app
 }
 
@@ -398,10 +398,10 @@ fn save_then_quit_writes_a_new_slot_and_only_then_quits() {
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("Save, then go to the title screen"), "{frame}");
     assert!(frame.contains("Go to the title screen without saving"), "{frame}");
-    assert!(fn_ui::saves::list(&tmp.0).unwrap().is_empty());
+    assert!(fn_ui::saves::list(&fn_ui::saves::DiskStore::new(&tmp.0)).unwrap().is_empty());
 
     run(&mut a, "<down> <enter>");
-    let slots = fn_ui::saves::list(&tmp.0).unwrap();
+    let slots = fn_ui::saves::list(&fn_ui::saves::DiskStore::new(&tmp.0)).unwrap();
     assert_eq!(slots.len(), 1, "one new slot");
     assert_eq!(slots[0].name, "save-1");
     assert!(a.ui.to_title && !a.ui.quit);

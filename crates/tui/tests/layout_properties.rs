@@ -367,7 +367,7 @@ fn every_app_screen_at_every_size_closes_its_boxes_fits_its_rows_and_keeps_its_h
         for case in CASES {
             for &size in &SIZES {
                 let mut app = App::new(session.clone(), size);
-                app.saves = Some(tmp.0.clone());
+                app.saves = Some(fn_ui::saves::DiskStore::shared(tmp.0.clone()));
                 app.play(&keys::parse(case.script).expect("a valid script"));
                 let palette = Palette::new(
                     &app.session.defs,
@@ -581,7 +581,7 @@ fn no_bottom_border_carries_key_hints() {
     for case in CASES {
         for size in [(80, 24), (120, 40)] {
             let mut app = App::new(session.clone(), size);
-            app.saves = Some(tmp.0.clone());
+            app.saves = Some(fn_ui::saves::DiskStore::shared(tmp.0.clone()));
             app.play(&keys::parse(case.script).expect("a valid script"));
             let palette = Palette::new(
                 &app.session.defs,

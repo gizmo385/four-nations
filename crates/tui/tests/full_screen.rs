@@ -53,7 +53,7 @@ impl Drop for TempDir {
 
 fn app(size: (u16, u16), saves: &TempDir) -> App {
     let mut app = App::new(new_session(7, Nation::Earth), size);
-    app.saves = Some(saves.0.clone());
+    app.saves = Some(fn_ui::saves::DiskStore::shared(saves.0.clone()));
     app
 }
 

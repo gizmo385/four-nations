@@ -3,6 +3,7 @@
 //! screen and switches between them, so `--frame`, the golden frames and the interactive loop
 //! (`run`) all go through here instead of repeating the switch themselves.
 
+use fn_ui::saves::Store;
 use std::path::PathBuf;
 
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind};
@@ -55,7 +56,7 @@ pub struct Shell {
     /// a game's `Ctrl+C` or Quit box.
     pub quit: bool,
     screen: (u16, u16),
-    saves: Option<PathBuf>,
+    saves: Option<Store>,
     defs: Defs,
     /// Offered as a fresh seed each time a title screen starts, and bumped whenever one does, so
     /// returning to the title screen more than once doesn't always suggest the same seed. Only
@@ -77,7 +78,7 @@ pub struct Shell {
 
 impl Shell {
     /// Starts at the title screen.
-    pub fn new_title(screen: (u16, u16), saves: Option<PathBuf>, seed_hint: u64) -> Self {
+    pub fn new_title(screen: (u16, u16), saves: Option<Store>, seed_hint: u64) -> Self {
         let defs = Defs::bundled();
         let title = TitleScreen::new(saves.as_deref(), seed_hint);
         Self {
@@ -96,7 +97,7 @@ impl Shell {
     }
 
     /// Starts straight in a game, skipping the menu: a `SEED` (and `NATION`) on the command line.
-    pub fn new_game(session: Session, screen: (u16, u16), saves: Option<PathBuf>) -> Self {
+    pub fn new_game(session: Session, screen: (u16, u16), saves: Option<Store>) -> Self {
         let defs = session.defs.clone();
         let mut app = App::new(session, screen);
         app.saves = saves.clone();
@@ -127,7 +128,7 @@ impl Shell {
         mode: fn_sim::embark::SurveyMode,
         difficulty: Option<String>,
         screen: (u16, u16),
-        saves: Option<PathBuf>,
+        saves: Option<Store>,
     ) -> Self {
         let defs = Defs::bundled();
         let embark_screen = EmbarkScreen::new(seed, nation, size, mode, difficulty, screen, &defs);
@@ -152,7 +153,7 @@ impl Shell {
     pub fn for_args(
         args: &crate::cli::Args,
         screen: (u16, u16),
-        saves: Option<PathBuf>,
+        saves: Option<Store>,
         seed_hint: u64,
     ) -> Result<Self, String> {
         Self::for_args_inner(args, screen, saves, seed_hint).map(|s| s.with_fast(args.fast))
@@ -163,7 +164,7 @@ impl Shell {
     fn for_args_inner(
         args: &crate::cli::Args,
         screen: (u16, u16),
-        saves: Option<PathBuf>,
+        saves: Option<Store>,
         seed_hint: u64,
     ) -> Result<Self, String> {
         if let Some(id) = &args.scenario {
@@ -223,7 +224,7 @@ impl Shell {
     /// `crate::surface::Host::new` already builds one), then its prelude if it names one
     /// (`crate::surface::prelude::run`) -- so `fn_tui --scenario ID` and `fn_agent serve
     /// --scenario ID` (`Host::from_scenario`) start exactly the same world.
-    fn for_scenario(id: &str, screen: (u16, u16), saves: Option<PathBuf>) -> Result<Self, String> {
+    fn for_scenario(id: &str, screen: (u16, u16), saves: Option<Store>) -> Result<Self, String> {
         let scenario = crate::scenario::find(id)?;
         let synthetic = crate::cli::Args {
             seed: Some(scenario.seed),

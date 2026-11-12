@@ -14,11 +14,14 @@
 //! Nothing here reads the clock but [`app`]'s frame time, and nothing here is in `cargo xtask ci`.
 
 pub mod app;
+pub mod browser_saves;
 pub mod camera;
 pub mod color;
 pub mod fonts;
 pub mod keys;
 pub mod mapview;
+#[cfg(target_arch = "wasm32")]
+pub mod page;
 pub mod panel;
 pub mod theme;
 

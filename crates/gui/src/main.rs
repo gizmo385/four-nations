@@ -4,7 +4,8 @@
 //!
 //! Built for wasm32 (#843's check of egui in the browser), the same app runs on a page's canvas
 //! instead: a game at the default site of the seed, nation and map size in the page's query
-//! (`?seed=7&nation=2&size=0`). See `web/gui/index.html`.
+//! (`?seed=7&nation=2&size=0`). See `web/gui/index.html`. Saves there go to the browser's
+//! `localStorage` (`fn_gui::browser_saves`); natively, to the save directory as in `fn_tui`.
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
@@ -32,6 +33,7 @@ mod web {
             .expect("a canvas with id the_canvas")
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("a canvas");
+        fn_gui::page::guard_game_keys(&canvas);
         let seed = query("seed").unwrap_or(7);
         let nation = fn_sim::Nation::ALL[query("nation").unwrap_or(2) as usize % 4];
         let defs = fn_sim::Defs::bundled();
@@ -43,7 +45,7 @@ mod web {
             fn_sim::embark::SurveyMode::Exact,
             None,
             (120, 40),
-            None,
+            Some(fn_gui::browser_saves::local::store()),
         );
         for c in ['e', 'y'] {
             shell.key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
@@ -72,7 +74,7 @@ fn main() -> eframe::Result {
             .with_inner_size([1600.0, 960.0]),
         ..Default::default()
     };
-    let saves = fn_ui::saves::default_save_dir();
+    let saves = fn_ui::saves::DiskStore::default_shared();
     let seed_hint = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos() as u64);

@@ -298,8 +298,10 @@ without one.
 ## Web
 
 Already filed: #859 (`cargo xtask web` builds and binds `fn_gui`, bundled font, dark theme, a
-download-size and GPU frame-time measurement), #860 (a save store behind an interface, with
-IndexedDB in the browser) and #866 (Pages at `/play/`, title screen first, Quit and Replays
+download-size and GPU frame-time measurement), #860 (a save store behind an interface; done
+with `localStorage`, deflated and base64'd, not IndexedDB: the store is synchronous, a small-map
+save is about 190 KB stored against a 5 MiB quota, and `fn_gui::browser_saves` documents the
+numbers) and #866 (Pages at `/play/`, title screen first, Quit and Replays
 hidden, Playwright). This doc adds one dependency: **#866 should also be blocked by #872**. The
 public page shouldn't ship the CPU-rasterised terminal path the spike measured at 6 ms of a
 14 ms browser frame. The title screen is cells until #880, which is fine once cells are cheap.

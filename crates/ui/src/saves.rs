@@ -1,9 +1,15 @@
-//! Save files on disk (#112, #216): where they live, how one is written so a crash can't eat it,
-//! and the list of named slots the frontend shows. The sim turns a `World` into text and back
+//! Saves (#112, #216, #860): where they live, how one is written so a crash can't eat it, and
+//! the list of named slots the frontend shows. The sim turns a `World` into text and back
 //! (`fn_sim::save`) and does no I/O; this module is the one place in `fn_ui` that touches the
 //! filesystem, so saves are read and written the same way everywhere.
 //!
-//! - **Where**: one `NAME.ron` file per slot in the platform's data directory (`save_dir`):
+//! - **A store** ([`SaveStore`]): where the slots are kept. Everything else here (names, headers,
+//!   the list, errors) is the same for every store and is written once, over four small methods.
+//!   [`DiskStore`] is the native one, below. The browser build has no filesystem: `fn_gui`'s
+//!   wasm target implements the trait over `localStorage` (`crates/gui/src/browser_saves.rs`),
+//!   which is why the trait is here and that implementation is there (`web-sys` is a
+//!   dependency of that target, not of this crate).
+//! - **Where** (on disk): one `NAME.ron` file per slot in the platform's data directory (`save_dir`):
 //!   `$XDG_DATA_HOME` or `~/.local/share` on Linux, `~/Library/Application Support` on macOS,
 //!   `%APPDATA%` on Windows, each followed by `four-nations/saves`. `FN_SAVE_DIR` names another
 //!   directory (tests, and anyone who wants their saves elsewhere). The directory is created on
@@ -22,6 +28,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use fn_sim::save::{SaveInfo, inspect};
@@ -42,6 +49,114 @@ pub const MAX_NAME: usize = 40;
 /// The most of a file [`list`] reads looking for the header line. Real headers are about a
 /// hundred bytes; anything longer is not one.
 const HEADER_LIMIT: u64 = 4096;
+
+/// What a store knows of one slot without reading its world: enough for the list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    /// The slot's name. The list drops names [`check_name`] refuses.
+    pub name: String,
+    /// The first line of the save, its header (at most [`HEADER_LIMIT`] bytes of it), or why it
+    /// couldn't be read.
+    pub header: Result<String, String>,
+    /// When the slot was last written, if the store says.
+    pub modified: Option<SystemTime>,
+}
+
+/// Where the named slots are kept. A store moves text and knows nothing of what is in it: names
+/// are checked, headers inspected, worlds parsed and errors worded by this module's functions
+/// ([`list`], [`save`], [`load`]), the same for every store. Every error is a line a frontend
+/// can show as it is.
+pub trait SaveStore: Send + Sync {
+    /// Every slot that exists, in any order, each with its header line. Cheap: never the whole
+    /// world of every slot where the store can help it. A store with nothing in it yet is `Ok`
+    /// and empty.
+    fn entries(&self) -> Result<Vec<Entry>, String>;
+
+    /// The text of slot `name`, or `None` if there is no such slot.
+    fn read(&self, name: &str) -> Result<Option<String>, String>;
+
+    /// Replaces slot `name` with `text`, all or nothing: if it fails, the slot is as it was.
+    fn write(&self, name: &str, text: &str) -> Result<(), String>;
+
+    /// Where slot `name` is, for the status line: a path on disk, a storage key in a browser.
+    fn place(&self, name: &str) -> String;
+}
+
+/// A store an [`crate::App`] and the shell hold: shared, so cloning the app is cheap.
+pub type Store = Arc<dyn SaveStore>;
+
+/// The save files in a directory (see the module doc for which one by default): one
+/// `NAME.ron` per slot, written atomically ([`write_atomic`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiskStore {
+    dir: PathBuf,
+}
+
+impl DiskStore {
+    pub fn new(dir: impl Into<PathBuf>) -> Self {
+        DiskStore { dir: dir.into() }
+    }
+
+    /// A [`Store`] handle on the directory `dir`.
+    pub fn shared(dir: impl Into<PathBuf>) -> Store {
+        Arc::new(Self::new(dir))
+    }
+
+    /// The store for this process: [`default_save_dir`], if the platform has one.
+    pub fn default_shared() -> Option<Store> {
+        default_save_dir().map(Self::shared)
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+}
+
+impl SaveStore for DiskStore {
+    /// Only `*.ron` files are slots; anything else there, the temporary files of a save in
+    /// progress included, is left out. A directory that doesn't exist yet has no slots.
+    fn entries(&self) -> Result<Vec<Entry>, String> {
+        let dir = &self.dir;
+        let found = match fs::read_dir(dir) {
+            Ok(found) => found,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(format!("could not list {}: {e}", dir.display())),
+        };
+        let mut entries = Vec::new();
+        for entry in found.flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != EXTENSION) || !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            let modified = entry.metadata().and_then(|m| m.modified()).ok();
+            entries.push(Entry {
+                name: name.to_owned(),
+                header: read_header_line(&path),
+                modified,
+            });
+        }
+        Ok(entries)
+    }
+
+    fn read(&self, name: &str) -> Result<Option<String>, String> {
+        let path = slot_path(&self.dir, name);
+        match fs::read_to_string(&path) {
+            Ok(text) => Ok(Some(text)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!("could not read {}: {e}", path.display())),
+        }
+    }
+
+    fn write(&self, name: &str, text: &str) -> Result<(), String> {
+        let path = slot_path(&self.dir, name);
+        write_atomic(&path, text).map_err(|e| format!("could not write {}: {e}", path.display()))
+    }
+
+    fn place(&self, name: &str) -> String {
+        slot_path(&self.dir, name).display().to_string()
+    }
+}
 
 /// The directory saves live in, from `env` (a lookup of environment variables) on operating
 /// system `os` (`std::env::consts::OS`).
@@ -143,44 +258,32 @@ impl Slot {
     }
 }
 
-/// Every slot in `dir`, newest first (then by name). A directory that doesn't exist yet has no
-/// slots. Only `*.ron` files are slots; anything else there, the temporary files of a save in
-/// progress included, is left out.
-pub fn list(dir: &Path) -> Result<Vec<Slot>, String> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("could not list {}: {e}", dir.display())),
-    };
+/// Every slot in `store`, newest first (then by name). A store with nothing in it has no slots.
+pub fn list(store: &dyn SaveStore) -> Result<Vec<Slot>, String> {
     let mut slots = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_none_or(|e| e != EXTENSION) || !path.is_file() {
+    for Entry { name, header, modified } in store.entries()? {
+        if check_name(&name).is_err() {
             continue;
         }
-        let Some(name) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-        if check_name(name).is_err() {
-            continue;
-        }
-        let modified = entry.metadata().and_then(|m| m.modified()).ok();
-        let state = match read_header(&path) {
-            Err(why) => SlotState::Unloadable(why),
-            Ok(info) => SlotState::Ready(info),
-        };
-        slots.push(Slot { name: name.to_owned(), state, modified });
+        let state =
+            match header.and_then(|line| inspect(line.trim_end()).map_err(|e| e.to_string())) {
+                Err(why) => SlotState::Unloadable(why),
+                Ok(info) => SlotState::Ready(info),
+            };
+        slots.push(Slot { name, state, modified });
     }
     slots.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.name.cmp(&b.name)));
     Ok(slots)
 }
 
-/// The header of the save at `path`, from its first line only.
-fn read_header(path: &Path) -> Result<SaveInfo, String> {
+/// The header line of the save at `path`, from its first line only.
+fn read_header_line(path: &Path) -> Result<String, String> {
     let file = fs::File::open(path).map_err(|e| format!("could not read it ({e})"))?;
     let mut line = String::new();
     BufReader::new(file.take(HEADER_LIMIT))
         .read_line(&mut line)
         .map_err(|e| format!("not a Four Nations save ({e})"))?;
-    inspect(line.trim_end()).map_err(|e| e.to_string())
+    Ok(line)
 }
 
 /// A name for a new slot that isn't taken: `save-1`, `save-2`, ...
@@ -191,36 +294,31 @@ pub fn new_name(slots: &[Slot]) -> String {
         .expect("an unused name")
 }
 
-/// Saves `session`'s world to slot `name` in `dir`, replacing what was there.
-pub fn save(dir: &Path, name: &str, session: &Session) -> Result<(), String> {
+/// Saves `session`'s world to slot `name` in `store`, replacing what was there.
+pub fn save(store: &dyn SaveStore, name: &str, session: &Session) -> Result<(), String> {
     check_name(name)?;
     let text = session.world.save(&session.defs).map_err(|e| e.to_string())?;
-    let path = slot_path(dir, name);
-    write_atomic(&path, &text).map_err(|e| format!("could not write {}: {e}", path.display()))
+    store.write(name, &text)
 }
 
-/// Reads slot `name` in `dir` into a world checked against `defs`.
-pub fn load(dir: &Path, name: &str, defs: &Defs) -> Result<World, String> {
+/// Reads slot `name` in `store` into a world checked against `defs`.
+pub fn load(store: &dyn SaveStore, name: &str, defs: &Defs) -> Result<World, String> {
     check_name(name)?;
-    let path = slot_path(dir, name);
-    let text = fs::read_to_string(&path).map_err(|e| match e.kind() {
-        io::ErrorKind::NotFound if name == QUICKSAVE => {
-            format!("no quicksave yet ({})", path.display())
-        }
-        io::ErrorKind::NotFound => format!("no save named {name} ({})", path.display()),
-        _ => format!("could not read {}: {e}", path.display()),
+    let text = store.read(name)?.ok_or_else(|| match name {
+        QUICKSAVE => format!("no quicksave yet ({})", store.place(name)),
+        _ => format!("no save named {name} ({})", store.place(name)),
     })?;
     World::load(&text, defs).map_err(|e| e.to_string())
 }
 
 /// Saves to the quicksave slot.
-pub fn quicksave(dir: &Path, session: &Session) -> Result<(), String> {
-    save(dir, QUICKSAVE, session)
+pub fn quicksave(store: &dyn SaveStore, session: &Session) -> Result<(), String> {
+    save(store, QUICKSAVE, session)
 }
 
 /// Loads the quicksave slot.
-pub fn quickload(dir: &Path, defs: &Defs) -> Result<World, String> {
-    load(dir, QUICKSAVE, defs)
+pub fn quickload(store: &dyn SaveStore, defs: &Defs) -> Result<World, String> {
+    load(store, QUICKSAVE, defs)
 }
 
 #[cfg(test)]
@@ -285,8 +383,8 @@ mod tests {
         let tmp = TempDir::new("roundtrip");
         let dir = tmp.0.join("not").join("there").join("yet");
         let s = session();
-        quicksave(&dir, &s).unwrap();
-        let loaded = quickload(&dir, &s.defs).unwrap();
+        quicksave(&DiskStore::new(&dir), &s).unwrap();
+        let loaded = quickload(&DiskStore::new(&dir), &s.defs).unwrap();
         assert_eq!(loaded.tick, s.world.tick);
         assert_eq!(loaded.save(&s.defs), s.world.save(&s.defs));
         let names: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
@@ -312,19 +410,19 @@ mod tests {
     fn loading_what_is_missing_or_damaged_is_an_error_line_not_a_panic() {
         let tmp = TempDir::new("errors");
         let defs = Defs::bundled();
-        let missing = quickload(&tmp.0, &defs).unwrap_err();
+        let missing = quickload(&DiskStore::new(&tmp.0), &defs).unwrap_err();
         assert!(missing.contains("no quicksave yet"), "{missing}");
-        let missing = load(&tmp.0, "other", &defs).unwrap_err();
+        let missing = load(&DiskStore::new(&tmp.0), "other", &defs).unwrap_err();
         assert!(missing.contains("no save named other"), "{missing}");
 
         fs::write(tmp.0.join("quicksave.ron"), "this is not a save").unwrap();
-        let junk = quickload(&tmp.0, &defs).unwrap_err();
+        let junk = quickload(&DiskStore::new(&tmp.0), &defs).unwrap_err();
         assert!(junk.contains("not a Four Nations save"), "{junk}");
 
         let s = session();
         let text = s.world.save(&defs).unwrap();
         fs::write(tmp.0.join("quicksave.ron"), &text[..text.len() / 2]).unwrap();
-        let cut = quickload(&tmp.0, &defs).unwrap_err();
+        let cut = quickload(&DiskStore::new(&tmp.0), &defs).unwrap_err();
         assert!(cut.contains("damaged save"), "{cut}");
     }
 
@@ -337,19 +435,23 @@ mod tests {
             assert!(check_name(bad).is_err(), "{bad:?}");
         }
         let tmp = TempDir::new("names");
-        assert!(save(&tmp.0, "../out", &session()).is_err());
-        assert!(load(&tmp.0, "../out", &Defs::bundled()).is_err());
+        assert!(save(&DiskStore::new(&tmp.0), "../out", &session()).is_err());
+        assert!(load(&DiskStore::new(&tmp.0), "../out", &Defs::bundled()).is_err());
     }
 
     #[test]
     fn the_list_reads_headers_and_marks_what_cannot_load() {
         let tmp = TempDir::new("list");
         let defs = Defs::bundled();
-        assert_eq!(list(&tmp.0.join("missing")), Ok(Vec::new()), "no directory, no slots");
+        assert_eq!(
+            list(&DiskStore::new(tmp.0.join("missing"))),
+            Ok(Vec::new()),
+            "no directory, no slots"
+        );
 
         let s = session();
-        save(&tmp.0, "save-1", &s).unwrap();
-        quicksave(&tmp.0, &s).unwrap();
+        save(&DiskStore::new(&tmp.0), "save-1", &s).unwrap();
+        quicksave(&DiskStore::new(&tmp.0), &s).unwrap();
         fs::write(tmp.0.join("junk.ron"), "this is not a save").unwrap();
         // A newer format, and a v1 save of data this build has no id tables for: the header
         // reads, but this build can't load it. Other data in a current save is fine (#602): its
@@ -366,7 +468,7 @@ mod tests {
         fs::write(tmp.0.join("save-1.ron.tmp"), "half").unwrap();
         fs::write(tmp.0.join("bad name.ron"), &text).unwrap();
 
-        let mut slots = list(&tmp.0).unwrap();
+        let mut slots = list(&DiskStore::new(&tmp.0)).unwrap();
         slots.sort_by(|a, b| a.name.cmp(&b.name));
         let names: Vec<_> = slots.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["future", "junk", "modded", "old", "quicksave", "save-1"]);
@@ -409,7 +511,7 @@ mod tests {
         assert!(!old.contains("seasons:Some"));
         fs::write(tmp.0.join("old.ron"), &old).unwrap();
 
-        let slots = list(&tmp.0).unwrap();
+        let slots = list(&DiskStore::new(&tmp.0)).unwrap();
         let said = |n: &str| slots.iter().find(|s| s.name == n).unwrap().describe(&defs);
         assert_eq!(said("off"), "Water Tribes, seed 3, Day 1 - 4:56 left (tick 40)");
         assert_eq!(said("on"), "Water Tribes, seed 3, Spring Y1 - 14:56 left (tick 40)");
@@ -425,14 +527,20 @@ mod tests {
         let defs = Defs::bundled();
         assert_eq!(new_name(&[]), "save-1");
         let mut s = session();
-        save(&tmp.0, &new_name(&list(&tmp.0).unwrap()), &s).unwrap();
-        save(&tmp.0, &new_name(&list(&tmp.0).unwrap()), &s).unwrap();
+        save(&DiskStore::new(&tmp.0), &new_name(&list(&DiskStore::new(&tmp.0)).unwrap()), &s)
+            .unwrap();
+        save(&DiskStore::new(&tmp.0), &new_name(&list(&DiskStore::new(&tmp.0)).unwrap()), &s)
+            .unwrap();
         fs::remove_file(slot_path(&tmp.0, "save-1")).unwrap();
-        assert_eq!(new_name(&list(&tmp.0).unwrap()), "save-1", "a freed name is reused");
+        assert_eq!(
+            new_name(&list(&DiskStore::new(&tmp.0)).unwrap()),
+            "save-1",
+            "a freed name is reused"
+        );
 
         s.tick_n(10);
-        save(&tmp.0, "save-2", &s).unwrap();
-        assert_eq!(load(&tmp.0, "save-2", &defs).unwrap().tick, 50);
-        assert_eq!(list(&tmp.0).unwrap().len(), 1);
+        save(&DiskStore::new(&tmp.0), "save-2", &s).unwrap();
+        assert_eq!(load(&DiskStore::new(&tmp.0), "save-2", &defs).unwrap().tick, 50);
+        assert_eq!(list(&DiskStore::new(&tmp.0)).unwrap().len(), 1);
     }
 }

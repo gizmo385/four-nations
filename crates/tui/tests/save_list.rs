@@ -34,7 +34,7 @@ impl Drop for TempDir {
 
 fn app(dir: Option<PathBuf>) -> App {
     let mut app = App::new(new_session(7, Nation::Earth), SIZE);
-    app.saves = dir;
+    app.saves = dir.map(fn_ui::saves::DiskStore::shared);
     app
 }
 
@@ -162,7 +162,7 @@ fn n_then_enter_with_nothing_typed_writes_the_next_save_n() {
     let mut a = app(Some(tmp.0.clone()));
     run(&mut a, "<tick 40> <f6> n");
     assert_eq!(a.ui.save_name.as_deref(), Some(""), "N starts a name; nothing is written yet");
-    assert!(fn_ui::saves::list(&tmp.0).unwrap().is_empty());
+    assert!(fn_ui::saves::list(&fn_ui::saves::DiskStore::new(&tmp.0)).unwrap().is_empty());
     let frame = text(&mut a, SIZE);
     assert!(frame.contains("Name: _ save-1"), "the suggestion shows with nothing typed:\n{frame}");
 
@@ -208,7 +208,7 @@ fn esc_cancels_the_name_and_writes_nothing() {
     run(&mut a, "<f6> n a b <esc>");
     assert_eq!(a.ui.save_name, None);
     assert_eq!(a.ui.screen, Some(Screen::Saves), "Esc only closed the name, not the screen");
-    assert!(fn_ui::saves::list(&tmp.0).unwrap().is_empty());
+    assert!(fn_ui::saves::list(&fn_ui::saves::DiskStore::new(&tmp.0)).unwrap().is_empty());
     assert!(!text(&mut a, SIZE).contains("Name:"));
     run(&mut a, "<esc>");
     assert_eq!(a.ui.screen, None, "a second Esc closes the screen as before");
@@ -221,7 +221,10 @@ fn an_invalid_name_is_refused_with_the_typing_kept() {
     run(&mut a, "<f6> n a / b <enter>");
     assert!(a.ui.status.starts_with("Can't name a save \"a/b\""), "{}", a.ui.status);
     assert_eq!(a.ui.save_name.as_deref(), Some("a/b"), "still typing, so it can be fixed");
-    assert!(fn_ui::saves::list(&tmp.0).unwrap().is_empty(), "nothing was written");
+    assert!(
+        fn_ui::saves::list(&fn_ui::saves::DiskStore::new(&tmp.0)).unwrap().is_empty(),
+        "nothing was written"
+    );
     let line = bar(&mut a);
     assert!(line.contains("Can't name a save"), "{line}");
 
@@ -237,7 +240,7 @@ fn an_invalid_name_is_refused_with_the_typing_kept() {
     // A name that is only dots is no slot either: it never reaches the disk.
     run(&mut a, "<esc> n . . <enter>");
     assert_eq!(a.ui.save_name.as_deref(), Some(".."));
-    assert_eq!(fn_ui::saves::list(&tmp.0).unwrap().len(), 1);
+    assert_eq!(fn_ui::saves::list(&fn_ui::saves::DiskStore::new(&tmp.0)).unwrap().len(), 1);
 }
 
 #[test]
