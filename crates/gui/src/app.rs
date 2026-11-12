@@ -85,7 +85,13 @@ impl GuiApp {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f64().min(0.25);
         self.last_frame = now;
+        // A text field with the keyboard (the saves screen's name) turns typing into the keys
+        // itself, so the raw typing isn't given to the shell as well.
+        let field = ctx.egui_wants_keyboard_input();
         for key in ctx.input(crate::keys::frame_keys) {
+            if field && crate::keys::is_typing(&key) {
+                continue;
+            }
             // F12 is the window's own: it shows or hides the dev timing overlay.
             if key.code == fn_ui::keyev::KeyCode::F(12) {
                 self.frame.overlay = !self.frame.overlay;

@@ -88,6 +88,15 @@ pub fn translate(event: &Event) -> Option<KeyEvent> {
     }
 }
 
+/// Whether `key` is typing into a text field: a character without Ctrl or Alt, or `Backspace`.
+pub fn is_typing(key: &KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Backspace => true,
+        KeyCode::Char(_) => !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT),
+        _ => false,
+    }
+}
+
 /// Every terminal key this frame's input holds, in order.
 pub fn frame_keys(input: &egui::InputState) -> Vec<KeyEvent> {
     input.events.iter().filter_map(translate).collect()

@@ -183,7 +183,7 @@ One row is roughly one agent PR (the #842 estimates). "Words" means a row-model 
 | 7 | Embark (#883) | `fn_gui::embark`, reusing `MapView` | `fn_tui::embark` report | 1.5 |
 | 8 | Shared page frame and the Build screen (#881) | `fn_gui::page`, `fn_gui::screens::build` | (`fn_ui::build` has them) | 1.5 |
 | 9 | Research tree and the school box (#884) | `fn_gui::screens::research` | (`fn_ui::research` has most) | 2 |
-| 10 | Saves and naming (#885) | `fn_gui::screens::saves` | (`fn_ui::saves`) | 1 |
+| 10 | Saves and naming (#885; done) | `fn_gui::screens::saves` | (`fn_ui::saves`) | 1 |
 | 11 | Traders and Abilities (#886) | `screens::{traders, abilities}` | (`fn_ui::trade`, `fn_ui::bend`) | 2 |
 | 12 | Nation roster and Endeavor (#887) | `screens::{nation, endeavor}` | `fn_tui::nation` groups | 2 |
 | 13 | Message log, key help and legend (#888) | `screens::{log, help}` | (`fn_ui::msglog`, `fn_ui::keys`), `fn_tui::legend` rows | 2 |
