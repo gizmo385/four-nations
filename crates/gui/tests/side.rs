@@ -72,7 +72,13 @@ fn typed(h: &mut Harness<'_>, keys: &str) {
 /// the terminal's.
 #[test]
 fn the_panels_words_are_the_terminals() {
-    let mut app = GuiApp::with_shell(game_with_an_alert());
+    // The window advances the game by wall-clock time between frames, and this game sits exactly
+    // on a clock boundary ("5:00 left"), so a slow first frame would tick it past the words the
+    // model read. Paused, the window and the model read the same moment.
+    let mut shell = game_with_an_alert();
+    let Mode::Game(game) = &mut shell.mode else { panic!("a game") };
+    game.session.clock.paused = true;
+    let mut app = GuiApp::with_shell(shell);
     let model = side::model(state(&app), &palette(&app));
     let terminal = terminal_panel(&app);
     let h = harness(&mut app);

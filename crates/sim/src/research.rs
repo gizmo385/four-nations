@@ -24,37 +24,53 @@ pub struct TechId(pub u16);
 /// loading.
 pub const MAX_MULTIPLIER: f32 = 4.0;
 
-/// The nation's base modifiers times every known tech's multipliers, applied in ascending
-/// `TechId` order. `f32` multiplication isn't associative, so the order is fixed here rather than
-/// left to completion order: any research order that reaches the same known set gives
+/// The nation's base modifiers times the known techs' multipliers that reach it, applied in
+/// ascending `TechId` order. `f32` multiplication isn't associative, so the order is fixed here
+/// rather than left to completion order: any research order that reaches the same known set gives
 /// bitwise-identical results.
+///
+/// `nation` is the unit's own nation (the settlement's, for the settlement's cached value) and
+/// `home` the settlement's. A tech's multipliers apply if `applies_to` says so: shared techs,
+/// the home nation's techs (newcomers ride on the home tree, #239) and the unit's own nation's. A
+/// borrowed tech (`TechDef::teachable`, learned from another nation) therefore helps only its
+/// teachers' nation (docs/design/horizons-phase-6.md, "Borrowed techs"). With nothing borrowed
+/// every known tech is shared or the home nation's, so the result is what applying them all gave.
 pub fn effective_modifiers(
     nation: Nation,
+    home: Nation,
     known: impl IntoIterator<Item = TechId>,
     defs: &Defs,
 ) -> Modifiers {
     let mut mods = defs.nation(nation).modifiers;
     for t in sorted(known) {
-        mods.apply(&defs.tech(t).unlocks.modifiers);
+        let tech = defs.tech(t);
+        if tech.modifiers_apply(nation, home) {
+            mods.apply(&tech.unlocks.modifiers);
+        }
     }
     mods
 }
 
 /// How `effective_modifiers` arrives at the modifier called `name`: the nation's base value, then
-/// each known tech that multiplies it, in the same order as `effective_modifiers`. Each entry is
-/// `(source name, factor)`; the product of the factors (left to right) is the effective value.
-/// Empty if `name` isn't a modifier.
+/// each known tech that multiplies it for this unit, in the same order as `effective_modifiers`.
+/// Each entry is `(source name, factor)`; the product of the factors (left to right) is the
+/// effective value. Empty if `name` isn't a modifier.
 pub fn modifier_breakdown<'d>(
     name: &str,
     nation: Nation,
+    home: Nation,
     known: impl IntoIterator<Item = TechId>,
     defs: &'d Defs,
 ) -> Vec<(&'d str, f32)> {
+    let nation_id = nation;
     let nation = defs.nation(nation);
     let Some(base) = nation.modifiers.get(name) else { return Vec::new() };
     let mut out = vec![(nation.name.as_str(), base)];
     for t in sorted(known) {
         let tech = defs.tech(t);
+        if !tech.modifiers_apply(nation_id, home) {
+            continue;
+        }
         if let Some((_, f)) = tech.unlocks.modifiers.iter().find(|(n, _)| *n == name) {
             out.push((tech.name.as_str(), f));
         }
@@ -93,6 +109,16 @@ pub struct ResearchSettings {
     /// `bill_hall` as a building id, filled in once the buildings load.
     #[serde(skip)]
     pub bill_hall_id: Option<crate::building::BuildingId>,
+    /// A borrowed tech costs this many times its own `cost` (`TechDef::teachable`, docs/design/
+    /// horizons-phase-6.md, "Borrowed techs"), before the difficulty preset's `research_cost`.
+    /// 1.0 to `MAX_BORROW_COST`. *Provisional* until the playtest (#752).
+    #[serde(default = "default_borrow_cost")]
+    pub borrow_cost: f32,
+    /// Residents of a borrowed tech's nation that must live in the settlement to learn it: the
+    /// implicit `requires.residents` of a borrowed tech. 1 to `MAX_RESIDENTS_REQUIRED`.
+    /// *Provisional* until the playtest (#752).
+    #[serde(default = "default_borrow_residents")]
+    pub borrow_residents: u32,
     /// `passive_knowledge_per_minute` as integer millis per tick, filled in at load.
     #[serde(skip)]
     pub passive_millis_per_tick: u64,
@@ -145,6 +171,17 @@ pub struct SiteRule {
 fn default_cost_items_from() -> u32 {
     1000
 }
+
+fn default_borrow_cost() -> f32 {
+    2.0
+}
+
+fn default_borrow_residents() -> u32 {
+    3
+}
+
+/// Largest `[settings] borrow_cost`.
+pub const MAX_BORROW_COST: f32 = 10.0;
 
 /// Largest count one `[[tech.cost_items]]` line may ask for.
 pub const MAX_COST_ITEM_COUNT: u32 = 99;
@@ -529,9 +566,60 @@ pub struct TechDef {
     /// (`Facts::united`) and names neither `nation` nor `nations`; its `requires.residents` are
     /// exactly these two nations (docs/design/horizons-phase-6.md, "Fusions"). Ask `is_fusion`.
     pub fusion: Option<[Nation; 2]>,
+    /// Set by `teachable = true`: a settlement of another nation can learn this tech once the
+    /// gate stands, at `[settings] borrow_cost` times its cost while `borrow_residents` people of
+    /// this tech's nation live there (docs/design/horizons-phase-6.md, "Borrowed techs"). Only a
+    /// tech of a single `nation` that unlocks no ability, and is neither a school option nor a
+    /// fusion, can be. Ask `borrowed_from`.
+    pub teachable: bool,
 }
 
 impl TechDef {
+    /// The nation this tech is borrowed from if `home` learns it: the tech's own nation when it
+    /// is `teachable` and not `home`'s. `None` for every tech `home` simply researches.
+    pub fn borrowed_from(&self, home: Nation) -> Option<Nation> {
+        self.nation.filter(|&n| self.teachable && n != home)
+    }
+
+    /// Whether `home` can learn this tech: its own tree, a fusion, or a teachable tech of another
+    /// nation. (`open_to` is only the first two: the tree page.)
+    pub fn learnable_by(&self, home: Nation) -> bool {
+        self.open_to(home) || self.borrowed_from(home).is_some()
+    }
+
+    /// Whether this tech's `modifiers` reach a unit of `unit` in a settlement of `home`: shared
+    /// and fusion techs reach everyone, a nation's techs its own units and the home nation's
+    /// (`effective_modifiers`). Only a borrowed tech is left out for the home nation's units.
+    pub fn modifiers_apply(&self, unit: Nation, home: Nation) -> bool {
+        self.nation.is_none_or(|n| n == home || n == unit)
+    }
+
+    /// Knowledge points `home` pays for this tech before the difficulty preset's
+    /// `research_cost`: its own `cost`, times `borrow_cost` if `home` borrows it. Rounded to
+    /// whole points; the sim itself pays the exact amount (`cost_millis`).
+    pub fn cost_for(&self, home: Nation, borrow_cost: f32) -> u32 {
+        match self.borrowed_from(home) {
+            Some(_) => (f64::from(self.cost) * f64::from(borrow_cost)).round() as u32,
+            None => self.cost,
+        }
+    }
+
+    /// The `requires` conditions `facts` doesn't meet yet for `home`, in `Requires::unmet`'s
+    /// order, then (for a borrowed tech) the implicit `residents = { <nation> = borrow_residents }`
+    /// unless an explicit `requires.residents` already asks for as many.
+    pub fn unmet(&self, home: Nation, facts: &Facts<'_>, defs: &Defs) -> Vec<Condition> {
+        let mut out = self.requires.unmet(facts, defs);
+        if let Some(nation) = self.borrowed_from(home) {
+            let need = defs.research.borrow_residents;
+            let have = u32::from(facts.residents[nation.index()]);
+            let asked = self.requires.residents.get(&nation).is_some_and(|&n| n >= need);
+            if have < need && !asked {
+                out.push(Condition::Residents { nation, need, have });
+            }
+        }
+        out
+    }
+
     /// Whether this is a fusion tech (`fusion` is set).
     pub fn is_fusion(&self) -> bool {
         self.fusion.is_some()
@@ -544,11 +632,10 @@ impl TechDef {
         self.fusion.is_none() || united
     }
 
-    /// Whether `prereq` may be required by a fusion tech of `pair`: a shared tech, or (with
-    /// #753) a teachable tech of either nation of the pair. The one place that rule lives.
-    fn fusion_may_require(prereq: &TechDef, _pair: [Nation; 2]) -> bool {
-        // #753 adds `|| (prereq.teachable && prereq.nation.is_some_and(|n| pair.contains(&n)))`.
-        prereq.is_shared()
+    /// Whether `prereq` may be required by a fusion tech of `pair`: a shared tech, or a teachable
+    /// tech of either nation of the pair. The one place that rule lives.
+    fn fusion_may_require(prereq: &TechDef, pair: [Nation; 2]) -> bool {
+        prereq.is_shared() || (prereq.teachable && prereq.nation.is_some_and(|n| pair.contains(&n)))
     }
 
     /// Whether `nation` sees this tech: it is shared, or it is the tech's own nation, or one of
@@ -608,6 +695,8 @@ struct RawTech {
     teaching: Option<TeachingDef>,
     #[serde(default)]
     fusion: Option<Vec<Nation>>,
+    #[serde(default)]
+    teachable: bool,
 }
 
 /// Each tech's `cost_items` as written, by `TechId`, for `resolve_cost_items` once the items
@@ -618,11 +707,36 @@ fn nation_label(n: Option<Nation>) -> &'static str {
     n.map_or("shared", Nation::as_str)
 }
 
+/// Validates a tech's `teachable = true` (docs/design/horizons-phase-6.md, "Borrowed techs:
+/// `teachable`"): a single `nation` (not shared, not `nations`, so not `herding`), no abilities,
+/// no school, no fusion, and no `cost_items`, because a borrowed tech has no item bill. The
+/// message is the tech's error, without its id.
+fn check_teachable(raw: &RawTech) -> Result<(), String> {
+    if !raw.nations.is_empty() {
+        return Err("`teachable` can't be combined with `nations`".into());
+    }
+    if raw.nation.is_none() {
+        return Err("`teachable` needs a single `nation`, not a shared tech".into());
+    }
+    for (what, set) in [
+        ("fusion", raw.fusion.is_some()),
+        ("school", raw.school.is_some()),
+        ("cost_items", !raw.cost_items.is_empty()),
+    ] {
+        if set {
+            return Err(format!("a teachable tech can't be combined with `{what}`"));
+        }
+    }
+    if !raw.unlocks.abilities.is_empty() {
+        return Err("a teachable tech can't unlock abilities: borrowing is not bending".into());
+    }
+    Ok(())
+}
+
 /// Validates a tech's `fusion = [a, b]` against the rest of the tech (docs/design/horizons-phase-6.md,
 /// "Fusions: the `fusion` field"): two distinct nations; no `nation`, `nations`, `school`,
-/// `teaching` or `core`; `requires.residents` naming exactly those two; `masters_of` naming one
-/// or both. (`teachable` joins the exclusions with #753.) The message is the tech's error,
-/// without its id.
+/// `teaching`, `teachable` or `core`; `requires.residents` naming exactly those two; `masters_of` naming one
+/// or both. The message is the tech's error, without its id.
 fn check_fusion(raw: &RawTech, pair: &[Nation]) -> Result<[Nation; 2], String> {
     let [a, b] = pair else {
         return Err(format!("`fusion` must list exactly two nations, not {}", pair.len()));
@@ -635,6 +749,7 @@ fn check_fusion(raw: &RawTech, pair: &[Nation]) -> Result<[Nation; 2], String> {
         ("nations", !raw.nations.is_empty()),
         ("school", raw.school.is_some()),
         ("teaching", raw.teaching.is_some()),
+        ("teachable", raw.teachable),
         ("core", raw.core),
     ] {
         if set {
@@ -679,6 +794,16 @@ impl ResearchFile {
                     "research settings: {what} must be finite and >= 0"
                 )));
             }
+        }
+        if !(s.borrow_cost.is_finite() && (1.0..=MAX_BORROW_COST).contains(&s.borrow_cost)) {
+            return Err(DefsError(format!(
+                "research settings: borrow_cost must be 1 to {MAX_BORROW_COST}"
+            )));
+        }
+        if !(1..=MAX_RESIDENTS_REQUIRED).contains(&s.borrow_residents) {
+            return Err(DefsError(format!(
+                "research settings: borrow_residents must be 1 to {MAX_RESIDENTS_REQUIRED}"
+            )));
         }
         s.passive_millis_per_tick = millis_per_tick(s.passive_knowledge_per_minute);
         s.study_millis_per_tick = millis_per_tick(s.study_knowledge_per_minute);
@@ -734,6 +859,9 @@ impl ResearchFile {
                 None => None,
                 Some(pair) => Some(check_fusion(&raw, pair).map_err(&err)?),
             };
+            if raw.teachable {
+                check_teachable(&raw).map_err(&err)?;
+            }
             if let Some(n) = raw.requires.scrolls_read
                 && !(1..=MAX_SCROLLS_REQUIRED).contains(&n)
             {
@@ -814,7 +942,8 @@ impl ResearchFile {
                 if let Some(pair) = fusion {
                     if !TechDef::fusion_may_require(&techs[i], pair) {
                         return Err(err(format!(
-                            "a fusion can only require shared techs, and {p:?} isn't one"
+                            "a fusion can only require shared techs or its nations' teachable ones, \
+                             and {p:?} isn't one"
                         )));
                     }
                 } else if techs[i].fusion.is_some() {
@@ -931,6 +1060,7 @@ impl ResearchFile {
                 cost_items: Vec::new(),
                 teaching: raw.teaching,
                 fusion,
+                teachable: raw.teachable,
             });
         }
         for (k, sc) in schools.iter().enumerate() {
@@ -1264,9 +1394,13 @@ impl Research {
 
     /// Replaces the queue with `tech` plus its unknown prereqs, in ascending `TechId` order.
     /// Knowledge already banked is kept. Refuses with `ResearchError::NotYet`, leaving the queue
-    /// as it was, if any tech it would queue has a `Requires` condition `facts` doesn't meet.
-    /// Conditions are checked again when the front tech completes (`tick_with`), because some
-    /// can fall.
+    /// as it was, if any tech it would queue has a condition `facts` doesn't meet: a `Requires`
+    /// key, or for a borrowed tech the residents of its nation (`TechDef::unmet`). Conditions are
+    /// checked again when the front tech completes (`tick_with`), because some can fall.
+    ///
+    /// A teachable tech of another nation is a target too, once the gate stands
+    /// (`ResearchError::GateFirst`): it and its teachable prereqs queue as borrowed techs, and
+    /// its prereqs of that nation that aren't teachable are waived (`Defs::borrow_prereqs`).
     pub fn set_target(
         &mut self,
         tech: TechId,
@@ -1275,14 +1409,15 @@ impl Research {
         defs: &Defs,
     ) -> Result<(), ResearchError> {
         let def = defs.techs.get(tech.0 as usize).ok_or(ResearchError::UnknownTech)?;
-        if !def.open_to(nation) {
+        if !def.learnable_by(nation) {
             return Err(ResearchError::WrongNation);
         }
         if self.is_known(tech) {
             return Err(ResearchError::AlreadyKnown);
         }
-        // A fusion is on the tree only once the gate stands.
-        if !def.visible_when(facts.united) {
+        // A fusion is on the tree, and another nation's craft on offer, only once the gate stands.
+        if !def.visible_when(facts.united) || (def.borrowed_from(nation).is_some() && !facts.united)
+        {
             return Err(ResearchError::GateFirst);
         }
         // No tech requires a teaching (load refuses it), so only the target itself can be one.
@@ -1304,8 +1439,15 @@ impl Research {
         needed[tech.0 as usize] = true;
         for i in (0..=tech.0 as usize).rev() {
             if needed[i] && !self.known[i] {
-                for p in &defs.techs[i].prereqs {
-                    needed[p.0 as usize] = true;
+                // A borrowed tech's own-nation prereqs that aren't teachable are waived.
+                if defs.techs[i].borrowed_from(nation).is_some() {
+                    for p in defs.borrow_prereqs(TechId(i as u16)) {
+                        needed[p.0 as usize] = true;
+                    }
+                } else {
+                    for p in &defs.techs[i].prereqs {
+                        needed[p.0 as usize] = true;
+                    }
                 }
             }
         }
@@ -1314,7 +1456,7 @@ impl Research {
             .map(|i| TechId(i as u16))
             .collect();
         for &t in &queue {
-            if let Some(c) = defs.tech(t).requires.unmet(facts, defs).into_iter().next() {
+            if let Some(c) = defs.tech(t).unmet(nation, facts, defs).into_iter().next() {
                 return Err(ResearchError::NotYet(c));
             }
         }
@@ -1397,9 +1539,9 @@ impl Research {
     /// Whether the front tech is waiting only on its bill: the pool already covers its scaled
     /// cost and some line is short. Study seats are then not worth claiming (#284's rule), so
     /// scholars become hands for the hauling.
-    pub fn waiting_on_bill(&self, defs: &Defs, research_cost: f32) -> bool {
+    pub fn waiting_on_bill(&self, defs: &Defs, research_cost: f32, home: Nation) -> bool {
         self.queue.first().is_some_and(|&front| {
-            self.pool_millis >= scaled_cost_millis(defs.tech(front).cost, research_cost)
+            self.pool_millis >= cost_millis(defs, front, home, research_cost)
                 && !self.bill_full(front, defs)
         })
     }
@@ -1436,9 +1578,9 @@ impl Research {
     /// difficulty preset's `research_cost` knob doesn't touch it). Used by `add_toward_target` so
     /// a steady, no-effort source can't bank ahead of what is actually being worked toward
     /// (#284).
-    fn cap_millis(&self, defs: &Defs, research_cost: f32) -> u64 {
+    fn cap_millis(&self, defs: &Defs, research_cost: f32, home: Nation) -> u64 {
         match self.queue.first() {
-            Some(&front) => scaled_cost_millis(defs.tech(front).cost, research_cost),
+            Some(&front) => cost_millis(defs, front, home, research_cost),
             None => defs.research.idle_knowledge_cap_millis,
         }
     }
@@ -1455,10 +1597,11 @@ impl Research {
         millis: u64,
         defs: &Defs,
         research_cost: f32,
+        home: Nation,
         scribing: bool,
     ) {
         let total = self.pool_millis + millis;
-        let cap = self.cap_millis(defs, research_cost);
+        let cap = self.cap_millis(defs, research_cost, home);
         self.pool_millis = total.min(cap);
         if scribing {
             self.scribe_millis += total - self.pool_millis;
@@ -1483,11 +1626,18 @@ impl Research {
     /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for,
     /// returning them in order (the world logs them, `World::tech_completions`). `tick` is the
     /// world tick being simulated, recorded on completions. `research_cost` is the difficulty
-    /// preset's knob, multiplying every tech's cost (1.0 is identity, #294). Checks no `requires`
+    /// preset's knob, multiplying every tech's cost (1.0 is identity, #294). `home` is the
+    /// settlement's nation, which decides what a borrowed tech costs. Checks no `requires`
     /// condition (it knows no facts): the world goes through `tick_with`.
     #[must_use = "the completions belong in the world's event log"]
-    pub fn tick(&mut self, tick: u64, defs: &Defs, research_cost: f32) -> Vec<TechCompleted> {
-        self.tick_scribing(tick, defs, research_cost, false, None)
+    pub fn tick(
+        &mut self,
+        tick: u64,
+        defs: &Defs,
+        research_cost: f32,
+        home: Nation,
+    ) -> Vec<TechCompleted> {
+        self.tick_scribing(tick, defs, research_cost, home, false, None)
     }
 
     /// `tick`, but a tech completes only while `facts` meets its `requires` too. With the
@@ -1498,9 +1648,10 @@ impl Research {
         tick: u64,
         defs: &Defs,
         research_cost: f32,
+        home: Nation,
         facts: &Facts<'_>,
     ) -> Vec<TechCompleted> {
-        self.tick_scribing(tick, defs, research_cost, false, Some(facts))
+        self.tick_scribing(tick, defs, research_cost, home, false, Some(facts))
     }
 
     /// The first `requires` condition `facts` doesn't meet on the front tech, once its knowledge
@@ -1512,14 +1663,15 @@ impl Research {
         facts: &Facts<'_>,
         defs: &Defs,
         research_cost: f32,
+        home: Nation,
     ) -> Option<Condition> {
         let &front = self.queue.first()?;
-        let ready = self.pool_millis >= scaled_cost_millis(defs.tech(front).cost, research_cost)
+        let ready = self.pool_millis >= cost_millis(defs, front, home, research_cost)
             && self.bill_full(front, defs);
         if !ready {
             return None;
         }
-        defs.tech(front).requires.unmet(facts, defs).into_iter().next()
+        defs.tech(front).unmet(home, facts, defs).into_iter().next()
     }
 
     /// `tick_with`, with the passive trickle's overflow scribed when `scribing` is on (#709).
@@ -1530,6 +1682,7 @@ impl Research {
         tick: u64,
         defs: &Defs,
         research_cost: f32,
+        home: Nation,
         scribing: bool,
         facts: Option<&Facts<'_>>,
     ) -> Vec<TechCompleted> {
@@ -1538,16 +1691,17 @@ impl Research {
             defs.research.passive_millis_per_tick,
             defs,
             research_cost,
+            home,
             scribing,
         );
         while let Some(&front) = self.queue.first() {
-            let cost = scaled_cost_millis(defs.tech(front).cost, research_cost);
+            let cost = cost_millis(defs, front, home, research_cost);
             if cost > self.pool_millis || !self.bill_full(front, defs) {
                 break;
             }
             // Knowledge and bill are in; a fallen condition keeps the tech at the front with its
             // points and items, and the next tick tries again.
-            if facts.is_some_and(|f| !defs.tech(front).requires.unmet(f, defs).is_empty()) {
+            if facts.is_some_and(|f| !defs.tech(front).unmet(home, f, defs).is_empty()) {
                 break;
             }
             self.pool_millis -= cost;
@@ -1560,16 +1714,23 @@ impl Research {
     }
 }
 
-/// `cost` points in milli-points, times the difficulty preset's `research_cost` knob (1.0 is
-/// identity). `f64` only to multiply by a non-integer factor; exact for the small integer costs
-/// `data/research.toml` validates, so `research_cost == 1.0` reproduces the unscaled value
-/// bit-for-bit.
-fn scaled_cost_millis(cost: u32, research_cost: f32) -> u64 {
-    (f64::from(cost) * f64::from(research_cost) * MILLIS_PER_POINT as f64).round() as u64
+/// What `home` pays for `tech` in milli-points: its `cost`, times `[settings] borrow_cost` if
+/// `home` borrows it, times the difficulty preset's `research_cost` knob (1.0 is identity), in
+/// that order. `f64` only to multiply by non-integer factors; exact for the small integer costs
+/// `data/research.toml` validates, so a tech `home` researches itself at `research_cost == 1.0`
+/// reproduces the unscaled value bit-for-bit.
+pub(crate) fn cost_millis(defs: &Defs, tech: TechId, home: Nation, research_cost: f32) -> u64 {
+    let def = defs.tech(tech);
+    let borrow =
+        if def.borrowed_from(home).is_some() { f64::from(defs.research.borrow_cost) } else { 1.0 };
+    (f64::from(def.cost) * borrow * f64::from(research_cost) * MILLIS_PER_POINT as f64).round()
+        as u64
 }
 
 #[cfg(test)]
 mod fusion_tests;
+#[cfg(test)]
+mod teachable_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1810,7 +1971,7 @@ mod tests {
         // Three techs that all multiply `construction`.
         let known = ["carpentry", "masonry", "earthen_walls"].map(id);
         let bits = |k: &[TechId]| {
-            let m = effective_modifiers(Nation::Earth, k.iter().copied(), &defs);
+            let m = effective_modifiers(Nation::Earth, Nation::Earth, k.iter().copied(), &defs);
             m.construction.to_bits()
         };
         let want = bits(&known);
@@ -1822,7 +1983,7 @@ mod tests {
             assert_eq!(bits(&k), want);
         }
         // The breakdown multiplies out (left to right) to the effective value.
-        let parts = modifier_breakdown("construction", Nation::Earth, known, &defs);
+        let parts = modifier_breakdown("construction", Nation::Earth, Nation::Earth, known, &defs);
         let names: Vec<_> = parts.iter().map(|p| p.0).collect();
         assert_eq!(names, ["Earth Kingdom", "Carpentry", "Masonry", "Earthen Walls"]);
         assert_eq!(parts.iter().fold(1.0f32, |acc, p| acc * p.1).to_bits(), want);
@@ -2076,22 +2237,22 @@ mod tests {
         let mut r = Research::new(Nation::Fire, &defs);
         r.set_target(gated, Nation::Fire, &three, &defs).unwrap();
         // Knowledge short: not waiting on the condition yet, whatever the facts say.
-        assert_eq!(r.waiting_on(&two, &defs, 1.0), None);
-        assert!(r.tick_with(1, &defs, 1.0, &three).is_empty());
+        assert_eq!(r.waiting_on(&two, &defs, 1.0, Nation::Fire), None);
+        assert!(r.tick_with(1, &defs, 1.0, Nation::Fire, &three).is_empty());
         r.bank_for_test(10_000);
         // Knowledge in, condition fallen: it waits at the front, keeping what it has.
-        assert!(r.tick_with(2, &defs, 1.0, &two).is_empty());
+        assert!(r.tick_with(2, &defs, 1.0, Nation::Fire, &two).is_empty());
         assert_eq!((r.queue(), r.pool_millis()), (&[gated][..], 10_000));
         assert_eq!(
-            r.waiting_on(&two, &defs, 1.0).unwrap().to_string(),
+            r.waiting_on(&two, &defs, 1.0, Nation::Fire).unwrap().to_string(),
             "3 Fire residents (2 live here)"
         );
-        assert_eq!(r.waiting_on(&three, &defs, 1.0), None);
+        assert_eq!(r.waiting_on(&three, &defs, 1.0, Nation::Fire), None);
         // A newcomer: it finishes on the next tick, and stays known whatever happens after.
-        let done = r.tick_with(3, &defs, 1.0, &three);
+        let done = r.tick_with(3, &defs, 1.0, Nation::Fire, &three);
         assert_eq!(done.iter().map(|c| (c.tech, c.tick)).collect::<Vec<_>>(), [(gated, 3)]);
         assert_eq!(r.pool_millis(), 0, "the cost was paid");
-        assert!(r.tick_with(4, &defs, 1.0, &Facts::default()).is_empty());
+        assert!(r.tick_with(4, &defs, 1.0, Nation::Fire, &Facts::default()).is_empty());
         assert!(r.is_known(gated));
     }
 
@@ -2112,19 +2273,19 @@ mod tests {
         r.bank_for_test(1_000);
         // `front` completes at 5. `back` is checked only once it is at the front, and waits.
         let five = Facts { population: 5, ..Facts::default() };
-        let done = r.tick_with(1, &defs, 1.0, &five);
+        let done = r.tick_with(1, &defs, 1.0, Nation::Fire, &five);
         assert_eq!(done.iter().map(|c| c.tech).collect::<Vec<_>>(), [front]);
         assert_eq!(r.queue(), [back]);
         r.bank_for_test(1_000);
-        assert_eq!(r.waiting_on(&five, &defs, 1.0), Some(Condition::Population(9)));
-        assert!(r.tick_with(2, &defs, 1.0, &five).is_empty());
-        assert_eq!(r.tick_with(3, &defs, 1.0, &nine).len(), 1);
+        assert_eq!(r.waiting_on(&five, &defs, 1.0, Nation::Fire), Some(Condition::Population(9)));
+        assert!(r.tick_with(2, &defs, 1.0, Nation::Fire, &five).is_empty());
+        assert_eq!(r.tick_with(3, &defs, 1.0, Nation::Fire, &nine).len(), 1);
         // Nothing ever waits without `requires`.
         let mut r = Research::new(Nation::Fire, &defs);
         r.set_target(free, Nation::Fire, &Facts::default(), &defs).unwrap();
         r.bank_for_test(1_000);
-        assert_eq!(r.waiting_on(&Facts::default(), &defs, 1.0), None);
-        assert_eq!(r.tick_with(1, &defs, 1.0, &Facts::default()).len(), 1);
+        assert_eq!(r.waiting_on(&Facts::default(), &defs, 1.0, Nation::Fire), None);
+        assert_eq!(r.tick_with(1, &defs, 1.0, Nation::Fire, &Facts::default()).len(), 1);
     }
 
     #[test]

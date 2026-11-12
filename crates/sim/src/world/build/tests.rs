@@ -195,10 +195,16 @@ fn another_nation_s_building_is_refused_because_its_tech_can_never_be_known() {
                 "{nation:?} building {}",
                 def.id
             );
-            // And the tech can't be researched to get round it.
+            // And the tech can't be researched to get round it: a teachable one only after the
+            // gate and with its people here (#753), the rest never.
+            let refused = if defs.tech(tech).teachable {
+                ResearchError::GateFirst
+            } else {
+                ResearchError::WrongNation
+            };
             assert_eq!(
                 w.apply(Command::SetResearch { tech }, &defs),
-                Err(CommandError::Research(ResearchError::WrongNation))
+                Err(CommandError::Research(refused))
             );
             checked += 1;
         }

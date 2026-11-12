@@ -277,8 +277,10 @@ fn available_to_nation(session: &Session, def: &BuildingDef) -> bool {
     !def.endeavor
         && def.unlocked_by.is_none_or(|t| {
             let tech = session.defs.tech(t);
-            // A teaching's building shows once the teaching is kept (#737).
-            tech.open_to(session.world.nation)
+            // A borrowed tech's buildings work for the whole settlement, so they show once it is
+            // known (#753). A teaching's building shows once the teaching is kept (#737).
+            (tech.open_to(session.world.nation)
+                || (tech.teachable && session.world.research().is_known(t)))
                 && (tech.teaching.is_none() || session.world.kept_teachings().any(|k| k == t))
                 && tech.visible_when(session.world.united())
         })

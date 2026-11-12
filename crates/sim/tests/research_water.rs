@@ -175,7 +175,7 @@ impl<'a> Playtest<'a> {
                 at_hour = self.earned_millis as f64 / MILLIS_PER_POINT as f64;
             }
             // Modifiers change as techs complete, so read them fresh every tick.
-            let mods = effective_modifiers(nation, self.research.known_techs(), self.defs);
+            let mods = effective_modifiers(nation, nation, self.research.known_techs(), self.defs);
             let per_scholar =
                 self.defs.research.study_millis_per_tick as f64 * f64::from(mods.study) * 2.0 / 3.0;
             self.carry += self.scholars() * per_scholar;
@@ -184,7 +184,7 @@ impl<'a> Playtest<'a> {
             self.research.add_knowledge(whole as u64);
             self.earned_millis += whole as u64 + self.defs.research.passive_millis_per_tick;
             self.tick += 1;
-            let done = self.research.tick(self.tick, self.defs, 1.0);
+            let done = self.research.tick(self.tick, self.defs, 1.0, nation);
             self.completions.extend(done);
         }
     }
