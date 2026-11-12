@@ -20,19 +20,19 @@ changing the TUI.
    a new *painter* for a state that already exists. It never adds a parallel state.
 2. **Words come from `fn_ui`.** A converted screen prints the same strings as the terminal by
    reading the same row models. When `fn_tui` builds a screen's words inline, that screen's
-   conversion moves them into `fn_ui` first. The side panel goes first (F5).
+   conversion moves them into `fn_ui` first. The side panel goes first (#873).
 3. **Input goes through keys.** Every mouse action is a key press the shell already handles, or
    a `UiState` method the key handler also calls (`point_at`, `select`). `fn_tui::pointer`
    already works this way. A click's command log is the keyboard's, so saves, replays and agents
    can't tell which one was used.
-4. **Convert a screen at a time and paint the rest as cells.** Our own cell painter (F1)
+4. **Convert a screen at a time and paint the rest as cells.** Our own cell painter (#872)
    replaces `egui_ratatui`. It is cheap enough to keep the unconverted screens, and the
    terminal-only tools (watcher, studio, run browser) inside the window indefinitely.
 5. **Order: map frame, side panel, inspector, mouse, boxes, title, embark, then the full
    screens.** That way the 90% of play time spent looking at the map and panel is native first.
 6. **The Seal look in egui, dark only.** Visuals come from `fn_ui::theme` (no new data). Square
    corners, accent frames, the `◆ NATION ◆` seal, `◇` headings. One bundled monospace family:
-   Hack plus DejaVu Sans Mono for the ten glyphs Hack lacks (D2).
+   Hack plus DejaVu Sans Mono for the ten glyphs Hack lacks (#869).
 7. **CI tests `fn_gui` without a GPU.** `egui_kittest` drives the UI and queries its AccessKit
    tree by label, which needs no renderer. Pixel snapshots stay out of the gate. A
    `cargo xtask gui-shot` writes PNGs for a reviewer to look at.
@@ -42,13 +42,13 @@ changing the TUI.
 | Module | What it does | Fate |
 |---|---|---|
 | `main.rs` | Native `eframe::run_native`; wasm `WebRunner` starting at embark from a query string | Web entry goes to the title screen (#866) |
-| `app.rs` (`GuiApp`) | Reads the clock, translates keys, paints the whole ratatui frame via `egui_ratatui`, puts `MapView` over the map region, shows the timing overlay | Becomes the frame (F4). `egui_ratatui`/`soft_ratatui` go (F1) |
-| `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Gains click semantics, a hover tooltip and a cached overview (F8) |
+| `app.rs` (`GuiApp`) | Reads the clock, translates keys, paints the whole ratatui frame via `egui_ratatui`, puts `MapView` over the map region, shows the timing overlay | Becomes the frame (#876). `egui_ratatui`/`soft_ratatui` go (#872) |
+| `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Gains click semantics, a hover tooltip and a cached overview (#878) |
 | `keys.rs` | egui `Event` to `fn_tui::keyev::KeyEvent` | Stays, retargeted to #857's frontend-neutral key type |
-| `panel.rs` | Spike sample: header, People rows, settler list, with its own strings | Replaced by the native side panel (F6) |
+| `panel.rs` | Spike sample: header, People rows, settler list, with its own strings | Replaced by the native side panel (#877) |
 | `fonts.rs` | Loads DejaVu Sans Mono from the system path | Bundles it with `include_bytes!` (#859) |
 | `color.rs` | ratatui `Color` to `Color32` | Stays (the map look and the cell painter both need it) |
-| `tests/` | Key translation, camera maths, glyph coverage, one wgpu snapshot that panics without an adapter | Snapshot moves behind a feature; the rest join the gate (F2) |
+| `tests/` | Key translation, camera maths, glyph coverage, one wgpu snapshot that panics without an adapter | Snapshot moves behind a feature; the rest join the gate (#875) |
 
 `fn_gui` keeps depending on `fn_tui` for good. `fn_tui` holds `Shell`, the map look
 (`fn_tui::map`), the `Palette` built from `data/tui.toml`, and the reference renderer the cell
@@ -135,7 +135,7 @@ the TUI fails to compile in `fn_gui` until someone says which it is.
 The shell is always sized to the window in cells (`Shell::resize`), so pagination and box sizes
 match what the cell painter shows.
 
-**The cell painter (F1)** replaces `egui_ratatui` + `soft_ratatui`. The spike measured them at
+**The cell painter (#872)** replaces `egui_ratatui` + `soft_ratatui`. The spike measured them at
 5–7 ms per frame in release because they CPU-rasterise every cell and upload a texture each
 frame. On the web they cost 6 ms of the 14 ms frame. The painter instead walks
 `ratatui::buffer::Buffer` and emits one background rect per run of equal background and one
@@ -150,23 +150,23 @@ One row is roughly one agent PR (the #842 estimates). "Words" means a row-model 
 
 | # | What | Native as | Words to move first | Est |
 |---|---|---|---|---|
-| 1 | Cell painter, frame skeleton, hint bar, tool banner (F1, F4) | `fn_gui::cells`, `fn_gui::frame`, `fn_gui::hints` | none (`fn_ui::keys` already) | 2 |
-| 2 | Side panel: header, Settlement glance, Alerts, Tool section (F5, F6) | `fn_gui::side` | `fn_tui::panel`'s `Data` rows and `widgets::{Row, Tone}` | 2.5 |
-| 3 | Inspector (F7) | `fn_gui::inspector` | `fn_tui::inspector::settler_view`, tile and placement rows | 1 |
-| 4 | Map mouse: click, select, one-tile apply, hover tooltip, overview cache (F8) | `mapview.rs` | none (`fn_ui::inspect::tooltip_lines`) | 1 |
-| 5 | Game menu, Quit and confirm boxes, prompts, embark exit prompt (F9) | `fn_gui::boxes` | `fn_tui::menu` items, `fn_tui::ask` | 1 |
-| 6 | Title, nation picker, seed step, Load (F10) | `fn_gui::title` | `fn_tui::title` steps | 1 |
-| 7 | Embark (F11) | `fn_gui::embark`, reusing `MapView` | `fn_tui::embark` report | 1.5 |
-| 8 | Shared page frame and the Build screen (F12) | `fn_gui::page`, `fn_gui::screens::build` | (`fn_ui::build` has them) | 1.5 |
-| 9 | Research tree and the school box (F13) | `fn_gui::screens::research` | (`fn_ui::research` has most) | 2 |
-| 10 | Saves and naming (F14) | `fn_gui::screens::saves` | (`fn_ui::saves`) | 1 |
-| 11 | Traders and Abilities (F15) | `screens::{traders, abilities}` | (`fn_ui::trade`, `fn_ui::bend`) | 2 |
-| 12 | Nation roster and Endeavor (F16) | `screens::{nation, endeavor}` | `fn_tui::nation` groups | 2 |
-| 13 | Message log, key help and legend (F17) | `screens::{log, help}` | (`fn_ui::msglog`, `fn_ui::keys`), `fn_tui::legend` rows | 2 |
+| 1 | Cell painter, frame skeleton, hint bar, tool banner (#872, #876) | `fn_gui::cells`, `fn_gui::frame`, `fn_gui::hints` | none (`fn_ui::keys` already) | 2 |
+| 2 | Side panel: header, Settlement glance, Alerts, Tool section (#873, #877) | `fn_gui::side` | `fn_tui::panel`'s `Data` rows and `widgets::{Row, Tone}` | 2.5 |
+| 3 | Inspector (#882) | `fn_gui::inspector` | `fn_tui::inspector::settler_view`, tile and placement rows | 1 |
+| 4 | Map mouse: click, select, one-tile apply, hover tooltip, overview cache (#878) | `mapview.rs` | none (`fn_ui::inspect::tooltip_lines`) | 1 |
+| 5 | Game menu, Quit and confirm boxes, prompts, embark exit prompt (#879) | `fn_gui::boxes` | `fn_tui::menu` items, `fn_tui::ask` | 1 |
+| 6 | Title, nation picker, seed step, Load (#880) | `fn_gui::title` | `fn_tui::title` steps | 1 |
+| 7 | Embark (#883) | `fn_gui::embark`, reusing `MapView` | `fn_tui::embark` report | 1.5 |
+| 8 | Shared page frame and the Build screen (#881) | `fn_gui::page`, `fn_gui::screens::build` | (`fn_ui::build` has them) | 1.5 |
+| 9 | Research tree and the school box (#884) | `fn_gui::screens::research` | (`fn_ui::research` has most) | 2 |
+| 10 | Saves and naming (#885) | `fn_gui::screens::saves` | (`fn_ui::saves`) | 1 |
+| 11 | Traders and Abilities (#886) | `screens::{traders, abilities}` | (`fn_ui::trade`, `fn_ui::bend`) | 2 |
+| 12 | Nation roster and Endeavor (#887) | `screens::{nation, endeavor}` | `fn_tui::nation` groups | 2 |
+| 13 | Message log, key help and legend (#888) | `screens::{log, help}` | (`fn_ui::msglog`, `fn_ui::keys`), `fn_tui::legend` rows | 2 |
 
 **Stays cells:** the watcher (`fn_tui::watch`), the studio (`fn_tui::studio`), the run browser
 (`fn_tui::browser`, `runs`) and spectate. They are agent and dev tools, desktop only (#866 hides
-Replays on the web), and they change often. Cells cost almost nothing once F1 lands (D4).
+Replays on the web), and they change often. Cells cost almost nothing once #872 lands (#871).
 
 Rows 2–4 are the milestone that matters. After them, an ordinary session (map, panel, cursor,
 tools) is native, and only screens you open and close are cells. The menus and the title screen
@@ -174,7 +174,7 @@ come next because they are the first and last thing a browser visitor sees.
 
 **The pattern for every conversion PR.** Add the egui painter. Flip its arm in `frame`'s match
 from cells to native. Add a kittest test that the screen shows its key strings and reacts to its
-keys and clicks (F2). Attach a `gui-shot` PNG to the PR. The TUI's goldens must pass without
+keys and clicks (#875). Attach a `gui-shot` PNG to the PR. The TUI's goldens must pass without
 re-blessing, which proves a row-model move changed no words.
 
 ## The look
@@ -209,7 +209,7 @@ nation rebuilds the style, as `GuiApp::step` already rebuilds the `Palette`.
 and upper-case section headings. Spacing steps 4/6/8/12/16. The map has its own size, the
 camera's cell (18 px to start, 1–48).
 
-**Fonts.** One monospace family for everything (D2): egui's bundled Hack, with DejaVu Sans Mono
+**Fonts.** One monospace family for everything (#869): egui's bundled Hack, with DejaVu Sans Mono
 (about 340 KB, Bitstream Vera licence) as fallback for the ten `data/tui.toml` glyphs Hack lacks
 (`✤ ✢ ✣ Ϟ ⌂ ♆ ✦ ɱ ☼ ✶`). It is bundled with `include_bytes!` on every platform (#859), with a test
 that every glyph resolves. Monospace keeps the terminal's identity, lines numbers up in the
@@ -219,7 +219,7 @@ a jump in typeface.
 **Map tiles.** The map is the glyph map at any zoom: no sprites, no art pipeline (vision.md).
 `camera::CELL_ASPECT` (0.6) copies the terminal's stretched cell. The window has no reason to
 keep it: a 5×5 building should look square. Recommended: square tiles with the glyph centred
-(D1). A 1600 px-wide map region then shows about 40% fewer tiles across at the same height,
+(#868). A 1600 px-wide map region then shows about 40% fewer tiles across at the same height,
 which the zoom recovers.
 
 ## Input parity
@@ -236,7 +236,7 @@ frontends. The window adds no game keys of its own.
 | Letters, digits, arrows, Shift and Ctrl+arrows, Enter, Esc, Tab, Space, `+ - . / ?` | As in the TUI | As in the TUI; the page `preventDefault`s Tab, Esc, Backspace, Space and arrows |
 | F5 / F6 / F9 (quicksave, Saves, quickload) | As in the TUI | Prevented, so F5 doesn't reload the page. macOS may still take some F-keys; the game menu's Save…/Load… cover them |
 | Ctrl+C (quit) | As in the TUI | Not delivered (the browser owns Ctrl+letter); Quit is hidden on the web anyway (#866) |
-| F12 | Toggles the dev overlay (frame timings); the spike's panel toggle goes away with F6 | Left to the browser (devtools) |
+| F12 | Toggles the dev overlay (frame timings); the spike's panel toggle goes away with #877 | Left to the browser (devtools) |
 | Ctrl+= / Ctrl+- | egui's UI zoom | The browser's zoom |
 
 ### Mouse
@@ -270,7 +270,7 @@ device. v1 leaves it on keyboard wording.
 Today `xtask` excludes `fn_gui` from `cargo xtask ci` (`EXCLUDED` in `xtask/src/main.rs`). Its
 one snapshot test panics with "No adapter found" without a GPU or lavapipe.
 
-**Recommended: semantic UI tests, no pixels (F2).**
+**Recommended: semantic UI tests, no pixels (#875).**
 
 - Remove `fn_gui` from `EXCLUDED`. The gate builds, lints and tests it. Building needs no native
   libraries (they are `dlopen`ed at run time), and no test opens a window.
@@ -300,9 +300,9 @@ without one.
 Already filed: #859 (`cargo xtask web` builds and binds `fn_gui`, bundled font, dark theme, a
 download-size and GPU frame-time measurement), #860 (a save store behind an interface, with
 IndexedDB in the browser) and #866 (Pages at `/play/`, title screen first, Quit and Replays
-hidden, Playwright). This doc adds one dependency: **#866 should also be blocked by F1**. The
+hidden, Playwright). This doc adds one dependency: **#866 should also be blocked by #872**. The
 public page shouldn't ship the CPU-rasterised terminal path the spike measured at 6 ms of a
-14 ms browser frame. The title screen is cells until F10, which is fine once cells are cheap.
+14 ms browser frame. The title screen is cells until #880, which is fine once cells are cheap.
 
 #858 (an optional `serde` feature on `fn_ui` view models) was for the DOM panel #843 dropped.
 egui reads the Rust structs directly, and the agent surface has its own `Serialize` views
@@ -311,46 +311,46 @@ appears.
 
 ## Follow-up issues
 
-Filed from this doc (numbers to be filled in when filed), alongside the existing #857, #858,
+Filed from this doc as sub-issues of #856, alongside the existing #857, #858,
 #859, #860 and #866:
 
 | Id | Title | Blocked by |
 |---|---|---|
-| F1 | fn_gui: paint terminal cells ourselves; drop egui_ratatui and lift the egui pin | #857 |
-| F2 | fn_gui in the gate: kittest semantic tests without a GPU; `cargo xtask gui-shot` | F1 |
-| F3 | fn_gui: the Seal theme from `fn_ui::theme` | #859, D2 |
-| F4 | fn_gui: the native frame (regions, hint bar, tool banner, native/cells dispatch) | F1 |
-| F5 | Side panel rows into `fn_ui` (Row, Tone, section builders) | #857 |
-| F6 | fn_gui: native side panel (header, glance, alerts, tool section) | F4, F5 |
-| F7 | fn_gui: native inspector | F6 |
-| F8 | fn_gui: mouse on the map (click, select, one-tile apply, tooltip, overview cache) | F4, D1 |
-| F9 | fn_gui: menus, confirm boxes and prompts as egui modals | F4 |
-| F10 | fn_gui: title, nation, seed and load screens | F4 |
-| F11 | fn_gui: embark | F10 |
-| F12 | fn_gui: the page frame and the Build screen | F4 |
-| F13 | fn_gui: the Research screen and the school box | F12 |
-| F14 | fn_gui: Saves and naming | F12, #860 |
-| F15 | fn_gui: Traders and Abilities | F12 |
-| F16 | fn_gui: Nation roster and Endeavor | F12 |
-| F17 | fn_gui: message log, key help and legend | F12 |
+| #872 | fn_gui: paint terminal cells ourselves; drop egui_ratatui and lift the egui pin | #857 |
+| #875 | fn_gui in the gate: kittest semantic tests without a GPU; `cargo xtask gui-shot` | #872 |
+| #874 | fn_gui: the Seal theme from `fn_ui::theme` | #859, #869 |
+| #876 | fn_gui: the native frame (regions, hint bar, tool banner, native/cells dispatch) | #872 |
+| #873 | Side panel rows into `fn_ui` (Row, Tone, section builders) | #857 |
+| #877 | fn_gui: native side panel (header, glance, alerts, tool section) | #876, #873 |
+| #882 | fn_gui: native inspector | #877 |
+| #878 | fn_gui: mouse on the map (click, select, one-tile apply, tooltip, overview cache) | #876, #868 |
+| #879 | fn_gui: menus, confirm boxes and prompts as egui modals | #876 |
+| #880 | fn_gui: title, nation, seed and load screens | #876 |
+| #883 | fn_gui: embark | #880 |
+| #881 | fn_gui: the page frame and the Build screen | #876 |
+| #884 | fn_gui: the Research screen and the school box | #881 |
+| #885 | fn_gui: Saves and naming | #881, #860 |
+| #886 | fn_gui: Traders and Abilities | #881 |
+| #887 | fn_gui: Nation roster and Endeavor | #881 |
+| #888 | fn_gui: message log, key help and legend | #881 |
 
-Decisions: D1 (map tile shape), D2 (typeface), D3 (what `cargo run` opens), D4 (dev tools stay
+Decisions: #868 (map tile shape), #869 (typeface), #870 (what `cargo run` opens), #871 (dev tools stay
 cells).
 
 ## Open questions for the owner
 
-1. **D1. Square map tiles in the window, or the terminal's tall cells?** Recommended: square.
+1. **#868. Square map tiles in the window, or the terminal's tall cells?** Recommended: square.
    Shapes read true and drags cover what they look like they cover. The cost is fewer tiles
    across at a given zoom, and the window stops looking exactly like the terminal.
-2. **D2. One monospace family throughout, or a proportional face for panel text?**
+2. **#869. One monospace family throughout, or a proportional face for panel text?**
    Recommended: monospace throughout (Hack + DejaVu Sans Mono). It keeps the terminal identity,
    aligns numbers, adds no download and matches cell-painted screens. A proportional face reads
    better in long text (the log, tech descriptions) and looks less like a tool.
-3. **D3. What does `cargo run` open?** Recommended: the TUI until rows 1–7 of the order are
+3. **#870. What does `cargo run` open?** Recommended: the TUI until rows 1–7 of the order are
    native, then the window, with `cargo run -p fn_tui` for the terminal. Switching earlier puts
    a half-converted window in front of every session. Never switching keeps the terminal as the
    front door after the window is the better game.
-4. **D4. Do the watcher, studio and run browser stay cell-painted for good?** Recommended: yes.
+4. **#871. Do the watcher, studio and run browser stay cell-painted for good?** Recommended: yes.
    They are agent and dev tools, desktop only, and change often. Converting them is about 6 more
    PRs for screens only developers open.
 
