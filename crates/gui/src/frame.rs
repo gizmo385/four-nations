@@ -130,6 +130,9 @@ fn screen_surface(screen: Screen) -> Surface {
         Screen::Endeavor => Surface::Page(PageKind::Endeavor),
         Screen::Log => Surface::Page(PageKind::Log),
         Screen::Help => Surface::Page(PageKind::Help),
+        // The Airship screen (#763) is drawn in cells, as the terminal does, until it has a
+        // native painter.
+        Screen::Airship => Surface::CellsFull,
     }
 }
 

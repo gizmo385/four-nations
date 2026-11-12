@@ -199,12 +199,12 @@ fn refusal(head: &str, e: CommandError) -> String {
 }
 
 /// How many of what `goods` asks for the stores hold: every food item for "food".
-fn in_stores(world: &World, goods: &Goods) -> u32 {
+pub(crate) fn in_stores(world: &World, goods: &Goods) -> u32 {
     goods.items.iter().map(|&i| world.stored_total(i)).sum()
 }
 
 /// "food", or the one item's name in lower case.
-fn goods_name(defs: &Defs, goods: &Goods) -> String {
+pub(crate) fn goods_name(defs: &Defs, goods: &Goods) -> String {
     if goods.any_food {
         "food".to_owned()
     } else {
@@ -213,13 +213,23 @@ fn goods_name(defs: &Defs, goods: &Goods) -> String {
 }
 
 /// "30 food".
-fn goods_text(defs: &Defs, goods: &Goods) -> String {
+pub(crate) fn goods_text(defs: &Defs, goods: &Goods) -> String {
     format!("{} {}", goods.count, goods_name(defs, goods))
 }
 
 /// "20 stone".
-fn count_of(defs: &Defs, item: ItemId, n: u32) -> String {
+pub(crate) fn count_of(defs: &Defs, item: ItemId, n: u32) -> String {
     format!("{n} {}", defs.item(item).name.to_lowercase())
+}
+
+/// What one deal takes and gives, once, in words: ("25 wood", "3 gold ore"), a knowledge reward
+/// ("40 knowledge") among the gets.
+pub(crate) fn deal_words(defs: &Defs, deal: &fn_sim::trade::DealDef) -> (String, String) {
+    let mut get: Vec<String> = deal.get.iter().map(|&(i, n)| count_of(defs, i, n)).collect();
+    if deal.knowledge > 0 {
+        get.push(format!("{} knowledge", deal.knowledge));
+    }
+    (and_list(&deal.give.iter().map(|g| goods_text(defs, g)).collect::<Vec<_>>()), and_list(&get))
 }
 
 /// What a request grants, in words.
@@ -237,7 +247,7 @@ fn reward_text(reward: Reward) -> String {
 }
 
 /// "a", "a and b", "a, b and c".
-fn and_list(parts: &[String]) -> String {
+pub(crate) fn and_list(parts: &[String]) -> String {
     match parts {
         [] => String::new(),
         [one] => one.clone(),

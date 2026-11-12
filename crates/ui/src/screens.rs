@@ -15,6 +15,7 @@ use crate::rows::{Marks, Row, Tone, fit, wrap};
 use crate::state::{HelpTab, Screen, UiState};
 
 pub mod abilities;
+pub mod airship;
 pub mod build;
 pub mod endeavor;
 pub mod msglog;
@@ -69,7 +70,8 @@ pub fn lines(session: &Session, screen: Screen, width: usize, ascii: bool) -> Ve
         | Screen::Saves
         | Screen::Nation
         | Screen::Abilities
-        | Screen::Traders => Vec::new(),
+        | Screen::Traders
+        | Screen::Airship => Vec::new(),
     }
 }
 
@@ -279,6 +281,7 @@ pub fn title(screen: Screen) -> &'static str {
         Screen::Nation => "NATION",
         Screen::Abilities => "ABILITIES",
         Screen::Traders => "TRADERS",
+        Screen::Airship => "AIRSHIP",
     }
 }
 

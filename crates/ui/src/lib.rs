@@ -25,6 +25,7 @@
 //! Sprites, entities, the camera, layout pixels and anything that touches a window stay in the
 //! frontend.
 
+pub mod airship;
 pub mod alerts;
 pub mod app;
 pub mod ask;
@@ -49,6 +50,7 @@ pub mod meter;
 pub mod msglog;
 pub mod page;
 pub mod panel;
+pub mod patch;
 pub mod pointer;
 pub mod recipe;
 pub mod research;

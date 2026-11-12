@@ -1588,6 +1588,34 @@ mod tests {
         );
     }
 
+    /// A celestial day warns two minutes ahead and, as it rises, says whose chi floods back and
+    /// how many it reached (#760, #763).
+    #[test]
+    fn describes_a_celestial_warning_and_rise() {
+        use fn_sim::seasons::CelestialDayId;
+        let s = Session::new(7, Nation::Water, 48, 32);
+        let id = |name: &str| {
+            let i = s.defs.seasons.celestial.days.iter().position(|d| d.id == name).unwrap();
+            CelestialDayId(i as u8)
+        };
+        let warning = SeasonEvent {
+            tick: 0,
+            kind: SeasonEventKind::CelestialWarning { day: id("summer_solstice") },
+        };
+        assert_eq!(
+            describe_season_event(&s, &warning).as_deref(),
+            Some("The summer solstice in 2 minutes")
+        );
+        let rise = SeasonEvent {
+            tick: 0,
+            kind: SeasonEventKind::CelestialRise { day: id("harvest_moon"), units: 6 },
+        };
+        assert_eq!(
+            describe_season_event(&s, &rise).as_deref(),
+            Some("The harvest moon. Waterbenders' chi floods back (6)")
+        );
+    }
+
     /// A plant picked to death names what it was, lower case, and where.
     #[test]
     fn describes_a_plant_picked_to_death() {

@@ -818,6 +818,17 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
         let reach = power.radius_for(session.world.modifiers().power_generation);
         effects.push(format!("Powers buildings within {reach} tiles"));
         effects.push(format!("Powered work: {} faster", crate::text::boost_label(power.boost)));
+        // `steam_power`'s bank (#757, #763): on the bank an engine burns nothing and reaches the
+        // larger of its own radius and the bank's. Said once the upgrade is known; before that
+        // the building has no such property to promise.
+        if let Some((tech, bank)) = &def.bank_upgrade
+            && session.world.research().is_known(*tech)
+        {
+            let on_bank =
+                fn_sim::building::PowerDef { radius: power.radius.max(bank.radius), ..*power };
+            let reach = on_bank.radius_for(session.world.modifiers().power_generation);
+            effects.push(format!("On the bank: burns nothing, reaches {reach} tiles"));
+        }
     }
     if def.uses_power {
         effects.push("Uses power".to_owned());

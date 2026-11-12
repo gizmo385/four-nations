@@ -106,6 +106,15 @@ pub fn draw_screen(
             crate::traders::draw(&view, ui.trade_cursor, palette, &page, buf);
             None
         }
+        Screen::Airship => {
+            if let Some(picks) = &ui.airship {
+                crate::airship::draw(session, picks, palette, &page, buf);
+                if picks.confirm {
+                    crate::airship::draw_confirm(session, picks, palette, area, buf);
+                }
+            }
+            None
+        }
         Screen::Help => draw_help(session, ui, palette, page.body, buf),
         Screen::Log => crate::msglog::draw(session, ui, palette, &page, buf),
         Screen::Endeavor => {

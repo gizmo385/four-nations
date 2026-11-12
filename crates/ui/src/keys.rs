@@ -155,6 +155,10 @@ pub enum Mode {
     Abilities,
     /// The Traders screen (`M`, #438).
     Traders,
+    /// The Airship screen (`Enter` on a dock, #763).
+    Airship,
+    /// The SEND THE AIRSHIP box over it.
+    AirshipSend,
     Log,
     /// The message log in the `--watch` spectator (#774): the studio keeps `1`-`3` and `0` for
     /// its panes, so the filters are on `Tab`, and `Esc` is refused (`L` closes it).
@@ -211,6 +215,8 @@ impl Mode {
             Self::Nation => "NATION",
             Self::Abilities => "ABILITIES",
             Self::Traders => "TRADERS",
+            Self::Airship => "AIRSHIP",
+            Self::AirshipSend => "SEND THE AIRSHIP",
             Self::Log | Self::WatchLog => "LOG",
             Self::Help => "KEYS",
             Self::Saves => "SAVES",
@@ -379,6 +385,15 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Traders], &[Action::PickTool(Tool::CancelHarvest)], "X", "cancel", None);
     add(&[Mode::Traders], &[Action::Cancel, Action::ShowTraders], "Esc or M", "close", None);
 
+    add(&[Mode::Airship], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Airship], &[], "Left/Right", "nation or deal", None);
+    add(&[Mode::Airship], &[Action::Faster, Action::Slower], "+/-", "times", None);
+    add(&[Mode::Airship], &[Action::Confirm], "Enter", "load and sail", None);
+    add(&[Mode::Airship], &[Action::PickTool(Tool::CancelHarvest)], "X", "cancel", None);
+    add(&[Mode::Airship], &[Action::Cancel], "Esc", "close", None);
+    add(&[Mode::AirshipSend], &[Action::Confirm], "Enter", "load and sail", None);
+    add(&[Mode::AirshipSend], &[Action::Cancel], "Esc", "back", None);
+
     add(&[Mode::Endeavor], &[step], "Up/Down", "scroll", None);
     add(&[Mode::Endeavor], &[Action::Confirm], "Enter", "place", None);
     add(&[Mode::Endeavor], &[Action::Cancel, Action::ShowEndeavor], "Esc or G", "close", None);
@@ -492,7 +507,7 @@ fn build() -> Vec<Entry> {
         &[Action::Confirm],
         "Enter",
         "select",
-        help(units, "Select what is under the cursor"),
+        help(units, "Select a unit, or open a dock"),
     );
     add(&[Mode::Map], &[Action::NextUnit], "Tab", "next unit", help(units, "Next settler"));
     add(
@@ -701,6 +716,7 @@ mod tests {
             Mode::Nation,
             Mode::Abilities,
             Mode::Traders,
+            Mode::Airship,
             Mode::Log,
             Mode::Help,
             Mode::Saves,

@@ -7,7 +7,7 @@ use fn_sim::building::BuildingId;
 use fn_sim::jobs::ItemId;
 use fn_sim::nation::Modifiers;
 use fn_sim::needs::NeedDef;
-use fn_sim::world::{TICKS_PER_SECOND, Task, Unit, UnitId};
+use fn_sim::world::{TICKS_PER_SECOND, Task, Timing, Unit, UnitId};
 use fn_sim::{Defs, Nation, World};
 
 use crate::alerts::Alerts;
@@ -651,7 +651,8 @@ pub struct NationView {
     pub almanac: Vec<String>,
 }
 
-/// The Almanac (docs/design/horizons-phase-1.md): `First frost in 9m 40s`, and a caravan line
+/// The Almanac (docs/design/horizons-phase-1.md): `First frost in 9m 40s`, the celestial days once
+/// `star_charts` is known (`The harvest moon in 18m 20s. Water benders: 14`), and a caravan line
 /// only once caravans exist. Empty until the feature is known.
 pub fn almanac_lines(session: &Session) -> Vec<String> {
     let (world, defs) = (&session.world, &session.defs);
@@ -666,6 +667,17 @@ pub fn almanac_lines(session: &Session) -> Vec<String> {
     }];
     if let Some(t) = a.caravan_in {
         lines.push(format!("Next caravan in {}", secs(t)));
+    }
+    // Celestial days (#760, #763): the running day with its time left comes first, then each
+    // other day whose nation has a resident, soonest first, with how many of that nation live
+    // here. The sim hands them over already in that order.
+    for (day, timing, benders) in a.celestial {
+        let def = &defs.seasons.celestial.days[day.0 as usize];
+        let who = format!("{} benders: {benders}", def.nation.title());
+        lines.push(match timing {
+            Timing::Now { left } => format!("{}: {} left. {who}", def.name, secs(left)),
+            Timing::In { ticks } => format!("{} in {}. {who}", def.name, secs(ticks)),
+        });
     }
     lines
 }

@@ -10,6 +10,7 @@
 //! [`run`] touches the terminal or the wall clock.
 
 pub mod abilities;
+pub mod airship;
 pub mod ask;
 pub mod banner;
 pub mod browser;

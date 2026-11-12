@@ -20,7 +20,7 @@
 //! can't be used yet too, with what each needs, which `B` never visits.
 
 use fn_sim::Terrain;
-use fn_sim::bending::AbilityId;
+use fn_sim::bending::{AbilityId, Effect};
 use fn_sim::world::BendError;
 
 use crate::session::Session;
@@ -75,11 +75,29 @@ pub fn view(session: &Session) -> BendView {
         .into_iter()
         .map(|id| {
             let def = defs.ability(id);
-            let casters = caster_label(def.rank, session.world.caster_count(id, defs));
+            let casters = casters_text(session, id);
             BendRow { name: def.name.clone(), casters, current: id == current }
         })
         .collect();
     BendView { rows }
+}
+
+/// The count beside an ability in the picker: `caster_label`'s own ("20 benders", "2 adepts"),
+/// except for a joint bend (#759, #763), which names both nations' counts, "Water 9 adepts + Air 2
+/// adepts", because it needs one of each and the player should see which half is short.
+pub fn casters_text(session: &Session, id: AbilityId) -> String {
+    let (world, defs) = (&session.world, &session.defs);
+    let def = defs.ability(id);
+    match world.joint_caster_counts(id, defs) {
+        Some([(a, na), (b, nb)]) => format!(
+            "{} {} + {} {}",
+            a.title(),
+            caster_label(def.rank, na),
+            b.title(),
+            caster_label(def.rank, nb)
+        ),
+        None => caster_label(def.rank, world.caster_count(id, defs)),
+    }
 }
 
 /// The words for a terrain in an effect line: land and coast are both "land", the rest are named
@@ -112,6 +130,9 @@ fn word_list(words: impl IntoIterator<Item = String>) -> String {
 /// (`AbilityDef::cut`); every other ability's description says it all, so its lines are empty.
 pub fn effect_lines(session: &Session, id: AbilityId) -> Vec<String> {
     let defs = &session.defs;
+    if let &Effect::Rain { radius, growth_boost, minutes } = &defs.ability(id).effect {
+        return rain_lines(session, id, radius, growth_boost, minutes);
+    }
     let Some(cut) = defs.ability(id).cut() else { return Vec::new() };
     let source = if cut.source.iter().all(|t| t.is_fresh()) {
         "fresh water".to_owned()
@@ -130,6 +151,43 @@ pub fn effect_lines(session: &Session, id: AbilityId) -> Vec<String> {
     }
     if cut.permanent {
         lines.push("Permanent".to_owned());
+    }
+    lines
+}
+
+/// Call Rain's lines (docs/design/horizons-phase-6.md, "`cloudbending`", Hover, #763): the patch
+/// and its boost for the season, that two nations' casters work it together, and in winter that
+/// nothing grows under it.
+fn rain_lines(
+    session: &Session,
+    id: AbilityId,
+    radius: u32,
+    growth_boost: f32,
+    minutes: f32,
+) -> Vec<String> {
+    let (world, defs) = (&session.world, &session.defs);
+    let side = 2 * radius + 1;
+    let for_how_long = if (minutes - defs.seasons.calendar.season_minutes).abs() < 0.01 {
+        "a season".to_owned()
+    } else {
+        format!("{minutes:.0} minutes")
+    };
+    let mut lines = vec![format!(
+        "Plots in a {side}x{side} patch grow {}x for {for_how_long}",
+        crate::text::boost_label(growth_boost).trim_end_matches('x')
+    )];
+    if let Some([a, b]) = defs.ability(id).nations {
+        let word = |n: fn_sim::Nation| format!("{}bender", n.title().to_lowercase());
+        lines.push(format!(
+            "Needs {} {} and {} {} together",
+            article(&word(a)),
+            word(a),
+            article(&word(b)),
+            word(b)
+        ));
+    }
+    if world.knobs(defs).seasons && world.season(defs).winter {
+        lines.push("Nothing grows here in winter".to_owned());
     }
     lines
 }
@@ -176,7 +234,7 @@ pub fn abilities(session: &Session) -> Vec<AbilityRow> {
         let id = AbilityId(i);
         let def = defs.ability(id);
         let casters = session.world.caster_count(id, defs);
-        let mut casters_label = caster_label(def.rank, casters);
+        let mut casters_label = casters_text(session, id);
         let unusable = match session.world.check_ability(id, defs) {
             Err(BendError::Locked { tech }) => {
                 casters_label.clear();

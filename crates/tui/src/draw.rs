@@ -149,6 +149,8 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Nation => Mode::Nation,
             Screen::Abilities => Mode::Abilities,
             Screen::Traders => Mode::Traders,
+            Screen::Airship if ui.airship.as_ref().is_some_and(|p| p.confirm) => Mode::AirshipSend,
+            Screen::Airship => Mode::Airship,
         };
     }
     if ui.tool_list.is_some() {
