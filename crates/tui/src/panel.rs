@@ -382,7 +382,7 @@ fn settlement_rows(d: &Data, k: Knobs) -> Vec<Row> {
 
 /// The active tool's tint ([`crate::banner::tint`]'s own logic, over the model rather than
 /// `UiState`): `None` off a tool (Select).
-fn tool_tint(t: &ToolSection) -> Option<Tint> {
+pub fn tool_tint(t: &ToolSection) -> Option<Tint> {
     if t.tool == Tool::Harvest && t.repeating {
         Some(Tint::RepeatingHarvest)
     } else {

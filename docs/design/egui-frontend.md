@@ -43,7 +43,8 @@ changing the TUI.
 |---|---|---|
 | `main.rs` | Native `eframe::run_native`; wasm `WebRunner` at the title screen, or a game from a `?seed=` query (#866), with Quit hidden | Stays |
 | `app.rs` (`GuiApp`) | Reads the clock, translates keys (F12 is the window's own: the timing overlay), hands each frame to `Frame` | Stays: shell, keys and clock only (#876) |
-| `frame.rs`, `hints.rs` | `surface` (the exhaustive native/cells match), the native layout (hint bar, side panel slot, map, banner), the box painter, the timing overlay; the hint bar from `fn_ui::keys` | New in #876. Arms flip to native as screens convert; the side panel slot gets `fn_gui::side` (#877) |
+| `frame.rs`, `hints.rs` | `surface` (the exhaustive native/cells match), the native layout (hint bar, side panel slot, map, banner), the box painter, the timing overlay; the hint bar from `fn_ui::keys` | New in #876. Arms flip to native as screens convert |
+| `side.rs` | The side panel: `fn_ui::panel::SidePanel` as egui widgets (title, header with pause and speed buttons, Settlement, Alerts, Tool section and list), monospace, tones coloured by `fn_tui::widgets::ToneStyle`. A click returns the keys it stands for (`side::Clicks`), which `GuiApp` types into the shell after the frame; an alert is `L`, a `Down` per line above it and `Enter` (`side::alert_keys`). The inspector stays the terminal's rows, painted as cells in a slot under the sections (at most two fifths of the panel), until #882 | New in #877 |
 | `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Gains click semantics, a hover tooltip and a cached overview (#878) |
 | `keys.rs` | egui `Event` to `fn_tui::keyev::KeyEvent` | Stays, retargeted to #857's frontend-neutral key type |
 | `fonts.rs` | Loads DejaVu Sans Mono from the system path | Bundles it with `include_bytes!` (#859) |
@@ -158,9 +159,9 @@ over a full screen stays in that screen's cells. The native frame never draws th
 map: before, every game frame built the 10 000 glyphs under `MapView` and threw them away.
 Measured in release at 1600 by 960 (`cell_paint_cost`, layout plus shapes, tessellation on top):
 a game frame's cells 1.5 ms (+0.8 ms) before; the side panel's slot, which is all of a native
-game frame's cells until #877, 0.06 ms (+0.03 ms); the menu box 0.015 ms (+0.008 ms). About
-2.2 ms a frame saved. Until #877 the slot is `fn_tui::panel::draw_panel` at the slot's own size
-in cells (37 columns at 300 points); `F12` shows a timing overlay (surface, map, cells, sim and
+game frame's cells before #877, 0.06 ms (+0.03 ms); the menu box 0.015 ms (+0.008 ms). About
+2.2 ms a frame saved. The slot was `fn_tui::panel::draw_panel` at its own size in cells (37
+columns at 300 points) until #877 made it native; `F12` shows a timing overlay (surface, map, cells, sim and
 frame ms). Under kittest the root ui keeps an 8-point margin, so a 1600-point harness is 198
 columns where a window is 200.
 
@@ -257,7 +258,7 @@ frontends. The window adds no game keys of its own.
 | Letters, digits, arrows, Shift and Ctrl+arrows, Enter, Esc, Tab, Space, `+ - . / ?` | As in the TUI | As in the TUI; the page `preventDefault`s Tab, Esc, Backspace, Space and arrows |
 | F5 / F6 / F9 (quicksave, Saves, quickload) | As in the TUI | Prevented, so F5 doesn't reload the page. macOS may still take some F-keys; the game menu's Save…/Load… cover them |
 | Ctrl+C (quit) | As in the TUI | Not delivered (the browser owns Ctrl+letter); Quit is hidden on the web anyway (#866) |
-| F12 | Toggles the dev overlay (frame timings); the spike's panel toggle goes away with #877 | Left to the browser (devtools) |
+| F12 | Toggles the dev overlay (frame timings); there is no panel toggle any more (#877) | Left to the browser (devtools) |
 | Ctrl+= / Ctrl+- | egui's UI zoom | The browser's zoom |
 
 ### Mouse

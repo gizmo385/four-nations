@@ -117,6 +117,10 @@ impl GuiApp {
         let ctx = root.ctx().clone();
         self.step(&ctx);
         self.frame.show(root, &mut self.shell, &self.palette);
+        // A click on the window's own widgets is the key it stands for, typed after the frame.
+        for key in self.frame.take_keys() {
+            self.shell.key(key);
+        }
         self.frame.timings.frame = frame_start.elapsed().as_secs_f32() * 1000.0;
         ctx.request_repaint();
     }

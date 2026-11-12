@@ -9,8 +9,10 @@
 //!   computes, painted as glyphs in egui's bundled monospace font, with pan by drag, zoom by the
 //!   wheel and, zoomed far out, one coloured block per tile. A click moves the cursor, and a drag
 //!   with a designate tool active makes the rectangle (`fn_ui::pointer`).
+//! - **The side panel** ([`side`]) is `fn_ui::panel::SidePanel` as egui widgets; its clicks are
+//!   the keys they stand for. Its inspector is still the terminal's cells (#882).
 //! - **Cells** ([`cells`]) paint a ratatui buffer as egui shapes: the unconverted screens, the
-//!   title and embark, boxes, and the side panel's slot until it is native.
+//!   title and embark, and boxes.
 //!
 //! Nothing here reads the clock but [`app`]'s frame time.
 
@@ -26,6 +28,7 @@ pub mod keys;
 pub mod mapview;
 #[cfg(target_arch = "wasm32")]
 pub mod page;
+pub mod side;
 pub mod theme;
 
 /// What a new window or page sets up once: the bundled fonts ([`fonts`]) and the dark theme
