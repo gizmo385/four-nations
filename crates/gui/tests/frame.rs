@@ -34,7 +34,7 @@ fn the_map_is_native_and_every_screen_is_cells_for_now() {
 }
 
 #[test]
-fn the_title_screen_is_native_and_embark_is_cells() {
+fn the_title_screen_and_embark_are_native() {
     // Every step of the title is the native title (#880), not only the menu.
     let mut title = Shell::new_title(SIZE, None, 1);
     assert_eq!(surface(&title), Surface::Title);
@@ -42,9 +42,9 @@ fn the_title_screen_is_native_and_embark_is_cells() {
     assert_eq!(surface(&title), Surface::Title);
     title.play(&fn_ui::script::parse("<enter>").unwrap());
     assert_eq!(surface(&title), Surface::Title);
-    // Enter on the seed step opens embark.
+    // Enter on the seed step opens embark (#883), a native surface of its own.
     title.play(&fn_ui::script::parse("<enter>").unwrap());
-    assert_eq!(surface(&title), Surface::CellsFull);
+    assert_eq!(surface(&title), Surface::Embark);
 }
 
 #[test]

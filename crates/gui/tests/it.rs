@@ -3,6 +3,7 @@
 mod browser_saves;
 mod camera;
 mod cells;
+mod embark;
 mod frame;
 mod glyphs;
 mod inspector;

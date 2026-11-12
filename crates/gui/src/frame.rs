@@ -11,6 +11,8 @@
 //!   is native ([`crate::side`], inspector included).
 //! - [`Surface::Page`]: a full screen as egui widgets in the page frame ([`crate::page`]): the
 //!   whole window above the hint bar, the side panel and the map hidden. Build (#881) so far.
+//! - [`Surface::Title`] and [`Surface::Embark`]: the title's steps and the embark screen, as
+//!   egui widgets of their own ([`crate::title`], [`crate::embark`]) with the hint bar below.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
 //! - [`Surface::CellsBox`]: the native view, with only one box's rectangle painted from the
 //!   terminal's own drawing over the map.
@@ -37,6 +39,7 @@ use ratatui::buffer::Buffer;
 
 use crate::cells::{self, CellLayout, Metrics};
 use crate::color::to_egui;
+use crate::embark::{self, EmbarkView};
 use crate::hints;
 use crate::mapview::MapView;
 use crate::screens;
@@ -69,6 +72,8 @@ pub enum Surface {
     /// The title screen's steps (`fn_gui::title`), natively.
     Title,
     Page(PageKind),
+    /// The embark screen (`fn_gui::embark`): the survey and its report, natively.
+    Embark,
     CellsFull,
     CellsBox(BoxKind),
 }
@@ -81,7 +86,7 @@ pub fn surface(shell: &Shell) -> Surface {
     }
     match &shell.mode {
         Mode::Title(_) => Surface::Title,
-        Mode::Embark(_) => Surface::CellsFull,
+        Mode::Embark(_) => Surface::Embark,
         Mode::Game(app) => game_surface(&app.ui),
     }
 }
@@ -153,6 +158,8 @@ pub struct Timings {
 #[derive(Default)]
 pub struct Frame {
     map: Option<MapView>,
+    /// The embark screen's view of the survey.
+    pub embark: EmbarkView,
     /// The shell's size in cells, as last given to [`Shell::resize`].
     size: (u16, u16),
     /// The map widget's first cell height (`FN_GUI_CELL`), for screenshots of a zoom level.
@@ -202,6 +209,10 @@ impl Frame {
             }
             (Mode::Game(app), Surface::Page(kind)) => {
                 self.show_page(root, app, kind, palette, &metrics, cols);
+            }
+            (Mode::Embark(_), Surface::Embark) => {
+                self.map = None;
+                self.show_embark(root, shell, palette, &metrics, cols);
             }
             _ => {
                 self.map = None;
@@ -289,6 +300,48 @@ impl Frame {
             self.keys.extend(clicks);
         });
         self.timings.cells = started.elapsed().as_secs_f32() * 1000.0;
+    }
+
+    /// The native embark screen (#883): the hint bar, the site report as the side panel and the
+    /// survey in the middle, with the settle question or the key help over it. The clicks come
+    /// back as keys, queued for the shell like the title's ([`Frame::take_keys`]).
+    fn show_embark(
+        &mut self,
+        root: &mut Ui,
+        shell: &mut Shell,
+        palette: &Palette,
+        metrics: &Metrics,
+        cols: u16,
+    ) {
+        let Mode::Embark(screen) = &shell.mode else { return };
+        let defs = shell.defs();
+        let bar =
+            hints::embark_bar(fn_tui::embark::hint_mode(screen), &screen.status, palette, cols);
+        self.show_bar(root, &bar, metrics);
+
+        // The question and the help take every key: the map and the panel show but press none.
+        let live = !screen.asking() && !screen.helping();
+        let panel_fill = to_egui(palette.token(palette.theme.panel), Color32::BLACK);
+        let mut keys = Vec::new();
+        egui::Panel::right("side")
+            .default_size(PANEL_DEFAULT)
+            .size_range(PANEL_RANGE.0..=PANEL_RANGE.1)
+            .resizable(true)
+            .frame(egui::Frame::NONE.fill(panel_fill))
+            .show(root, |ui| {
+                keys.extend(embark::side(ui, screen, defs, palette, metrics, live));
+            });
+        let view = &mut self.embark;
+        let mut map_ms = 0.0;
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
+            let rect = ui.available_rect_before_wrap();
+            let started = Instant::now();
+            keys.extend(embark::map(ui, view, rect, screen, defs, palette, live));
+            map_ms = started.elapsed().as_secs_f32() * 1000.0;
+        });
+        self.timings.map = map_ms;
+        keys.extend(embark::overlay(root.ctx(), screen, palette, metrics));
+        self.keys.extend(keys);
     }
 
     /// The native game: hint bar, side panel, map, banner, and a box over the map if one is

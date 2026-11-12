@@ -33,6 +33,7 @@ pub mod build;
 pub mod chute;
 pub mod clock;
 pub mod code;
+pub mod embark;
 pub mod endeavor;
 pub mod gate;
 pub mod input;
