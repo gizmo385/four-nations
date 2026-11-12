@@ -257,6 +257,7 @@ pub fn feature_name(feature: Feature) -> &'static str {
     match feature {
         Feature::Almanac => "Almanac",
         Feature::StandingSow => "Standing sow order",
+        Feature::PackUp => "Pack up (buildings come down whole, twice as fast)",
     }
 }
 

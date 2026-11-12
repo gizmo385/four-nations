@@ -467,8 +467,7 @@ fn coast_weed() -> ResourceDef {
         moisture_scaled: false,
         min_spacing: None,
         beside: None,
-        aura: None,
-        landmark: false,
+
         buried: false,
     }
 }
