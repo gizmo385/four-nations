@@ -157,7 +157,10 @@ impl World {
             .filter(|d| d.uses_power)
             .and_then(|_| self.footprint_at(anchor))
             .map_or(1000, |f| self.power_boost_millis(f, defs));
-        let millis = defs.research.study_millis_per_tick * boost_millis as u64 / 1000;
+        // An aura over the hall multiplies with the power boost, in millis too (#723).
+        let aura = self.footprint_at(anchor).map_or(1000, |f| self.aura_over(f, defs).study_millis);
+        let millis =
+            defs.research.study_millis_per_tick * boost_millis as u64 / 1000 * aura as u64 / 1000;
         let rate = millis as f32 * self.modifiers().study;
         let research_cost = self.knobs(defs).research_cost;
         let scribing = self.scribing_on(defs);

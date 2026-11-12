@@ -296,6 +296,12 @@ glyph = "Ω"
 ascii = "O"
 fg = [214, 196, 150]
 
+# High Temple's temple (horizons phase 4, #723): one per game, against the peak.
+[building.high_temple]
+glyph = "♅"
+ascii = "Q"
+fg = [236, 200, 120]
+
 # Waystations' Waystation (horizons phase 2): a lean-to with a pantry and a barrel.
 [building.waystation]
 glyph = "∩"

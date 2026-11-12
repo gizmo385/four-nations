@@ -99,6 +99,8 @@ pub enum Blocker {
     /// A footprint tile is within this many tiles of a stockpile tile (`OutpostDef::far_from_stores`,
     /// the Waystation): an outpost must stand at least that far from the stores.
     NearStores(u32),
+    /// A landmark of this kind already stands or is designated (`BuildingDef::landmark`).
+    OnlyOne,
 }
 
 impl std::fmt::Display for Blocker {
@@ -113,6 +115,7 @@ impl std::fmt::Display for Blocker {
             Self::Entrance => f.write_str("blocks a door"),
             Self::Beside(word) => write!(f, "must touch {word}"),
             Self::NearStores(far) => write!(f, "must be {far} tiles from any stockpile"),
+            Self::OnlyOne => f.write_str("only one"),
         }
     }
 }
@@ -440,6 +443,7 @@ impl World {
             .or_else(|| self.entrance_blocker(foot, def.capacity > 0, defs))
             .or_else(|| self.beside_blocker(foot, def))
             .or_else(|| self.far_blocker(foot, def))
+            .or_else(|| self.landmark_blocker(anchor, def, defs))
     }
 
     /// Why `foot` fails `def`'s `beside` rule, if it has one and nothing in `foot`'s ring is one
@@ -808,7 +812,7 @@ impl World {
 
     /// The next cost entry this site still needs, with how much: index into `BuildingDef::cost`
     /// (and `Site::delivered`), the item, and the amount still short.
-    fn next_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(usize, ItemId, u32)> {
+    pub(super) fn next_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(usize, ItemId, u32)> {
         let site = self.sites.get(&pos)?;
         let cost = &defs.building(site.building).cost;
         cost.iter()
@@ -1009,6 +1013,11 @@ impl World {
                 }
                 self.units[i].carrying = Some(Stack { item: found, count: take });
                 self.units[i].route = None;
+            }
+            None if self.units[i].is_beast() => {
+                // A beast only hauls (#728): fully supplied, it hands the site to a builder.
+                self.jobs[idx].claimed_by = None;
+                self.finish_job(i);
             }
             None => {
                 // Fully supplied: work the site.

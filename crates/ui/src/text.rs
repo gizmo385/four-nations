@@ -215,7 +215,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
             match world.building_record(pos) {
                 Some(b) => {
                     let def = defs.building(b.id);
-                    let total = def.work * defs.deconstruct.work;
+                    let total = def.work * world.deconstruct_terms(defs).1;
                     format!(
                         "Taking down {} at ({}, {}), {:.0}% done",
                         def.display_name(world.nation),

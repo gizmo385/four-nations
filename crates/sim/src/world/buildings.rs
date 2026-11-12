@@ -154,6 +154,8 @@ pub(super) enum Kind {
     Tea,
     /// An Archive (`archive.rs`).
     Archive,
+    /// A building with an aura (`aura.rs`).
+    Aura,
 }
 
 impl Kind {
@@ -175,6 +177,7 @@ impl Kind {
             (def.balloon.is_some(), Kind::Balloon),
             (def.tea_house.is_some(), Kind::Tea),
             (def.archive.is_some(), Kind::Archive),
+            (def.aura.is_some(), Kind::Aura),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))

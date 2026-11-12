@@ -170,6 +170,8 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         seat_upgrades: Vec::new(),
         endeavor: false,
         beside: None,
+        aura: None,
+        landmark: false,
     });
     id
 }
@@ -502,4 +504,36 @@ fn writing_leaves_the_map_room_alone() {
     let room = defs.building_id("map_room").unwrap();
     w.research.grant(defs.tech_id("writing").unwrap());
     assert_eq!(w.seats_of(defs.building(room)), defs.building(room).seats);
+}
+
+/// #723: a hall in an aura's reach studies `study` times as fast, multiplied with the power
+/// boost, in integer millis.
+#[test]
+fn an_aura_over_the_hall_multiplies_with_the_power_boost() {
+    const TICKS: u64 = 1000;
+    let grid = [".................."; 9];
+    let seat_gain = |temple: bool, power: bool| {
+        let mut defs = Defs::bundled();
+        let mut w = World::with_map(1, arena(&grid), Nation::Air, &[at(1, 2)], &defs);
+        place_study_hall(&mut w, &defs, at(2, 2));
+        if temple {
+            let id = defs.building_id("high_temple").unwrap();
+            w.put_building(crate::geom::Footprint::new(at(10, 4), 3, 3), id, &defs);
+        }
+        if power {
+            let id = test_source(&mut defs, 6, 2.0);
+            w.put_building(crate::geom::Footprint::single(at(8, 4)), id, &defs);
+        }
+        start_research(&mut w, &defs, "meditation");
+        run_until(&mut w, &defs, 200, |w| seated(w, 0));
+        let before = w.research().pool_millis();
+        for _ in 0..TICKS {
+            w.tick(&defs);
+        }
+        let gained = w.research().pool_millis() - before;
+        gained - TICKS * defs.research.passive_millis_per_tick
+    };
+    let m = Defs::bundled().research.study_millis_per_tick;
+    assert_eq!(seat_gain(true, false), TICKS * (m * 1500 / 1000));
+    assert_eq!(seat_gain(true, true), TICKS * (m * 2000 / 1000 * 1500 / 1000));
 }

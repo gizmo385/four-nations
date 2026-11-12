@@ -200,6 +200,8 @@ pub enum DesignateError {
     NoBuilding,
     /// That building can't be taken down: the endeavor's gate (issue #342).
     CannotDeconstruct,
+    /// That building is a landmark, which never comes down (`BuildingDef::landmark`, #723).
+    Landmark,
 }
 
 #[derive(Debug, Clone, Copy)]

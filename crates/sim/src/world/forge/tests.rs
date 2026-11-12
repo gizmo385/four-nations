@@ -381,6 +381,8 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         seat_upgrades: Vec::new(),
         endeavor: false,
         beside: None,
+        aura: None,
+        landmark: false,
     });
     id
 }

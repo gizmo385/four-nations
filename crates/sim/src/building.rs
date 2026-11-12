@@ -548,6 +548,30 @@ pub struct HealingDef {
     pub modifier: Option<String>,
 }
 
+/// Largest multiplier an aura may give one stat (`[building.aura]`).
+pub const MAX_AURA: f32 = 4.0;
+
+/// A building that makes life easier nearby (`[building.aura]`, docs/design/horizons-phase-4.md,
+/// "Small pieces"): units within `radius` (Chebyshev from the footprint, unscaled) regenerate
+/// health `heal` times and chi `chi_regen` times as fast, and study seats in a hall whose
+/// footprint is in reach run `study` times as fast. Each multiplier is 1.0 to `MAX_AURA`, at
+/// least one above 1.0. The best value per stat applies; two auras don't stack
+/// (`World::aura_at`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AuraDef {
+    pub radius: u32,
+    pub heal: f32,
+    pub chi_regen: f32,
+    pub study: f32,
+}
+
+impl AuraDef {
+    /// `study` as integer millis (1000 is 1.0x), as power's `boost_millis` is.
+    pub fn study_millis(&self) -> u32 {
+        (self.study * 1000.0).round() as u32
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildingDef {
     pub id: String,
@@ -653,6 +677,11 @@ pub struct BuildingDef {
     /// `World::check_build` refuses the placement. `None` means no such rule. Earth's Mine Shaft
     /// and Deep Mine need `["mountain", "tunnel"]`, the rock they work from inside.
     pub beside: Option<Vec<Terrain>>,
+    /// An aura over units and halls nearby (`AuraDef`), or `None`.
+    pub aura: Option<AuraDef>,
+    /// At most one per settlement, counting sites, and it can't be taken down (`landmark =
+    /// true`, the High Temple).
+    pub landmark: bool,
 }
 
 impl BuildingDef {
@@ -685,12 +714,21 @@ pub struct DeconstructDef {
     /// Seconds of work, as a share of the building's own `work` (at a `construction` modifier
     /// of 1.0, as building it is). Above 0.0, at most 1.0.
     pub work: f32,
+    /// `refund` once the `pack_up` feature is known (`nomad_way`, #728). Defaults to `refund`.
+    pub packed_refund: f32,
+    /// `work` once the `pack_up` feature is known. Defaults to `work`.
+    pub packed_work: f32,
 }
 
 impl DeconstructDef {
     /// How many of a cost of `count` come back.
     pub fn refund_of(&self, count: u32) -> u32 {
-        (count as f32 * self.refund).floor() as u32
+        Self::share_of(count, self.refund)
+    }
+
+    /// `count` times `share`, rounded down.
+    pub fn share_of(count: u32, share: f32) -> u32 {
+        (count as f32 * share).floor() as u32
     }
 }
 
@@ -702,6 +740,10 @@ const MAX_SIDE: u8 = 4;
 struct RawDeconstruct {
     refund: f32,
     work: f32,
+    #[serde(default)]
+    packed_refund: Option<f32>,
+    #[serde(default)]
+    packed_work: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -853,6 +895,51 @@ struct RawBalloon {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawAura {
+    radius: u32,
+    #[serde(default)]
+    heal: Option<f32>,
+    #[serde(default)]
+    chi_regen: Option<f32>,
+    #[serde(default)]
+    study: Option<f32>,
+}
+
+/// Checks a `[building.aura]` (or the `aura` upgrade's values): each multiplier 1.0 to
+/// `MAX_AURA`, at least one above 1.0, and a radius above 0.
+pub(crate) fn resolve_aura(
+    what: &str,
+    radius: u32,
+    heal: Option<f32>,
+    chi_regen: Option<f32>,
+    study: Option<f32>,
+) -> Result<AuraDef, DefsError> {
+    if radius == 0 {
+        return Err(DefsError(format!("{what}: aura radius must be above 0")));
+    }
+    let mut out = AuraDef { radius, heal: 1.0, chi_regen: 1.0, study: 1.0 };
+    for (name, v, slot) in [
+        ("heal", heal, &mut out.heal),
+        ("chi_regen", chi_regen, &mut out.chi_regen),
+        ("study", study, &mut out.study),
+    ] {
+        if let Some(v) = v {
+            if !(v.is_finite() && (1.0..=MAX_AURA).contains(&v)) {
+                return Err(DefsError(format!(
+                    "{what}: aura {name} = {v} must be 1.0 to {MAX_AURA}"
+                )));
+            }
+            *slot = v;
+        }
+    }
+    if out.heal <= 1.0 && out.chi_regen <= 1.0 && out.study <= 1.0 {
+        return Err(DefsError(format!("{what}: an aura needs a multiplier above 1.0")));
+    }
+    Ok(out)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawHothouse {
     radius: u32,
     winter_growth: f32,
@@ -962,6 +1049,9 @@ struct RawBuilding {
     /// these, or the placement is refused. Absent means no such rule.
     #[serde(default)]
     beside: Option<Vec<Terrain>>,
+    aura: Option<RawAura>,
+    #[serde(default)]
+    landmark: bool,
 }
 
 #[derive(Deserialize)]
@@ -988,7 +1078,19 @@ impl BuildingsFile {
                 "buildings.toml: deconstruct.work must be above 0.0 and at most 1.0".into(),
             ));
         }
-        Ok(DeconstructDef { refund: d.refund, work: d.work })
+        let packed_refund = d.packed_refund.unwrap_or(d.refund);
+        if !(packed_refund.is_finite() && (0.0..=1.0).contains(&packed_refund)) {
+            return Err(DefsError(
+                "buildings.toml: deconstruct.packed_refund must be 0.0 to 1.0".into(),
+            ));
+        }
+        let packed_work = d.packed_work.unwrap_or(d.work);
+        if !(packed_work.is_finite() && packed_work > 0.0 && packed_work <= 1.0) {
+            return Err(DefsError(
+                "buildings.toml: deconstruct.packed_work must be above 0.0 and at most 1.0".into(),
+            ));
+        }
+        Ok(DeconstructDef { refund: d.refund, work: d.work, packed_refund, packed_work })
     }
 
     /// Checks the data, links item names to ids, and records which tech unlocks each building.
@@ -1206,6 +1308,19 @@ impl BuildingsFile {
                     Some(HothouseDef { radius: h.radius, winter_growth: h.winter_growth })
                 }
             };
+            let aura = match &b.aura {
+                None => None,
+                Some(a) => Some(resolve_aura(
+                    &format!("building {}", b.id),
+                    a.radius,
+                    a.heal,
+                    a.chi_regen,
+                    a.study,
+                )?),
+            };
+            if b.landmark && b.endeavor {
+                return err(format!("building {}: the endeavor's gate can't be a landmark", b.id));
+            }
             let tea_house = match &b.tea_house {
                 None => None,
                 Some(t) => Some(resolve_tea_house(&b.id, t, fuel.as_ref())?),
@@ -1323,6 +1438,8 @@ impl BuildingsFile {
                 seat_upgrades: Vec::new(),
                 endeavor: b.endeavor,
                 beside: b.beside,
+                aura,
+                landmark: b.landmark,
             });
         }
         link_unlocks(&mut buildings, techs)?;

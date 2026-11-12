@@ -409,3 +409,34 @@ fn a_save_that_names_a_missing_beast_is_refused() {
     let without = Defs::from_files(crate::defs::BUNDLED_FILES).unwrap();
     assert!(World::load(&text, &without).is_err(), "the beast's row is gone");
 }
+
+/// #728: with `pack_up` known, a bison takes a far build site's deliveries, a whole bill line in
+/// one trip, and leaves the building to a settler.
+#[test]
+fn with_pack_up_a_bison_delivers_to_a_far_site() {
+    let defs = Defs::bundled();
+    let mut w = setup(&[], true, &defs);
+    let wood = item(&defs, "wood");
+    w.stored.insert(at(2, 2), Stack { item: wood, count: 20 });
+    let bed = defs.building_id("bed").unwrap();
+    let site = at(40, 6);
+    w.apply(Command::DesignateBuild { pos: site, building: bed }, &defs).unwrap();
+    for _ in 0..600 {
+        w.tick(&defs);
+        assert!(beast(&w).job_task.is_none(), "without the feature, sites aren't the beast's");
+    }
+    w.research.grant(defs.tech_id("nomad_way").unwrap());
+    for _ in 0..3_000 {
+        w.tick(&defs);
+        if w.next_shortfall(site, &defs).is_none() {
+            break;
+        }
+    }
+    assert!(w.next_shortfall(site, &defs).is_none(), "the bison brought the bed's wood");
+    assert_eq!(w.stored_total(wood), 15);
+    assert!(w.sites.contains_key(&site), "and left the building itself to a settler");
+    for _ in 0..50 {
+        w.tick(&defs);
+    }
+    assert!(beast(&w).job_task.is_none(), "it handed the job back");
+}
