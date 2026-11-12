@@ -203,6 +203,10 @@ impl World {
         if self.is_barrel_door(pos, defs) {
             return None;
         }
+        // So is a flowing aqueduct beside it (`aqueduct.rs`, #755).
+        if self.flow(defs).beside(&self.map, pos) {
+            return None;
+        }
         let mut chance: Option<f32> = None;
         for q in self.map.neighbors(pos, true) {
             let terrain = self.map[q].terrain;

@@ -324,6 +324,21 @@ pub struct IrrigationDef {
     pub growth_boost: f32,
 }
 
+/// A raised stone channel (`[building.aqueduct]`, the Aqueduct, #755, docs/design/
+/// horizons-phase-6.md, "`aqueducts`"). A finished tile 4-adjacent to a `source` terrain, or to a
+/// flowing aqueduct tile, is flowing (`World::is_flowing`, `world/aqueduct.rs`). A flowing tile
+/// is a drinking place and irrigates farm plots within `irrigation_radius`, under the same
+/// best-boost rule as the channel and the canal (`World::irrigation_rate`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AqueductDef {
+    /// The fresh-water terrains a tile must touch to start the flow. At least one.
+    pub source: Vec<Terrain>,
+    /// How far from each flowing tile, Chebyshev, a farm plot is sped up (above 0).
+    pub irrigation_radius: u32,
+    /// How many times faster a farm plot in reach grows (at least 1.0).
+    pub growth_boost: f32,
+}
+
 /// A building that speeds up work in buildings nearby (`[building.power]`, issue #428,
 /// docs/design/late-tree.md): the Steam Engine and Lightning Station (#255) set this; the
 /// Windmill, Wind Turbine and Tide Mill (#204, #200) are out of scope here. The lookup is
@@ -685,6 +700,8 @@ pub struct BuildingDef {
     pub farm: Option<FarmDef>,
     /// Set if this speeds up farm plots nearby: the irrigation channel (issue #126).
     pub irrigation: Option<IrrigationDef>,
+    /// Set if this is a channel that carries river water along its line (the Aqueduct, #755).
+    pub aqueduct: Option<AqueductDef>,
     /// Set if units heal here: Water's Healing Hut (issue #375). Needs a `capacity` above 0,
     /// the number of places a hurt settler heals in at once, each through its door.
     pub healing: Option<HealingDef>,
@@ -941,6 +958,14 @@ struct RawIrrigation {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawAqueduct {
+    source: Vec<Terrain>,
+    irrigation_radius: u32,
+    growth_boost: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawHealing {
     seek_below: f32,
     regen_per_minute: f32,
@@ -1163,6 +1188,7 @@ struct RawBuilding {
     alt_recipe: Vec<RawAltRecipe>,
     farm: Option<RawFarm>,
     irrigation: Option<RawIrrigation>,
+    aqueduct: Option<RawAqueduct>,
     healing: Option<RawHealing>,
     chi_regen: Option<RawChiRegen>,
     bath: Option<RawBath>,
@@ -1439,6 +1465,10 @@ impl BuildingsFile {
                 None => None,
                 Some(i) => Some(resolve_irrigation(&b.id, i)?),
             };
+            let aqueduct = match &b.aqueduct {
+                None => None,
+                Some(a) => Some(resolve_aqueduct(&b.id, a, b.passable, b.footprint)?),
+            };
             let chi_regen = match &b.chi_regen {
                 None => None,
                 Some(c) => Some(resolve_chi_regen(&b.id, c)?),
@@ -1615,6 +1645,7 @@ impl BuildingsFile {
                 alt_recipes,
                 farm,
                 irrigation,
+                aqueduct,
                 healing,
                 chi_regen,
                 bath,
@@ -1981,6 +2012,37 @@ fn resolve_irrigation(building: &str, i: &RawIrrigation) -> Result<IrrigationDef
         return err("irrigation growth_boost must be at least 1.0");
     }
     Ok(IrrigationDef { radius: i.radius, growth_boost: i.growth_boost })
+}
+
+/// Checks a `[building.aqueduct]` (#755): a passable 1x1 (a line of it never blocks a route),
+/// at least one source terrain, each fresh water, a radius above 0 and a boost of at least 1.0.
+fn resolve_aqueduct(
+    building: &str,
+    a: &RawAqueduct,
+    passable: bool,
+    footprint: [u8; 2],
+) -> Result<AqueductDef, DefsError> {
+    let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
+    if !passable || footprint != [1, 1] {
+        return err("aqueduct must be a passable 1x1 building");
+    }
+    if a.source.is_empty() {
+        return err("aqueduct needs at least one source terrain");
+    }
+    if a.source.iter().any(|t| !t.is_fresh()) {
+        return err("aqueduct source must be fresh water (river, lake, ford or canal)");
+    }
+    if a.irrigation_radius == 0 {
+        return err("aqueduct needs irrigation_radius > 0");
+    }
+    if !(a.growth_boost.is_finite() && a.growth_boost >= 1.0) {
+        return err("aqueduct growth_boost must be at least 1.0");
+    }
+    Ok(AqueductDef {
+        source: a.source.clone(),
+        irrigation_radius: a.irrigation_radius,
+        growth_boost: a.growth_boost,
+    })
 }
 
 /// Checks a `[building.power]` (issue #428): `radius` must be at least 1 tile, and `boost` must
@@ -2680,6 +2742,29 @@ mod tests {
         let bad = |from: &str, to: &str| resolve(&one("").replacen(from, to, 1)).unwrap_err().0;
         assert!(bad("radius = 3", "radius = 0").contains("radius > 0"));
         assert!(bad("growth_boost = 1.5", "growth_boost = 0.5").contains("growth_boost"));
+    }
+
+    #[test]
+    fn aqueduct_numbers_are_validated() {
+        let one = |extra: &str| {
+            format!(
+                "[[building]]\nid = \"aq\"\nname = \"Aq\"\nverb = \"Raise\"\nwork = 1.0\n\
+                 passable = true\n{extra}[building.aqueduct]\nsource = [\"river\", \"canal\"]\n\
+                 irrigation_radius = 2\ngrowth_boost = 1.5\n"
+            )
+        };
+        let ok = resolve(&one("")).unwrap();
+        assert_eq!(ok[0].aqueduct.as_ref().unwrap().source.len(), 2);
+        let bad = |from: &str, to: &str| resolve(&one("").replacen(from, to, 1)).unwrap_err().0;
+        assert!(bad("source = [\"river\", \"canal\"]", "source = []").contains("source terrain"));
+        assert!(bad("\"river\"", "\"water\"").contains("fresh water"));
+        assert!(
+            bad("irrigation_radius = 2", "irrigation_radius = 0").contains("irrigation_radius")
+        );
+        assert!(bad("growth_boost = 1.5", "growth_boost = 0.5").contains("growth_boost"));
+        assert!(bad("passable = true", "passable = false").contains("passable 1x1"));
+        let wide = one("footprint = [2, 1]\n");
+        assert!(resolve(&wide).unwrap_err().0.contains("passable 1x1"));
     }
 
     #[test]

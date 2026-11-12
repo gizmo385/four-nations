@@ -23,6 +23,7 @@ use crate::regions::Regions;
 use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
+mod aqueduct;
 mod archive;
 mod aura;
 mod automate;
@@ -88,6 +89,7 @@ mod trade;
 mod vial;
 mod work;
 
+pub use aqueduct::AqueductFlow;
 pub use avatar::AvatarState;
 pub use balloon::{Balloon, BalloonStatus, Dock, Flight, Held};
 pub use beast::{BeastEvent, BeastEventKind};
@@ -529,6 +531,10 @@ pub struct World {
     /// Which tiles a closed ring of walls shelters (`enclosure.rs`, #721): rebuilt, never saved.
     #[serde(skip)]
     enclosure: Option<enclosure::Enclosure>,
+    /// Which aqueduct tiles carry water (`aqueduct.rs`, #755): rebuilt, never saved. `None` means
+    /// stale (the map was edited), not "no aqueducts".
+    #[serde(skip)]
+    flowing: Option<crate::geom::Grid<bool>>,
     /// A v1 to v3 save's bends (#605): merged into `events` on load, never written.
     #[serde(default, skip_serializing, rename = "bend_events")]
     v3_bend_events: Vec<BendEvent>,
@@ -731,6 +737,7 @@ impl World {
             chute_walks: BTreeMap::new(),
             link_fields: linkfield::LinkFields::default(),
             enclosure: None,
+            flowing: None,
             v3_bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),
@@ -1081,6 +1088,7 @@ impl World {
     /// `map` directly needs to call it.
     pub fn map_changed(&mut self) {
         self.regions = None;
+        self.flowing = None;
         self.map_rev += 1;
     }
 
@@ -1137,6 +1145,7 @@ impl World {
             self.log_event(c);
         }
         self.refresh_enclosure(defs);
+        self.refresh_aqueducts(defs);
         self.tick_foxes(defs);
         self.tick_scribing(defs);
         self.tick_needs(defs);

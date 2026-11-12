@@ -457,6 +457,19 @@ pub fn dock_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     lines
 }
 
+/// An Aqueduct tile's run (docs/design/horizons-phase-6.md, "`aqueducts`", #755): `Flowing: 20
+/// tiles from (40, 61)` or `Dry: no river upstream`. Empty for any other building.
+pub fn aqueduct_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    use fn_sim::world::AqueductFlow;
+    match world.aqueduct_flow(anchor, defs) {
+        Some(AqueductFlow::Flowing { tiles, from }) => {
+            vec![format!("Flowing: {tiles} tiles from ({}, {})", from.x, from.y)]
+        }
+        Some(AqueductFlow::Dry) => vec!["Dry: no river upstream".to_owned()],
+        None => Vec::new(),
+    }
+}
+
 /// A Waystation's pantry and beds (docs/design/horizons-phase-2.md, "`waystations`"):
 /// `Pantry: 9/12` or `Pantry empty`, then `Beds: 1/2 taken`.
 pub fn outpost_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
@@ -649,6 +662,7 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         lines.extend(pair_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(dock_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(outpost_lines(world, defs, at).into_iter().map(Line::Detail));
+        lines.extend(aqueduct_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(beast_lines(world, defs, at).into_iter().map(Line::Detail));
         return Some(lines);
     }
@@ -1075,6 +1089,37 @@ mod tests {
                 "{p:?} should name the anchor"
             );
         }
+    }
+
+    /// An Aqueduct run reads `Flowing: N tiles from (x, y)` when it touches a river, and
+    /// `Dry: no river upstream` when it does not (#755).
+    #[test]
+    fn an_aqueduct_reads_flowing_or_dry() {
+        use fn_sim::geom::Footprint;
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let aqueduct = s.defs.building_id("aqueduct").unwrap();
+        // Level a patch of open ground and cut a river along its west edge.
+        for y in 28..34 {
+            for x in 28..40 {
+                s.world.map[Pos::new(x, y)].terrain =
+                    if x == 28 { Terrain::River } else { Terrain::Land };
+                s.world.map[Pos::new(x, y)].resource = None;
+            }
+        }
+        s.world.units.retain(|u| !(27..41).contains(&u.pos.x) || !(27..35).contains(&u.pos.y));
+        for x in 29..32 {
+            s.world.put_building(Footprint::single(Pos::new(x, 30)), aqueduct, &s.defs);
+        }
+        for x in 35..37 {
+            s.world.put_building(Footprint::single(Pos::new(x, 32)), aqueduct, &s.defs);
+        }
+        let lines = tooltip_lines(&s, Tool::Select, Pos::new(31, 30)).unwrap();
+        assert!(
+            lines.contains(&Line::Detail("Flowing: 3 tiles from (29, 30)".into())),
+            "{lines:?}"
+        );
+        let lines = tooltip_lines(&s, Tool::Select, Pos::new(36, 32)).unwrap();
+        assert!(lines.contains(&Line::Detail("Dry: no river upstream".into())), "{lines:?}");
     }
 
     /// A study hall's tooltip says how many of its seats are filled, counting whoever is

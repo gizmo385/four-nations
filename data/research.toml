@@ -1083,3 +1083,22 @@ item = "tool"
 count = 8
 [tech.unlocks]
 buildings = ["steelworks"]
+
+# --- #755 (research horizons phase 6: `aqueducts`) -----------------------------------------------
+
+# The Earth + Water fusion (docs/design/horizons-phase-6.md, "`aqueducts`"): a stone channel that
+# carries river water to drink and irrigates along its line. The 3 residents of each nation, the
+# 1 master and the 6 tools are provisional (#752's playtest sets them).
+[[tech]]
+id = "aqueducts"
+name = "Aqueducts"
+description = "Earth raises the channel and Water fills it. The river goes where the fields are."
+fusion = ["earth", "water"]
+cost = 1000
+prereqs = ["masonry", "farming"]
+requires = { residents = { earth = 3, water = 3 }, masters = 1, masters_of = ["earth", "water"] }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["aqueduct"]

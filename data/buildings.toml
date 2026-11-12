@@ -1368,3 +1368,27 @@ work = 20.0
 modifier = "heating"
 input = [{ item = "gold_ore", count = 1 }, { item = "wood", count = 2 }]
 stock_limit = 8
+
+# --- #755 (research horizons phase 6: `aqueducts`) -----------------------------------------------
+
+# The Earth + Water fusion (docs/design/horizons-phase-6.md, "`aqueducts`"): a raised stone channel
+# laid in lines with the build tool's rectangle. A finished tile 4-adjacent to a `source` terrain,
+# or to a flowing tile, is flowing (`World::is_flowing`, `world/aqueduct.rs`): a drinking place
+# for settlers beside it, and it irrigates farm plots within `irrigation_radius` (Chebyshev) at
+# `growth_boost`, under the best-boost rule (`World::irrigation_rate`). Not a bank: the Fishing
+# Dock and Tide Mill still need real water. Passable (raised on arches: people walk under it),
+# on buildable land only, so it never crosses rock or water. A 20-tile line is 60 stone and about
+# 4 minutes of one builder. Unlocked by the `aqueducts` fusion tech after the gate.
+[[building]]
+id = "aqueduct"
+name = "Aqueduct"
+verb = "Raise"
+work = 12.0
+passable = true
+[building.aqueduct]
+source = ["river", "lake", "canal"]
+irrigation_radius = 2
+growth_boost = 1.5
+[[building.cost]]
+item = "stone"
+count = 3

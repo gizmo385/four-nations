@@ -160,7 +160,8 @@ impl World {
     /// channel tends it: the best `growth_boost` among channels within their own `radius` of
     /// `pos`, else 1.0, the same way `tend_rate` layers onto an orchard's resting trees. Two
     /// channels in reach of one plot don't stack, and neither does a channel with a carved canal
-    /// (`canal_rate`, #695): the best of them all applies.
+    /// (`canal_rate`, #695), nor a flowing aqueduct (`aqueduct_rate`, #755): the best of them all
+    /// applies. This is the one place the best-boost rule lives; rain (#759) joins it here.
     pub(super) fn irrigation_rate(&self, pos: Pos, defs: &Defs) -> f32 {
         self.of_kind(Kind::Irrigation)
             .filter_map(|b| self.irrigation_def(b.anchor, defs).map(|d| (b.anchor, d)))
@@ -168,6 +169,7 @@ impl World {
             .map(|(_, d)| d.growth_boost)
             .fold(1.0, f32::max)
             .max(self.canal_rate(pos, defs))
+            .max(self.aqueduct_rate(pos, defs))
     }
 
     /// The boost a carved canal gives the farm plot on `pos` (#695): `[canal]`'s `growth_boost`
