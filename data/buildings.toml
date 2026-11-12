@@ -1392,3 +1392,39 @@ growth_boost = 1.5
 [[building.cost]]
 item = "stone"
 count = 3
+
+# --- #758 (research horizons phase 6: `airships`) ------------------------------------------------
+
+# The Fire + Air fusion (docs/design/horizons-phase-6.md, "`airships`", `world/voyage.rs`): an
+# outbound voyage. `Command::PlanVoyage` picks one nation (the settlement's own included) and up
+# to `deals` of its caravan deals (`data/trade.toml`, the United City's scaled set once the gate
+# stands), each up to its `times`. Haulers load the give side (at most `hold` items), the bunker
+# must hold `fuel_per_voyage`, then `crew` residents board and the airship sails: crew and goods
+# leave the map. `away_minutes` later (fixed at departure; provisional: one season) it lands, the
+# crew step off at the door and the get side spills beside the dock. The crew still count as
+# residents while away. The dock can't be taken down while the airship is away.
+[[building]]
+id = "airship_dock"
+name = "Airship Dock"
+verb = "Build"
+work = 200.0
+passable = false
+footprint = [3, 3]
+[building.airship]
+crew = 2
+hold = 60
+deals = 2
+away_minutes = 15.0
+fuel_per_voyage = 20
+[building.fuel]
+item = "wood"
+bunker = 20
+[[building.cost]]
+item = "wood"
+count = 30
+[[building.cost]]
+item = "metal"
+count = 4
+[[building.cost]]
+item = "tool"
+count = 2

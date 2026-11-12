@@ -81,7 +81,9 @@ pub(super) fn avatar_may_take(kind: JobKind) -> bool {
         | JobKind::Chart { .. }
         | JobKind::Deconstruct { .. }
         | JobKind::Refuel { .. }
-        | JobKind::Trade { .. } => false,
+        | JobKind::Trade { .. }
+        | JobKind::Load { .. }
+        | JobKind::Crew { .. } => false,
     }
 }
 
@@ -252,6 +254,10 @@ impl World {
             JobKind::Refuel { pos } => self.refuel_live(pos, defs),
             // Live while the visit is here and the offer still needs goods (`trade.rs`).
             JobKind::Trade { pos, slot } => self.trade_job_wanted(pos, slot, defs),
+            // Live while the voyage is planned and the slot needs goods, or while the crew is
+            // wanted (`voyage.rs`).
+            JobKind::Load { pos, slot } => self.voyage_load_wanted(pos, slot, defs),
+            JobKind::Crew { pos } => self.crew_job_live(pos, defs),
             // The gate drops its own task and Attend jobs when it moves on (`gate.rs`).
             JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => true,
             // Moot if the plot is gone (taken down, #342) or moved past the stage this job was
@@ -313,6 +319,17 @@ impl World {
                 && self.trade_source(slot, defs).is_some())
             .then(|| free(StandRule::Tile(pos)))
             .flatten(),
+            // Only while the slot still needs goods some store holds, as Trade does, taken to the
+            // dock's door.
+            JobKind::Load { pos, slot } => (self.voyage_load_wanted(pos, slot, defs)
+                && self.voyage_source(pos, slot, defs).is_some())
+            .then(|| free(StandRule::Entrance(pos)))
+            .flatten(),
+            // A place in the crew, waiting at the door: any settler (the Avatar and the beasts
+            // are barred above).
+            JobKind::Crew { pos } => {
+                self.crew_wanted(pos, defs).then(|| free(StandRule::Entrance(pos))).flatten()
+            }
             JobKind::Reap { pos } => (self.plot_stage(pos) == Some(PlotStage::Ripe))
                 .then(|| free(StandRule::Building(pos)))
                 .flatten(),
@@ -459,6 +476,8 @@ mod tests {
             JobKind::Deconstruct { pos: p },
             JobKind::Refuel { pos: p },
             JobKind::Trade { pos: p, slot: 0 },
+            JobKind::Load { pos: p, slot: 0 },
+            JobKind::Crew { pos: p },
         ];
         for kind in all {
             let expected = matches!(kind, JobKind::Bend { .. } | JobKind::EndeavorTask { .. });

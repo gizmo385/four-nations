@@ -252,6 +252,18 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
             Some(c) => format!("Hauling goods to the {}", c.name),
             None => "Hauling goods to a caravan".into(),
         },
+        // The Airship Dock's loading and its crew's wait at the door (#758).
+        Task::Load(id) | Task::Crew(id) => {
+            let at = world.job(id).and_then(|j| match j.kind {
+                JobKind::Load { pos, .. } | JobKind::Crew { pos } => Some(pos),
+                _ => None,
+            });
+            let verb = if matches!(task, Task::Load(_)) { "Loading" } else { "Boarding" };
+            match at {
+                Some(p) => format!("{verb} the airship at ({}, {})", p.x, p.y),
+                None => format!("{verb} the airship"),
+            }
+        }
         Task::Haul(id) => {
             let at = world.job(id).and_then(|j| match j.kind {
                 JobKind::Haul { pos } => Some(pos),
@@ -267,7 +279,7 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
                 JobKind::Chart { .. } | JobKind::Deconstruct { .. } | JobKind::Refuel { .. } => {
                     None
                 }
-                JobKind::Trade { .. } => None,
+                JobKind::Trade { .. } | JobKind::Load { .. } | JobKind::Crew { .. } => None,
             });
             let stack = at.and_then(|p| world.ground_items().find(|(q, _)| *q == p));
             match (stack, at) {

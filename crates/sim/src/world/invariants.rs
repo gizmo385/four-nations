@@ -34,6 +34,7 @@ impl World {
     /// `Err` names the first violation.
     pub fn check_invariants(&self, defs: &Defs) -> Result<(), String> {
         self.check_units_sorted_and_on_map()?;
+        self.check_voyages()?;
         self.check_job_claims()?;
         self.check_unit_buildings(defs)?;
         self.check_stored_on_zones()?;
@@ -202,7 +203,9 @@ fn task_job(task: Task) -> Option<JobId> {
         | Task::Chart(id)
         | Task::Deconstruct(id)
         | Task::Refuel(id)
-        | Task::Trade(id) => Some(id),
+        | Task::Trade(id)
+        | Task::Load(id)
+        | Task::Crew(id) => Some(id),
         Task::Rite
         | Task::Deliver
         | Task::Chute(_)

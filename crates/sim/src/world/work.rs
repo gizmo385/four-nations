@@ -77,7 +77,7 @@ pub(super) use eligibility::{ClaimKey, IdleMemo, StandRule};
 pub(super) type Picked = (Option<JobId>, Option<Vec<Pos>>);
 
 /// How far from a drop point a stack may be placed when its own tile is taken, in tiles.
-const GROUND_SEARCH_RADIUS: i32 = 8;
+pub(super) const GROUND_SEARCH_RADIUS: i32 = 8;
 
 /// Where a hungry unit gets its food.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -134,6 +134,10 @@ pub enum Task {
     Refuel(JobId),
     /// Carrying goods to a caravan's camp (`world/trade.rs`, #437).
     Trade(JobId),
+    /// Carrying goods to an Airship Dock's hold (`world/voyage.rs`, #758).
+    Load(JobId),
+    /// Holding a place in an airship's crew, waiting at the dock's door (`world/voyage.rs`, #758).
+    Crew(JobId),
     /// Carrying a stack to a stockpile tile.
     Deliver,
     /// Carrying a stack to the chute anchored on `Pos`, to drop it down to the foot
@@ -205,6 +209,9 @@ pub enum DesignateError {
     CannotDeconstruct,
     /// That building is a landmark, which never comes down (`BuildingDef::landmark`, #723).
     Landmark,
+    /// That Airship Dock's airship is away on a voyage, with its crew and goods (#758): the dock
+    /// can't be taken down until it lands.
+    AirshipAway,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -291,7 +298,9 @@ impl World {
                 JobKind::Chart { .. }
                 | JobKind::Deconstruct { .. }
                 | JobKind::Refuel { .. }
-                | JobKind::Trade { .. } => None,
+                | JobKind::Trade { .. }
+                | JobKind::Load { .. }
+                | JobKind::Crew { .. } => None,
             })
             .chain(self.standing_harvest.iter().copied())
     }
@@ -320,7 +329,9 @@ impl World {
             | JobKind::Chart { .. }
             | JobKind::Deconstruct { .. }
             | JobKind::Refuel { .. }
-            | JobKind::Trade { .. } => None,
+            | JobKind::Trade { .. }
+            | JobKind::Load { .. }
+            | JobKind::Crew { .. } => None,
         })
     }
 
@@ -1797,6 +1808,8 @@ impl World {
             JobKind::Deconstruct { .. } => Task::Deconstruct(job.id),
             JobKind::Refuel { .. } => Task::Refuel(job.id),
             JobKind::Trade { .. } => Task::Trade(job.id),
+            JobKind::Load { .. } => Task::Load(job.id),
+            JobKind::Crew { .. } => Task::Crew(job.id),
         };
         let u = &mut self.units[i];
         u.job_task = Some(task);
@@ -2033,6 +2046,8 @@ impl World {
             Task::Deconstruct(id) => self.run_deconstruct(i, id, defs),
             Task::Refuel(id) => self.run_refuel(i, id, defs),
             Task::Trade(id) => self.run_trade(i, id, defs),
+            Task::Load(id) => self.run_load(i, id, defs),
+            Task::Crew(id) => self.run_crew(i, id, defs),
             Task::Deliver => self.run_deliver(i, defs),
             Task::Chute(head) => self.run_chute(i, head, defs),
             Task::Balloon(dock) => self.run_balloon(i, dock, defs),
@@ -2277,7 +2292,9 @@ fn job_pos(kind: JobKind) -> Option<Pos> {
         | JobKind::Chart { pos }
         | JobKind::Deconstruct { pos }
         | JobKind::Refuel { pos }
-        | JobKind::Trade { pos, .. } => Some(pos),
+        | JobKind::Trade { pos, .. }
+        | JobKind::Load { pos, .. }
+        | JobKind::Crew { pos } => Some(pos),
         JobKind::EndeavorTask { .. } => None,
     }
 }
@@ -2297,7 +2314,9 @@ fn job_priority(kind: JobKind) -> u8 {
         | JobKind::Clear { .. }
         | JobKind::Deconstruct { .. }
         | JobKind::Refuel { .. }
-        | JobKind::Trade { .. } => 0,
+        | JobKind::Trade { .. }
+        | JobKind::Load { .. }
+        | JobKind::Crew { .. } => 0,
     }
 }
 

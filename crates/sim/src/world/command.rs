@@ -95,6 +95,15 @@ pub enum Command {
     /// good (`world/teachings.rs`, docs/design/horizons-phase-5.md, #737). Refused with
     /// `NotOffered` when no pending offer holds it.
     KeepTeaching { tech: TechId },
+    /// Plan a voyage from the Airship Dock anchored on `dock` (`world/voyage.rs`, #758): sail to
+    /// `nation`'s traders (the settlement's own included) with up to the dock's `deals` of that
+    /// caravan's deals, each a `(deal index, times)` pair; a slot with `times` 0 is empty. Haulers
+    /// load the goods, a crew boards and it sails. Refused while the airship is away or already
+    /// has a plan.
+    PlanVoyage { dock: Pos, nation: Nation, deals: [(u8, u8); crate::building::MAX_VOYAGE_DEALS] },
+    /// Call off the voyage planned at the Airship Dock anchored on `dock` before it sails: the
+    /// goods loaded so far drop beside the door.
+    CancelVoyage { dock: Pos },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -108,6 +117,7 @@ pub enum CommandError {
     Link(LinkError),
     Trade(TradeError),
     Recipe(RecipeError),
+    Voyage(VoyageError),
 }
 
 impl CommandError {
@@ -138,6 +148,7 @@ impl CommandError {
             Self::Link(_) => false,
             Self::Recipe(e) => matches!(e, RecipeError::Locked(_)),
             Self::Trade(e) => matches!(e, TradeError::NoCaravan | TradeError::AllTaken),
+            Self::Voyage(_) => false,
         }
     }
 }
@@ -178,6 +189,12 @@ impl From<RecipeError> for CommandError {
     }
 }
 
+impl From<VoyageError> for CommandError {
+    fn from(e: VoyageError) -> Self {
+        Self::Voyage(e)
+    }
+}
+
 impl From<EndeavorError> for CommandError {
     fn from(e: EndeavorError) -> Self {
         Self::Endeavor(e)
@@ -201,6 +218,7 @@ impl std::fmt::Display for CommandError {
                 f.write_str("can't be taken down")
             }
             Self::Designate(DesignateError::Landmark) => f.write_str("A landmark stays"),
+            Self::Designate(DesignateError::AirshipAway) => f.write_str("The airship is away"),
             Self::Research(e) => e.fmt(f),
             Self::Bend(e) => e.fmt(f),
             Self::Build(e) => e.fmt(f),
@@ -208,6 +226,7 @@ impl std::fmt::Display for CommandError {
             Self::Link(e) => e.fmt(f),
             Self::Trade(e) => e.fmt(f),
             Self::Recipe(e) => e.fmt(f),
+            Self::Voyage(e) => e.fmt(f),
         }
     }
 }
@@ -265,6 +284,10 @@ impl World {
                 self.take_deal(slot, defs).map_err(CommandError::Trade)?
             }
             Command::CancelDeal { slot } => self.cancel_deal(slot).map_err(CommandError::Trade)?,
+            Command::PlanVoyage { dock, nation, deals } => {
+                self.plan_voyage(dock, nation, deals, defs)?
+            }
+            Command::CancelVoyage { dock } => self.cancel_voyage(dock, defs)?,
         }
         self.command_log.push(Recorded { tick: self.tick, command });
         Ok(())

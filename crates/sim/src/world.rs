@@ -89,6 +89,7 @@ mod tea;
 mod teachings;
 mod trade;
 mod vial;
+mod voyage;
 mod work;
 
 pub use aqueduct::AqueductFlow;
@@ -133,6 +134,7 @@ pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
 pub use teachings::{TeachingCaveat, TeachingEvent, TeachingEventKind, TeachingOffer};
 pub use trade::{CaravanEvent, CaravanEventKind, Offer, OfferKind, TradeError, TradeState, Visit};
+pub use voyage::{Away, Plan, PlannedDeal, VoyageError, VoyageStatus};
 use work::StandRule;
 pub use work::{DesignateError, FoodSource, IdleReason, Task};
 
@@ -644,6 +646,10 @@ pub struct World {
     /// from before them loads none camped.
     #[serde(default)]
     trade: TradeState,
+    /// The airships that are away, in dock order, each with its crew (`world/voyage.rs`, #758).
+    /// The crew are out of `units` but still residents (`World::residents`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    voyages: Vec<voyage::Away>,
     /// Draw toward the next newcomer, in milli-units (`world/draw.rs`, #435). A save from
     /// before it loads 0 and starts filling.
     #[serde(default)]
@@ -771,6 +777,7 @@ impl World {
             next_unit: 0,
             v3_arrivals: Vec::new(),
             trade: TradeState::new(seed),
+            voyages: Vec::new(),
             draw: 0,
             draw_carry: 0,
             steered: Vec::new(),
@@ -1188,6 +1195,7 @@ impl World {
         }
         self.tick_endeavor(defs);
         self.tick_trade(defs);
+        self.tick_voyages(defs);
         self.tick_avatar(defs);
         self.tick_rite(defs);
     }

@@ -363,6 +363,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         farm: None,
         irrigation: None,
         aqueduct: None,
+        airship: None,
         healing: None,
         chi_regen: None,
         bath: None,
