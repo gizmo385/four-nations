@@ -1142,9 +1142,10 @@ impl World {
             // A healing building's own rate wins inside it; elsewhere an aura speeds passive
             // regen (#723).
             let healing = self.healing_bonus_for(&u, defs).or_else(|| {
-                (aura.heal > 1.0).then(|| {
-                    (defs.needs.health.regen_per_minute * aura.heal, defs.needs.health.max)
-                })
+                (aura.heal > 1.0).then_some((
+                    defs.needs.health.regen_per_minute * aura.heal,
+                    defs.needs.health.max,
+                ))
             });
             u.needs.tick_at_cold_healing(
                 &defs.needs,
