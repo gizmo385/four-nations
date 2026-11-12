@@ -1336,3 +1336,35 @@ seek_tiles = 30
 minutes = 0.5
 warm_minutes = 20.0
 cooldown_minutes = 20.0
+
+# --- #754 (research horizons phase 6: `steelworks`) ----------------------------------------------
+
+# The Earth + Fire fusion (docs/design/horizons-phase-6.md, "`steelworks`"): an ordinary recipe
+# building like the Smelter, but one ore makes one metal, not half, for twice the wood. Any crafter
+# works it at their own `heating`, so a Fire resident runs it fastest. Unlocked by the `steelworks`
+# fusion tech after the gate.
+[[building]]
+id = "steelworks"
+name = "Steelworks"
+verb = "Build"
+work = 150.0
+passable = false
+footprint = [3, 2]
+capacity = 1
+uses_power = true
+[[building.cost]]
+item = "stone"
+count = 16
+[[building.cost]]
+item = "metal"
+count = 2
+[[building.cost]]
+item = "tool"
+count = 2
+[building.recipe]
+output = "metal"
+output_count = 1
+work = 20.0
+modifier = "heating"
+input = [{ item = "gold_ore", count = 1 }, { item = "wood", count = 2 }]
+stock_limit = 8

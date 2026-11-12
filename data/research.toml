@@ -1040,3 +1040,23 @@ cost = 500
 prereqs = ["calendar", "cartography"]
 [tech.unlocks]
 features = ["celestial_days"]
+
+# --- #754 (research horizons phase 6: fusions) ---------------------------------------------------
+
+# A fusion joins two nations' knowledge and is open to every settlement once the Harmony Gate
+# stands (docs/design/horizons-phase-6.md, "Fusions: the `fusion` field"). Never `core`. The 3
+# residents of each nation, the 1 master and the 8 tools are provisional (#752's playtest sets
+# them); each fusion's `requires` is its own so one can be lowered alone.
+[[tech]]
+id = "steelworks"
+name = "Steelworks"
+description = "Earth reads the ore and Fire holds the heat. Nothing is lost in the slag."
+fusion = ["earth", "fire"]
+cost = 1000
+prereqs = ["prospecting"]
+requires = { residents = { earth = 3, fire = 3 }, masters = 1, masters_of = ["earth", "fire"] }
+[[tech.cost_items]]
+item = "tool"
+count = 8
+[tech.unlocks]
+buildings = ["steelworks"]

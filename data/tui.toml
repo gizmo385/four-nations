@@ -451,6 +451,11 @@ glyph = "Ψ"
 ascii = "S"
 fg = [240, 130, 50]
 
+[building.steelworks]
+glyph = "Ξ"
+ascii = "X"
+fg = [225, 175, 120]
+
 [building.steam_engine]
 glyph = "Φ"
 ascii = "E"

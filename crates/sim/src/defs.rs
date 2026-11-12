@@ -907,6 +907,8 @@ mod tests {
     fn techs_for_is_the_shared_tier_plus_the_nation_s_own_branch() {
         let defs = Defs::bundled();
         let shared = defs.techs.iter().filter(|t| t.is_shared()).count();
+        // A fusion is every nation's (once the gate stands, `World::tree_techs`).
+        let fusions = defs.techs.iter().filter(|t| t.is_fusion()).count();
         for nation in Nation::ALL {
             let own = defs
                 .techs
@@ -914,7 +916,7 @@ mod tests {
                 .filter(|t| t.nation == Some(nation) || t.nations.contains(&nation))
                 .count();
             let seen: Vec<_> = defs.techs_for(nation).collect();
-            assert_eq!(seen.len(), shared + own, "{nation:?}");
+            assert_eq!(seen.len(), shared + own + fusions, "{nation:?}");
             assert!(seen.iter().all(|(_, t)| t.open_to(nation)));
             // File order, and the ids point at the same defs.
             assert!(seen.windows(2).all(|w| w[0].0 < w[1].0));

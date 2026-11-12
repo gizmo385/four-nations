@@ -504,6 +504,7 @@ impl Probe {
                     && world.research().closed_by(id, defs).is_none()
                     // A teaching can be set only once kept from a draft (horizons-phase-5.md).
                     && (t.teaching.is_none() || world.kept_teachings().any(|k| k == id))
+                    && t.visible_when(world.united())
                     && t.prereqs.iter().all(|&p| world.research().is_known(p))
             });
 

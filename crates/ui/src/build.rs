@@ -280,6 +280,7 @@ fn available_to_nation(session: &Session, def: &BuildingDef) -> bool {
             // A teaching's building shows once the teaching is kept (#737).
             tech.open_to(session.world.nation)
                 && (tech.teaching.is_none() || session.world.kept_teachings().any(|k| k == t))
+                && tech.visible_when(session.world.united())
         })
 }
 
