@@ -51,7 +51,7 @@ to trade, exchange culture and knowledge with, or help, but **nations never figh
 Avatar is about balance and unity. Pressure comes from survival, the environment and growth,
 not conquest. Design features (research #17, bending #6) around peaceful progress.
 
-## Frontend (decided 2026-10-21, revised 2026-11-03)
+## Frontend (decided 2026-10-21, revised 2026-11-03 and 2026-11-11)
 
 **The terminal is the only frontend** (#93, #280, #281, owner, 2026-11-03). The game was built
 first as a Bevy client with 16px original pixel art (#122; the design docs that recorded that
@@ -59,6 +59,11 @@ choice, `art.md` and `pixel-art.md`, have since been removed), then given a term
 (`fn_tui`, docs/design/tui.md) that reached parity with it. The owner then chose to retire the
 Bevy client, its art pipeline and its CI cost entirely: the terminal, with Unicode glyphs and an
 `--ascii` fallback, is the whole visual language now. `cargo run` opens it on the title screen.
+
+**Revised 2026-11-11 (#843):** the owner accepted an **egui window** (`fn_gui`) for desktop and
+browser play, beside the terminal, which stays. It paints the same glyph map and the same
+screens from the same state, with no art pipeline. The plan, its look and the order screens
+convert in are in [egui-frontend.md](egui-frontend.md) (proposed, #856).
 
 ## Core loop (first playable)
 
