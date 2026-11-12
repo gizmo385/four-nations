@@ -15,8 +15,12 @@ fn the_map_widget_renders_headless() {
     let app = App::new(fn_tui::new_session(7, Nation::Earth), (120, 40));
     let palette = Palette::new(&app.session.defs, Nation::Earth, ColorDepth::TrueColor, false);
     let camera = Camera::new(app.ui.cursor, 18.0);
-    let mut harness =
-        egui_kittest::Harness::builder().with_size(egui::vec2(640.0, 400.0)).build_ui(|ui| {
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(640.0, 400.0))
+        // The window's own fonts: kittest panics on a glyph no font has, and the map's
+        // symbols need the bundled fallback.
+        .with_context_setup(fn_gui::setup)
+        .build_ui(|ui| {
             let (rect, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
             mapview::paint(ui, rect, &camera, &app, &palette);
         });

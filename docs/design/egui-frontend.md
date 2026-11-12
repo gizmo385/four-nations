@@ -42,7 +42,7 @@ changing the TUI.
 | Module | What it does | Fate |
 |---|---|---|
 | `main.rs` | Native `eframe::run_native`; wasm `WebRunner` starting at embark from a query string | Web entry goes to the title screen (#866) |
-| `app.rs` (`GuiApp`) | Reads the clock, translates keys, paints the whole ratatui frame via `egui_ratatui`, puts `MapView` over the map region, shows the timing overlay | Becomes the frame (#876). `egui_ratatui`/`soft_ratatui` go (#872) |
+| `app.rs` (`GuiApp`) | Reads the clock, translates keys, paints the whole ratatui frame with `fn_gui::cells` (#872), puts `MapView` over the map region, shows the timing overlay | Becomes the frame (#876). `egui_ratatui`/`soft_ratatui` are gone (#872) |
 | `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Gains click semantics, a hover tooltip and a cached overview (#878) |
 | `keys.rs` | egui `Event` to `fn_tui::keyev::KeyEvent` | Stays, retargeted to #857's frontend-neutral key type |
 | `panel.rs` | Spike sample: header, People rows, settler list, with its own strings | Replaced by the native side panel (#877) |
@@ -135,13 +135,20 @@ the TUI fails to compile in `fn_gui` until someone says which it is.
 The shell is always sized to the window in cells (`Shell::resize`), so pagination and box sizes
 match what the cell painter shows.
 
-**The cell painter (#872)** replaces `egui_ratatui` + `soft_ratatui`. The spike measured them at
-5–7 ms per frame in release because they CPU-rasterise every cell and upload a texture each
-frame. On the web they cost 6 ms of the 14 ms frame. The painter instead walks
-`ratatui::buffer::Buffer` and emits one background rect per run of equal background and one
-text shape per cell. That is `mapview.rs`'s own glyph code, run over a buffer. Expected cost is
-about the map widget's 1.4 ms at 18 px. Dropping those two crates also lifts the egui ~0.34 pin,
-so eframe can move to the current release.
+**The cell painter (#872, done)** replaced `egui_ratatui` + `soft_ratatui`. The spike measured
+them at 5–7 ms per frame in release because they CPU-rasterise every cell and upload a texture
+each frame. On the web they cost 6 ms of the 14 ms frame. `fn_gui::cells` instead walks the
+`ratatui::buffer::Buffer` once (`CellLayout`: one background run per stretch of equal
+background in a row, one glyph per cell that shows something) and `cells::paint` turns that into
+one mesh of run rectangles plus one text shape per glyph, in the bundled monospace font (Hack,
+then DejaVu Sans Mono, then egui's monochrome emoji fonts), colours through `fn_gui::color`. The
+grid is 8 by 16 points a cell (14 pt font, whole physical pixels), so the native window's
+1600 by 960 shows 200 by 60 cells. `REVERSED`, `DIM`, `UNDERLINED` and `CROSSED_OUT` are drawn;
+bold is not (egui has no bold monospace). Measured in release (layout plus shapes, egui's
+tessellation on top): a full-screen page 0.3 ms (+0.1 ms), the map's own 10 000 glyphs 1.8 ms
+(+1.5 ms). `tests/cells.rs` checks the glyph grid against `fn_tui --frame`'s text for every
+screen and has the measurement (`cell_paint_cost`, ignored). Dropping those two crates also lifted
+the egui 0.34 pin: eframe, egui and egui_kittest are on 0.37.
 
 ## Screen-by-screen order
 

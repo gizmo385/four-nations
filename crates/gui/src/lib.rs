@@ -6,8 +6,8 @@
 //!   computes, painted as glyphs in egui's bundled monospace font, with pan by drag, zoom by the
 //!   wheel and, zoomed far out, one coloured block per tile. A click moves the cursor, and a drag
 //!   with a designate tool active makes the rectangle (`fn_ui::pointer`).
-//! - **Everything else** is the ratatui buffer the terminal would show, painted through
-//!   `egui_ratatui` ([`app`]).
+//! - **Everything else** is the ratatui buffer the terminal would show, painted as egui shapes
+//!   by the cell painter ([`cells`], called from [`app`]).
 //! - **One real panel**: the side panel's header and People rows as egui widgets fed from
 //!   `fn_ui` view models ([`panel`]).
 //!
@@ -16,6 +16,7 @@
 pub mod app;
 pub mod browser_saves;
 pub mod camera;
+pub mod cells;
 pub mod color;
 pub mod fonts;
 pub mod keys;

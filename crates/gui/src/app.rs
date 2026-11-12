@@ -1,5 +1,5 @@
-//! The window: the shell's whole frame painted through `egui_ratatui`, the map widget over its
-//! map region while a game is on screen, and the egui side panel beside it.
+//! The window: the shell's whole frame painted as cells ([`crate::cells`]), the map widget over
+//! its map region while a game is on screen, and the egui side panel beside it.
 //!
 //! Like `fn_tui::run`, this is the only place that reads the clock: each frame hands the shell
 //! the keys egui collected and the real seconds since the last frame.
@@ -7,26 +7,22 @@
 use web_time::Instant;
 
 use eframe::egui::{self, Color32, FontFamily, FontId, Rect, vec2};
-use egui_ratatui::RataguiBackend;
 use fn_sim::Nation;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::layout;
 use fn_tui::shell::{self, Mode, Shell};
 use fn_ui::state::BANNER_HEIGHT;
-use ratatui::backend::Backend;
 use ratatui::buffer::Buffer;
-use soft_ratatui::embedded_graphics_unicodefonts::{
-    mono_8x13_atlas, mono_8x13_bold_atlas, mono_8x13_italic_atlas,
-};
-use soft_ratatui::{EmbeddedGraphics, SoftBackend};
 
+use crate::cells::{self, CellLayout, Metrics};
 use crate::mapview::MapView;
 
 pub struct GuiApp {
     shell: Shell,
     palette: Palette,
     nation: Nation,
-    term: RataguiBackend<EmbeddedGraphics>,
+    /// The shell's size in cells, as last given to [`Shell::resize`].
+    size: (u16, u16),
     map: Option<MapView>,
     last_frame: Instant,
     /// The egui side panel beside the terminal one (the converted-section sample).
@@ -75,18 +71,11 @@ impl GuiApp {
     pub fn with_shell(shell: Shell) -> Self {
         let nation = shell.nation();
         let palette = Palette::new(shell.defs(), nation, ColorDepth::TrueColor, false);
-        let soft = SoftBackend::<EmbeddedGraphics>::new(
-            120,
-            40,
-            mono_8x13_atlas(),
-            Some(mono_8x13_bold_atlas()),
-            Some(mono_8x13_italic_atlas()),
-        );
         Self {
             shell,
             palette,
             nation,
-            term: RataguiBackend::new("fn_gui_cells", soft),
+            size: (120, 40),
             map: None,
             last_frame: Instant::now(),
             show_panel: true,
@@ -141,41 +130,33 @@ impl eframe::App for GuiApp {
 
         let in_game = matches!(self.shell.mode, Mode::Game(_));
         if in_game && self.show_panel {
-            egui::Panel::right("people").default_size(260.0).show_inside(root, |ui| {
+            egui::Panel::right("people").default_size(260.0).show(root, |ui| {
                 if let Mode::Game(app) = &mut self.shell.mode {
                     crate::panel::show(ui, app);
                 }
             });
         }
 
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::BLACK)).show_inside(
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::BLACK)).show(
             root,
             |ui| {
                 let avail = ui.available_rect_before_wrap();
-                let (cw, ch) = (
-                    self.term.soft_backend.char_width as f32,
-                    self.term.soft_backend.char_height as f32,
-                );
-                let cols = ((avail.width() / cw) as u16).max(layout::MIN_WIDTH);
-                let rows = ((avail.height() / ch) as u16).max(layout::MIN_HEIGHT);
-                if self.shell_size() != (cols, rows) {
+                let metrics = Metrics::new(ui.ctx());
+                let (cw, ch) = (metrics.cell.x, metrics.cell.y);
+                let (cols, rows) = metrics.grid_in(avail.size());
+                let (cols, rows) = (cols.max(layout::MIN_WIDTH), rows.max(layout::MIN_HEIGHT));
+                if self.size != (cols, rows) {
                     self.shell.resize(cols, rows);
-                    self.term.soft_backend.resize(cols, rows);
+                    self.size = (cols, rows);
                 }
 
                 // The whole frame, as the terminal would show it.
                 let started = Instant::now();
                 let mut buf = Buffer::empty(ratatui::layout::Rect::new(0, 0, cols, rows));
                 shell::draw(&mut self.shell, &self.palette, &mut buf);
-                let cells = buf
-                    .content
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| ((i % cols as usize) as u16, (i / cols as usize) as u16, c));
-                let _ = self.term.draw(cells);
+                let origin = avail.min;
+                cells::paint(&ui.painter_at(avail), origin, &metrics, &CellLayout::new(&buf));
                 self.timings.1 = started.elapsed().as_secs_f32() * 1000.0;
-                let image = ui.add(&mut self.term);
-                let origin = image.rect.min;
 
                 // The map widget over the map region, while the map is what's showing.
                 let Mode::Game(app) = &mut self.shell.mode else {
@@ -220,12 +201,5 @@ impl eframe::App for GuiApp {
         );
         self.timings.2 = frame_start.elapsed().as_secs_f32() * 1000.0;
         ctx.request_repaint();
-    }
-}
-
-impl GuiApp {
-    fn shell_size(&self) -> (u16, u16) {
-        let s = self.term.soft_backend.size().unwrap_or_default();
-        (s.width, s.height)
     }
 }

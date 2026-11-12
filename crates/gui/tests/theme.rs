@@ -9,7 +9,7 @@ fn setup_pins_the_dark_theme() {
     ctx.set_theme(ThemePreference::Light);
     fn_gui::setup(&ctx);
     assert_eq!(ctx.options(|o| o.theme_preference), ThemePreference::Dark);
-    let _ = ctx.run_ui(Default::default(), |_| {});
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
     assert_eq!(ctx.theme(), Theme::Dark);
     assert!(ctx.global_style().visuals.dark_mode);
 }

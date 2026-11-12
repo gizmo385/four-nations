@@ -1,4 +1,5 @@
-//! The map's font. egui bundles Hack (monospace) with emoji fallbacks, which covers 70 of the 80
+//! The cells' and the map's font. egui bundles Hack (monospace) with emoji fallbacks (the
+//! `monochrome_emoji_fonts` feature, on in `Cargo.toml`), which covers 70 of the 80
 //! glyphs `data/tui.toml` names; the other ten (`✤ ✢ ✣ Ϟ ⌂ ♆ ✦ ɱ ☼ ✶`) need a font with wider
 //! symbol coverage. DejaVu Sans Mono draws all 80, so it is compiled in as a fallback on every
 //! platform (#859): the browser has no system fonts to fall back on, and a desktop's differ.

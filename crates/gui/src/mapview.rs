@@ -43,7 +43,7 @@ impl MapView {
     /// Lays out, handles input for and paints the map into `rect`.
     pub fn show(&mut self, ui: &mut Ui, rect: Rect, app: &mut App, palette: &Palette) {
         let (w, h) = (app.session.world.map.width(), app.session.world.map.height());
-        let response = ui.interact(rect, ui.id().with("map"), Sense::click_and_drag());
+        let response = ui.interact(rect, ui.scope_id().with("map"), Sense::click_and_drag());
 
         // A keyboard move off screen brings the camera along.
         if self.last_cursor != Some(app.ui.cursor) && !self.camera.shows(rect, app.ui.cursor, 3.0) {
