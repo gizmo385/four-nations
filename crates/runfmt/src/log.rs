@@ -27,6 +27,11 @@ pub enum PreludeOpening {
     /// --branch-first` measures): the nation's own branch before the shared tier, so a nation's
     /// later abilities arrive in minutes instead of hours.
     EconomyBranchFirst,
+    /// `Economy`, then the gate is stood (`fn_sim::World::complete_endeavor`) at the prelude's
+    /// last tick: a United City to start in (`<nation>-united`, #751). The economy opening does
+    /// not finish the gate inside 420 minutes on its own, so the scenario plays it for
+    /// `minutes` and completes the gate by that dev hook.
+    EconomyUnited,
     /// The plainer `fn_sim::autoplay::Opening`: beds, a campfire and a short research queue.
     Opening,
 }

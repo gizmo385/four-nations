@@ -48,7 +48,10 @@ fn full_is_the_docs_table() {
             assert_eq!(count(style, preset), 4 * 32, "{style} on {preset}");
         }
     }
-    assert_eq!(jobs.len(), 4 * 128 + 4 * 48 + 4 * 128);
+    // #751: the United City runs, 420 minutes, the first 8 seeds.
+    assert_eq!(count("united", "normal"), 4 * 8);
+    assert!(jobs.iter().filter(|j| j.style == "united").all(|j| j.minutes == 420.0));
+    assert_eq!(jobs.len(), 4 * 128 + 4 * 48 + 4 * 128 + 4 * 8);
 }
 
 /// Quick's runs are runs the full tier makes too, which is what lets it pair with the baseline.

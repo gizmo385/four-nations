@@ -14,7 +14,9 @@
 # - prelude:           optional. `opening` is "economy" (`fn_sim::autoplay::Economy`) or
 #                      "opening" (the plainer `fn_sim::autoplay::Opening`), or
 #                      "economy_branch_first" (Economy researching the nation's own branch
-#                      first); `minutes` is how many game minutes it runs before turn 0.
+#                      first), or "economy_united" (Economy, then the Harmony Gate is stood for
+#                      it at the prelude's end, `fn_sim::World::complete_endeavor`: a United
+#                      City, #751); `minutes` is how many game minutes it runs before turn 0.
 
 [[scenario]]
 id = "air-year-two"
@@ -59,3 +61,47 @@ map_size = "small"
 difficulty = "normal"
 site = "default"
 prelude = { opening = "economy", minutes = 60 }
+
+[[scenario]]
+id = "air-united"
+name = "Air, the United City"
+brief = "The Harmony Gate stands: four hours of the economy opening, then the gate raised for it."
+seed = 7
+nation = "air"
+map_size = "small"
+difficulty = "normal"
+site = "default"
+prelude = { opening = "economy_united", minutes = 240 }
+
+[[scenario]]
+id = "water-united"
+name = "Water, the United City"
+brief = "The Harmony Gate stands: four hours of the economy opening, then the gate raised for it."
+seed = 7
+nation = "water"
+map_size = "small"
+difficulty = "normal"
+site = "default"
+prelude = { opening = "economy_united", minutes = 240 }
+
+[[scenario]]
+id = "earth-united"
+name = "Earth, the United City"
+brief = "The Harmony Gate stands: four hours of the economy opening, then the gate raised for it."
+seed = 7
+nation = "earth"
+map_size = "small"
+difficulty = "normal"
+site = "default"
+prelude = { opening = "economy_united", minutes = 240 }
+
+[[scenario]]
+id = "fire-united"
+name = "Fire, the United City"
+brief = "The Harmony Gate stands: four hours of the economy opening, then the gate raised for it."
+seed = 7
+nation = "fire"
+map_size = "small"
+difficulty = "normal"
+site = "default"
+prelude = { opening = "economy_united", minutes = 240 }

@@ -24,6 +24,8 @@
 //! | `teachings_kept_by.M` | teachings kept from drafts by minute `M` (#745) |
 //! | `first_offer_minute` | the minute of the first teaching draft (#745) |
 //! | `empty_scrolls` | teaching scrolls read with nothing left to offer (#745) |
+//! | `gate_minute` | the minute the gate stood (built, or stood by a `united` style's `gate_at`, #751) |
+//! | `after_gate.NAME` | a minute metric `NAME` counted from `gate_minute`: `after_gate.first_offer_minute` is the first draft's wait after the gate (#751) |
 
 use fn_sim::Defs;
 use fn_sim::balance::RunRecord;
@@ -66,6 +68,12 @@ pub enum Metric {
     FirstOfferMinute,
     /// Teaching scrolls read with nothing to offer (#745).
     EmptyScrolls,
+    /// The minute the gate stood (#751): never is infinity.
+    GateMinute,
+    /// A minute metric counted from `gate_minute` (#751): its reading less the gate's minute, so
+    /// 0 is the moment the gate stood and an event before it reads negative. Never is infinity;
+    /// a run whose gate never stood has no reading.
+    AfterGate(Box<Metric>),
 }
 
 impl Metric {
@@ -123,6 +131,14 @@ impl Metric {
             ("teachings_kept_by", Some(m)) => Metric::TeachingsKeptBy(number(m)?),
             ("first_offer_minute", None) => Metric::FirstOfferMinute,
             ("empty_scrolls", None) => Metric::EmptyScrolls,
+            ("gate_minute", None) => Metric::GateMinute,
+            ("after_gate", Some(rest)) => {
+                let inner = Metric::parse(rest, defs)?;
+                if !inner.is_minute() {
+                    return Err(format!("metric {name:?}: {rest:?} is not a minute"));
+                }
+                Metric::AfterGate(Box::new(inner))
+            }
             _ => return Err(format!("unknown metric {name:?}")),
         };
         Ok(metric)
@@ -155,7 +171,24 @@ impl Metric {
             Metric::TeachingsKeptBy(m) => format!("teachings_kept_by.{m}"),
             Metric::FirstOfferMinute => "first_offer_minute".to_owned(),
             Metric::EmptyScrolls => "empty_scrolls".to_owned(),
+            Metric::GateMinute => "gate_minute".to_owned(),
+            Metric::AfterGate(inner) => format!("after_gate.{}", inner.name()),
         }
+    }
+
+    /// Whether the reading is the minute of an event (never is infinity), which `after_gate` can
+    /// count from the gate.
+    fn is_minute(&self) -> bool {
+        matches!(
+            self,
+            Metric::SignMinute(_)
+                | Metric::ReadyMinute
+                | Metric::FirstDeath
+                | Metric::StageMinute(_)
+                | Metric::SchoolMinute
+                | Metric::FirstOfferMinute
+                | Metric::GateMinute
+        )
     }
 
     /// Whether the name takes the minute it is read at (`pop_at.120`), so the run must reach it.
@@ -265,6 +298,11 @@ impl Metric {
                 Some(rec.teachings.offers.first().map_or(f64::INFINITY, |&m| f64::from(m)))
             }
             Metric::EmptyScrolls => Some(f64::from(rec.teachings.empty_scrolls)),
+            Metric::GateMinute => Some(rec.gate_minute.map_or(f64::INFINITY, f64::from)),
+            Metric::AfterGate(inner) => {
+                let gate = f64::from(rec.gate_minute?);
+                inner.read(rec, defs).map(|m| m - gate)
+            }
         }
     }
 
@@ -279,7 +317,13 @@ impl Metric {
             | Metric::FirstDeath
             | Metric::StageMinute(_)
             | Metric::SchoolMinute
-            | Metric::FirstOfferMinute => bar.at_most.map_or(end, |m| m as f32).min(end),
+            | Metric::FirstOfferMinute
+            | Metric::GateMinute => bar.at_most.map_or(end, |m| m as f32).min(end),
+            // The bar counts from the gate: the deadline is that long after it.
+            Metric::AfterGate(_) => match (rec.gate_minute, bar.at_most) {
+                (Some(gate), Some(m)) => (gate + m as f32).min(end),
+                _ => end,
+            },
             Metric::DeathsBy(m)
             | Metric::PopAt(m)
             | Metric::WoodAt(m)

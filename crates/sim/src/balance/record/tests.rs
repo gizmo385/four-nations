@@ -361,3 +361,23 @@ fn unkept_teachings_leave_research_with_nothing_waiting() {
     }
     assert!(!probe.sample(&world, &defs).research_waiting);
 }
+
+/// #751: `gate_at` stands the gate at that minute, the record says so, and the run goes on in a
+/// United City; without it the gate is whatever the opening builds (nothing, this early).
+#[test]
+fn gate_at_stands_the_gate_and_the_record_remembers_the_minute() {
+    let defs = Defs::bundled();
+    let plain = spec(7, Nation::Earth, 30.0, &defs);
+    let a = run(&plain, &defs);
+    assert_eq!((a.gate_minute, a.gate_stood), (None, false));
+
+    let united = RunSpec { gate_at: Some(20.0), ..plain };
+    let b = run(&united, &defs);
+    assert_eq!(b.gate_minute, Some(20.0));
+    assert!(b.gate_stood);
+    assert_eq!(run(&united, &defs), b, "deterministic");
+    // The gate came in no stage: those minutes are blank.
+    assert!(b.stage_minutes.iter().all(|(_, m)| m.is_none()));
+    let json = serde_json::to_string(&b).unwrap();
+    assert_eq!(serde_json::from_str::<RunRecord>(&json).unwrap(), b);
+}

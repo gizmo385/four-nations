@@ -73,6 +73,7 @@ struct RawStyle {
     bed_margin: Option<u32>,
     research: Option<RawResearch>,
     school: Option<RawSchool>,
+    gate_at: Option<u32>,
 }
 
 /// The whole file, as far as styles are concerned: `[[style]]` is read here, and the other
@@ -118,6 +119,7 @@ impl RawStyle {
             bed_margin,
             research: self.research.or(parent.research),
             school: self.school.or(parent.school),
+            gate_at: self.gate_at.or(parent.gate_at),
         }
     }
 }
@@ -142,6 +144,9 @@ pub enum Play {
 pub struct Style {
     pub id: String,
     pub play: Play,
+    /// The minute the gate is stood by `fn_sim::World::complete_endeavor` (`gate_at`, #751):
+    /// the style plays in a United City from then on. `None`: the gate is the opening's to build.
+    pub gate_at: Option<u32>,
 }
 
 impl Style {
@@ -177,13 +182,14 @@ impl Style {
                     ("bed_margin", raw.bed_margin.is_some()),
                     ("research", raw.research.is_some()),
                     ("school", raw.school.is_some()),
+                    ("gate_at", raw.gate_at.is_some()),
                 ];
                 if let Some((field, _)) = extra.iter().find(|(_, set)| *set) {
                     return err(format!(
                         "style {id:?}: `{field}` does nothing under opening = \"none\""
                     ));
                 }
-                Ok(Style { id: id.clone(), play: Play::Idle })
+                Ok(Style { id: id.clone(), play: Play::Idle, gate_at: None })
             }
             RawOpening::Economy => {
                 let beds = match (raw.beds, raw.bed_margin) {
@@ -223,6 +229,7 @@ impl Style {
                             RawSchool::Second => SchoolPick::Second,
                         }),
                     },
+                    gate_at: raw.gate_at,
                 })
             }
         }

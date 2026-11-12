@@ -1529,6 +1529,9 @@ pub(crate) mod prelude {
             }
             session.world.tick(&session.defs);
         }
+        if prelude.opening == PreludeOpening::EconomyUnited {
+            session.world.complete_endeavor(&session.defs);
+        }
     }
 
     /// Where this build keeps what `prelude` makes of `session`'s world:
@@ -1557,7 +1560,7 @@ pub(crate) mod prelude {
 
     fn step(session: &mut Session, opening: PreludeOpening) {
         match opening {
-            PreludeOpening::Economy => {
+            PreludeOpening::Economy | PreludeOpening::EconomyUnited => {
                 Economy::new(STARTING_UNITS).step(&mut session.world, &session.defs);
             }
             PreludeOpening::EconomyBranchFirst => {
@@ -2865,6 +2868,7 @@ pub mod referee {
                 opening: match p.opening {
                     super::PreludeOpening::Economy => ParOpening::Economy,
                     super::PreludeOpening::EconomyBranchFirst => ParOpening::EconomyBranchFirst,
+                    super::PreludeOpening::EconomyUnited => ParOpening::EconomyUnited,
                     super::PreludeOpening::Opening => ParOpening::Opening,
                 },
                 minutes: p.minutes,
@@ -3020,6 +3024,23 @@ mod tests {
 
     fn host(nation: Nation) -> Host {
         Host::new(7, nation, None, None, None, false).unwrap()
+    }
+
+    /// #751: an `economy_united` prelude ends with the gate standing, and the cache keeps it so.
+    #[test]
+    fn an_economy_united_prelude_starts_in_a_united_city() {
+        let dir = std::env::temp_dir().join(format!("fn_tui_united_{}", std::process::id()));
+        let prelude = Prelude { opening: PreludeOpening::EconomyUnited, minutes: 2.0 };
+        let start = || host(Nation::Earth);
+        assert!(!start().app().session.world.united());
+        let played = start().with_prelude_cached_in(prelude, None, "test");
+        assert!(played.app().session.world.united());
+        let _ = start().with_prelude_cached_in(prelude, Some(&dir), "test");
+        let cached = start().with_prelude_cached_in(prelude, Some(&dir), "test");
+        assert!(cached.app().session.world.united(), "the cached world is a United City");
+        let save = |h: &Host| h.app().session.world.save(&h.app().session.defs).unwrap();
+        assert!(save(&played) == save(&cached));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The prelude cache (`prelude::run_with`): a start loaded from the cache is the same game

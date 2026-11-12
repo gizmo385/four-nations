@@ -13,7 +13,7 @@ fn the_bundled_styles_load_and_resolve() {
     let ids: Vec<&str> = styles.iter().map(|s| s.id.as_str()).collect();
     assert_eq!(
         ids,
-        ["steady", "careless", "branch_first", "school_first", "school_second", "idle"]
+        ["steady", "careless", "branch_first", "school_first", "school_second", "united", "idle"]
     );
 
     assert_eq!(
@@ -120,4 +120,26 @@ fn bad_structure_is_named() {
     );
     let margin = "[[style]]\nid = \"x\"\nopening = \"economy\"\nbeds = \"ahead\"\nbed_margin = 1\n";
     assert!(parse_err(margin).contains("bed_margin"));
+}
+
+/// #751: `gate_at` is inherited like any field, the bundled `united` style stands the gate at
+/// minute 240 and no other style does, and a style that plays nothing can't name one.
+#[test]
+fn gate_at_is_inherited_and_only_the_united_style_sets_it() {
+    let styles = Styles::bundled();
+    assert_eq!(styles.get("united").unwrap().gate_at, Some(240));
+    assert_eq!(styles.get("united").unwrap().play, styles.get("steady").unwrap().play);
+    for s in styles.iter().filter(|s| s.id != "united") {
+        assert_eq!(s.gate_at, None, "{}", s.id);
+    }
+    let text = "[[style]]\nid = \"a\"\nopening = \"economy\"\ngate_at = 100\n\
+                [[style]]\nid = \"b\"\ninherits = \"a\"\n\
+                [[style]]\nid = \"c\"\ninherits = \"a\"\ngate_at = 50\n";
+    let styles = Styles::parse(text).unwrap();
+    assert_eq!(styles.get("b").unwrap().gate_at, Some(100));
+    assert_eq!(styles.get("c").unwrap().gate_at, Some(50));
+    assert!(
+        parse_err("[[style]]\nid = \"x\"\nopening = \"none\"\ngate_at = 9\n")
+            .contains("does nothing")
+    );
 }

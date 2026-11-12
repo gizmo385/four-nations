@@ -364,6 +364,7 @@ fn run_economy_world(cfg: &EconomyConfig, defs: &Defs) -> (EconomyReport, World)
         player: Player::Economy(economy),
         detectors: Detectors::default(),
         step_offset: 0,
+        gate_at: None,
     };
     let (record, world) = record::run_world(&spec, defs);
     (record.economy_report(), world)
@@ -499,6 +500,9 @@ pub enum ParOpening {
     Economy,
     /// `autoplay::Economy` researching branch-first (`Economy::with_branch_first`).
     EconomyBranchFirst,
+    /// `autoplay::Economy`, then the gate is stood at the prelude's end
+    /// (`World::complete_endeavor`, #751).
+    EconomyUnited,
     /// The plainer `autoplay::Opening`.
     Opening,
 }
@@ -558,6 +562,10 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
     let mut start = ScoreStart::default();
     for tick in 0..horizon {
         if tick == prelude_ticks && tick > 0 {
+            if matches!(track.prelude, Some(ParPrelude { opening: ParOpening::EconomyUnited, .. }))
+            {
+                world.complete_endeavor(defs);
+            }
             start = ScoreStart::of(&world);
         }
         if Opening::due(tick) {
@@ -576,6 +584,9 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
         world.tick(defs);
     }
     if horizon <= prelude_ticks && prelude_ticks > 0 {
+        if matches!(track.prelude, Some(ParPrelude { opening: ParOpening::EconomyUnited, .. })) {
+            world.complete_endeavor(defs);
+        }
         // No turns after the prelude: turn 0 is the horizon.
         start = ScoreStart::of(&world);
     }
@@ -1047,6 +1058,22 @@ mod tests {
         // No prelude: turn 0 is tick 0.
         let (plain, _) = par_track();
         assert_eq!(par(&plain, &defs, &score).unwrap().start_tick, 0);
+    }
+
+    /// #751: the `economy_united` prelude plays the same opening and then stands the gate, so the
+    /// card's world is a United City the plain `Economy` prelude's is not.
+    #[test]
+    fn par_on_a_united_prelude_stands_the_gate_at_its_end() {
+        let (track, defs) = par_track();
+        let score = ScoreDef::bundled();
+        let united = ParPrelude { opening: ParOpening::EconomyUnited, minutes: 10.0 };
+        let track = ParTrack { prelude: Some(united), horizon_turns: 6, ..track };
+        let card = par(&track, &defs, &score).unwrap();
+        assert_eq!(card.start_tick, minutes_to_ticks(10.0));
+        let mut world = par_start(&track, &defs).unwrap();
+        assert!(!world.united());
+        assert!(world.complete_endeavor(&defs));
+        assert!(world.united());
     }
 
     #[test]

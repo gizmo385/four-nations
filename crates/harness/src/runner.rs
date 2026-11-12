@@ -112,6 +112,7 @@ pub fn run_job(job: &Job, config: &Config, defs: &Defs) -> Run {
     spec.player = style.player(PEOPLE);
     spec.detectors = config.detectors;
     spec.step_offset = job.step_offset;
+    spec.gate_at = style.gate_at.map(|m| m as f32);
     Run { style: job.style.clone(), preset: job.preset.clone(), record: run_record(&spec, defs) }
 }
 
