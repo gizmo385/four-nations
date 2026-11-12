@@ -24,8 +24,8 @@
 │                         │                                                                  │                         │
 │  · Trade Wares          │              Enter  choose Metal City     Esc  back              │                         │
 │    Locked · 250 pts     ┗──────────────────────────────────────────────────────────────────┛                         │
-│    Needs Carpentry,             Needs Writing                                                                        │
-│    Known on the road                                                                                                 │
+│    Needs Carpentry,             Needs Writing                Needs Calendar,                                         │
+│    Known on the road                                         Cartography                                             │
 │                                                                                                                      │
 │                               · Archives                                                                             │
 │                                 Locked · 500 pts                                                                     │
