@@ -160,7 +160,7 @@ impl World {
         let any_bed = beds.peek().is_some();
         let warm = any_bed && beds.all(|b| self.is_heated(b.anchor));
 
-        let settlers = self.units.iter().filter(|u| u.is_settler()).count() as u32;
+        let settlers = self.residents().count() as u32;
         let free = self.bed_capacity(defs).saturating_sub(settlers);
         let spare = free.saturating_sub(1).min(d.spare_beds_max);
 

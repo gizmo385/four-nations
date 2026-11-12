@@ -77,7 +77,7 @@ impl World {
 
     /// Residents of `nation` a day is for: settlers (no guests, no beasts) of that nation.
     pub fn celestial_residents(&self, nation: Nation) -> u32 {
-        self.units.iter().filter(|u| u.is_settler() && self.nation_of(u) == nation).count() as u32
+        self.residents().filter(|u| self.nation_of(u) == nation).count() as u32
     }
 
     /// The Almanac's celestial lines: the running day with its time left, then each other day

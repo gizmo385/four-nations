@@ -212,7 +212,7 @@ impl World {
     /// The settlement's own people: every living unit but the Avatar and the beasts. What the
     /// United City's milestones count (#442).
     pub fn settlers(&self) -> usize {
-        self.units.iter().filter(|u| u.is_settler()).count()
+        self.residents().count()
     }
 
     /// The next population milestone of the United City (#442): the first in the data above the

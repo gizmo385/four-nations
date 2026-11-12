@@ -90,6 +90,10 @@ pub struct Building {
     /// A Balloon Dock's hold and balloon (`BuildingDef::balloon`, `balloon.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) dock: Option<super::balloon::Dock>,
+    /// The voyage being loaded at an Airship Dock (`BuildingDef::airship`, `voyage.rs`, #758);
+    /// `None` when docked with nothing planned, and once the airship has sailed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) voyage: Option<super::voyage::Plan>,
     /// Raised from a site with no bill (`free` upgrade, #727): taking it down drops none of its
     /// cost, since none was paid.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -160,6 +164,8 @@ pub(super) enum Kind {
     BeastHome,
     /// A Balloon Dock (`balloon.rs`).
     Balloon,
+    /// An Airship Dock (`voyage.rs`, #758).
+    Airship,
     /// A Tea House (`tea.rs`).
     Tea,
     /// A Pai Sho Table (`trade.rs`, #738).
@@ -196,6 +202,7 @@ impl Kind {
             (def.glide.is_some(), Kind::Glide),
             (def.houses_beast, Kind::BeastHome),
             (def.balloon.is_some(), Kind::Balloon),
+            (def.airship.is_some(), Kind::Airship),
             (def.tea_house.is_some(), Kind::Tea),
             (def.pai_sho.is_some(), Kind::PaiSho),
             (def.archive.is_some(), Kind::Archive),
@@ -396,6 +403,7 @@ impl World {
             sent: Vec::new(),
             crossings: 0,
             dock: def.balloon.map(|_| super::balloon::Dock::default()),
+            voyage: None,
             free: false,
             manual: false,
         };
@@ -432,6 +440,8 @@ impl World {
             matches!(k, JobKind::Study { pos } | JobKind::Chart { pos } | JobKind::Craft { pos }
                 | JobKind::Sow { pos } | JobKind::Reap { pos } | JobKind::Deconstruct { pos }
                 | JobKind::Refuel { pos }
+                | JobKind::Crew { pos }
+                | JobKind::Load { pos, .. }
                 if *pos == anchor)
         };
         let ids: Vec<JobId> =
@@ -445,7 +455,9 @@ impl World {
                     | Task::Sow(id)
                     | Task::Reap(id)
                     | Task::Deconstruct(id)
-                    | Task::Refuel(id),
+                    | Task::Refuel(id)
+                    | Task::Load(id)
+                    | Task::Crew(id),
                 ) if ids.contains(&id) => Some(id),
                 _ => None,
             };
@@ -552,6 +564,7 @@ impl World {
                 ("chart", b.chart.is_some() && def.chart.is_none()),
                 ("plot", b.plot.is_some() && def.farm.is_none()),
                 ("orchard", b.orchard.is_some() && def.orchard.is_none()),
+                ("voyage", b.voyage.is_some() && def.airship.is_none()),
             ];
             if let Some((what, _)) = stray.iter().find(|(_, bad)| *bad) {
                 return Err(format!(
@@ -640,6 +653,7 @@ impl World {
                     sent: Vec::new(),
                     crossings: 0,
                     dock: None,
+                    voyage: None,
                     free: false,
                     manual: false,
                 },

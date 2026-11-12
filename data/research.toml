@@ -1142,3 +1142,23 @@ item = "tool"
 count = 4
 [tech.unlocks]
 abilities = ["call_rain"]
+
+# --- #758 (research horizons phase 6: `airships`) ------------------------------------------------
+
+# The Fire + Air fusion (docs/design/horizons-phase-6.md, "`airships`"): the Airship Dock sends
+# the city's own traders out with goods, two residents away for a season. `population = 24` is
+# #442's first United City milestone. The 3 residents of each nation, the 1 master, the 8 tools
+# and the 24 are provisional (#752's playtest sets them).
+[[tech]]
+id = "airships"
+name = "Airships"
+description = "Fire lifts the hull and Air steers it. Our own traders go out to the world."
+fusion = ["fire", "air"]
+cost = 1000
+prereqs = ["cartography"]
+requires = { residents = { fire = 3, air = 3 }, masters = 1, masters_of = ["fire", "air"], population = 24 }
+[[tech.cost_items]]
+item = "tool"
+count = 8
+[tech.unlocks]
+buildings = ["airship_dock"]

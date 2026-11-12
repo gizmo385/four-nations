@@ -296,7 +296,11 @@ impl Activity {
                 | Task::Refuel(_)
                 | Task::Chute(_)
                 | Task::Balloon(_)
-                | Task::Trade(_),
+                | Task::Trade(_)
+                // Loading an airship (`world/voyage.rs`, #758) is the same haul, and a crew
+                // member waiting at its door is part of the voyage's freight.
+                | Task::Load(_)
+                | Task::Crew(_),
             ) => Self::Haul,
             // Clearing ground (#424) groups with harvesting until the Clear tool gets its own
             // panel row (#426).

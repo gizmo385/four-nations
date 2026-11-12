@@ -637,6 +637,14 @@ pub enum JobKind {
     /// the visit (`world/trade.rs`, #437): opened while a taken deal or request still needs
     /// goods, and done when one trip's worth is in.
     Trade { pos: Pos, slot: u8 },
+    /// Carry goods from stores to the Airship Dock anchored on this tile for deal `slot` of its
+    /// planned voyage (`world/voyage.rs`, #758): opened while the slot still needs goods, and
+    /// done when one trip's worth is in.
+    Load { pos: Pos, slot: u8 },
+    /// A place in the crew of the Airship Dock anchored on this tile (`world/voyage.rs`, #758):
+    /// walk to the door and wait there. Opened in sets of `crew` once the voyage is loaded and
+    /// fuelled; the airship sails when the whole crew is at the door.
+    Crew { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

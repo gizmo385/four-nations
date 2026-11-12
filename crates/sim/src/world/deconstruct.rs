@@ -55,6 +55,10 @@ impl World {
         if defs.building(b.id).landmark {
             return Err(DesignateError::Landmark);
         }
+        // An airship that is away holds the dock's crew and goods (`voyage.rs`, #758).
+        if self.voyage_away(b.anchor).is_some() {
+            return Err(DesignateError::AirshipAway);
+        }
         let anchor = b.anchor;
         if self.jobs.iter().any(|j| j.kind == JobKind::Deconstruct { pos: anchor }) {
             return Err(DesignateError::AlreadyDesignated);
@@ -135,6 +139,10 @@ impl World {
         }
         // So does a Balloon Dock's hold, and cargo flying toward it (`balloon.rs`).
         for stack in record.dock_goods() {
+            self.place_ground(pos, stack);
+        }
+        // So does an Airship Dock's loaded voyage (`voyage.rs`).
+        for stack in record.voyage_goods() {
             self.place_ground(pos, stack);
         }
         if let (Some(craft), Some(recipe)) = (&record.craft, record.recipe_in(def)) {

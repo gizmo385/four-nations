@@ -75,7 +75,8 @@ impl World {
     /// People in the settlement: every unit but the beasts. The Avatar counts, as he always has
     /// in the headcounts that are not about growth (`Unit::is_settler` leaves him out too).
     pub fn population(&self) -> usize {
-        self.units.iter().filter(|u| !u.is_beast()).count()
+        let away: usize = self.voyages().iter().map(|v| v.crew.len()).sum();
+        self.units.iter().filter(|u| !u.is_beast()).count() + away
     }
 
     /// Whether beast `u` is hungry: its home has a fuel bunker and it is empty (#689). False for

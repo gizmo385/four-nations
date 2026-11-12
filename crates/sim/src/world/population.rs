@@ -80,7 +80,8 @@ impl World {
     pub(crate) fn fixup_next_unit(&mut self) {
         // The Avatar (#237) has a fixed id at u32::MAX, outside the counter's range.
         let settlers = self.units.iter().filter(|u| !u.is_avatar());
-        let used = settlers.map(|u| u.id.0).chain(self.deaths().map(|d| d.id.0)).max();
+        let away = self.voyages().iter().flat_map(|v| v.crew.iter().map(|u| u.id.0));
+        let used = settlers.map(|u| u.id.0).chain(away).chain(self.deaths().map(|d| d.id.0)).max();
         if let Some(m) = used {
             self.next_unit = self.next_unit.max(m + 1);
         }
@@ -106,7 +107,7 @@ impl World {
     /// answer at the next check; nobody is evicted when capacity drops below the headcount, growth
     /// just pauses. Reachability doesn't matter here, as no particular unit is looking for a bed.
     pub(super) fn has_room_for_newcomer(&self, defs: &Defs) -> bool {
-        let settlers = self.units.iter().filter(|u| u.is_settler()).count() as u32;
+        let settlers = self.residents().count() as u32;
         self.bed_capacity(defs) > settlers
     }
 

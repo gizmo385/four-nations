@@ -21,7 +21,7 @@ impl World {
     /// Counts the roster now (`Roster`): one pass over the units, no randomness.
     pub(crate) fn refresh_roster(&mut self, defs: &Defs) {
         let mut roster = Roster::default();
-        for u in self.units.iter().filter(|u| u.is_settler()) {
+        for u in self.residents() {
             let n = self.nation_of(u).index();
             roster.population = roster.population.saturating_add(1);
             roster.residents[n] = roster.residents[n].saturating_add(1);

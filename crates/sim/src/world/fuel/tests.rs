@@ -89,14 +89,22 @@ fn fuel_is_validated() {
     // 1 a minute at 10 ticks a second.
     assert_eq!(fuel.micros_per_tick, 1_667);
     // Among shipped buildings only the Oil Lamp (#678), the Hothouse (#680), the Balloon Dock
-    // (#692), the Stable (#696), the Badgermole Den (#697) and the Tea House (#710) burn
-    // anything; campfires stay free (#672).
+    // (#692), the Stable (#696), the Badgermole Den (#697), the Tea House (#710) and the Airship
+    // Dock (#758) burn anything; campfires stay free (#672).
     let bundled = Defs::bundled();
     let burners: Vec<&str> =
         bundled.buildings.iter().filter(|b| b.fuel.is_some()).map(|b| b.id.as_str()).collect();
     assert_eq!(
         burners,
-        ["oil_lamp", "hothouse", "balloon_dock", "stable", "badgermole_den", "tea_house"]
+        [
+            "oil_lamp",
+            "hothouse",
+            "balloon_dock",
+            "stable",
+            "badgermole_den",
+            "tea_house",
+            "airship_dock"
+        ]
     );
 }
 

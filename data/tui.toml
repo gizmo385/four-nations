@@ -706,3 +706,9 @@ fg = [200, 210, 230]
 glyph = "∩"
 ascii = "n"
 fg = [150, 175, 200]
+
+# The Airship Dock (horizons phase 6, #758): a gondola slung under a long hull, in sky blue.
+[building.airship_dock]
+glyph = "Δ"
+ascii = "Z"
+fg = [140, 190, 230]

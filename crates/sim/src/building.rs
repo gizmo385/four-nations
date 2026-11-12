@@ -499,6 +499,27 @@ pub struct BalloonDef {
     pub fuel_per_flight: u32,
 }
 
+/// The most deals one voyage may carry whatever a dock's `deals` says: `Command::PlanVoyage`
+/// holds its `(deal, times)` pairs in an array of this size, so the command stays `Copy`.
+pub const MAX_VOYAGE_DEALS: usize = 4;
+
+/// An Airship Dock's airship (`[building.airship]`, the Airship Dock, #758, docs/design/
+/// horizons-phase-6.md, "`airships`", `world/voyage.rs`): outbound voyages that trade one
+/// nation's caravan deals, with `crew` residents away for `away_minutes`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AirshipDef {
+    /// Residents who fly with it, away for the voyage: at least 1.
+    pub crew: u8,
+    /// The most items one voyage carries out (the give side of every deal in it).
+    pub hold: u32,
+    /// The most deals one voyage takes from a nation's caravan list: 1 to `MAX_VOYAGE_DEALS`.
+    pub deals: u8,
+    /// How many ticks the airship is away, fixed at departure.
+    pub away_ticks: u64,
+    /// Items burned from the dock's bunker when it sails.
+    pub fuel_per_voyage: u32,
+}
+
 /// One whole item, in `FuelDef::micros_per_tick` units.
 pub const FUEL_MICROS: u64 = 1_000_000;
 
@@ -762,6 +783,8 @@ pub struct BuildingDef {
     pub glide: Option<GlideDef>,
     /// A balloon that flies goods to the partner (`BalloonDef`), or `None`.
     pub balloon: Option<BalloonDef>,
+    /// An airship that sails out with goods and a crew (`AirshipDef`), or `None`.
+    pub airship: Option<AirshipDef>,
     pub unlocked_by: Option<TechId>,
     /// Seats added by techs (`[[tech.unlocks.upgrades]]`, docs/design/horizons-phase-1.md), each
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
@@ -1050,6 +1073,16 @@ struct RawGlide {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawAirship {
+    crew: u8,
+    hold: u32,
+    deals: u8,
+    away_minutes: f32,
+    fuel_per_voyage: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawBalloon {
     load: u32,
     hold: u32,
@@ -1218,6 +1251,7 @@ struct RawBuilding {
     outpost: Option<RawOutpost>,
     glide: Option<RawGlide>,
     balloon: Option<RawBalloon>,
+    airship: Option<RawAirship>,
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
@@ -1609,9 +1643,16 @@ impl BuildingsFile {
                 None => None,
                 Some(r) => Some(resolve_balloon(&b.id, r, pair.is_some(), fuel.as_ref())?),
             };
-            if fuel.as_ref().is_some_and(|f| f.per_minute.is_none()) && balloon.is_none() {
+            let airship = match &b.airship {
+                None => None,
+                Some(r) => Some(resolve_airship(&b.id, r, fuel.as_ref())?),
+            };
+            if fuel.as_ref().is_some_and(|f| f.per_minute.is_none())
+                && balloon.is_none()
+                && airship.is_none()
+            {
                 return err(format!(
-                    "building {}: fuel needs per_minute unless the building burns per flight",
+                    "building {}: fuel needs per_minute unless the building burns per flight or voyage",
                     b.id
                 ));
             }
@@ -1677,6 +1718,7 @@ impl BuildingsFile {
                 outpost,
                 glide,
                 balloon,
+                airship,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
                 free_upgrade: None,
@@ -1909,6 +1951,42 @@ fn resolve_balloon(
             as u64,
         tiles_per_second: r.tiles_per_second,
         fuel_per_flight: r.fuel_per_flight,
+    })
+}
+
+/// Checks a `[building.airship]` (#758): a bunker to burn from, a crew of at least 1, a hold
+/// above 0, between 1 and `MAX_VOYAGE_DEALS` deals, a positive trip time, and a
+/// `fuel_per_voyage` the bunker can hold.
+fn resolve_airship(
+    building: &str,
+    r: &RawAirship,
+    fuel: Option<&FuelDef>,
+) -> Result<AirshipDef, DefsError> {
+    let err =
+        |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: airship {msg}")));
+    let Some(fuel) = fuel else { return err("needs a [building.fuel] bunker to burn from") };
+    if r.crew == 0 {
+        return err("crew must be at least 1");
+    }
+    if r.hold == 0 {
+        return err("hold must be above 0");
+    }
+    if r.deals == 0 || usize::from(r.deals) > MAX_VOYAGE_DEALS {
+        return err(&format!("deals must be from 1 to {MAX_VOYAGE_DEALS}"));
+    }
+    if !(r.away_minutes.is_finite() && r.away_minutes > 0.0 && r.away_minutes <= 600.0) {
+        return err("away_minutes must be in (0, 600]");
+    }
+    if r.fuel_per_voyage == 0 || r.fuel_per_voyage > fuel.bunker {
+        return err("fuel_per_voyage must be at least 1 and fit the bunker");
+    }
+    let ticks = f64::from(r.away_minutes) * 60.0 * f64::from(crate::world::TICKS_PER_SECOND);
+    Ok(AirshipDef {
+        crew: r.crew,
+        hold: r.hold,
+        deals: r.deals,
+        away_ticks: (ticks.round() as u64).max(1),
+        fuel_per_voyage: r.fuel_per_voyage,
     })
 }
 

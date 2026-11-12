@@ -142,13 +142,17 @@ fn the_page_lists_what_each_nation_teaches_with_the_borrowed_cost() {
     // Brickmaking costs 240 borrowed, Steam Engines 500, Cargo Balloons 1000.
     assert!(page.contains("Brickmaking") && page.contains("240 pts"), "{page}");
     assert!(page.contains("Steam Engines") && page.contains("500 pts"), "{page}");
-    assert!(page.contains("Cargo Balloons") && page.contains("1000 pts"), "{page}");
     // Earth has two residents of the three it takes: its techs are locked, with the live count.
     assert!(page.contains("Needs 3 Earth residents"), "{page}");
     assert_eq!(state(&a, ResearchPage::Newcomers, "earthen_walls"), TechState::Locked);
     assert_eq!(state(&a, ResearchPage::Newcomers, "brickmaking"), TechState::Available);
     // The fusions name their nations.
     assert!(page.contains("Earth+Fire") || page.contains("Steelworks"), "{page}");
+    // Cargo Balloons is the Fire column's fifth: below the fold now that every fusion row is
+    // tall, so the page scrolls to it.
+    go_to(&mut a, "cargo_balloons");
+    let scrolled = frame(&mut a, false);
+    assert!(scrolled.contains("Cargo Balloons") && scrolled.contains("1000 pts"), "{scrolled}");
 }
 
 #[test]
