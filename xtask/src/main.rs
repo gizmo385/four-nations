@@ -2,7 +2,7 @@
 //!
 //!     cargo xtask ci [--fast] [--no-goldens]
 //!                               fmt + clippy + tests for the whole workspace, plus clippy on
-//!                               fn_sim/fn_ui/fn_tui for wasm32 (#594), and clippy plus the
+//!                               fn_sim/fn_ui/fn_tui/fn_gui for wasm32 (#594), and clippy plus the
 //!                               view-model tests on fn_ui with its `serde` feature (#858);
 //!                               --fast uses the `ci` profile (opt-level 1 for our own
 //!                               crates), as CI does;
@@ -62,6 +62,10 @@
 //!                               wasm-bindgen CLI (at Cargo.lock's version) into
 //!                               target/replayer/play/; CI runs it so a wasm break in fn_gui
 //!                               fails there. See `cargo xtask web-gui --help`.
+//!     cargo xtask gui-shot SEED NATION [--keys SCRIPT] [--size WxH] --out FILE.png
+//!                               one frame of the egui window as a PNG (#875), rendered through
+//!                               wgpu: needs a GPU or lavapipe, and says so without one. Not in
+//!                               the gate. See `cargo xtask gui-shot --help`.
 //!
 //! `root()` finds the repo root at runtime with `git rev-parse --show-toplevel`, so an `xtask`
 //! binary built from one worktree's `target/` still works when run from another (a shared
@@ -74,6 +78,7 @@ use std::process::{Command, ExitCode};
 mod agent_compare;
 mod agent_eval;
 mod agent_run;
+mod gui_shot;
 mod lint;
 mod references;
 mod web;
@@ -147,6 +152,7 @@ fn dispatch(args: &[&str]) -> Result {
         Some("agent-compare") => agent_compare::run(&args[1..]),
         Some("web") => web::run(&args[1..]),
         Some("web-gui") => web::run_gui(&args[1..]),
+        Some("gui-shot") => gui_shot::run(&args[1..]),
         _ => Err(help()),
     }
 }
@@ -219,17 +225,13 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
     lint::check(&root())?;
     println!("$ xtask lint test-modules");
     lint_test_modules(&root())?;
-    let clippy: Vec<&str> = [
-        &["clippy", "--workspace", "--all-targets"][..],
-        EXCLUDED,
-        &profile,
-        &["--", "-D", "warnings"],
-    ]
-    .concat();
+    let clippy: Vec<&str> =
+        [&["clippy", "--workspace", "--all-targets"][..], &profile, &["--", "-D", "warnings"]]
+            .concat();
     cargo_env(&clippy, &env)?;
     clippy_wasm(&profile, &env)?;
     serde_feature(&profile, &env)?;
-    cargo_env(&test_args(&[&["--workspace"][..], EXCLUDED].concat(), &profile)?, &env)?;
+    cargo_env(&test_args(&["--workspace"], &profile)?, &env)?;
     println!("ci OK");
     Ok(())
 }
@@ -293,12 +295,8 @@ fn nextest_installed() -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
-/// Workspace members the gate leaves out: `fn_gui`, the egui window spike (#842), which pulls in a
-/// windowing and GPU stack the gate has no use for. `cargo test -p fn_gui` runs its own tests.
-const EXCLUDED: &[&str] = &["--exclude", "fn_gui"];
-
 /// The crates the web replayer (#595) builds for the browser.
-const WASM_CRATES: [&str; 5] = ["fn_runfmt", "fn_sim", "fn_ui", "fn_tui", "fn_web"];
+const WASM_CRATES: [&str; 6] = ["fn_runfmt", "fn_sim", "fn_ui", "fn_tui", "fn_web", "fn_gui"];
 pub(crate) const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
 /// Clippy (`-D warnings`) on [`WASM_CRATES`]' libraries for [`WASM_TARGET`] (#594), so a change
@@ -360,13 +358,9 @@ fn check(crates: &[String], fast: bool) -> Result {
     lint::check(&root())?;
     println!("$ xtask lint test-modules");
     lint_test_modules(&root())?;
-    let clippy: Vec<&str> = [
-        &["clippy", "--workspace", "--all-targets"][..],
-        EXCLUDED,
-        &profile,
-        &["--", "-D", "warnings"],
-    ]
-    .concat();
+    let clippy: Vec<&str> =
+        [&["clippy", "--workspace", "--all-targets"][..], &profile, &["--", "-D", "warnings"]]
+            .concat();
     cargo_env(&clippy, &env)?;
     clippy_wasm(&profile, &env)?;
     serde_feature(&profile, &env)?;
@@ -391,10 +385,10 @@ fn check(crates: &[String], fast: bool) -> Result {
 /// transitively, on `c` -- so a change in `c` also has to retest them.
 fn dependents(c: &str) -> &'static [&'static str] {
     match c {
-        "fn_runfmt" => &["fn_tui", "fn_agent", "fn_web", "xtask"],
-        "fn_sim" => &["fn_ui", "fn_tui", "fn_agent", "fn_harness"],
-        "fn_ui" => &["fn_tui", "fn_agent"],
-        "fn_tui" => &["fn_agent"],
+        "fn_runfmt" => &["fn_tui", "fn_agent", "fn_web", "fn_gui", "xtask"],
+        "fn_sim" => &["fn_ui", "fn_tui", "fn_agent", "fn_harness", "fn_gui"],
+        "fn_ui" => &["fn_tui", "fn_agent", "fn_gui"],
+        "fn_tui" => &["fn_agent", "fn_gui"],
         _ => &[],
     }
 }
@@ -405,7 +399,16 @@ fn dependents(c: &str) -> &'static [&'static str] {
 /// as a change to all of them.
 fn crates_for_path(p: &str) -> Vec<&'static str> {
     if p == "Cargo.toml" || p == "Cargo.lock" {
-        return vec!["fn_runfmt", "fn_sim", "fn_ui", "fn_tui", "fn_agent", "fn_harness", "xtask"];
+        return vec![
+            "fn_runfmt",
+            "fn_sim",
+            "fn_ui",
+            "fn_tui",
+            "fn_agent",
+            "fn_harness",
+            "fn_gui",
+            "xtask",
+        ];
     }
     // `data/harness.toml` is the harness crate's own (compiled into `fn_harness`, never `fn_sim`).
     if p == "data/harness.toml" || p.starts_with("crates/harness/") {
@@ -422,6 +425,9 @@ fn crates_for_path(p: &str) -> Vec<&'static str> {
     }
     if p.starts_with("crates/tui/") {
         return vec!["fn_tui"];
+    }
+    if p.starts_with("crates/gui/") {
+        return vec!["fn_gui"];
     }
     if p.starts_with("crates/agent/") {
         return vec!["fn_agent"];

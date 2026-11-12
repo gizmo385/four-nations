@@ -1,7 +1,7 @@
-//! A snapshot of the map widget through `egui_kittest` (#842's question: does it run headless?).
-//! It renders with wgpu, so it needs an adapter: a GPU, or a software one such as Mesa's lavapipe
+//! A snapshot of the map widget through `egui_kittest`, behind the `shots` feature (#875). It
+//! renders with wgpu, so it needs an adapter: a GPU, or a software one such as Mesa's lavapipe
 //! (`mesa-vulkan-drivers` on Debian and Ubuntu). Without one `egui_kittest` panics building the
-//! harness ("No adapter found"), which is why `fn_gui` stays out of `cargo xtask ci`.
+//! harness ("No adapter found"), which is why the feature is off in `cargo xtask ci`.
 
 use eframe::egui::{self, Sense};
 use fn_gui::camera::Camera;

@@ -6,5 +6,7 @@ mod cells;
 mod frame;
 mod glyphs;
 mod keys;
+mod semantic;
+#[cfg(feature = "shots")]
 mod snapshot;
 mod theme;

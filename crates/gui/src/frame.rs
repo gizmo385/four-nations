@@ -199,7 +199,9 @@ impl Frame {
                 let started = Instant::now();
                 let mut buf = Buffer::empty(ratatui::layout::Rect::new(0, 0, cols, rows));
                 shell::draw(shell, palette, &mut buf);
-                cells::paint(&ui.painter_at(avail), avail.min, metrics, &CellLayout::new(&buf));
+                let layout = CellLayout::new(&buf);
+                cells::paint(&ui.painter_at(avail), avail.min, metrics, &layout);
+                cells::expose(ui, avail.min, metrics, &layout, buf.area);
                 self.timings.cells = started.elapsed().as_secs_f32() * 1000.0;
             },
         );
@@ -248,7 +250,9 @@ impl Frame {
                 let area = ratatui::layout::Rect::new(0, 0, pc, pr);
                 let mut buf = Buffer::empty(area);
                 panel::draw_panel(&app.session, &app.ui, palette, area, &mut buf);
-                cells::paint(&ui.painter_at(slot), slot.min, metrics, &CellLayout::new(&buf));
+                let layout = CellLayout::new(&buf);
+                cells::paint(&ui.painter_at(slot), slot.min, metrics, &layout);
+                cells::expose(ui, slot.min, metrics, &layout, area);
                 self.timings.cells = started.elapsed().as_secs_f32() * 1000.0;
             });
 
@@ -358,5 +362,7 @@ fn paint_box(
     }
     let origin =
         over.min + vec2(f32::from(area.x) * metrics.cell.x, f32::from(area.y) * metrics.cell.y);
-    cells::paint(&ui.painter_at(over), origin, metrics, &CellLayout::new(&only));
+    let layout = CellLayout::new(&only);
+    cells::paint(&ui.painter_at(over), origin, metrics, &layout);
+    cells::expose(ui, origin, metrics, &layout, only.area);
 }
