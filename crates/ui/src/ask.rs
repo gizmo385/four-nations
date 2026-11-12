@@ -10,6 +10,7 @@
 //! which writes a new slot (`App::save_new_slot`) and only then goes on.
 
 use crate::Session;
+use crate::keyev::KeyCode;
 use crate::state::{Prompt, UiState};
 use crate::view::format_ago;
 
@@ -36,6 +37,52 @@ pub struct Ask {
     pub lines: Vec<String>,
     /// The answers, top to bottom; the first is [`Answer::Keep`].
     pub answers: Vec<(Answer, String)>,
+}
+
+/// The question embark's `Q` asks when there is somewhere to quit to (`Shell::exit_prompt`, #280):
+/// not a [`Prompt`], so it has no [`Ask`], only these words.
+pub const EXIT_TITLE: &str = "QUIT?";
+pub const EXIT_QUESTION: &str = "Go back to the title screen, or exit?";
+
+/// What the exit question's keys do, as its box lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExitAnswer {
+    /// `T`: back to the title screen.
+    Title,
+    /// `Q` or `Enter`: the process stops.
+    Quit,
+    /// Any other key; `Esc` is the one the box names.
+    Stay,
+}
+
+impl ExitAnswer {
+    pub const ALL: [ExitAnswer; 3] = [Self::Title, Self::Quit, Self::Stay];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Title => "Go to the title screen",
+            Self::Quit => "Exit the game",
+            Self::Stay => "Stay",
+        }
+    }
+
+    /// The key the answer's button presses.
+    pub fn key(self) -> KeyCode {
+        match self {
+            Self::Title => KeyCode::Char('t'),
+            Self::Quit => KeyCode::Char('q'),
+            Self::Stay => KeyCode::Esc,
+        }
+    }
+
+    /// The key as the hint bar writes it (`fn_ui::keys`).
+    pub fn key_name(self) -> &'static str {
+        match self {
+            Self::Title => "T",
+            Self::Quit => "Q",
+            Self::Stay => "Esc",
+        }
+    }
 }
 
 /// The box for `prompt`. `can_save` is whether there is anywhere to save to (a save directory),
@@ -146,6 +193,14 @@ mod tests {
             Prompt::LoadSave("save-1".to_owned()),
             Prompt::SaveOver("save-1".to_owned()),
         ]
+    }
+
+    #[test]
+    fn the_exit_questions_answers_are_its_keys() {
+        let keys: Vec<KeyCode> = ExitAnswer::ALL.iter().map(|a| a.key()).collect();
+        assert_eq!(keys, [KeyCode::Char('t'), KeyCode::Char('q'), KeyCode::Esc]);
+        assert_eq!(ExitAnswer::Stay.key_name(), "Esc");
+        assert!(ExitAnswer::ALL.iter().all(|a| !a.label().is_empty()));
     }
 
     #[test]

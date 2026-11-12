@@ -49,11 +49,7 @@ pub fn draw(
 ) {
     let (page, at, can_quit) = (ui.menu_page, ui.menu_cursor, ui.can_quit);
     let marks = Marks::new(palette.ascii);
-    let name = match page {
-        MenuPage::Rows => "MENU",
-        MenuPage::Nations => "SWITCH NATION",
-    };
-    let title = format!(" {0} {name} {0} ", marks.seal);
+    let title = format!(" {0} {1} {0} ", marks.seal, page.title());
     let inner = modal::draw(buf, outer, SIZE, palette, &title, clock);
     let at = at.min(page.rows() - 1);
     let mut p = Painter::new(buf, inner, palette);
@@ -67,7 +63,7 @@ pub fn draw(
         }
         MenuPage::Nations => {
             for (i, (name, playing)) in nations.iter().enumerate() {
-                rows.push((false, i, name.clone(), playing.then_some("playing")));
+                rows.push((false, i, name.clone(), playing.then_some(PLAYING)));
             }
         }
     }

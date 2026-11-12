@@ -590,6 +590,17 @@ pub fn draw(shell: &mut Shell, palette: &Palette, buf: &mut Buffer) {
     }
 }
 
+/// [`draw`] without the boxes that go over the frame (the game's confirm box, embark's exit
+/// prompt): what is under them, for a frontend that shows them as widgets of its own.
+pub fn draw_under_boxes(shell: &mut Shell, palette: &Palette, buf: &mut Buffer) {
+    let area = buf.area;
+    match &shell.mode {
+        Mode::Title(title) => title::draw_title(title, &shell.defs, palette, area, buf),
+        Mode::Embark(screen) => embark::draw_embark(screen, &shell.defs, palette, area, buf),
+        Mode::Game(app) => crate::draw::draw_under_prompt(&app.session, &app.ui, palette, buf),
+    }
+}
+
 /// Where the terminal's own cursor goes: only in a game, and only as `crate::draw::terminal_cursor`
 /// already decides (nowhere with a screen open, the exit prompt included).
 pub fn terminal_cursor(shell: &Shell, area: Rect) -> Option<Position> {

@@ -113,7 +113,7 @@ The regions map one to one:
 | `panel` | `Panel::right`, 300 px default, resizable from 260 to 440 | Sections in side-panel-v2.md order. egui scrolls the inspector instead of trimming it |
 | `status` | `Panel::bottom`, one row: the hint bar from `fn_ui::keys::hints` | Keys stay named (keyboard-first). No mouse wording in v1 |
 | `page` (full screens) | The whole window above the status bar; the side panel hides | Same rule as tui.md's #652: a full screen covers map and panel |
-| `modal`/`ask` boxes | `egui::Modal`, centred, dims what is behind | Captures every key, as `crate::modal` does |
+| `modal`/`ask` boxes | `egui::Modal`, centred, dims what is behind (#879, `fn_gui::boxes`) | Takes every click, as `crate::modal` takes every key. Its rows are buttons that press the box's own keys and hold no focus, so `Enter` reaches the shell once. A click outside is `Esc` |
 
 Window: 1600×960 by default, minimum 1024×640 logical pixels. In the browser the canvas fills
 the page and egui follows `devicePixelRatio`.
@@ -129,9 +129,11 @@ the TUI fails to compile in `fn_gui` until someone says which it is.
 - **Cells, full**: the whole terminal frame, at the window's size in cells (as the spike does
   today). Used for unconverted full screens, the title screen and embark until converted, and
   the watcher, studio and run browser.
-- **Cells, box**: only the box's rect from the terminal frame (`fn_tui::modal`'s area), painted
-  over the native map and panel. This avoids swapping the whole window to cells when the game
-  menu opens.
+- **Modal** (#879): the game menu, the confirm boxes and embark's exit prompt are `egui::Modal`s
+  over whatever is showing, native or cells (`frame::modal`, beside `frame::surface`). Over a
+  cells screen the terminal's own frame is drawn without the box (`shell::draw_under_boxes`),
+  so a prompt over the Saves screen needs nothing more. This replaced painting one box's rect
+  out of the terminal frame.
 
 The shell is always sized to the window in cells (`Shell::resize`), so pagination and box sizes
 match what the cell painter shows.
@@ -153,7 +155,7 @@ the egui 0.34 pin: eframe, egui and egui_kittest are on 0.37.
 
 **The native frame (#876, done)** is `fn_gui::frame`. Its `surface` match gives every state one
 of the three answers: the map (with a tool, a corner or a settler selected) is native; the game
-menu and the confirm boxes are cells-box; the title, embark, the exit prompt and every screen and
+menu and the confirm boxes are modals (#879); the title, embark and every screen and
 the Build picker are cells-full, each arm flipping when its painter lands. A question asked
 over a full screen stays in that screen's cells. The native frame never draws the terminal's own
 map: before, every game frame built the 10 000 glyphs under `MapView` and threw them away.
