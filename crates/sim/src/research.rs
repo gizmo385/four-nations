@@ -488,6 +488,20 @@ pub struct Upgrade {
     /// Replaces a healing building's `vials_per_year`, 1 to 4 (`spirit_water`, #739).
     #[serde(default)]
     pub vials_per_year: Option<u32>,
+    /// A power source finished beside one of `beside`'s terrains burns no fuel, and reaches at
+    /// least `radius` tiles (`steam_power`'s Steam Engine, #757).
+    #[serde(default)]
+    pub bank: Option<UpgradeBank>,
+}
+
+/// The `bank` upgrade's value (#757): the terrains a source's footprint ring must touch to be
+/// on the bank, and the base power radius (1 to 12, before `power_generation`) it gets there if
+/// that is larger than its own.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpgradeBank {
+    pub beside: Vec<crate::defs::Terrain>,
+    pub radius: u32,
 }
 
 /// The `aura` upgrade's value: the multipliers of a `[building.aura]`, whose radius is the heat

@@ -1102,3 +1102,24 @@ item = "tool"
 count = 6
 [tech.unlocks]
 buildings = ["aqueduct"]
+
+# --- #757 (research horizons phase 6: steam on the bank) -----------------------------------------
+
+# A Steam Engine whose footprint touches water reaches as far as a Tide Mill does, and burns no
+# fuel (the fuel half is #433's: until the engine has a bunker only the reach shows).
+# `bank.beside` is the Tide Mill's list, canals (#695) included. Numbers are provisional.
+[[tech]]
+id = "steam_power"
+name = "Steam Power"
+description = "Water feeds the boiler and Fire keeps it hot. Engines on the bank never run dry."
+fusion = ["fire", "water"]
+cost = 1000
+prereqs = ["steam_engines"]
+requires = { residents = { fire = 3, water = 3 }, masters = 1, masters_of = ["fire", "water"] }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "steam_engine"
+bank = { beside = ["water", "river", "lake", "canal"], radius = 4 }

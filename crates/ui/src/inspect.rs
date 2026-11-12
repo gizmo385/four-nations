@@ -118,7 +118,8 @@ fn powering_count(world: &World, defs: &Defs, source: Pos) -> usize {
 /// boost, or "Unpowered" with none in reach. Empty for a building that is neither.
 fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) -> Vec<String> {
     let def = defs.building(building);
-    if let Some(power) = def.power {
+    // `World::power_def` is the source as it stands now: a bank's reach counts (#757).
+    if let Some(power) = world.power_def(anchor, defs).filter(|_| def.power.is_some()) {
         let reach = power.radius_for(world.modifiers().power_generation);
         let powering = powering_count(world, defs, anchor);
         vec![

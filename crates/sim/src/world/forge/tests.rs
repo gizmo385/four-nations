@@ -396,6 +396,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         heat_aura_upgrade: None,
         fuel_free_upgrade: None,
         automate_upgrade: None,
+        bank_upgrade: None,
         aura: None,
         landmark: false,
     });
