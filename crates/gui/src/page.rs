@@ -172,6 +172,11 @@ pub fn show(
     if geo.strip.is_some() {
         painter.hline(geo.frame.x_range(), geo.rule_y, stroke);
     }
+    crate::style::corner_brackets(
+        &painter,
+        geo.frame,
+        to_egui(look.palette.token(look.palette.theme.accent), Color32::WHITE),
+    );
 
     let marks = Marks::new(look.palette.ascii);
     let heading = format!(" {0} {1} {0} ", marks.seal, spec.title.to_uppercase());

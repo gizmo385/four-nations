@@ -16,6 +16,8 @@ pub struct GuiApp {
     shell: Shell,
     palette: Palette,
     nation: Nation,
+    /// The nation the egui style (`crate::style`) was last built for.
+    styled: Option<Nation>,
     frame: Frame,
     last_frame: Instant,
     /// The state last written onto the page (`crate::webpage::publish`).
@@ -62,6 +64,7 @@ impl GuiApp {
             shell,
             palette,
             nation,
+            styled: None,
             frame: Frame::default(),
             last_frame: Instant::now(),
             #[cfg(target_arch = "wasm32")]
@@ -116,6 +119,13 @@ impl GuiApp {
         let frame_start = Instant::now();
         let ctx = root.ctx().clone();
         self.step(&ctx);
+        // The Seal style follows the nation: built on the first frame and when the nation
+        // changes, and handed to the root `Ui` now, which took its copy before this frame's step.
+        if self.styled != Some(self.nation) {
+            crate::style::install(&ctx, &self.palette.theme);
+            self.styled = Some(self.nation);
+        }
+        root.set_style(ctx.global_style());
         self.frame.show(root, &mut self.shell, &self.palette);
         // A click on the window's own widgets is the key it stands for, typed after the frame.
         for key in self.frame.take_keys() {
