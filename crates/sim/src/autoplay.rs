@@ -820,8 +820,9 @@ fn gather_materials(world: &mut World, defs: &Defs, anchor: Pos, items: &[ItemId
 }
 
 /// A one-shot harvest on every surface scroll (`ancient_scroll`, always visible) and every
-/// uncovered lost ruin (`lost_ruins`, buried until a Map Room's Chart job or Air's Glide
-/// uncovers one) within `SCROLL_RADIUS` tiles (module doc; #404). Both resources' harvests yield
+/// uncovered lost or great ruin (`lost_ruins`, `great_ruins` since #736, buried until a Map
+/// Room's Chart job or Air's Glide uncovers one) within `SCROLL_RADIUS` tiles (module doc;
+/// #404). All three resources' harvests yield
 /// the `ancient_scroll` item (`data/jobs.toml`), so one item filter catches both without naming
 /// either resource: a later find that also yields scrolls needs no change here. Not a standing
 /// order: neither resource regrows. Reachability is left to the job itself (`run_harvest`'s own

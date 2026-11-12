@@ -134,6 +134,39 @@ pub struct ResourceDef {
     /// Tunnel strikes it (#133). Until then nothing shows it or can work it.
     #[serde(default)]
     pub buried: bool,
+    /// Never placed by the scan (`chance = 0.0`), only promoted from another resource's tiles
+    /// after `add_resources` (great ruins, docs/design/horizons-phase-5.md, "Great ruins on the
+    /// map"). `None` for every ordinary resource.
+    #[serde(default)]
+    pub promote: Option<PromoteDef>,
+}
+
+/// `ResourceDef::promote`: which tiles of another resource become this one, and how many
+/// (`mapgen::pick_promoted`). Validated at load (`Defs::validate`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromoteDef {
+    /// The resource whose tiles may become this one. It must exist and be `buried`.
+    pub from: String,
+    /// One promoted tile per this many map tiles, clamped to `[min, max]`.
+    pub tiles_per: u32,
+    pub min: u32,
+    pub max: u32,
+    /// Chebyshev distance kept between two promoted tiles while enough candidates allow it.
+    pub spacing: u32,
+    /// A candidate's "size" is the Land tiles in the `(2r+1)` square box around it.
+    pub size_radius: u32,
+}
+
+impl PromoteDef {
+    /// How many tiles a `width` by `height` map promotes: `round(area / tiles_per)`, clamped to
+    /// `[min, max]`.
+    pub fn count(&self, width: u32, height: u32) -> usize {
+        let area = u64::from(width) * u64::from(height);
+        let per = u64::from(self.tiles_per.max(1));
+        let n = (area + per / 2) / per;
+        n.clamp(u64::from(self.min), u64::from(self.max)) as usize
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -471,6 +504,32 @@ impl Defs {
             for b in r.biomes.iter().flatten() {
                 if self.biome_id(b).is_none() {
                     return Err(DefsError(format!("resource {}: unknown biome {b:?}", r.id)));
+                }
+            }
+            if let Some(p) = &r.promote {
+                let err = |m: &str| Err(DefsError(format!("resource {}: promote {m}", r.id)));
+                if r.chance != 0.0 {
+                    return err("needs chance = 0.0");
+                }
+                match self.resources.iter().find(|f| f.id == p.from) {
+                    None => return err(&format!("names unknown resource {:?}", p.from)),
+                    Some(f) if !f.buried => {
+                        return err(&format!("from {:?} must be buried", p.from));
+                    }
+                    Some(f) if f.id == r.id => return err("can't promote from itself"),
+                    Some(_) => {}
+                }
+                if !(1 <= p.min && p.min <= p.max && p.max <= 5) {
+                    return err("needs 1 <= min <= max <= 5");
+                }
+                if p.spacing > 100 {
+                    return err("spacing must be <= 100");
+                }
+                if !(1..=6).contains(&p.size_radius) {
+                    return err("size_radius must be 1 to 6");
+                }
+                if p.tiles_per == 0 {
+                    return err("tiles_per must be >= 1");
                 }
             }
         }

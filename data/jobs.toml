@@ -320,3 +320,22 @@ work = 30.0                       # at water_work 1.0; Water's branch makes it a
 modifier = "water_work"
 terrains = ["water", "lake", "river", "canal"]
 frost_hardy = true
+
+# --- #736 (research horizons phase 5: great ruins) ---------------------------------------------
+
+# A great ruin (#736, docs/design/horizons-phase-5.md, "Searching one") holds the lost ruin's two
+# scrolls, so the scrolls sign loses nothing, plus a teaching scroll. Twice a lost ruin's work.
+[[harvest]]
+resource = "great_ruins"
+verb = "Search"
+noun = "great ruin"
+noun_many = "great ruins"
+item = "ancient_scroll"
+count = 2
+work = 40.0
+also = [{ item = "teaching_scroll", count = 1 }]
+
+# Read at a study hall, it opens the teaching draft (#737). Until then it is an ordinary item.
+[[item]]
+id = "teaching_scroll"
+name = "Teaching Scroll"

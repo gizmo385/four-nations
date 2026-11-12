@@ -339,7 +339,9 @@ fn found_scrolls(world: &World, defs: &Defs, sign: &SignDef) -> Vec<FoundScroll>
             // `found`'s own filter already guarantees a resource and a harvest here.
             let resource = world.map.get(pos).and_then(|t| t.resource).expect("filtered above");
             let h = defs.harvest(resource).expect("filtered above");
-            let name = if h.count > 1 {
+            let name = if !h.also.is_empty() {
+                format!("{} ({})", defs.resource(resource).name, scrolls_and_also(defs, h))
+            } else if h.count > 1 {
                 format!("{} ({})", defs.resource(resource).name, h.count)
             } else {
                 defs.resource(resource).name.clone()
@@ -354,6 +356,25 @@ fn found_scrolls(world: &World, defs: &Defs, sign: &SignDef) -> Vec<FoundScroll>
             FoundScroll { name, distance: compass_distance(anchor, pos), status: status.to_owned() }
         })
         .collect()
+}
+
+/// A great ruin's count on the scrolls sign's list (#736): "2 scrolls and a teaching". Each
+/// `also` stack is named by its item without a trailing "Scroll" ("Teaching Scroll" reads
+/// "teaching"), with "a" for one.
+fn scrolls_and_also(defs: &Defs, h: &fn_sim::jobs::HarvestDef) -> String {
+    let mut out = match h.count {
+        1 => "1 scroll".to_owned(),
+        n => format!("{n} scrolls"),
+    };
+    for extra in &h.also {
+        let name = defs.item(extra.item).name.to_lowercase();
+        let name = name.strip_suffix(" scroll").unwrap_or(&name).to_owned();
+        match extra.count {
+            1 => out.push_str(&format!(" and a {name}")),
+            n => out.push_str(&format!(" and {n} {name}s")),
+        }
+    }
+    out
 }
 
 /// The hint for an unmet sign: the branch names the techs left once only one or two are, the
@@ -1075,6 +1096,18 @@ mod tests {
     const CART_HINT: &str = "Bring scrolls to a study hall. Cartography charts ruins.";
     const ROOM_HINT: &str = "Bring scrolls to a study hall. A Map Room charts ruins.";
     const PLAIN_HINT: &str = "Bring scrolls to a study hall";
+
+    /// An uncovered great ruin (#736) is listed like a lost one, with "2 scrolls and a teaching"
+    /// for its count.
+    #[test]
+    fn a_great_ruin_lists_its_scrolls_and_a_teaching() {
+        let mut s = scroll_session();
+        s.world.map[RUIN].resource = s.defs.resource_id("great_ruins");
+        let list = found(&s);
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0].name, "Great Ruins (2 scrolls and a teaching)");
+        assert_eq!(list[0].distance, "5 tiles east");
+    }
 
     /// Before cartography is known and a chart is done, the list is closed: a marked surface
     /// scroll is not on it, and only a Glide's ruin is (one no chart recorded), since the

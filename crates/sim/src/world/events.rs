@@ -50,6 +50,20 @@ pub enum Event {
     Caravan(CaravanEvent),
     /// A beast went back to the wild (`beast.rs`, #693).
     Beast(BeastEvent),
+    /// A reveal bend (Glide) uncovered a buried resource (`bending.rs`, #736).
+    Find(FindEvent),
+}
+
+/// A reveal bend (`Effect::Reveal`: Air's Glide, Earth's Seismic Sense) brought a buried resource
+/// onto the map (#736). One event per uncovered tile. The alert log says "Spotted great ruins
+/// 12 tiles north" for the finds worth announcing, and nothing for the rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FindEvent {
+    pub tick: u64,
+    pub pos: Pos,
+    pub resource: ResourceId,
+    /// The ability whose bend found it.
+    pub ability: AbilityId,
 }
 
 impl Event {
@@ -67,6 +81,7 @@ impl Event {
             Self::Chart(e) => e.tick,
             Self::Caravan(e) => e.tick,
             Self::Beast(e) => e.tick,
+            Self::Find(e) => e.tick,
         }
     }
 
@@ -88,6 +103,7 @@ impl Event {
             Self::Chart(_) => 8,
             Self::Caravan(_) => 9,
             Self::Beast(_) => 10,
+            Self::Find(_) => 11,
         }
     }
 }
@@ -114,6 +130,7 @@ event_from!(
     Chart(ChartEvent),
     Caravan(CaravanEvent),
     Beast(BeastEvent),
+    Find(FindEvent),
 );
 
 /// A typed filter over the log: `$name()` yields every `Event::$variant`, oldest first.
@@ -156,6 +173,8 @@ event_filters! {
     caravan_events => Caravan(CaravanEvent);
     /// Every beast that has returned to the wild so far, oldest first.
     beast_events => Beast(BeastEvent);
+    /// Every buried resource a reveal bend uncovered so far, oldest first.
+    find_events => Find(FindEvent);
 }
 
 impl World {

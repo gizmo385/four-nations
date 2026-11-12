@@ -191,3 +191,64 @@ fn buried_ruins_survive_a_save() {
     cast(&mut loaded, &defs, glide(&defs), at(3, 3));
     assert_eq!(loaded.map[at(6, 3)].resource, w.map[at(6, 3)].resource);
 }
+
+/// Great ruins (#736): Glide spots them as it does lost ruins, and each find is logged; searching
+/// one drops its two scrolls and, as its own stack, a teaching scroll (`also`).
+#[test]
+fn glide_spots_great_ruins_and_a_search_drops_a_teaching_scroll() {
+    let defs = Defs::bundled();
+    let plains = BiomeId(defs.biomes.iter().position(|b| b.id == "plains").unwrap() as u8);
+    let ruins = defs.resource_id("lost_ruins").unwrap();
+    let great = defs.resource_id("great_ruins").unwrap();
+    let map = Grid::from_fn(12, 5, |p| Tile {
+        elevation: 200,
+        temperature: 128,
+        moisture: 128,
+        terrain: Terrain::Land,
+        biome: plains,
+        resource: if p == at(4, 2) {
+            Some(great)
+        } else if p == at(6, 2) {
+            Some(ruins)
+        } else {
+            None
+        },
+        building: None,
+    });
+    let mut w = World::with_map(1, map, Nation::Air, &[at(1, 2)], &defs);
+    w.research.grant(defs.tech_id("gliders").unwrap());
+    w.refresh_modifiers(&defs);
+    assert_eq!(w.buried_count(), 2);
+
+    cast(&mut w, &defs, glide(&defs), at(1, 2));
+    assert_eq!(w.map[at(4, 2)].resource, Some(great), "glide finds the great ruin");
+    assert_eq!(w.map[at(6, 2)].resource, Some(ruins));
+    let finds: Vec<(Pos, ResourceId)> = w.find_events().map(|e| (e.pos, e.resource)).collect();
+    assert_eq!(finds, vec![(at(4, 2), great), (at(6, 2), ruins)]);
+    assert!(w.find_events().all(|e| e.ability == glide(&defs)));
+
+    w.apply(Command::DesignateHarvest { pos: at(4, 2) }, &defs).unwrap();
+    for _ in 0..20_000 {
+        if w.map[at(4, 2)].resource.is_none() {
+            break;
+        }
+        w.units[0].needs = crate::needs::Needs::full(&defs.needs);
+        w.tick(&defs);
+    }
+    assert_eq!(w.map[at(4, 2)].resource, None, "searched");
+    let count = |item: &str| -> u32 {
+        let id = defs.item_id(item).unwrap();
+        let ground: u32 =
+            w.ground_items().filter(|(_, s)| s.item == id).map(|(_, s)| s.count).sum();
+        let carried: u32 = w
+            .units
+            .iter()
+            .filter_map(|u| u.carrying)
+            .filter(|s| s.item == id)
+            .map(|s| s.count)
+            .sum();
+        ground + carried
+    };
+    assert_eq!(count("ancient_scroll"), 2, "the lost ruin's two scrolls");
+    assert_eq!(count("teaching_scroll"), 1, "and a teaching scroll");
+}

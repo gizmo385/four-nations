@@ -277,6 +277,9 @@ impl World {
         // Seats a known tech adds (`writing`'s, docs/design/horizons-phase-1.md) that a hall
         // saved before the upgrade existed doesn't have yet.
         world.sync_seats(defs);
+        // A save from before phase 5 gets its great ruins from its still-buried lost ruins
+        // (#736, docs/design/horizons-phase-5.md, "Old saves").
+        world.place_great_ruins(defs);
         Ok(world)
     }
 }

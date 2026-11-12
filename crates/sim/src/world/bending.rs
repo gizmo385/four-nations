@@ -1246,7 +1246,12 @@ impl World {
                     .collect();
                 let mut found = false;
                 for b in near {
-                    found |= self.uncover(b);
+                    let resource = self.buried[&b];
+                    if self.uncover(b) {
+                        found = true;
+                        let tick = self.tick;
+                        self.log_event(super::FindEvent { tick, pos: b, resource, ability });
+                    }
                 }
                 if found {
                     self.wake_idle();

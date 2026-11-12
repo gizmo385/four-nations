@@ -8,7 +8,7 @@
 use std::collections::VecDeque;
 
 use fn_sim::defs::ResourceDef;
-use fn_sim::{Defs, Grid, MapGenConfig, Pos, Terrain, TileMap, mapgen};
+use fn_sim::{Defs, Grid, MapGenConfig, Pos, Terrain, Tile, TileMap, mapgen};
 
 fn cfg(seed: u64) -> MapGenConfig {
     MapGenConfig { seed, width: 48, height: 24, ..Default::default() }
@@ -469,6 +469,7 @@ fn coast_weed() -> ResourceDef {
         beside: None,
 
         buried: false,
+        promote: None,
     }
 }
 
@@ -551,4 +552,65 @@ fn list_order_is_priority_where_resources_overlap() {
     let (before, after) = (get(&base), get(&flipped));
     assert!(!before.is_empty() && after.len() < before.len(), "stone should win some tiles");
     assert!(after.iter().all(|p| before.contains(p)), "no new gold tiles appear");
+}
+
+// ---- Great ruins: the promote pass (#736) ----
+
+/// Seeds 1 to 32 on Small and Medium, with and without the promote pass (the pass is off when
+/// `great_ruins` has no `promote` table): the maps differ only on promoted tiles, only from
+/// `lost_ruins` to `great_ruins`, and Small gets 2, Medium 3, spaced as the data asks.
+#[test]
+fn great_ruins_are_promoted_lost_ruins_and_nothing_else_moves() {
+    let defs = Defs::bundled();
+    let lost = defs.resource_id("lost_ruins").unwrap();
+    let great = defs.resource_id("great_ruins").unwrap();
+    let mut without = defs.clone();
+    without.resources[great.0 as usize].promote = None;
+    let promote = defs.resource(great).promote.clone().unwrap();
+    for (size, want) in [("small", 2), ("medium", 3)] {
+        let size_def = defs.embark.map_size(size).unwrap();
+        for seed in 1..=32 {
+            let c = fn_sim::embark::Survey::config(seed, size_def);
+            let (a, b) = (mapgen::generate(&c, &defs), mapgen::generate(&c, &without));
+            let mut promoted = Vec::new();
+            for (p, t) in a.iter() {
+                let u = &b[p];
+                if t == u {
+                    continue;
+                }
+                assert_eq!(
+                    (t.resource, u.resource, Tile { resource: None, ..*t }),
+                    (Some(great), Some(lost), Tile { resource: None, ..*u }),
+                    "{size} seed {seed}: only lost to great ruins may change, at {p:?}"
+                );
+                promoted.push(p);
+            }
+            assert_eq!(promoted.len(), want, "{size} seed {seed}: {promoted:?}");
+            assert!(b.iter().all(|(_, t)| t.resource != Some(great)), "the scan places none");
+            // Every map on these sizes has room enough that spacing never gives way.
+            let close = promoted.iter().enumerate().any(|(i, &p)| {
+                promoted[i + 1..].iter().any(|&q| p.chebyshev(q) < promote.spacing as i32)
+            });
+            assert!(!close, "{size} seed {seed}: closer than spacing: {promoted:?}");
+        }
+    }
+}
+
+/// The picker is the same function the save upgrade uses: same tiles, same seed, same picks;
+/// fewer candidates than `min` take every one.
+#[test]
+fn pick_promoted_is_deterministic_and_fills_to_min() {
+    let defs = Defs::bundled();
+    let great = defs.resource_id("great_ruins").unwrap();
+    let promote = defs.resource(great).promote.clone().unwrap();
+    let map = mapgen::generate(&cfg(7), &defs);
+    let spots = [Pos::new(2, 2), Pos::new(3, 3), Pos::new(40, 20)];
+    let a = mapgen::pick_promoted(&map, &spots, &promote, 7, "great_ruins");
+    let b = mapgen::pick_promoted(&map, &spots, &promote, 7, "great_ruins");
+    assert_eq!(a, b);
+    // A 48x24 map promotes `min` (2): the two near each other only both go when spacing must
+    // give way.
+    assert_eq!(a.len(), 2);
+    let one = mapgen::pick_promoted(&map, &spots[..1], &promote, 7, "great_ruins");
+    assert_eq!(one, vec![spots[0]]);
 }

@@ -92,6 +92,10 @@ pub struct HarvestDef {
     /// non-renewable: chopping a tree already clears it) and for a renewable with nothing to
     /// offer a clear (fish spots, on water where nobody builds).
     pub clear: Option<ClearDef>,
+    /// Extra stacks that drop beside the main yield when the harvest completes, one ground stack
+    /// per entry (`also`, docs/design/horizons-phase-5.md, "Searching one", #736). Not scaled by
+    /// `tunnel_count` or anything else. Empty for every harvest but the great ruin's.
+    pub also: Vec<Stack>,
 }
 
 impl HarvestDef {
@@ -186,6 +190,16 @@ struct RawHarvest {
     risk: f32,
     #[serde(default)]
     clear: Option<RawClear>,
+    #[serde(default)]
+    also: Vec<RawStack>,
+}
+
+/// One `also = [{ item, count }]` entry of a harvest.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStack {
+    item: String,
+    count: u32,
 }
 
 /// `[harvest.clear]` (`docs/design/clearing.md`, issue #411/#424): the Clear designation's own
@@ -424,6 +438,16 @@ impl JobsFile {
                     Some(ClearDef { work: c.work, item, count: c.count.unwrap_or(0), risk: c.risk })
                 }
             };
+            let mut also = Vec::new();
+            for a in &h.also {
+                let Some(i) = items.iter().position(|i| i.id == a.item) else {
+                    return err(format!("harvest {r}: also: unknown item {:?}", a.item));
+                };
+                if a.count == 0 {
+                    return err(format!("harvest {r}: also: count must be at least 1"));
+                }
+                also.push(Stack { item: ItemId(i as u16), count: a.count });
+            }
             let noun = h.noun.unwrap_or_else(|| resources[resource].name.to_lowercase());
             let noun_many = h.noun_many.unwrap_or_else(|| format!("{noun}s"));
             harvests.push(HarvestDef {
@@ -442,6 +466,7 @@ impl JobsFile {
                 strain: h.strain,
                 risk: h.risk,
                 clear,
+                also,
             });
         }
         link_unlocks(&mut harvests, resources, techs)?;
@@ -480,6 +505,7 @@ impl JobsFile {
                         strain: 0.0,
                         risk: 0.0,
                         clear: None,
+                        also: Vec::new(),
                     },
                     terrains: r.terrains,
                 })

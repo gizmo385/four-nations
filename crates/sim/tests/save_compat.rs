@@ -425,3 +425,49 @@ fn a_save_carrying_the_retired_unit_variant_loads_and_drops_it() {
     assert!(FIXTURE.contains("variant:"));
     World::load(FIXTURE, &defs).unwrap();
 }
+
+// ---- Great ruins in a pre-phase-5 save (#736) ----
+
+/// A save from before phase 5 (no `teachings`, and no great ruins: its data had no promote pass)
+/// gets its great ruins on load, among its still-buried lost ruins, the same ones every time.
+#[test]
+fn a_pre_phase_5_save_gets_great_ruins_from_its_buried_lost_ruins() {
+    let mut files = bundled_text();
+    let promote = files[1].find("[resource.promote]").expect("great_ruins promotes");
+    files[1].truncate(promote);
+    let old = defs_from(&files);
+    let defs = Defs::bundled();
+    let (lost, great) =
+        (defs.resource_id("lost_ruins").unwrap(), defs.resource_id("great_ruins").unwrap());
+    let cfg = MapGenConfig { seed: 7, width: 192, height: 128, ..MapGenConfig::default() };
+    let world = World::new(&cfg, Nation::Air, 3, &old);
+    assert!(world.buried().all(|(_, r)| r != great), "the old data placed no great ruins");
+    let before: BTreeSet<Pos> =
+        world.buried().filter(|&(_, r)| r == lost).map(|(p, _)| p).collect();
+    let text = world.save(&old).unwrap();
+    let at = text.find("teachings:").expect("a phase-5 save writes teachings");
+    let (head, body) = text.split_at(at);
+    // Drop the `teachings:(...)` field, as a save written before it existed.
+    let close = body.find(')').unwrap() + 1;
+    let rest = body[close..].strip_prefix(',').unwrap_or(&body[close..]);
+    let old_save = format!("{head}{rest}");
+
+    let a = World::load(&old_save, &defs).unwrap();
+    let b = World::load(&old_save, &defs).unwrap();
+    assert!(a.great_ruins_placed());
+    let greats = |w: &World| -> Vec<Pos> {
+        w.buried().filter(|&(_, r)| r == great).map(|(p, _)| p).collect()
+    };
+    assert_eq!(greats(&a), greats(&b), "the upgrade is deterministic");
+    assert_eq!(greats(&a).len(), 2, "Small gets 2");
+    assert!(greats(&a).iter().all(|p| before.contains(p)), "only buried lost ruins promote");
+    let after: BTreeSet<Pos> =
+        a.buried().filter(|&(_, r)| r == lost || r == great).map(|(p, _)| p).collect();
+    assert_eq!(after, before, "nothing else moved");
+    // A new save of the upgraded world loads as it is: no second promotion.
+    let again = World::load(&a.save(&defs).unwrap(), &defs).unwrap();
+    assert_eq!(greats(&again), greats(&a));
+    // And a world made with today's data put the same ruins there at mapgen.
+    let fresh = World::new(&cfg, Nation::Air, 3, &defs);
+    assert_eq!(BTreeSet::from_iter(greats(&fresh)), BTreeSet::from_iter(greats(&a)));
+}

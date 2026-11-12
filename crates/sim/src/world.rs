@@ -76,6 +76,7 @@ mod study;
 mod sun_tests;
 mod tally;
 mod tea;
+mod teachings;
 mod trade;
 mod work;
 
@@ -98,7 +99,7 @@ use endeavor::EndeavorLog;
 pub use endeavor::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
-pub use events::Event;
+pub use events::{Event, FindEvent};
 pub use farm::PlotStage;
 use forge::CraftState;
 pub use forge::RecipeError;
@@ -635,6 +636,10 @@ pub struct World {
     /// deterministic.
     #[serde(default = "harm::default_sickness_rng")]
     sickness_rng: SimRng,
+    /// Lost teachings (docs/design/horizons-phase-5.md, #736). A save from before phase 5 loads
+    /// the default, `placed = false`, and `load` places its great ruins.
+    #[serde(default)]
+    teachings: teachings::Teachings,
     rng: SimRng,
 }
 
@@ -718,6 +723,7 @@ impl World {
             newcomer_rng: population::new_newcomer_rng(seed),
             injury_rng: injury::new_rng(seed),
             sickness_rng: harm::new_sickness_rng(seed),
+            teachings: teachings::Teachings::new(),
             rng: rng::stream(seed, "world.units"),
         };
         world.bury(defs);
@@ -746,6 +752,11 @@ impl World {
     /// to know.
     pub fn buried_count(&self) -> usize {
         self.buried.len()
+    }
+
+    /// Every buried resource still underground, by position.
+    pub fn buried(&self) -> impl Iterator<Item = (Pos, ResourceId)> + '_ {
+        self.buried.iter().map(|(&p, &r)| (p, r))
     }
 
     /// The research state, for `save::load` to remap its positional `known` table (#602).
