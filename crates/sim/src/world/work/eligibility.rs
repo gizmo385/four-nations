@@ -210,9 +210,7 @@ impl World {
     /// Whether an unclaimed job of `kind` should stay in the queue: its target hasn't gone.
     pub(super) fn job_is_live(&self, kind: JobKind, defs: &Defs) -> bool {
         match kind {
-            JobKind::Harvest { pos } => {
-                self.map[pos].resource.is_some_and(|r| defs.harvest(r).is_some())
-            }
+            JobKind::Harvest { pos } => self.harvest_at(pos, defs).is_some(),
             JobKind::Haul { pos } => self.ground.contains_key(&pos),
             // Left for a unit to find out: a bend that can't happen is reported as a failed
             // event, not silently dropped.

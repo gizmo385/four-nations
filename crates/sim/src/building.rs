@@ -670,6 +670,11 @@ pub struct BuildingDef {
     /// with the tech that adds them, in tech order. At most one tech per building, today, but a
     /// list keeps `World::seats_at` honest if a second property shares the mechanism.
     pub seat_upgrades: Vec<(TechId, u32)>,
+    /// The tech after which new sites have no bill (`free` upgrade, #727), or `None`.
+    pub free_upgrade: Option<TechId>,
+    /// The tech after which no tile within the radius of a finished one is cold (`shelter`
+    /// upgrade, #727), with the radius, or `None`.
+    pub shelter_upgrade: Option<(TechId, u32)>,
     /// The end game's great work (#236): hidden from the build picker and refused by
     /// `Command::DesignateBuild`. `data/endeavor.toml` names it and holds its stages.
     pub endeavor: bool,
@@ -1436,6 +1441,8 @@ impl BuildingsFile {
                 balloon,
                 unlocked_by: None,
                 seat_upgrades: Vec::new(),
+                free_upgrade: None,
+                shelter_upgrade: None,
                 endeavor: b.endeavor,
                 beside: b.beside,
                 aura,
@@ -1899,12 +1906,29 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
         let err =
             |msg: String| Err(DefsError(format!("tech {}: unlocks.upgrades: {msg}", tech.id)));
         for up in &tech.unlocks.upgrades {
+            if up.item.is_some() {
+                // An item upgrade: `jobs::resolve_item_upgrades` checks it.
+                if !up.building.is_empty() {
+                    return err(format!(
+                        "{:?} names both an item and a building; give one",
+                        up.building
+                    ));
+                }
+                continue;
+            }
+            if up.stands_for.is_some() {
+                return err("`stands_for` is an item upgrade's property".into());
+            }
             let name = &up.building;
             let Some(b) = buildings.iter_mut().find(|b| b.id == *name) else {
                 return err(format!("unknown building {name:?}"));
             };
-            if up.seats.is_some() == up.recipe.is_some() {
-                return err(format!("{name:?} must name exactly one property: seats or recipe"));
+            let named =
+                [up.seats.is_some(), up.recipe.is_some(), up.free.is_some(), up.shelter.is_some()];
+            if named.iter().filter(|&&n| n).count() != 1 {
+                return err(format!(
+                    "{name:?} must name exactly one property: seats, recipe, free or shelter"
+                ));
             }
             if let Some(n) = tech.nation {
                 let reach = b.unlocked_by.map(|u| techs[u.0 as usize].nation);
@@ -1926,6 +1950,33 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                     ));
                 }
                 b.seat_upgrades.push((TechId(t as u16), seats));
+            }
+            let taken = |other: TechId, what: &str| {
+                err(format!(
+                    "{name:?} {what} is already upgraded by {:?}; a property has one tech",
+                    techs[other.0 as usize].id
+                ))
+            };
+            if let Some(free) = up.free {
+                if !free {
+                    return err(format!("{name:?}: free can only be true"));
+                }
+                if b.cost.is_empty() {
+                    return err(format!("{name:?} has no cost to make free"));
+                }
+                if let Some(other) = b.free_upgrade {
+                    return taken(other, "free");
+                }
+                b.free_upgrade = Some(TechId(t as u16));
+            }
+            if let Some(radius) = up.shelter {
+                if !(1..=12).contains(&radius) {
+                    return err(format!("shelter = {radius} must be 1 to 12"));
+                }
+                if let Some((other, _)) = b.shelter_upgrade {
+                    return taken(other, "shelter");
+                }
+                b.shelter_upgrade = Some((TechId(t as u16), radius));
             }
             if let Some(id) = &up.recipe {
                 let Some(alt) = b.alt_recipes.iter_mut().find(|a| a.id == *id) else {

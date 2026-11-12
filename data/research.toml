@@ -767,3 +767,46 @@ item = "ancient_scroll"
 count = 3
 [tech.unlocks]
 features = ["pack_up"]
+
+# Water's "North or South?": a city of ice at the water's edge (#726), or ranging camps along
+# the coast (#727).
+[[school]]
+id = "water_pole"
+nation = "water"
+question = "North or South?"
+
+[[tech]]
+id = "northern_city"
+name = "Northern City"
+description = "Cut ice like stone, and raise a city of it at the water's edge."
+nation = "water"
+cost = 1000
+prereqs = ["spirit_oasis"]
+school = "water_pole"
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+item = "ice"
+stands_for = "stone"
+
+[[tech]]
+id = "southern_ways"
+name = "Southern Ways"
+description = "Range the whole coast in small camps that keep the crews warm and fed."
+nation = "water"
+cost = 1000
+prereqs = ["spirit_oasis"]
+school = "water_pole"
+[[tech.cost_items]]
+item = "ancient_scroll"
+count = 3
+[tech.unlocks]
+features = ["shore_fishing"]
+[[tech.unlocks.upgrades]]
+building = "waystation"
+free = true
+[[tech.unlocks.upgrades]]
+building = "waystation"
+shelter = 6

@@ -255,9 +255,9 @@ fn cancelling_before_work_starts_refunds_what_was_delivered() {
     begin(&mut w, &defs);
     let stone = defs.item_id("stone").unwrap();
     run_until(&mut w, &defs, 2_000, |w| {
-        w.gate().is_some_and(|g| count_of(&g.delivered, stone, &defs) > 0)
+        w.gate().is_some_and(|g| count_of(&g.delivered, stone, &w.stand_ins(&defs), &defs) > 0)
     });
-    let delivered = count_of(&w.gate().unwrap().delivered, stone, &defs);
+    let delivered = count_of(&w.gate().unwrap().delivered, stone, &w.stand_ins(&defs), &defs);
     assert!(delivered < 30);
     w.apply(Command::CancelEndeavor, &defs).expect("no work yet");
     assert_eq!(*w.endeavor(), EndeavorState::Ready { tick: 0 });
@@ -423,4 +423,24 @@ fn the_whole_ready_to_complete_run_is_deterministic() {
         (w.tick, w.endeavor_events().cloned().collect::<Vec<_>>())
     };
     assert_eq!(play(), play());
+}
+
+/// #726: with Northern City known, ice pays a gate stage's stone, and goes on the stage as ice.
+#[test]
+fn ice_pays_a_gate_stages_stone_with_northern_city() {
+    let defs = defs_with(
+        "[[stage]]\nid = \"base\"\nname = \"Base\"\ncost = [{ item = \"stone\", count = 10 }]\n\
+         work = 50.0\n",
+    );
+    let mut w = world(Nation::Water, 2, &defs);
+    let (stone, ice) = (defs.item_id("stone").unwrap(), defs.item_id("ice").unwrap());
+    // Swap the stone stockpile for ice.
+    w.stored.insert(at(1, 8), Stack { item: ice, count: 40 });
+    w.research.grant(defs.tech_id("northern_city").unwrap());
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 4_000, |w| {
+        w.gate().is_some_and(|g| count_of(&g.delivered, stone, &w.stand_ins(&defs), &defs) >= 10)
+    });
+    let g = w.gate().unwrap();
+    assert!(g.delivered.iter().all(|s| s.item == ice), "{:?}", g.delivered);
 }

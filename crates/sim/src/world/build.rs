@@ -140,6 +140,11 @@ pub(super) struct Site {
     /// field existed) is read the same way (missing entries default to 0, `cancel_build`).
     #[serde(default)]
     stand_in_delivered: Vec<u32>,
+    /// The stand-in items actually delivered (#726: with ice and brick both paying for stone,
+    /// the count alone can't say which to give back). Empty in a save from before it existed,
+    /// where the one static stand-in is what `stand_in_delivered` counted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    stand_in_items: Vec<Stack>,
     progress: f32,
     /// The footprint it was designated with, `[w, h]`; the site is keyed by its anchor. Skipped
     /// when 1x1, like `Building::size`.
@@ -150,6 +155,10 @@ pub(super) struct Site {
     /// raised.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) link: Option<Pos>,
+    /// Placed once its building's `free` upgrade was known (#727): it has no bill, only work,
+    /// and stays so if the tech were somehow lost.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    free: bool,
 }
 
 impl Site {
@@ -160,9 +169,11 @@ impl Site {
             building,
             delivered: Vec::new(),
             stand_in_delivered: Vec::new(),
+            stand_in_items: Vec::new(),
             progress: 0.0,
             size,
             link: None,
+            free: false,
         }
     }
 
@@ -189,6 +200,11 @@ impl World {
     pub fn build_site(&self, pos: Pos) -> Option<(BuildingId, &[u32], f32)> {
         let (anchor, s) = self.site_at(pos)?;
         (!self.is_gate(anchor)).then_some((s.building, &s.delivered, s.progress))
+    }
+
+    /// Whether the unfinished site covering `pos` has no bill (`free` upgrade, #727).
+    pub fn site_is_free(&self, pos: Pos) -> bool {
+        self.site_at(pos).is_some_and(|(_, s)| s.free)
     }
 
     /// The building finished on `pos`, any tile of its footprint, if any.
@@ -740,15 +756,18 @@ impl World {
         let (w, h) = def.footprint;
         let delivered = vec![0; def.cost.len()];
         let stand_in_delivered = vec![0; def.cost.len()];
+        let free = def.free_upgrade.is_some_and(|t| self.research.is_known(t));
         self.sites.insert(
             pos,
             Site {
                 building,
                 delivered,
                 stand_in_delivered,
+                stand_in_items: Vec::new(),
                 progress: 0.0,
                 size: [w, h],
                 link: None,
+                free,
             },
         );
         for p in self.to_clear(pos, building, defs) {
@@ -782,17 +801,29 @@ impl World {
         {
             self.unlink_partner(pos, partner);
         }
+        let stand_ins = self.stand_ins(defs);
         for (idx, (cost, &count)) in def.cost.iter().zip(&site.delivered).enumerate() {
             let stand_in = site.stand_in_delivered.get(idx).copied().unwrap_or(0).min(count);
             let direct = count - stand_in;
             if direct > 0 {
                 self.place_ground(pos, Stack { item: cost.item, count: direct });
             }
-            if stand_in > 0
+            // Stand-ins delivered before `stand_in_items` existed were the static one.
+            let listed: u32 = site
+                .stand_in_items
+                .iter()
+                .filter(|s| stand_ins.stands_for(s.item, defs) == Some(cost.item))
+                .map(|s| s.count)
+                .sum();
+            let older = stand_in.saturating_sub(listed);
+            if older > 0
                 && let Some(stand_in_item) = defs.stand_in_for(cost.item)
             {
-                self.place_ground(pos, Stack { item: stand_in_item, count: stand_in });
+                self.place_ground(pos, Stack { item: stand_in_item, count: older });
             }
+        }
+        for &stack in &site.stand_in_items {
+            self.place_ground(pos, stack);
         }
         Ok(())
     }
@@ -807,6 +838,7 @@ impl World {
         self.raise(site.footprint(pos), site.building, defs);
         if let Some(b) = self.anchored_mut(pos) {
             b.link = site.link;
+            b.free = site.free;
         }
     }
 
@@ -814,6 +846,9 @@ impl World {
     /// (and `Site::delivered`), the item, and the amount still short.
     pub(super) fn next_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(usize, ItemId, u32)> {
         let site = self.sites.get(&pos)?;
+        if site.free {
+            return None;
+        }
         let cost = &defs.building(site.building).cost;
         cost.iter()
             .zip(&site.delivered)
@@ -832,7 +867,8 @@ impl World {
     /// `any_source`, but also true if a stand-in for `item` (brick for stone, issue #371) is
     /// anywhere. Used before paying for a flood to fetch a build or endeavor cost.
     pub(super) fn any_source_for(&self, item: ItemId, defs: &Defs) -> bool {
-        self.any_source(item) || defs.stand_in_for(item).is_some_and(|s| self.any_source(s))
+        self.any_source(item)
+            || self.stand_ins(defs).for_target(item, defs).into_iter().any(|s| self.any_source(s))
     }
 
     /// The nearest stockpile tile or ground stack holding `item`, stockpiles preferred on a tie,
@@ -874,7 +910,8 @@ impl World {
         // (path cost, stand-in rank, source rank, tile): the sort key a tie is broken by, in
         // order.
         type Key = (u32, u8, u8, Pos);
-        let stand_in = defs.stand_in_for(item);
+        let stand_ins = self.stand_ins(defs).for_target(item, defs);
+        let is_stand_in = |i: ItemId| stand_ins.contains(&i);
         let mut best: Option<(Key, Source, Pos, ItemId)> = None;
         let mut consider = |source_rank: u8,
                             item_rank: u8,
@@ -891,14 +928,14 @@ impl World {
         for (&pos, s) in &self.stored {
             if s.item == item {
                 consider(0, 1, pos, Source::Stockpile(pos), item, self.stand_tile(flood, pos));
-            } else if Some(s.item) == stand_in {
+            } else if is_stand_in(s.item) {
                 consider(0, 0, pos, Source::Stockpile(pos), s.item, self.stand_tile(flood, pos));
             }
         }
         for (&pos, s) in &self.ground {
             if s.item == item {
                 consider(1, 1, pos, Source::Ground(pos), item, self.stand_tile(flood, pos));
-            } else if Some(s.item) == stand_in {
+            } else if is_stand_in(s.item) {
                 consider(1, 0, pos, Source::Ground(pos), s.item, self.stand_tile(flood, pos));
             }
         }
@@ -940,10 +977,11 @@ impl World {
     fn deliver_to_site(&mut self, pos: Pos, stack: Stack, defs: &Defs) {
         let Some(site) = self.sites.get(&pos) else { return };
         let cost = &defs.building(site.building).cost;
+        let stands_for = self.stands_for(stack.item, defs);
         let Some(idx) = cost
             .iter()
             .position(|c| c.item == stack.item)
-            .or_else(|| cost.iter().position(|c| defs.stands_for(stack.item) == Some(c.item)))
+            .or_else(|| cost.iter().position(|c| stands_for == Some(c.item)))
         else {
             return;
         };
@@ -955,6 +993,10 @@ impl World {
         site.delivered[idx] += stack.count;
         if !direct {
             site.stand_in_delivered[idx] += stack.count;
+            match site.stand_in_items.iter_mut().find(|s| s.item == stack.item) {
+                Some(s) => s.count += stack.count,
+                None => site.stand_in_items.push(stack),
+            }
         }
     }
 

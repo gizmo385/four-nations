@@ -304,11 +304,11 @@ impl World {
     /// is fully supplied or nothing is on hand.
     fn site_trip(&self, pos: Pos, defs: &Defs) -> Option<i32> {
         let (_, item, _) = self.next_shortfall(pos, defs)?;
-        let stand_in = defs.stand_in_for(item);
+        let st = self.stand_ins(defs);
         self.stored
             .iter()
             .chain(self.ground.iter())
-            .filter(|(_, s)| s.item == item || Some(s.item) == stand_in)
+            .filter(|(_, s)| st.pays(s.item, item, defs))
             .map(|(&p, _)| p.chebyshev(pos))
             .min()
     }

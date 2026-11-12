@@ -16,8 +16,10 @@
 //! resting for its full regrow time, and every ripe, unharvested farm plot on one back to empty
 //! (#311).
 
+use crate::geom::Footprint;
 use crate::seasons::{ClimateDef, SeasonDef};
 
+use super::buildings::Kind;
 use super::*;
 
 /// A season change, the winter warning, or the first frost, oldest first
@@ -121,6 +123,24 @@ impl World {
             && self.season(defs).winter
             && self.climate_at(pos, defs).is_some_and(|c| c.cold)
             && !self.is_heated(pos)
+            && !self.is_sheltered(pos, defs)
+    }
+
+    /// Whether `pos` is within the radius of a finished building whose `shelter` upgrade is
+    /// known (`southern_ways`'s Waystation, #727): nobody there is cold.
+    pub fn is_sheltered(&self, pos: Pos, defs: &Defs) -> bool {
+        if !self.has_kind(Kind::Shelter) {
+            return false;
+        }
+        let here = Footprint::single(pos);
+        self.of_kind(Kind::Shelter).any(|b| {
+            let def = defs.building(b.id);
+            def.shelter_upgrade.is_some_and(|(tech, radius)| {
+                let (w, h) = def.footprint;
+                self.research.is_known(tech)
+                    && Footprint::new(b.anchor, w, h).gap(here) <= radius as i32
+            })
+        })
     }
 
     /// The growth-rate multiplier `World::growth_rate` (`work.rs`) applies for the seasons:

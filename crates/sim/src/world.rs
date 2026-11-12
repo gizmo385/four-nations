@@ -62,6 +62,9 @@ mod population;
 mod power;
 mod probe;
 mod season;
+#[cfg(test)]
+mod southern_tests;
+mod stand;
 mod strain;
 mod stride;
 mod study;
@@ -1120,7 +1123,8 @@ impl World {
             }
             let cold = in_winter
                 && self.climate_at(u.pos, defs).is_some_and(|c| c.cold)
-                && !self.is_heated(u.pos);
+                && !self.is_heated(u.pos)
+                && !self.is_sheltered(u.pos, defs);
             let (cold_hunger, cold_energy, cold_sleep) = if cold {
                 let c = &defs.seasons.cold;
                 let scale = |m: f32| 1.0 + (m - 1.0) * winter_severity;
