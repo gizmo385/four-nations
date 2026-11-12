@@ -922,6 +922,11 @@ impl Host {
             count: v.count,
             stage: v.stage,
             action: v.action,
+            united: v.united.map(|u| UnitedCityView {
+                population: u.population,
+                by_nation: u.by_nation,
+                next_milestone: u.next,
+            }),
             groups: v
                 .groups
                 .into_iter()
@@ -2289,7 +2294,22 @@ pub struct EndeavorScreenView {
     /// starts (the `cancel_gate` step). Absent otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
+    /// The United City view (#442), once the gate stands: the people by nation and the next
+    /// population milestone. Absent before; then `groups` is empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub united: Option<UnitedCityView>,
     pub groups: Vec<EndeavorGroupView>,
+}
+
+/// `screen {"endeavor"}` in the United City (#442).
+#[derive(Clone, Debug, Serialize)]
+pub struct UnitedCityView {
+    pub population: usize,
+    /// Each nation with a settler: (name, count).
+    pub by_nation: Vec<(String, usize)>,
+    /// The next population milestone; absent when the data has no more.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_milestone: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize)]

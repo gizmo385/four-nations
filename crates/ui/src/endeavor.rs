@@ -13,6 +13,7 @@ use fn_sim::{Defs, Pos, World};
 use crate::session::Session;
 use crate::text::compass_distance;
 use crate::tools::Tool;
+use crate::view::population_by_nation;
 
 /// What the toast and the log say once the endeavor is Ready.
 pub const READY_TEXT: &str = "Word of your settlement has reached the Avatar.";
@@ -41,8 +42,28 @@ pub struct ScreenView {
     /// The current chapter (#439), shown at the top: its signs until it's met, then its name
     /// alone. `None` when the data has no chapter.
     pub chapter: Option<ChapterView>,
-    /// The signs under their headings, in data order.
+    /// The signs under their headings, in data order. Empty in the United City, where the signs
+    /// are all behind it (`united`).
     pub groups: Vec<GroupView>,
+    /// The United City (#442, docs/design/endgame.md "The transformation"): once the gate stands,
+    /// the screen shows this in place of the chapter and the signs.
+    pub united: Option<UnitedView>,
+}
+
+/// The Endeavor screen's United City view (#442): who lives there and the next population
+/// milestone.
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct UnitedView {
+    /// The living settlers (the Avatar and beasts never count).
+    pub population: usize,
+    /// Each nation with at least one settler, as (name, count) (`view::population_by_nation`).
+    pub by_nation: Vec<(String, usize)>,
+    /// The next milestone's population, or `None` when the data has no more.
+    pub next: Option<u32>,
+    /// How far `population` is toward `next`, in `[0, 1]`: from the milestone before it (or
+    /// from nothing before the first).
+    pub frac: f32,
 }
 
 /// The Endeavor screen's CHAPTER section (#439, docs/design/pacing.md section 3).
@@ -523,8 +544,39 @@ fn chapter_view(world: &World, defs: &Defs) -> Option<ChapterView> {
     })
 }
 
+/// The United City's view (#442), once the gate stands.
+fn united_view(world: &World, defs: &Defs) -> Option<UnitedView> {
+    if !world.united() {
+        return None;
+    }
+    let population = world.settlers();
+    let next = world.next_milestone(defs);
+    // The bar runs from the milestone before `next` (the last one that fired, or none).
+    let from = next.map_or(0, |n| defs.endeavor.milestones.previous(n));
+    let frac = next.map_or(1.0, |n| {
+        let span = n.saturating_sub(from).max(1) as f32;
+        (population.saturating_sub(from as usize) as f32 / span).clamp(0.0, 1.0)
+    });
+    Some(UnitedView { population, by_nation: population_by_nation(world, defs), next, frac })
+}
+
 pub fn screen_view(session: &Session) -> ScreenView {
     let (world, defs) = (&session.world, &session.defs);
+    if let Some(united) = united_view(world, defs) {
+        return ScreenView {
+            name: "The United City".to_owned(),
+            description: String::new(),
+            met: 0,
+            total: 0,
+            count: format!("{} people", united.population),
+            frac: united.frac,
+            stage: stage(world, defs),
+            action: None,
+            chapter: None,
+            groups: Vec::new(),
+            united: Some(united),
+        };
+    }
     let signs = signs(world, defs);
     let met = signs.iter().filter(|(_, p)| p.met).count();
     let total = signs.len();
@@ -548,6 +600,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         action: crate::gate::action(session).map(|a| a.hint().to_owned()),
         chapter: chapter_view(world, defs),
         groups,
+        united: None,
     }
 }
 
@@ -632,6 +685,12 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
             .to_owned(),
         EndeavorEventKind::RiteBroken => "The rite is broken by grief.".to_owned(),
         EndeavorEventKind::Complete => format!("{} is complete.", defs.endeavor.name),
+        // A United City population milestone (#442): the data's own words.
+        EndeavorEventKind::PopulationMilestone(n) => defs
+            .endeavor
+            .milestones
+            .toast(*n)
+            .unwrap_or_else(|| format!("The United City passes {n} souls.")),
         EndeavorEventKind::AvatarFarewell => {
             let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
             format!("{name} gives his farewell and flies off on Appa.")
@@ -916,6 +975,12 @@ mod tests {
         assert_eq!(describe_event(&defs, &broken), "The rite is broken by grief.");
         let complete = EndeavorEvent { tick: 10, kind: EndeavorEventKind::Complete };
         assert_eq!(describe_event(&defs, &complete), "The Harmony Gate is complete.");
+        for (n, want) in [(24, "passes 24 souls"), (32, "passes 32 souls"), (56, "passes 56 souls")]
+        {
+            let milestone =
+                EndeavorEvent { tick: 10, kind: EndeavorEventKind::PopulationMilestone(n) };
+            assert!(describe_event(&defs, &milestone).contains(want), "{n}");
+        }
         let farewell = EndeavorEvent { tick: 10, kind: EndeavorEventKind::AvatarFarewell };
         assert_eq!(
             describe_event(&defs, &farewell),

@@ -84,7 +84,7 @@ fn the_bundled_caravans_load() {
         assert!(c.deals.len() >= 4, "{:?}", c.nation);
         assert!(!c.requests.is_empty(), "{:?}", c.nation);
     }
-    let visitors: Vec<Nation> = s.visitors(Nation::Earth).collect();
+    let visitors: Vec<Nation> = s.visitors(Nation::Earth, false).collect();
     assert_eq!(visitors, [Nation::Fire, Nation::Water, Nation::Air]);
 }
 
@@ -498,7 +498,8 @@ fn a_table_brings_lotus_deals_in_winter_and_keeps_the_rest() {
         let caravan = with.caravan_def(&defs).unwrap();
         for o in &with.caravan().unwrap().offers {
             assert!(
-                matches!(o.kind, OfferKind::Request(_)) || o.kind.deal(caravan, &defs).is_some()
+                matches!(o.kind, OfferKind::Request(_))
+                    || o.kind.deal(caravan, &defs, false).is_some()
             );
         }
     }
@@ -561,7 +562,7 @@ fn a_lotus_deal_can_be_taken_and_completes() {
     let slot =
         w.caravan().unwrap().offers.iter().position(|o| {
             matches!(o.kind, OfferKind::Lotus { .. })
-                && o.kind.deal(caravan, &defs).unwrap().give.iter().all(|g| {
+                && o.kind.deal(caravan, &defs, false).unwrap().give.iter().all(|g| {
                     !g.any_food && g.items.iter().any(|i| stocked.contains(i)) || g.any_food
                 })
         });
@@ -599,4 +600,153 @@ fn the_crystal_grotto_and_its_trade_rows_load() {
     assert_eq!(takes(Nation::Water).0, Some(vec![(tool, 4)]));
     assert_eq!(takes(Nation::Air).1, Some(Reward::Draw(1000)));
     assert_eq!(takes(Nation::Earth), (None, None));
+}
+
+// --- The United City (#442) ---
+
+/// An Earth world whose gate stands, with the quick schedule and no chapter to wait for.
+fn united_world(seed: u64, units: i32, defs: &Defs) -> World {
+    let mut w = world(seed, units, defs);
+    w.endeavor = EndeavorState::Complete { tick: 0 };
+    w
+}
+
+#[test]
+fn united_caravans_include_the_home_nation_and_take_turns_in_order() {
+    let defs = defs_with(false, None);
+    let mut w = united_world(1, 1, &defs);
+    let slot = |k: u64| k * minutes(10.0) + minutes(0.2);
+    run(&mut w, &defs, slot(4) + 1);
+    let arrivals: Vec<Nation> = w
+        .caravan_events()
+        .filter_map(|e| match e.kind {
+            CaravanEventKind::Arrived { nation, .. } => Some(nation),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        arrivals,
+        [Nation::Earth, Nation::Fire, Nation::Water, Nation::Air, Nation::Earth],
+        "all four nations, Earth's own included, then round again"
+    );
+    assert!(w.caravan().unwrap().united);
+    assert_eq!(w.next_caravan(&defs).map(|(_, n)| n), Some(Nation::Fire));
+}
+
+#[test]
+fn before_the_gate_the_visit_is_not_united() {
+    let defs = defs_with(false, None);
+    let mut w = world(1, 1, &defs);
+    run(&mut w, &defs, minutes(0.2) + 1);
+    assert!(!w.caravan().unwrap().united);
+}
+
+#[test]
+fn a_united_visit_scales_its_deals_and_draws_a_united_request() {
+    let defs = defs_with(false, None);
+    let scale = defs.trade.schedule.as_ref().unwrap().united_scale;
+    assert_eq!(scale, 1.5);
+    let mut w = united_world(1, 3, &defs);
+    run(&mut w, &defs, minutes(0.2) + 1);
+    let v = w.caravan().unwrap().clone();
+    assert_eq!(v.nation, Nation::Earth, "Earth's own kin are first in turn");
+    assert_eq!(v.offers.len(), 4, "three deals and the request, as before the gate");
+    let usual = defs.trade.caravan(Nation::Earth, false).unwrap();
+    let united = w.caravan_def(&defs).unwrap();
+    for (slot, offer) in v.offers.iter().enumerate() {
+        match offer.kind {
+            OfferKind::Deal(d) => {
+                let (base, scaled) = (&usual.deals[usize::from(d)], &united.deals[usize::from(d)]);
+                assert_eq!(scaled.times, (base.times as f32 * scale).round() as u32);
+                for (b, s) in base.give.iter().zip(&scaled.give) {
+                    assert_eq!(s.count, (b.count as f32 * scale).round() as u32);
+                }
+                // The slot can be taken as many times as the scaled deal allows, and no more.
+                for _ in 0..scaled.times {
+                    assert_eq!(w.apply(Command::TakeDeal { slot: slot as u8 }, &defs), Ok(()));
+                }
+                assert_eq!(
+                    w.apply(Command::TakeDeal { slot: slot as u8 }, &defs),
+                    Err(CommandError::Trade(TradeError::AllTaken))
+                );
+                assert!(scaled.times > base.times, "{base:?}");
+            }
+            OfferKind::Request(r) => {
+                let req = &united.requests[usize::from(r)];
+                assert!(united.united.contains(req), "drawn from the united list");
+                assert!(!usual.requests.contains(req));
+            }
+            OfferKind::Lotus { .. } => panic!("no table stands"),
+        }
+    }
+}
+
+#[test]
+fn a_united_request_pays_its_draw_and_logs_the_united_list() {
+    let defs = defs_with(false, None);
+    // Earth's united requests: stone (150, in stores: 200), food and wares. Take the first seed
+    // that offers the stone one.
+    let (mut w, slot) = (1..64)
+        .find_map(|seed| {
+            let mut w = united_world(seed, 6, &defs);
+            run(&mut w, &defs, minutes(0.2) + 1);
+            let v = w.caravan().unwrap();
+            let slot = (v.offers.len() - 1) as u8;
+            let OfferKind::Request(r) = v.offers[usize::from(slot)].kind else { panic!("request") };
+            let name = &w.caravan_def(&defs).unwrap().requests[usize::from(r)].name;
+            (name == "Stone for Omashu's walls").then_some((w, slot))
+        })
+        .expect("some seed offers the stone request");
+    w.apply(Command::TakeDeal { slot }, &defs).unwrap();
+    let before = w.draw;
+    run_until(&mut w, &defs, minutes(7.5), |w| {
+        w.caravan_events().any(|e| matches!(e.kind, CaravanEventKind::RequestDone { .. }))
+    });
+    assert!(w.draw > before, "a whole newcomer's draw (1.0) was granted");
+    let done = w.caravan_events().find_map(|e| match e.kind {
+        CaravanEventKind::RequestDone { nation, united, .. } => Some((nation, united)),
+        _ => None,
+    });
+    assert_eq!(done, Some((Nation::Earth, true)));
+}
+
+#[test]
+fn the_united_scale_is_data_and_checked() {
+    let err = |from: &str, to: &str| {
+        Defs::bundled().with_trade(&TRADE.replacen(from, to, 1)).expect_err("rejected").0
+    };
+    assert!(err("united_scale = 1.5", "united_scale = 0.5").contains("united_scale"));
+    assert!(err("united_scale = 1.5", "united_scale = 9.0").contains("united_scale"));
+    // Scale 2: counts and times double.
+    let defs = Defs::bundled()
+        .with_trade(&TRADE.replacen("united_scale = 1.5", "united_scale = 2.0", 1))
+        .unwrap();
+    let earth = defs.trade.caravan(Nation::Earth, true).unwrap();
+    assert_eq!(earth.deals[0].times, 4);
+    assert_eq!(earth.deals[0].get, [(defs.item_id("stone").unwrap(), 40)]);
+    // Without the key the default is 1.5.
+    let defs = Defs::bundled().with_trade(&TRADE.replacen("united_scale = 1.5\n", "", 1)).unwrap();
+    assert_eq!(defs.trade.schedule.unwrap().united_scale, 1.5);
+}
+
+#[test]
+fn every_nation_has_a_united_request_list() {
+    let defs = Defs::bundled();
+    for c in &defs.trade.caravans {
+        assert!(!c.united.is_empty(), "{:?}", c.nation);
+        for r in &c.united {
+            assert!(matches!(r.reward, Reward::Draw(_)), "{}: united requests pay draw", r.name);
+        }
+        let u = defs.trade.caravan(c.nation, true).unwrap();
+        assert_eq!(u.requests, c.united);
+        assert_eq!(u.deals.len(), c.deals.len());
+    }
+    // A caravan without one is refused at load.
+    let stripped = TRADE.replacen("[[caravan.united]]", "[[caravan.request]]", 1);
+    assert!(
+        Defs::bundled().with_trade(&stripped).is_ok(),
+        "moving one is fine while others remain"
+    );
+    let none = TRADE.replace("[[caravan.united]]", "[[caravan.request]]");
+    assert!(Defs::bundled().with_trade(&none).expect_err("rejected").0.contains("united"));
 }

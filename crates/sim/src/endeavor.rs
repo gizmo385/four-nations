@@ -48,6 +48,8 @@ pub struct EndeavorDef {
     /// order. A chapter latches the first time all its signs are met at once; its reward is a
     /// door, such as the caravans (`data/trade.toml`'s `opens`).
     pub chapters: Vec<ChapterDef>,
+    /// Population milestones of the United City (#442), once the gate stands.
+    pub milestones: MilestonesDef,
     /// The building the endeavor raises (`endeavor = true` in `data/buildings.toml`). Set exactly
     /// when there are stages.
     pub building: Option<BuildingId>,
@@ -75,6 +77,71 @@ pub struct ChapterDef {
     pub hint: String,
     /// Its signs, in the order `signs` lists them; every one has `chapter = true` in the data.
     pub signs: Vec<SignDef>,
+}
+
+/// The United City's population milestones (`[[milestone]]` and `[milestone_repeat]`, #442,
+/// docs/design/pacing.md section 4, owner decision #929): the populations listed, in increasing
+/// order, then (with a repeat) one more every `every` people after the last, without end. Without
+/// a repeat the list is all there is.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MilestonesDef {
+    pub list: Vec<MilestoneDef>,
+    pub repeat: Option<MilestoneRepeat>,
+}
+
+/// One listed milestone (`[[milestone]]`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MilestoneDef {
+    /// The population that reaches it.
+    pub population: u32,
+    /// The toast and log line when the settlement first reaches it.
+    pub toast: String,
+}
+
+/// `[milestone_repeat]`: the milestones after the last listed one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MilestoneRepeat {
+    /// A milestone every this many people past the last listed one.
+    pub every: u32,
+    /// Its toast; `{population}` stands for the milestone's population.
+    pub toast: String,
+}
+
+impl MilestonesDef {
+    /// The first milestone above `population`: the next listed one, else the next step of the
+    /// repeat. `None` once the list is used up and there is no repeat.
+    pub fn next_after(&self, population: u32) -> Option<u32> {
+        if let Some(m) = self.list.iter().find(|m| m.population > population) {
+            return Some(m.population);
+        }
+        let (last, repeat) = (self.list.last()?, self.repeat.as_ref()?);
+        let steps = (population - last.population) / repeat.every + 1;
+        Some(last.population + steps * repeat.every)
+    }
+
+    /// The milestone just before `milestone` ([`next_after`](Self::next_after)'s values): 0 for
+    /// the first. For a progress bar toward `milestone`.
+    pub fn previous(&self, milestone: u32) -> u32 {
+        let listed = self.list.iter().rev().find(|m| m.population < milestone);
+        let stepped = self
+            .repeat
+            .as_ref()
+            .and_then(|r| milestone.checked_sub(r.every))
+            .filter(|&p| self.list.last().is_some_and(|l| p >= l.population));
+        stepped.or(listed.map(|m| m.population)).unwrap_or(0)
+    }
+
+    /// The toast of the milestone at exactly `population` ([`next_after`](Self::next_after)'s
+    /// values): a listed one's own, or the repeat's with `{population}` filled in.
+    pub fn toast(&self, population: u32) -> Option<String> {
+        if let Some(m) = self.list.iter().find(|m| m.population == population) {
+            return Some(m.toast.clone());
+        }
+        let (last, repeat) = (self.list.last()?, self.repeat.as_ref()?);
+        let past = population.checked_sub(last.population).filter(|p| *p > 0)?;
+        (past % repeat.every == 0)
+            .then(|| repeat.toast.replace("{population}", &population.to_string()))
+    }
 }
 
 /// See `EndeavorDef::master_bends`.
@@ -319,9 +386,65 @@ pub(crate) struct EndeavorFile {
     #[serde(default)]
     chapter: Vec<RawChapter>,
     #[serde(default)]
+    milestone: Vec<RawMilestone>,
+    #[serde(default)]
+    milestone_repeat: Option<RawMilestoneRepeat>,
+    #[serde(default)]
     stage: Vec<RawStage>,
     #[serde(default)]
     avatar: Option<RawAvatar>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMilestone {
+    population: u32,
+    toast: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMilestoneRepeat {
+    every: u32,
+    toast: String,
+}
+
+/// Checks the milestones: populations of at least 1 in increasing order, a toast on each, and a
+/// repeat only after at least one listed milestone, with a step of at least 1.
+fn resolve_milestones(
+    list: Vec<RawMilestone>,
+    repeat: Option<RawMilestoneRepeat>,
+) -> Result<MilestonesDef, DefsError> {
+    let err = |msg: String| DefsError(format!("milestone: {msg}"));
+    let mut out: Vec<MilestoneDef> = Vec::with_capacity(list.len());
+    for m in list {
+        if m.population == 0 || m.population > 100_000 {
+            return Err(err("population must be in 1..=100000".into()));
+        }
+        if out.last().is_some_and(|l| l.population >= m.population) {
+            return Err(err(format!("{}: populations must increase down the file", m.population)));
+        }
+        if m.toast.trim().is_empty() {
+            return Err(err(format!("{}: toast must not be empty", m.population)));
+        }
+        out.push(MilestoneDef { population: m.population, toast: m.toast });
+    }
+    let repeat = match repeat {
+        None => None,
+        Some(_) if out.is_empty() => {
+            return Err(err("[milestone_repeat] needs at least one [[milestone]]".into()));
+        }
+        Some(r) => {
+            if !(1..=1000).contains(&r.every) {
+                return Err(err("milestone_repeat.every must be in 1..=1000".into()));
+            }
+            if r.toast.trim().is_empty() {
+                return Err(err("milestone_repeat.toast must not be empty".into()));
+            }
+            Some(MilestoneRepeat { every: r.every, toast: r.toast })
+        }
+    };
+    Ok(MilestonesDef { list: out, repeat })
 }
 
 #[derive(Deserialize)]
@@ -545,6 +668,7 @@ impl EndeavorFile {
             signs.push(sign);
         }
         let chapters = resolve_chapters(self.chapter, chapter_signs)?;
+        let milestones = resolve_milestones(self.milestone, self.milestone_repeat)?;
         let mut stages: Vec<StageDef> = Vec::with_capacity(self.stage.len());
         for raw in self.stage {
             let stage = raw.resolve(items, chi_max)?;
@@ -606,6 +730,7 @@ impl EndeavorFile {
             description,
             signs,
             chapters,
+            milestones,
             building,
             stages,
             avatar,

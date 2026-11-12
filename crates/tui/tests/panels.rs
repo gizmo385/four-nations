@@ -972,6 +972,39 @@ fn the_endeavor_screen_lists_the_gates_groups_and_signs() {
     }
 }
 
+/// #442: once the gate stands the Endeavor screen is the United City: the people by nation and
+/// the next population milestone, in place of the chapter and the signs. A save round trip puts
+/// the state in (meeting every sign takes a whole settlement's worth of play).
+#[test]
+fn the_endeavor_screen_is_the_united_city_once_the_gate_stands() {
+    let mut a = app(7, Nation::Earth, TALL);
+    let text_in = a.session.world.save(&a.session.defs).unwrap();
+    let text_in = text_in.replacen("Dormant", "Complete(tick:0)", 1);
+    a.session.world = fn_sim::World::load(&text_in, &a.session.defs).expect("round trip");
+    assert!(a.session.world.united());
+    // Two of the six settlers are Fire kin; the rest stay Earth.
+    for u in a.session.world.units.iter_mut().take(2) {
+        u.nation = Some(Nation::Fire);
+    }
+    run(&mut a, "g");
+    let frame = text(&mut a, TALL);
+    for want in [
+        "The United City",
+        "6 people",
+        "The Harmony Gate stands",
+        "PEOPLE",
+        "Earth Kingdom",
+        "Fire Nation",
+        "NEXT MILESTONE",
+        "6/24 people",
+    ] {
+        assert!(frame.contains(want), "{want:?} in\n{frame}");
+    }
+    for gone in ["CHAPTER", "Stage: not begun", "BUILDINGS", "signs"] {
+        assert!(!frame.contains(gone), "{gone:?} in\n{frame}");
+    }
+}
+
 /// Before the first chart the scrolls sign is closed (#403, owner decisions 2026-11-09): a
 /// marked surface scroll and an unmarked one are both absent, and a lost ruin a Glide uncovered
 /// (one no chart recorded) is the only row. The open gate is covered through the agent surface
