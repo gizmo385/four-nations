@@ -7,6 +7,7 @@ mod frame;
 mod glyphs;
 mod keys;
 mod semantic;
+mod side;
 #[cfg(feature = "shots")]
 mod snapshot;
 mod theme;

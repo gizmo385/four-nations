@@ -7,8 +7,8 @@
 //!
 //! - [`Surface::Native`]: the game as egui panels. A one-row hint bar along the bottom
 //!   ([`crate::hints`]), the side panel on the right (300 points, resizable from 260 to 440) and
-//!   the map in the middle ([`MapView`]) with the tool banner on its top edge. Until the native
-//!   side panel (#877) lands, the side panel's slot shows the terminal panel's cells.
+//!   the map in the middle ([`MapView`]) with the tool banner on its top edge. The side panel
+//!   is native ([`crate::side`]), but for the inspector's rows, which are still cells.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
 //! - [`Surface::CellsBox`]: the native view, with only one box's rectangle painted from the
 //!   terminal's own drawing over the map.
@@ -21,14 +21,15 @@
 use web_time::Instant;
 
 use eframe::egui::{
-    self, Align2, Color32, FontFamily, FontId, Id, LayerId, Order, Rect, RichText, Sense, Ui,
-    UiBuilder, vec2,
+    self, Align2, Color32, FontFamily, FontId, Id, LayerId, Order, Rect, RichText, Ui, UiBuilder,
+    vec2,
 };
 use fn_tui::color::Palette;
 use fn_tui::layout::{MIN_HEIGHT, MIN_WIDTH};
 use fn_tui::shell::{self, Mode, Shell};
-use fn_tui::{ask, banner, draw, menu, panel};
+use fn_tui::{ask, banner, draw, menu};
 use fn_ui::app::App;
+use fn_ui::keyev::KeyEvent;
 use fn_ui::state::{BANNER_HEIGHT, Modal, Prompt, Screen, UiState};
 use ratatui::buffer::Buffer;
 
@@ -36,6 +37,7 @@ use crate::cells::{self, CellLayout, Metrics};
 use crate::color::to_egui;
 use crate::hints;
 use crate::mapview::MapView;
+use crate::side;
 
 /// The side panel's width on a fresh window, and the range the user can drag it through.
 pub const PANEL_DEFAULT: f32 = 300.0;
@@ -148,12 +150,20 @@ pub struct Frame {
     pub surface: Option<Surface>,
     /// The hint bar's text last frame (for tests and the web page's `data-` attributes).
     pub hint_text: String,
+    /// The keys the window's own widgets (the side panel's clicks) stand for, not yet given to
+    /// the shell ([`Frame::take_keys`]).
+    keys: Vec<KeyEvent>,
 }
 
 impl Frame {
     /// The shell's size in cells as of the last frame: the window's.
     pub fn size(&self) -> (u16, u16) {
         self.size
+    }
+
+    /// The keys this frame's clicks stand for, oldest first, for the shell to take as typed.
+    pub fn take_keys(&mut self) -> Vec<KeyEvent> {
+        std::mem::take(&mut self.keys)
     }
 
     /// Lays out one frame of `shell` into `root`, the window's root [`Ui`].
@@ -233,28 +243,20 @@ impl Frame {
             .frame(egui::Frame::NONE.fill(bar.fill))
             .show(root, |ui| hints::show(ui, &bar, &metrics.font));
 
-        // Until #877 the slot holds the terminal panel's own cells, drawn at the slot's size.
+        // The native side panel (#877). Its clicks come back as keys, which the window feeds
+        // the shell; with a box open over the map it shows but takes none.
+        let live = surface == Surface::Native;
+        let (mut clicks, mut inspector_ms) = (Vec::new(), 0.0);
         egui::Panel::right("side")
             .default_size(PANEL_DEFAULT)
             .size_range(PANEL_RANGE.0..=PANEL_RANGE.1)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(panel_fill))
             .show(root, |ui| {
-                let slot = ui.available_rect_before_wrap();
-                ui.allocate_rect(slot, Sense::hover());
-                let (pc, pr) = metrics.grid_in(slot.size());
-                if pc < 8 || pr < 4 {
-                    return;
-                }
-                let started = Instant::now();
-                let area = ratatui::layout::Rect::new(0, 0, pc, pr);
-                let mut buf = Buffer::empty(area);
-                panel::draw_panel(&app.session, &app.ui, palette, area, &mut buf);
-                let layout = CellLayout::new(&buf);
-                cells::paint(&ui.painter_at(slot), slot.min, metrics, &layout);
-                cells::expose(ui, slot.min, metrics, &layout, area);
-                self.timings.cells = started.elapsed().as_secs_f32() * 1000.0;
+                clicks = side::show(ui, app, palette, metrics, live, &mut inspector_ms);
             });
+        self.keys.extend(clicks);
+        self.timings.cells = inspector_ms;
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             let avail = ui.available_rect_before_wrap();
