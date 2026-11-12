@@ -16,10 +16,11 @@ fn_tui = { path = "../tui" }
 fn_ui = { path = "../ui" }
 ratatui = { version = "0.30", default-features = false }
 # glow (OpenGL), not wgpu: a smaller build, and it runs on Mesa's software renderer under Xvfb
-# for screenshots. egui_ratatui 2.2 pins egui ~0.34, so eframe follows it.
-eframe = { version = "0.34", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
-egui_ratatui = "2.2"
-soft_ratatui = { version = "0.2", default-features = false, features = ["unicodefonts"] }
+# for screenshots. The cells are painted by `fn_gui::cells` (#872), so nothing holds egui back.
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+# egui 0.37 no longer bundles its monochrome emoji fonts by default, and the data's `⌖` and `⛩`
+# are only in them (`fonts.rs` has the other symbols). Only the feature: eframe brings egui.
+egui = { version = "0.37", default-features = false, features = ["monochrome_emoji_fonts"] }
 # `std::time::Instant` panics on wasm32; web-time is std's on native and `performance.now()` on
 # the web (#843's egui-in-the-browser check).
 web-time = "1"
@@ -27,6 +28,7 @@ web-time = "1"
 # 5 MB and a save is up to 10. Both crates are already in the lockfile.
 miniz_oxide = "0.9"
 base64 = "0.22"
+unicode-width = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.129"
@@ -39,4 +41,4 @@ web-sys = { version = "0.3", features = [
 [dev-dependencies]
 # Snapshot tests of the map widget (#842's question: do they run headless in CI?). wgpu renders
 # them; with no GPU it needs a software adapter (Mesa's lavapipe for Vulkan, or llvmpipe via GL).
-egui_kittest = { version = "0.34", features = ["wgpu", "snapshot"] }
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }

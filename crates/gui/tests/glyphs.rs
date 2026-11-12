@@ -29,7 +29,7 @@ fn missing(ctx: &egui::Context) -> Vec<char> {
 fn context(defs: egui::FontDefinitions) -> egui::Context {
     let ctx = egui::Context::default();
     ctx.set_fonts(defs);
-    let _ = ctx.run_ui(Default::default(), |_| {});
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
     ctx
 }
 
@@ -53,6 +53,6 @@ fn with_the_bundled_font_every_glyph_draws() {
     // And through the entry points' own setup.
     let ctx = egui::Context::default();
     fn_gui::setup(&ctx);
-    let _ = ctx.run_ui(Default::default(), |_| {});
+    ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
     assert_eq!(missing(&ctx), Vec::<char>::new());
 }
