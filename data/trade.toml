@@ -39,7 +39,7 @@
 # [[caravan.united]]: the United City's requests (#442), shaped like [[caravan.request]]; at least
 #              one a nation. Once the gate stands a visit's request is drawn from these instead:
 #              bigger gifts, each a `draw` reward. (Owner decision #747: a draw reward brings a
-#              newcomer of the caravan's own nation here; #761 builds that.)
+#              newcomer of the caravan's own nation here; World::add_steered_draw.)
 
 [caravans]
 opens = "known_on_the_road"

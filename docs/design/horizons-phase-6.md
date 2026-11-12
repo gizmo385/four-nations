@@ -72,7 +72,7 @@ What this design assumes about the game after the gate, and where each assumptio
 
 | Assumption | Source | Status |
 |---|---|---|
-| Newcomers of every nation arrive after the gate, drawn by weight: own 0.4, each other 0.2 | #240, `data/needs.toml [growth]` | Shipped |
+| Newcomers of every nation arrive after the gate, drawn by weight: own 0.1, each other 0.3 (was 0.4 and 0.2); a United City caravan's request steers one of its own nation | #240, #747, #761, `data/needs.toml [growth]` | Shipped |
 | One newcomer every 10 minutes at 100% draw, between 60% and 140% | #353, #435 | #435 not yet shipped |
 | Caravans come from all four nations, with deals scaled 1.5x and bigger requests whose reward is `draw` | #442, pacing.md section 4 | Not yet shipped |
 | Population milestones at 24 and 32 | #442 | Not yet shipped |

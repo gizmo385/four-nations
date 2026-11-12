@@ -528,7 +528,7 @@ impl World {
                     // A Pai Sho Table multiplies every request's reward (#738).
                     let times = self.pai_sho(defs).map_or(1.0, |p| p.request_reward);
                     let reward = caravan.requests[usize::from(r)].reward;
-                    self.grant_reward(nation, reward, times, defs);
+                    self.grant_reward(nation, united, reward, times, defs);
                     self.log_event(CaravanEvent {
                         tick,
                         kind: CaravanEventKind::RequestDone { nation, request: r, united },
@@ -539,13 +539,22 @@ impl World {
     }
 
     /// Pays a met request's `reward` (times `times`, a Pai Sho Table's) from the caravan of
-    /// `from`. The one place a request's reward lands: owner decision #747 makes a `Draw` in the
-    /// United City bring a newcomer of `from`'s own nation (#761), which needs only this to know
-    /// whose caravan it was.
-    fn grant_reward(&mut self, _from: Nation, reward: Reward, times: f32, defs: &Defs) {
+    /// `from`. The one place a request's reward lands. Owner decision #747: in the United City
+    /// (`united`, fixed when the caravan arrived) a `Draw` brings a newcomer of `from`'s own
+    /// nation (`World::add_steered_draw`, #761); before the gate it is plain draw, as every
+    /// newcomer is the settlement's own nation then anyway.
+    fn grant_reward(
+        &mut self,
+        from: Nation,
+        united: bool,
+        reward: Reward,
+        times: f32,
+        defs: &Defs,
+    ) {
         let scaled = |n: u32| (n as f32 * times).round() as u32;
         match reward {
             Reward::Knowledge(k) => self.research.add_knowledge(u64::from(scaled(k)) * 1000),
+            Reward::Draw(milli) if united => self.add_steered_draw(from, scaled(milli), defs),
             Reward::Draw(milli) => self.add_draw(scaled(milli), defs),
         }
     }

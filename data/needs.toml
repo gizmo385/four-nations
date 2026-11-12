@@ -55,10 +55,12 @@ arrival_minutes = 12.0     # minutes per newcomer at 100% draw
 food_per_newcomer = 30
 # Once the Harmony Gate is complete, each newcomer's nation is drawn weighted: own_weight for
 # the settlement's own nation, other_weight for each of the other three (docs/design/endgame.md,
-# "The transformation: the United City"). Before completion every newcomer is the settlement's
-# own nation, whatever these say.
-own_weight = 0.4
-other_weight = 0.2
+# "The transformation: the United City"). These only decide draw nobody steered: a United City
+# caravan's request brings a newcomer of the caravan's own nation (#761), so the weights are low
+# for the settlement's own nation, whose caravan comes too (#747). Before completion every
+# newcomer is the settlement's own nation, whatever these say.
+own_weight = 0.1           # provisional (#747, #752)
+other_weight = 0.3
 
 # Draw (#435, docs/design/pacing.md section 1): a meter that fills by multiplier / arrival_minutes
 # a minute, where multiplier = base + food_kind per food kind beyond the first with at least

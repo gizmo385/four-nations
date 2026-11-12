@@ -703,11 +703,31 @@ fn a_united_request_pays_its_draw_and_logs_the_united_list() {
         w.caravan_events().any(|e| matches!(e.kind, CaravanEventKind::RequestDone { .. }))
     });
     assert!(w.draw > before, "a whole newcomer's draw (1.0) was granted");
+    assert_eq!(w.steered_draw(), [(Nation::Earth, 1000)], "and it is for the caravan's nation");
     let done = w.caravan_events().find_map(|e| match e.kind {
         CaravanEventKind::RequestDone { nation, united, .. } => Some((nation, united)),
         _ => None,
     });
     assert_eq!(done, Some((Nation::Earth, true)));
+}
+
+/// Owner decision #747 (#761): a United City request's draw is for the caravan's own nation,
+/// scaled by a Pai Sho Table like any reward; outside it, and for knowledge, nothing is steered.
+#[test]
+fn a_draw_reward_steers_only_in_the_united_city() {
+    let defs = defs_with(false, None);
+    let mut w = united_world(1, 1, &defs);
+    w.grant_reward(Nation::Fire, true, Reward::Draw(1000), 1.0, &defs);
+    assert_eq!((w.draw(), w.steered_draw()), (1000, &[(Nation::Fire, 1000)][..]));
+    w.grant_reward(Nation::Water, true, Reward::Draw(500), 1.5, &defs);
+    assert_eq!(w.steered_draw(), [(Nation::Fire, 1000), (Nation::Water, 750)]);
+    w.grant_reward(Nation::Air, true, Reward::Knowledge(60), 1.0, &defs);
+    assert_eq!(w.steered_draw(), [(Nation::Fire, 1000), (Nation::Water, 750)]);
+
+    let mut before = world(1, 1, &defs);
+    before.grant_reward(Nation::Earth, false, Reward::Draw(1000), 1.0, &defs);
+    assert_eq!(before.draw(), 1000);
+    assert!(before.steered_draw().is_empty(), "before the gate it is plain draw");
 }
 
 #[test]
