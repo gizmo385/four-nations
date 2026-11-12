@@ -31,6 +31,10 @@ pub struct ResearchStatus {
     /// scrolls: 90/150", or "Copying paused: 12 in stores" at the Archive's stock limit (#712).
     /// `None` otherwise.
     pub copying: Option<String>,
+    /// While the front tech's item bill is short (docs/design/horizons-phase-4.md, "Mockups"):
+    /// "Metal 5/8 on the way" when stores hold what it still owes, else "Waiting for 3 Metal".
+    /// `None` otherwise.
+    pub bill: Option<String>,
 }
 
 /// What an Archive's scribing is doing (`World::scribing_on`): nothing while a target is set,
@@ -109,6 +113,7 @@ pub fn research_status(world: &World, defs: &Defs) -> ResearchStatus {
                 Scribing::Copying { points, per } => format!("Copying scrolls: {points}/{per}"),
                 Scribing::Off => String::new(),
             }),
+            bill: None,
         };
     };
     let cost = f64::from(defs.tech(front).cost);
@@ -119,7 +124,25 @@ pub fn research_status(world: &World, defs: &Defs) -> ResearchStatus {
         rate,
         more_queued: research.queue().len() - 1,
         copying: None,
+        bill: bill_status(world, defs, front),
     }
+}
+
+/// The side panel's line under the Research row while `tech`'s bill is short: "Metal 5/8 on the
+/// way" when stores hold something of every short line, else "Waiting for 3 Metal" for the first
+/// line stores hold none of.
+fn bill_status(world: &World, defs: &Defs, tech: TechId) -> Option<String> {
+    let bill = world.research().bill(tech, defs);
+    if bill.iter().all(|&(_, got, need)| got >= need) {
+        return None;
+    }
+    let lacking = bill.iter().find(|&&(item, got, need)| {
+        got < need && defs.item(item).knowledge.is_none() && world.stored_total(item) == 0
+    });
+    Some(match lacking {
+        Some(&(item, got, need)) => format!("Waiting for {} {}", need - got, defs.item(item).name),
+        None => format!("{} on the way", bill_text(world.research(), defs, tech)),
+    })
 }
 
 /// `X` on the Research screen: empties the research queue so the scholars scribe
@@ -143,6 +166,9 @@ pub enum TechState {
     /// selectable while only prereqs are missing: `Research::set_target` queues the whole chain.
     /// A condition it refuses (`ResearchError::NotYet`) until it holds.
     Locked,
+    /// A school option whose mate is learned (docs/design/horizons-phase-4.md): it can never be
+    /// researched in this game.
+    Closed,
 }
 
 impl TechState {
@@ -152,6 +178,7 @@ impl TechState {
             Self::Queued => "Queued",
             Self::Available => "Available",
             Self::Locked => "Needs prereqs",
+            Self::Closed => "Closed",
         }
     }
 }
@@ -165,6 +192,8 @@ pub fn tech_state(
 ) -> TechState {
     if research.is_known(id) {
         TechState::Known
+    } else if research.closed_by(id, defs).is_some() {
+        TechState::Closed
     } else if research.queue().contains(&id) {
         TechState::Queued
     } else if def.prereqs.iter().all(|p| research.is_known(*p))
@@ -357,6 +386,54 @@ pub struct TechCard {
     /// `Closed: you chose Metal City` for a school option whose mate is learned
     /// (`closed_reason`); empty otherwise.
     pub closed: String,
+    /// The items its bill asks for besides points, "8 Metal" (`cost_items_text`); empty for a
+    /// tech with none.
+    pub items: String,
+    /// Delivered against needed for each bill line while the bill is started or the tech is
+    /// queued, "Metal 5/8" (`bill_text`); empty otherwise.
+    pub bill: String,
+    /// Where it sits in its school's fork, for a school option; `None` for every other tech.
+    pub school: Option<SchoolSlot>,
+}
+
+/// A school option's place in its fork (docs/design/horizons-phase-4.md, "Mockups"): the
+/// school's question heads the fork, and the second option follows an "or".
+#[derive(Clone, PartialEq, Debug)]
+pub struct SchoolSlot {
+    /// "Which city?"
+    pub question: String,
+    /// The first of the school's options in the column.
+    pub first: bool,
+    /// The other option's name.
+    pub other: String,
+}
+
+/// "8 Metal" or "40 Stone, 3 Ancient Scroll": a tech's `cost_items`, as build costs read.
+pub fn cost_items_text(defs: &Defs, def: &TechDef) -> String {
+    def.cost_items
+        .iter()
+        .map(|s| format!("{} {}", s.count, defs.item(s.item).name))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// "1000 pts + 8 Metal", or "250 pts" for a tech with no items.
+pub fn cost_text(cost: u32, items: &str) -> String {
+    if items.is_empty() { format!("{cost} pts") } else { format!("{cost} pts + {items}") }
+}
+
+/// "Metal 5/8" for each line of `tech`'s bill, while it is queued or something is delivered;
+/// empty otherwise, and for a tech with no items.
+pub fn bill_text(research: &Research, defs: &Defs, tech: TechId) -> String {
+    let bill = research.bill(tech, defs);
+    let started = bill.iter().any(|&(_, got, _)| got > 0);
+    if bill.is_empty() || !(started || research.queue().contains(&tech)) {
+        return String::new();
+    }
+    bill.iter()
+        .map(|&(item, got, need)| format!("{} {got}/{need}", defs.item(item).name))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Why `tech` can't be researched any more, as the player reads it: `Closed: you chose Metal
@@ -404,6 +481,16 @@ pub fn screen_view(session: &Session) -> ScreenView {
             needs: missing_needs(research, &facts, defs, def).join(", "),
             target: target == Some(id),
             closed: closed_reason(research, defs, id).unwrap_or_default(),
+            items: cost_items_text(defs, def),
+            bill: bill_text(research, defs, id),
+            school: def.school.map(|school| {
+                let mate = defs.school_mates(id).next();
+                SchoolSlot {
+                    question: defs.school(school).question.clone(),
+                    first: mate.is_none_or(|m| id < m),
+                    other: mate.map(|m| defs.tech(m).name.clone()).unwrap_or_default(),
+                }
+            }),
         });
     }
     ScreenView { columns }

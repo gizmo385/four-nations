@@ -129,6 +129,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Log => Mode::Log,
             Screen::Help => Mode::Help,
             Screen::Endeavor => Mode::Endeavor,
+            Screen::Research if ui.school_confirm.is_some() => Mode::ChooseSchool,
             Screen::Research => Mode::Research,
             Screen::Saves => Mode::Saves,
             Screen::Nation => Mode::Nation,

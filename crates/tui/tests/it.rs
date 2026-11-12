@@ -37,6 +37,7 @@ mod runs_dir;
 mod save_list;
 mod saves;
 mod scenario;
+mod schools;
 mod title;
 mod tool_list;
 mod traders;

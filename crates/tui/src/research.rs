@@ -8,9 +8,10 @@
 //! which cards show) follows from the cursor and the size alone, so a frame is a pure function of
 //! the state like every other.
 
+use fn_sim::research::TechId;
 use fn_sim::world::Command;
 use fn_ui::Session;
-use fn_ui::research::{ScreenView, TechCard, TechState, screen_view};
+use fn_ui::research::{ScreenView, TechCard, TechState, cost_text, screen_view};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
@@ -106,12 +107,107 @@ pub fn choose(session: &mut Session, at: Cursor) {
     }
 }
 
+/// The school option under the cursor, when `Enter` on it asks first (#729,
+/// docs/design/horizons-phase-4.md "Mockups"): an open school option not already queued.
+/// Choosing it is the one research choice that closes another tech for the rest of the game.
+pub fn needs_confirm(session: &Session, at: Cursor) -> Option<TechId> {
+    let view = screen_view(session);
+    let card = card_at(&view, at)?;
+    let open = matches!(card.state, TechState::Available | TechState::Locked);
+    (card.school.is_some() && open).then_some(card.id)
+}
+
+/// `Enter` in the CHOOSE A SCHOOL box: sets `tech` as the target.
+pub fn confirm_school(session: &mut Session, tech: TechId) {
+    let _ = session.apply(Command::SetResearch { tech });
+}
+
+/// The CHOOSE A SCHOOL box's lines for `tech`: the fork's question, what choosing gives up, the
+/// bill and where it goes, what stores hold of it, and the keys.
+pub fn confirm_lines(session: &Session, tech: TechId) -> Vec<String> {
+    let defs = &session.defs;
+    let def = defs.tech(tech);
+    let name = &def.name;
+    let other = defs.school_mates(tech).map(|m| defs.tech(m).name.clone()).collect::<Vec<_>>();
+    let other = other.join(" or ");
+    let question = def.school.map(|s| defs.school(s).question.clone()).unwrap_or_default();
+    let items = fn_ui::research::cost_items_text(defs, def);
+    let mut out = vec![
+        format!("{question} {name} or {other}."),
+        String::new(),
+        format!(
+            "Set {name} as the target? Once it is learned, {other} is closed for the rest of \
+             this game."
+        ),
+        String::new(),
+    ];
+    if items.is_empty() {
+        out.push(format!("It costs {} pts.", def.cost));
+    } else {
+        let hall = defs.research.bill_hall_id.map_or("study hall".to_owned(), |h| {
+            defs.building(h).display_name(session.world.nation).to_owned()
+        });
+        out.push(format!(
+            "It costs {} pts and {items}. Haulers take them to a {hall} as soon as you choose. \
+             Change your mind before it is learned and they come back.",
+            def.cost
+        ));
+        out.push(String::new());
+        let stores = def
+            .cost_items
+            .iter()
+            .map(|s| format!("{} {}", session.world.stored_total(s.item), defs.item(s.item).name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push(format!("In stores: {stores}"));
+    }
+    out.push(String::new());
+    out.push(format!("Enter  choose {name}     Esc  back"));
+    out
+}
+
+/// Draws the CHOOSE A SCHOOL box for `tech` centred over `area` (the page).
+pub fn draw_confirm(
+    session: &Session,
+    tech: TechId,
+    palette: &Palette,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let width: u16 = 68;
+    let text = usize::from(width.saturating_sub(4).min(area.width.saturating_sub(8)).max(1));
+    let marks = Marks::new(palette.ascii);
+    let lines = confirm_lines(session, tech);
+    let last = lines.len() - 1;
+    let mut rows = Vec::new();
+    for (i, line) in lines.into_iter().enumerate() {
+        if line.is_empty() {
+            rows.push(Row::text(String::new(), Tone::Text));
+        } else if i == last {
+            let pad = text.saturating_sub(line.chars().count()) / 2;
+            rows.push(Row::text(format!("{}{line}", " ".repeat(pad)), Tone::Accent));
+        } else {
+            let tone = if i == 0 { Tone::Title } else { Tone::Text };
+            for piece in wrap(&line, text, usize::MAX, marks.ellipsis) {
+                rows.push(Row::text(piece, tone));
+            }
+        }
+    }
+    let height = u16::try_from(rows.len() + 2).unwrap_or(u16::MAX);
+    let inner = crate::modal::draw(buf, area, (width, height), palette, "CHOOSE A SCHOOL", "");
+    let mut p = Painter::new(buf, inner, palette);
+    for row in &rows {
+        p.row(row);
+    }
+}
+
 fn state_tone(state: TechState) -> Tone {
     match state {
         TechState::Known => Tone::Dim,
         TechState::Queued => Tone::Title,
         TechState::Available => Tone::Text,
         TechState::Locked => Tone::Dim,
+        TechState::Closed => Tone::Dim,
     }
 }
 
@@ -122,6 +218,7 @@ pub fn state_word(state: TechState) -> &'static str {
         TechState::Queued => "Queued",
         TechState::Available => "Available",
         TechState::Locked => "Locked",
+        TechState::Closed => "Closed",
     }
 }
 
@@ -132,6 +229,7 @@ fn state_mark(state: TechState, marks: &Marks) -> &'static str {
         TechState::Queued => marks.seal,
         TechState::Available => marks.bullet,
         TechState::Locked => marks.locked,
+        TechState::Closed => marks.closed,
     }
 }
 
@@ -196,6 +294,19 @@ pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks, width: usize) -> 
     let room = width.saturating_sub(INDENT).max(1);
     let pad = " ".repeat(INDENT);
     let mut rows = Vec::new();
+    // A school's options sit in a fork headed by its question, the second after an "or".
+    if let Some(slot) = &card.school {
+        let h = marks.h.to_string();
+        rows.push(if slot.first {
+            let head = format!("{}{h} {} ", marks.box_tl, slot.question.to_uppercase());
+            let fill = width.saturating_sub(head.chars().count());
+            Row::text(format!("{head}{}", h.repeat(fill)), Tone::Accent)
+        } else {
+            let side = width.saturating_sub(4) / 2;
+            let rest = width.saturating_sub(side + 4);
+            Row::text(format!("{} or {}", h.repeat(side), h.repeat(rest)), Tone::Accent)
+        });
+    }
     for (i, line) in wrap(&card.name, room, usize::MAX, marks.ellipsis).into_iter().enumerate() {
         rows.push(if i == 0 {
             Row::spans(vec![
@@ -211,8 +322,34 @@ pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks, width: usize) -> 
         (format!("{pad}{}", card_word(card)), tone),
         (format!(" {} {} pts", marks.dot, card.cost), Tone::Dim),
     ]));
-    for line in wrap_items(&gives_text(card), room, marks.ellipsis) {
-        rows.push(Row::text(format!("{pad}{line}"), Tone::Dim));
+    if card.state == TechState::Closed {
+        let chose = card.closed.strip_prefix("Closed: you chose ").unwrap_or(&card.closed);
+        for line in wrap(&format!("You chose {chose}"), room, usize::MAX, marks.ellipsis) {
+            rows.push(Row::text(format!("{pad}{line}"), Tone::Dim));
+        }
+    } else {
+        let bill = if !card.bill.is_empty() {
+            Some((card.bill.clone(), Tone::Text))
+        } else if !card.items.is_empty() && card.state != TechState::Known {
+            Some((format!("+ {}", card.items), Tone::Dim))
+        } else {
+            None
+        };
+        if let Some((bill, tone)) = bill {
+            for line in wrap_items(&bill, room, marks.ellipsis) {
+                rows.push(Row::text(format!("{pad}{line}"), tone));
+            }
+        }
+        for line in wrap_items(&gives_text(card), room, marks.ellipsis) {
+            rows.push(Row::text(format!("{pad}{line}"), Tone::Dim));
+        }
+    }
+    if card.school.as_ref().is_some_and(|s| !s.first) {
+        let h = marks.h.to_string();
+        rows.push(Row::text(
+            format!("{}{}", h.repeat(width.saturating_sub(1)), marks.box_br),
+            Tone::Accent,
+        ));
     }
     rows
 }
@@ -241,13 +378,12 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usi
     {
         name.push((format!("   Target: {}", session.defs.tech(target).name), Tone::Dim));
     }
-    let mut rows = vec![Row {
-        left: name,
-        right: Some((
-            format!("{} {} {} pts", card_word(card), marks.dot, card.cost),
-            state_tone(card.state),
-        )),
-    }];
+    let mut right =
+        format!("{} {} {}", card_word(card), marks.dot, cost_text(card.cost, &card.items));
+    if !card.bill.is_empty() {
+        right = format!("{right}  {}", card.bill);
+    }
+    let mut rows = vec![Row { left: name, right: Some((right, state_tone(card.state))) }];
     for line in wrap(&def.description, width.max(1), usize::MAX, marks.ellipsis) {
         rows.push(Row::text(line, Tone::Text));
     }
@@ -263,7 +399,53 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usi
             }
         }
     }
+    for (line, tone) in school_lines(session, card) {
+        for piece in wrap(&line, width.max(1), usize::MAX, marks.ellipsis) {
+            rows.push(Row::text(piece, tone));
+        }
+    }
     rows
+}
+
+/// The detail strip's school lines (#729): what the fork is while it is open, the bill and where
+/// it goes while one is on the way, or why a closed option is closed.
+fn school_lines(session: &Session, card: &TechCard) -> Vec<(String, Tone)> {
+    let Some(slot) = &card.school else { return Vec::new() };
+    let mut out = Vec::new();
+    match card.state {
+        TechState::Closed => {
+            let chose = card.closed.strip_prefix("Closed: you chose ").unwrap_or(&slot.other);
+            out.push((
+                format!(
+                    "Closed: this settlement chose {chose}. A school is one choice for the whole \
+                     game."
+                ),
+                Tone::Warn,
+            ));
+        }
+        TechState::Known => {}
+        _ if !card.bill.is_empty() => {
+            let defs = &session.defs;
+            let hall = defs.research.bill_hall_id.map_or("study hall".to_owned(), |h| {
+                defs.building(h).display_name(session.world.nation).to_owned()
+            });
+            out.push((
+                format!(
+                    "Bill: {}, hauled to a {hall}. {} stays open until this is learned.",
+                    card.bill, slot.other
+                ),
+                Tone::Text,
+            ));
+        }
+        _ => out.push((
+            format!(
+                "School: {} Choosing one closes the other for the rest of the game.",
+                slot.question
+            ),
+            Tone::Accent,
+        )),
+    }
+    out
 }
 
 /// How many rows the detail strip takes for the tech under `at` on a page whose text is `width`
@@ -406,6 +588,9 @@ mod tests {
             needs: needs.into(),
             target: false,
             closed: String::new(),
+            items: String::new(),
+            bill: String::new(),
+            school: None,
         }
     }
 

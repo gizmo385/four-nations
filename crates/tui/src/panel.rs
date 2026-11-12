@@ -183,6 +183,9 @@ struct Data {
     /// The Settlement glance's Research row (#416): short shape (target, bar, percent), or
     /// "Research: none set" in Warn with no target.
     research: Row,
+    /// Under it while the front tech's item bill is short (#729): "Metal 5/8 on the way" or
+    /// "Waiting for 3 Metal", indented.
+    research_bill: Option<Row>,
     /// The Settlement glance's Gate rows (#416, #235, #242, #663): the signs met, then what is
     /// still needed; empty with no endeavor in the data.
     gate: Vec<Row>,
@@ -621,6 +624,10 @@ fn gather(
     let food = food_row(session, &view, marks);
     let winter = winter_row(season.as_ref());
     let research = research_row(&view, marks);
+    let research_bill = view.research.bill.as_ref().map(|text| {
+        let tone = if text.starts_with("Waiting") { Tone::Warn } else { Tone::Dim };
+        Row::text(format!("  {text}"), tone)
+    });
     let gate = view.endeavor.as_ref().map(gate_rows).unwrap_or_default();
     Data {
         people,
@@ -630,6 +637,7 @@ fn gather(
         winter,
         materials: materials_rows(session, width),
         research,
+        research_bill,
         gate,
         tool,
         alerts,
@@ -664,6 +672,7 @@ fn settlement_rows(d: &Data, k: Knobs) -> Vec<Row> {
         }
     }
     rows.push(d.research.clone());
+    rows.extend(d.research_bill.iter().cloned());
     rows.extend(d.gate.iter().cloned());
     rows
 }

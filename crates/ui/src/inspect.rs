@@ -486,6 +486,17 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
             let filled = world.occupants(at).count();
             lines.push(Line::Detail(format!("Study: {filled}/{seats} seats filled")));
         }
+        // The hall that takes research bills says which tech its deliveries are toward while
+        // one is short (#729): "Toward Metal City: Metal 5/8".
+        if world.bill_hall(defs) == Some(at)
+            && let Some(line) = world.research().queue().iter().find_map(|&t| {
+                let text = crate::research::bill_text(world.research(), defs, t);
+                (!world.research().bill_full(t, defs) && !text.is_empty())
+                    .then(|| format!("Toward {}: {text}", defs.tech(t).name))
+            })
+        {
+            lines.push(Line::Detail(line));
+        }
         // A Map Room says how far through its next chart it is, or that its seat has closed for
         // want of anything left to chart (#403).
         if let Some(standing) = world.chart_standing(at, defs) {
