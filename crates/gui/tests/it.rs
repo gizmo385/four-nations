@@ -1,5 +1,6 @@
 //! `fn_gui`'s tests, as one binary (the workspace's convention). Nothing here opens a window.
 
+mod abilities;
 mod boxes;
 mod browser_saves;
 mod camera;
@@ -18,3 +19,4 @@ mod snapshot;
 mod style;
 mod theme;
 mod title;
+mod traders;

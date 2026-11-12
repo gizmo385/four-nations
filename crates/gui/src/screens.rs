@@ -3,5 +3,7 @@
 //! window feeds the shell as if typed (docs/design/egui-frontend.md, "Mouse"); the rows and the
 //! words are `fn_ui`'s.
 
+pub mod abilities;
 pub mod build;
 pub mod research;
+pub mod traders;

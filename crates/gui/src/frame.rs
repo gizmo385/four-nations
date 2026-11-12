@@ -10,8 +10,8 @@
 //!   the map in the middle ([`MapView`]) with the tool banner on its top edge. The side panel
 //!   is native ([`crate::side`], inspector included).
 //! - [`Surface::Page`]: a full screen as egui widgets in the page frame ([`crate::page`]): the
-//!   whole window above the hint bar, the side panel and the map hidden. Build (#881) and
-//!   Research (#884) so far.
+//!   whole window above the hint bar, the side panel and the map hidden. Build (#881), Research
+//!   (#884), Abilities and Traders (#886) so far.
 //! - [`Surface::Title`] and [`Surface::Embark`]: the title's steps and the embark screen, as
 //!   egui widgets of their own ([`crate::title`], [`crate::embark`]) with the hint bar below.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
@@ -70,6 +70,10 @@ pub enum PageKind {
     Build,
     /// The tech tree (`fn_gui::screens::research`), and its CHOOSE A SCHOOL box.
     Research,
+    /// The abilities list (`fn_gui::screens::abilities`).
+    Abilities,
+    /// The caravan's camp (`fn_gui::screens::traders`).
+    Traders,
 }
 
 /// What the shell shows now, as far as the window is concerned. A box over it is [`modal`]'s.
@@ -108,13 +112,11 @@ fn game_surface(ui: &UiState) -> Surface {
 fn screen_surface(screen: Screen) -> Surface {
     match screen {
         Screen::Research => Surface::Page(PageKind::Research),
-        Screen::Log
-        | Screen::Help
-        | Screen::Endeavor
-        | Screen::Saves
-        | Screen::Nation
-        | Screen::Abilities
-        | Screen::Traders => Surface::CellsFull,
+        Screen::Abilities => Surface::Page(PageKind::Abilities),
+        Screen::Traders => Surface::Page(PageKind::Traders),
+        Screen::Log | Screen::Help | Screen::Endeavor | Screen::Saves | Screen::Nation => {
+            Surface::CellsFull
+        }
     }
 }
 
@@ -322,6 +324,8 @@ impl Frame {
             let clicks = match kind {
                 PageKind::Build => screens::build::show(ui, app, palette, metrics),
                 PageKind::Research => screens::research::show(ui, app, palette, metrics),
+                PageKind::Abilities => screens::abilities::show(ui, app, palette, metrics),
+                PageKind::Traders => screens::traders::show(ui, app, palette, metrics),
             };
             self.keys.extend(clicks);
         });
