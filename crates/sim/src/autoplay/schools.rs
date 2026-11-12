@@ -18,8 +18,13 @@
 //! - **Southern Ways** (`southern_camp`): a second Waystation at the second-farthest deposit, and
 //!   `SHORE_ORDERS` standing shore Fish orders beside each Waystation.
 //! - **High Temple**: placed against the rock nearest the study halls (`horizons::site_anchor`).
-//! - **Nomad Way**: not played. Its rule moves the farm cluster off tired ground, and farm plots
-//!   never tire in the sim (strain is for wild plants), so there is nothing to move off.
+//! - **Nomad Way** (`nomad_move`, owner decision #892, option A): farm plots never tire in the
+//!   sim, so the doc's farm move never triggers. Instead, each spring, the building farthest
+//!   from the settlement's anchor, where the first stockpile went down (`MOVE_FROM` tiles or
+//!   more), is packed up, and the usual building sweep raises it again near the stores with
+//!   what came back. Panel settlements are compact (their multi-tile buildings sit 6 tiles or
+//!   less from the anchor), so the distance is short. That exercises what Nomad Way
+//!   buys: Pack Up's full refund and quick work.
 
 use crate::building::BuildingId;
 use crate::defs::Defs;
@@ -57,6 +62,8 @@ const RING_START: u32 = 10;
 const TEMPLE_SEARCH: i32 = 40;
 /// How far from its anchor a school building's site is looked for.
 const SEARCH: i32 = 8;
+/// Nomad Way packs up a building only this far or farther from the settlement's anchor.
+pub(super) const MOVE_FROM: i32 = 5;
 
 fn known(world: &World, defs: &Defs, tech: &str) -> bool {
     defs.tech_id(tech).is_some_and(|t| world.research().is_known(t))
@@ -461,4 +468,50 @@ pub(super) fn temple_anchor(world: &World, defs: &Defs, anchor: Pos) -> Option<P
         .collect();
     spots.sort_by_key(|&p| (p.chebyshev(hall), p));
     spots.into_iter().find(|&p| world.check_build(p, temple, defs).is_ok()).or(Some(hall))
+}
+
+/// Nomad Way's spring move (module doc; owner decision #892): once Pack Up is known, in spring,
+/// and only if nothing has been packed up since spring began, takes down the multi-tile
+/// building farthest from the settlement's anchor, if it is at least `MOVE_FROM` away. Beds,
+/// plots, outposts and pairs (which `horizons` places where they are for a reason), landmarks
+/// and the endeavor's buildings stay. `Economy::raise_buildings` rebuilds it from the anchor,
+/// which is where the stockpile is.
+pub(super) fn nomad_move(world: &mut World, defs: &Defs) {
+    use crate::world::SeasonEventKind;
+    if !world.has_feature(Feature::PackUp, defs) || world.season_index(defs) != 0 {
+        return;
+    }
+    let Some(spring) = world
+        .season_events()
+        .filter(|e| matches!(e.kind, SeasonEventKind::Changed { season: 0 }))
+        .map(|e| e.tick)
+        .next_back()
+    else {
+        return;
+    };
+    let packed = |c: &Command| matches!(c, Command::Deconstruct { .. });
+    if world.command_log().iter().any(|r| r.tick >= spring && packed(&r.command)) {
+        return;
+    }
+    // The stores grow into a wide field (dozens of zone tiles round the buildings), so the
+    // distance is to the settlement's anchor, where the first stockpile went down.
+    let anchor = world.settlement_anchor();
+    let far = world
+        .buildings()
+        .filter(|b| {
+            let def = defs.building(b.id);
+            let (w, h) = def.footprint;
+            u32::from(w) * u32::from(h) > 1
+                && !def.landmark
+                && !def.endeavor
+                && !def.cost.is_empty()
+                && !super::horizons::raises_itself(&def.id)
+                && def.id != "farm_plot"
+        })
+        .map(|b| (anchor.chebyshev(b.anchor), b.anchor))
+        .filter(|&(d, _)| d >= MOVE_FROM)
+        .max_by_key(|&(d, p)| (d, std::cmp::Reverse(p)));
+    if let Some((_, pos)) = far {
+        let _ = world.apply(Command::Deconstruct { pos }, defs);
+    }
 }

@@ -859,6 +859,73 @@ The balance follow-up records the measured numbers in a "Measured" section here.
 are `[resource.promote]` (count, spacing), the Map Room's `finds` order, and each teaching's own
 numbers, all data.
 
+### Measured
+
+The phase-5 run (#745): seeds 1 to 32, all four nations, through `balance verdict` on the full
+tier, 1,216 runs. Steady now runs 240 minutes for the teaching target. The control is `main` at
+7841af9, before the first phase-5 merge (#736), on the same panel. `crates/harness/baseline.json`
+is re-blessed from this run.
+
+**What changed in the opening.**
+
+- **Nomad Way** (owner decision #892, option A): each spring the multi-tile building farthest
+  from the settlement's anchor, 5 tiles or more, is packed up, and the building sweep raises it
+  again. The anchor stands in for "the stockpile" because the stores grow into a field of 70 to
+  90 zone tiles, and every building sits beside one. Panel settlements are compact: their
+  multi-tile buildings stand 6 tiles or less from the anchor.
+- **The Foundation** (owner decision #891, option A): both school forks time `stage_minute.1`
+  at 300 minutes.
+- **A bill with nothing in stores waits at the back** of the research plan, for every style.
+  On branch first, the school (and its scrolls) came up before Cartography, so research stopped
+  for good at the end of the branch, about minute 90 to 150, on `main` as well.
+- **The idle-research detector** no longer counts a teaching that hasn't been kept, because it
+  can't be set. Without this, steady runs on Air were flagged from about minute 170 and left out
+  of every target.
+
+**Found** (`great_ruins_found_by.M`, steady, seeds with at least one):
+
+| Nation | by 60 | by 120 | by 180 |
+|---|---|---|---|
+| Air | 0/32 | 29/32 | 29/32 |
+| Water | 0/32 | 27/32 | 27/32 |
+| Earth | 0/32 | 28/32 | 30/32 |
+| Fire | 0/32 | 29/32 | 29/32 |
+
+Everything is found through the Map Room, built at a median of minute 79 to 83. Air doesn't find
+its first by 60, because the opening never glides for ruins. That is the first lever if the doc's
+"Air by 60" should hold: a glide order in `keep_bends_designated`, not data.
+
+**Drafted** (`teachings_kept_by.240`, steady): Air 26, Water 25, Earth 26 and Fire 25 of 32 seeds
+keep a teaching. The bar is 24, so the target passes. The first draft comes at a median of
+minute 87 (Air) to 99 (Water). On steady (lower `TechId` kept) the picks are Pai Sho 17 to 18,
+Spirit Library 9 to 10, and each nation's own teaching 5. Branch first runs 180 minutes and
+reaches Cartography late, so only Air drafts there: 8 seeds, first at a median of minute 165,
+keeping Spirit Projection 4, Guru Teachings 2 and Spirit Library 1. The other three nations
+draft after 180. There is no branch-first target, for that reason.
+
+**Dead drafts**: the existing unit test over seeds 1 to 32 (#737) holds.
+
+**Empty scrolls** (`empty_scrolls`): 0 on every steady run. The bar is under 1.
+
+**Reach**: `balance supply --resources great_ruins --radii 40,90` counts a great ruin on foot
+within 90 tiles on 23 of 32 seeds, and within 40 on 17. But that survey treats every tree and
+rock as a wall. With those cleared, as a settlement clears them, a great ruin is on the
+settlement's landmass within 90 tiles on all 32 seeds, and within 40 on 26. 62 of the 64 great
+ruins share the start's landmass. A test pins this
+(`embark::tests::every_great_ruin_shares_the_settlements_landmass`). So the risk "Great ruins on
+another landmass" didn't need its mapgen lever.
+
+**No regressions**: `balance verdict --against` the control pairs 1,088 runs. 0 of 39 readings
+moved past their noise. `scrolls_by` is unchanged: the scrolls sign is met at the same median
+minute on every nation (76 to 86). The Map Room's timing is unchanged too. The pass and fail
+list is the control's, plus the three new targets (all pass), except that `school_by_200_first`
+for Water drops from 23/27 to 21/25 (84%, under the 85% bar). `school_minute` didn't move past
+its noise. The gate targets don't move.
+
+**Left for the playtest** (#890, deferred): whether the Map Room should lead to more scrolls.
+It is built at minute 79 to 83 and charts both kinds of ruin. The scrolls sign is met at about
+the same time (minute 76 to 86), on the control and on this run alike.
+
 ## Risks
 
 - **The third great ruin is often empty.** A pool of four with one lost per draft runs dry after

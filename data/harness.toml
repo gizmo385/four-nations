@@ -383,6 +383,32 @@ at_least = 1
 minutes = 300
 nations = ["air"]
 
+# horizons-phase-5.md, "Measuring it" (#745): the great ruins are found and searched, and the
+# draft keeps a teaching. Steady only: branch first reaches Cartography (the Map Room) near
+# minute 230, so its drafts mostly come after 240; the doc's "Measured" section reports both.
+[[target]]
+id = "teaching_kept_by_240"
+doc = "horizons-phase-5.md#measuring-it"
+metric = "teachings_kept_by.240"
+at_least = 1
+share = 0.75                  # 24 of 32 seeds per nation
+minutes = 240
+
+[[target]]
+id = "great_ruin_found_by_120"
+doc = "horizons-phase-5.md#measuring-it"
+metric = "great_ruins_found_by.120"
+at_least = 1
+share = 0.5                   # "others by 120 once the Map Room opens": most seeds, not all
+minutes = 240
+
+[[target]]
+id = "empty_scrolls"
+doc = "horizons-phase-5.md#measuring-it"
+metric = "empty_scrolls"
+at_most = 1                   # "under 1 per run on Small"
+minutes = 240
+
 # Rows of those tables that are not targets here yet: the walk per meal at minute 90 against
 # minute 15 (a path-length median from `fn_sim::balance::run`, which `balance sweep` still
 # prints), "population 16 on a beds-only opening" (needs a style that doesn't exist), and
@@ -418,7 +444,9 @@ first_seeds = 12
 [[fork]]
 id = "schools_both_viable"
 doc = "horizons-phase-4.md#measuring-it"
-metric = "stage_minute.3"     # the minute the endeavor's third stage finished
+# The Foundation, the gate's first stage: the Arch is almost never finished by 300 minutes, so
+# stage 3 read "no data" for nearly every pair (owner decision #891, option A).
+metric = "stage_minute.1"
 a = { style = "school_first", preset = "normal" }
 b = { style = "school_second", preset = "normal" }
 tie = 5.0
@@ -428,7 +456,7 @@ minutes = 300
 [[fork]]
 id = "schools_both_viable_hard"
 doc = "horizons-phase-4.md#measuring-it"
-metric = "stage_minute.3"
+metric = "stage_minute.1"
 a = { style = "school_first", preset = "hard" }
 b = { style = "school_second", preset = "hard" }
 tie = 5.0
