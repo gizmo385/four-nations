@@ -18,7 +18,7 @@ pub struct GuiApp {
     nation: Nation,
     frame: Frame,
     last_frame: Instant,
-    /// The state last written onto the page (`crate::page::publish`).
+    /// The state last written onto the page (`crate::webpage::publish`).
     #[cfg(target_arch = "wasm32")]
     published: String,
 }
@@ -91,7 +91,7 @@ impl GuiApp {
             self.shell.key(key);
         }
         #[cfg(target_arch = "wasm32")]
-        crate::page::publish(&self.shell, &mut self.published);
+        crate::webpage::publish(&self.shell, &mut self.published);
         if self.shell.quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }

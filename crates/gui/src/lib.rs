@@ -13,6 +13,8 @@
 //!   the keys they stand for. Its inspector is still the terminal's cells (#882).
 //! - **The title** ([`title`]) is native: the steps of `fn_tui::title` as egui rows and buttons,
 //!   every click a key press.
+//! - **Pages** ([`page`], [`screens`]): the full screens as egui widgets in one frame, over the
+//!   whole window above the hint bar. Build (#881) is the first.
 //! - **Cells** ([`cells`]) paint a ratatui buffer as egui shapes: the unconverted screens,
 //!   embark, and boxes.
 //!
@@ -28,11 +30,13 @@ pub mod frame;
 pub mod hints;
 pub mod keys;
 pub mod mapview;
-#[cfg(target_arch = "wasm32")]
 pub mod page;
+pub mod screens;
 pub mod side;
 pub mod theme;
 pub mod title;
+#[cfg(target_arch = "wasm32")]
+pub mod webpage;
 
 /// What a new window or page sets up once: the bundled fonts ([`fonts`]) and the dark theme
 /// ([`theme`]). Both entry points (`main.rs`, native and web) call it.

@@ -36,7 +36,7 @@ mod web {
             .expect("a canvas with id the_canvas")
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("a canvas");
-        fn_gui::page::guard_game_keys(&canvas);
+        fn_gui::webpage::guard_game_keys(&canvas);
         let saves = Some(fn_gui::browser_saves::local::store());
         let shell = match query("seed") {
             // A fixed game, for the scripts that drive the page (`web/play/check-*.cjs`).

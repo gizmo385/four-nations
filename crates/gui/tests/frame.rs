@@ -6,7 +6,7 @@ use eframe::egui::{self, Event, Key, Modifiers};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use fn_gui::app::GuiApp;
-use fn_gui::frame::{BoxKind, Surface, surface};
+use fn_gui::frame::{BoxKind, PageKind, Surface, surface};
 use fn_sim::Nation;
 use fn_tui::shell::Shell;
 
@@ -24,9 +24,11 @@ fn the_map_is_native_and_every_screen_is_cells_for_now() {
     // A tool, a rectangle corner and a selected settler are all the map.
     assert_eq!(surface(&game("h")), Surface::Native);
     assert_eq!(surface(&game("h <enter>")), Surface::Native);
-    // The full screens: Build, Research, Nation, key help, the message log, Abilities, Traders
+    // Build is a native page (#881).
+    assert_eq!(surface(&game("u")), Surface::Page(PageKind::Build));
+    // The other full screens: Research, Nation, key help, the message log, Abilities, Traders
     // and the Endeavor page (Saves needs a store, which these shells have none of).
-    for keys in ["u", "t", "n", "?", "l", "i", "m", "g"] {
+    for keys in ["t", "n", "?", "l", "i", "m", "g"] {
         assert_eq!(surface(&game(keys)), Surface::CellsFull, "{keys}");
     }
 }

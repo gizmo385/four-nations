@@ -9,6 +9,8 @@
 //!   ([`crate::hints`]), the side panel on the right (300 points, resizable from 260 to 440) and
 //!   the map in the middle ([`MapView`]) with the tool banner on its top edge. The side panel
 //!   is native ([`crate::side`]), but for the inspector's rows, which are still cells.
+//! - [`Surface::Page`]: a full screen as egui widgets in the page frame ([`crate::page`]): the
+//!   whole window above the hint bar, the side panel and the map hidden. Build (#881) so far.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
 //! - [`Surface::CellsBox`]: the native view, with only one box's rectangle painted from the
 //!   terminal's own drawing over the map.
@@ -37,6 +39,7 @@ use crate::cells::{self, CellLayout, Metrics};
 use crate::color::to_egui;
 use crate::hints;
 use crate::mapview::MapView;
+use crate::screens;
 use crate::side;
 
 /// The side panel's width on a fresh window, and the range the user can drag it through.
@@ -52,12 +55,20 @@ pub enum BoxKind {
     Ask,
 }
 
+/// Which native full screen a [`Surface::Page`] shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageKind {
+    /// The Build picker (`fn_gui::screens::build`).
+    Build,
+}
+
 /// What the shell shows now, as far as the window is concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
     Native,
     /// The title screen's steps (`fn_gui::title`), natively.
     Title,
+    Page(PageKind),
     CellsFull,
     CellsBox(BoxKind),
 }
@@ -108,8 +119,8 @@ fn screen_surface(screen: Screen) -> Surface {
 
 fn modal_surface(modal: Modal) -> Surface {
     match modal {
-        // The Build picker is a full screen (`fn_tui::build`, #652).
-        Modal::Build => Surface::CellsFull,
+        // The Build picker is a full screen (`fn_tui::build`, #652), native since #881.
+        Modal::Build => Surface::Page(PageKind::Build),
         Modal::Menu => Surface::CellsBox(BoxKind::Menu),
     }
 }
@@ -189,6 +200,9 @@ impl Frame {
                 self.map = None;
                 self.show_title(root, shell, palette, &metrics, cols);
             }
+            (Mode::Game(app), Surface::Page(kind)) => {
+                self.show_page(root, app, kind, palette, &metrics, cols);
+            }
             _ => {
                 self.map = None;
                 self.show_cells(root, shell, palette, &metrics, (cols, rows));
@@ -224,6 +238,17 @@ impl Frame {
         );
     }
 
+    /// Shows `bar`, the one row along the window's bottom, under whatever else is shown.
+    fn show_bar(&mut self, root: &mut Ui, bar: &hints::Bar, metrics: &Metrics) {
+        self.hint_text = bar.text();
+        egui::Panel::bottom("hints")
+            .exact_size(metrics.cell.y)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE.fill(bar.fill))
+            .show(root, |ui| hints::show(ui, bar, &metrics.font));
+    }
+
     /// The native title screen (#880): its step, and the hint bar with the step's keys. The
     /// clicks come back as keys, queued for the shell like the side panel's ([`Frame::take_keys`]).
     fn show_title(
@@ -236,18 +261,34 @@ impl Frame {
     ) {
         let Mode::Title(screen) = &shell.mode else { return };
         let bar = hints::title_bar(title::hint_mode(&screen.page), palette, cols);
-        self.hint_text = bar.text();
-        egui::Panel::bottom("hints")
-            .exact_size(metrics.cell.y)
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(egui::Frame::NONE.fill(bar.fill))
-            .show(root, |ui| hints::show(ui, &bar, &metrics.font));
+        self.show_bar(root, &bar, metrics);
         let mut keys = Vec::new();
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             keys = crate::title::show(ui, screen, shell.defs(), palette);
         });
         self.keys.extend(keys);
+    }
+
+    /// A native full screen: the page frame over the whole window above the hint bar. No side
+    /// panel and no map; the map's camera is kept for when the screen closes.
+    fn show_page(
+        &mut self,
+        root: &mut Ui,
+        app: &App,
+        kind: PageKind,
+        palette: &Palette,
+        metrics: &Metrics,
+        cols: u16,
+    ) {
+        self.show_bar(root, &hints::bar(app, palette, cols), metrics);
+        let started = Instant::now();
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
+            let clicks = match kind {
+                PageKind::Build => screens::build::show(ui, app, palette, metrics),
+            };
+            self.keys.extend(clicks);
+        });
+        self.timings.cells = started.elapsed().as_secs_f32() * 1000.0;
     }
 
     /// The native game: hint bar, side panel, map, banner, and a box over the map if one is
@@ -267,14 +308,7 @@ impl Frame {
 
         // The bar first: the panel beside the map then stops above it, as the TUI's status line
         // runs under both.
-        let bar = hints::bar(app, palette, cols);
-        self.hint_text = bar.text();
-        egui::Panel::bottom("hints")
-            .exact_size(ch)
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(egui::Frame::NONE.fill(bar.fill))
-            .show(root, |ui| hints::show(ui, &bar, &metrics.font));
+        self.show_bar(root, &hints::bar(app, palette, cols), metrics);
 
         // The native side panel (#877). Its clicks come back as keys, which the window feeds
         // the shell; with a box open over the map it shows but takes none.
