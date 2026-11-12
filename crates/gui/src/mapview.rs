@@ -5,16 +5,16 @@
 //!
 //! Input: a click moves the cursor; a drag pans in Select mode and with the secondary or middle
 //! button, and with a designate tool active the primary drag makes the rectangle
-//! (`fn_tui::pointer`); the wheel zooms about the pointer.
+//! (`fn_ui::pointer`); the wheel zooms about the pointer.
 
 use eframe::egui::{
     self, Color32, FontFamily, FontId, Mesh, PointerButton, Rect, Sense, Shape, Stroke, Ui, vec2,
 };
 use fn_sim::Pos;
-use fn_tui::app::App;
 use fn_tui::color::Palette;
 use fn_tui::map::{Overlays, Thing, cell_look, style_cell};
-use fn_tui::pointer::{self, Pointer};
+use fn_ui::app::App;
+use fn_ui::pointer::{self, Pointer};
 use fn_ui::tools::Tool;
 
 use crate::camera::Camera;

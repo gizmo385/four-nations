@@ -3,10 +3,10 @@
 //! nation picker and the seed step, and the shell's own switch between the title screen, a game,
 //! and back.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::Nation;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_shell, to_text};
+use fn_tui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_tui::shell::Shell;
 
 const SIZE: (u16, u16) = (120, 40);

@@ -5,11 +5,11 @@
 //! (`layout_properties.rs`, #454) cover the structural side (every box closes, nothing overflows)
 //! at every size.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::embark::{MapSizeDef, SurveyMode};
 use fn_sim::{Defs, Nation};
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_shell, to_text};
+use fn_tui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_tui::shell::{Mode, Shell};
 
 fn size(id: &str) -> MapSizeDef {

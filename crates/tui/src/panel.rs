@@ -49,7 +49,6 @@
 //! (`Inspector::fitted`).
 
 use fn_sim::building::BuildingId;
-use fn_sim::world::Unit;
 use fn_ui::alerts::Category;
 use fn_ui::bend;
 use fn_ui::build;
@@ -69,6 +68,7 @@ use crate::color::{Palette, Tint};
 use crate::inspector::{Inspector, fit_blocks, inspect};
 use crate::state::UiState;
 use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, meter, wrap};
+pub use fn_ui::view::channel_text;
 
 /// How an action hint reads in the terminal, if it can be taken yet.
 ///
@@ -253,17 +253,6 @@ fn header(view: &SideView, marks: &Marks) -> Vec<Row> {
         Row::text(format!("{icon} {word} x{}", view.speed), tone),
         Row::text(crate::widgets::clock(&view.clock, marks), Tone::Text),
     ]
-}
-
-/// A channelling unit's status in place of the plain task text ("Channelling Hearthflame 1.2s"):
-/// its ability and the time left, while it stands on the tile and bends (`World::bend_channels`,
-/// #278). `None` while it walks there or does anything else, which keeps the plain task (the
-/// inspector's own use, `crate::inspector`; the Nation screen's roster, `N`, #308, has its own).
-pub fn channel_text(session: &Session, unit: &Unit) -> Option<String> {
-    let defs = &session.defs;
-    session.world.bend_channels(defs).into_iter().find(|c| c.unit == unit.id).map(|c| {
-        format!("Channelling {} {:.1}s", defs.ability(c.ability).name, c.remaining_secs.max(0.0))
-    })
 }
 
 /// The Settlement glance's People row (#416, docs/design/side-panel-v2.md "Zone 1"): "People N"
@@ -739,8 +728,7 @@ fn sections(d: &Data, k: Knobs, palette: &Palette) -> Vec<Section> {
         // "Harvest · repeating" or "Cancel · teardown" while the tool's own `O` toggle is on
         // (#277/#335), else just the tool's name.
         let name = d.repeating_label.clone().unwrap_or_else(|| d.view.tool.name().to_owned());
-        let tone = tool_tint(d)
-            .map_or(Tone::Heading, |t| Tone::Custom(palette.color(palette.tint_rgb(t))));
+        let tone = tool_tint(d).map_or(Tone::Heading, |t| Tone::Custom(palette.tint_rgb(t)));
         Section::new(name, format!("[{}]", d.view.tool.key()), rows).always().tint(tone)
     });
     // The inspector, which comes last and takes every row left (#653), is drawn after these.

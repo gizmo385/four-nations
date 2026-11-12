@@ -14,8 +14,8 @@ fn main() {
 #[cfg(target_arch = "wasm32")]
 mod web {
     use eframe::wasm_bindgen::JsCast;
-    use fn_tui::keyev::{KeyCode, KeyEvent, KeyModifiers};
     use fn_tui::shell::Shell;
+    use fn_ui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 
     fn query(name: &str) -> Option<u64> {
         let search = web_sys::window()?.location().search().ok()?;

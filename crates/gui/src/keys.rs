@@ -1,10 +1,10 @@
-//! egui's key events as the terminal's (`fn_tui::keyev`), so the shell can't tell a window from a
+//! egui's key events as the terminal's (`fn_ui::keyev`), so the shell can't tell a window from a
 //! terminal. Printable characters come from egui's `Text` events (they carry the shifted
 //! character and the keyboard layout); named keys, and letters held with Ctrl or Alt (which egui
 //! sends no text for), come from `Key` events.
 
 use eframe::egui::{self, Event, Key, Modifiers};
-use fn_tui::keyev::{KeyCode, KeyEvent, KeyModifiers};
+use fn_ui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 
 fn mods(m: Modifiers) -> KeyModifiers {
     let mut out = KeyModifiers::NONE;

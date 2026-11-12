@@ -13,7 +13,7 @@ use fn_sim::Nation;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::layout;
 use fn_tui::shell::{self, Mode, Shell};
-use fn_tui::state::BANNER_HEIGHT;
+use fn_ui::state::BANNER_HEIGHT;
 use ratatui::backend::Backend;
 use ratatui::buffer::Buffer;
 use soft_ratatui::embedded_graphics_unicodefonts::{
@@ -48,7 +48,7 @@ impl GuiApp {
         if let Some(i) = raw.iter().position(|a| a == "--keys") {
             let script = raw.get(i + 1).cloned().unwrap_or_default();
             raw.drain(i..(i + 2).min(raw.len()));
-            keys = fn_tui::keys::parse(&script).unwrap_or_else(|e| {
+            keys = fn_ui::script::parse(&script).unwrap_or_else(|e| {
                 eprintln!("fn_gui: --keys: {e}");
                 std::process::exit(2)
             });
@@ -103,7 +103,7 @@ impl GuiApp {
         self.last_frame = now;
         for key in ctx.input(crate::keys::frame_keys) {
             // F12 is the window's own: it shows or hides the egui panel.
-            if key.code == fn_tui::keyev::KeyCode::F(12) {
+            if key.code == fn_ui::keyev::KeyCode::F(12) {
                 self.show_panel = !self.show_panel;
                 continue;
             }
@@ -176,7 +176,7 @@ impl eframe::App for GuiApp {
                     self.map = None;
                     return;
                 };
-                if !fn_tui::pointer::map_has_pointer(app) {
+                if !fn_ui::pointer::map_has_pointer(app) {
                     return;
                 }
                 let Some(regions) = layout::regions(ratatui::layout::Rect::new(0, 0, cols, rows))

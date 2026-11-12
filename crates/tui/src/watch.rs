@@ -1589,6 +1589,7 @@ pub fn run_in(
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
                     // Rewinding needs the copies only this loop keeps, so it is handled here
                     // rather than in `control_key`, which the web replayer shares.
+                    let key = crate::keyev::from_crossterm(key);
                     let back = match key.code {
                         crate::keyev::KeyCode::Char('[') => Some(1),
                         crate::keyev::KeyCode::Char('{') => Some(BIG_STEP_TURNS),

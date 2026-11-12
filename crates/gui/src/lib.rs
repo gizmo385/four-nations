@@ -5,7 +5,7 @@
 //! - **The map** is a widget of its own ([`mapview`]): the per-tile look `fn_tui::map::tile_cell`
 //!   computes, painted as glyphs in egui's bundled monospace font, with pan by drag, zoom by the
 //!   wheel and, zoomed far out, one coloured block per tile. A click moves the cursor, and a drag
-//!   with a designate tool active makes the rectangle (`fn_tui::pointer`).
+//!   with a designate tool active makes the rectangle (`fn_ui::pointer`).
 //! - **Everything else** is the ratatui buffer the terminal would show, painted through
 //!   `egui_ratatui` ([`app`]).
 //! - **One real panel**: the side panel's header and People rows as egui widgets fed from

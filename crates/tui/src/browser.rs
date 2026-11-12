@@ -1629,7 +1629,7 @@ pub fn run_in(
         if event::poll(WAIT)? {
             match event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
-                    if let Outcome::Open(dir) = browser.key(key) {
+                    if let Outcome::Open(dir) = browser.key(crate::keyev::from_crossterm(key)) {
                         let log = log_of(&dir);
                         match watch::run_in(terminal, &log, depth, cli.ascii, cli.pace) {
                             Err(e) => {

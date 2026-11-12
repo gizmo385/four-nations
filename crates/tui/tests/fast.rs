@@ -2,9 +2,9 @@
 //! every game in the process (including after a new map or a nation switch), and is off by
 //! default. Through the public API, as a real `fn_tui --fast` would reach it.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::Nation;
 use fn_tui::cli::{self, Args};
+use fn_tui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_tui::shell::{Mode, Shell};
 
 const SIZE: (u16, u16) = (120, 40);

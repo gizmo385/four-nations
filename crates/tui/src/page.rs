@@ -31,7 +31,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier};
 
 use crate::color::Palette;
-use crate::widgets::{Marks, TitleAt, Tone, draw_frame, draw_position};
+use crate::widgets::{Marks, TitleAt, Tone, ToneStyle, draw_frame, draw_position};
 
 /// A full screen's parts, once its frame is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,13 +55,8 @@ impl Page {
     }
 }
 
-/// The inside of a page `page` cells across and down (`UiState::page`), border and padding
-/// excluded, detail strip included, as (columns, rows): how many rows a scrolling screen with no
-/// detail strip shows, and what `research::Grid` lays its cards out in.
-pub fn text_size(page: (i32, i32)) -> (usize, usize) {
-    let (w, h) = page;
-    ((w - 4).max(0) as usize, (h - 2).max(0) as usize)
-}
+// The size of a page's text is `fn_ui`'s, because the game's scrolling needs it (#857).
+pub use fn_ui::page::text_size;
 
 /// Draws the frame over `area` (the whole page, `crate::layout::Regions::page`): the panel
 /// colour over every cell, the Seal border, `title` upper case between two seals on the top edge,

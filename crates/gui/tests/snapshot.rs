@@ -7,8 +7,8 @@ use eframe::egui::{self, Sense};
 use fn_gui::camera::Camera;
 use fn_gui::mapview;
 use fn_sim::Nation;
-use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
+use fn_ui::app::App;
 
 #[test]
 fn the_map_widget_renders_headless() {

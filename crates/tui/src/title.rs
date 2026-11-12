@@ -20,7 +20,9 @@ use ratatui::style::Style;
 use crate::color::Palette;
 use crate::draw::too_small_text;
 use crate::layout::{MIN_HEIGHT, MIN_WIDTH};
-use crate::widgets::{BarBody, Painter, Row, TitleAt, Tone, draw_frame, draw_hint_bar, wrap};
+use crate::widgets::{
+    BarBody, Painter, Row, TitleAt, Tone, ToneStyle, draw_frame, draw_hint_bar, wrap,
+};
 
 /// What `F6`'s own save-slot rows are drawn with, reused for the Load page.
 use crate::saves as save_rows;

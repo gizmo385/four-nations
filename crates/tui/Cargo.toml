@@ -29,7 +29,7 @@ toml = { workspace = true }
 unicode-width = "0.2"
 
 # The terminal back end. crossterm doesn't build for wasm32 (#594), so the web replayer's build
-# leaves it, and ratatui's crossterm back end, out; `keyev` stands in for its key types there.
+# leaves it, and ratatui's crossterm back end, out; the game's key types are `fn_ui::keyev`'s, so nothing else needs it there.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ratatui = "0.30"
 crossterm = "0.29"

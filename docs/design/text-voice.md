@@ -138,7 +138,7 @@ blocked by #401, and each must leave golden frames re-blessed with the diff revi
 | Area | Files | Main problems | Issue |
 |---|---|---|---|
 | Alerts and Endeavor text | `crates/ui/src/alerts.rs`, `crates/ui/src/endeavor.rs`, `data/endeavor.toml` | Glued instructions, rule asides in hints, mixed trailing periods, season narration | #405 |
-| Key help, footers and prompts | `crates/tui/src/input.rs`, `draw.rs`, `screens.rs`, `title.rs`, `embark.rs`, `menu.rs`, `saves.rs`, `panel.rs` hints, `state.rs`, `crates/ui/src/tools.rs` | Issue numbers in help, multi-clause rows, duplicate and inconsistent footers, "press N" empty states, welcome line | #406 |
+| Key help, footers and prompts | `crates/ui/src/input.rs`, `crates/tui/src/draw.rs`, `crates/ui/src/screens.rs`, `crates/tui/src/title.rs`, `embark.rs`, `crates/ui/src/menu.rs`, `crates/tui/src/saves.rs`, `panel.rs` hints, `crates/ui/src/state.rs`, `crates/ui/src/tools.rs` | Issue numbers in help, multi-clause rows, duplicate and inconsistent footers, "press N" empty states, welcome line | #406 |
 | Inspect, build and status readouts | `crates/ui/src/inspect.rs`, `build.rs`, `text.rs`, `research.rs`, `view.rs`, `crates/tui/src/panel.rs` (rows), `crates/tui/src/research.rs` | Parenthesised asides, " - " joiners, jargon ("pts banked", "Needs prereqs", "Unlocks: Prerequisite for") | #408 |
 | Flavour text in data | `data/research.toml`, `data/bending.toml`, `data/nations.toml`, `data/difficulty.toml` | "X, not Y", "as in"/"style" asides, intensifiers, limits phrased as asides | #409 |
 

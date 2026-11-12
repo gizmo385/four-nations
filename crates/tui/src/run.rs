@@ -136,7 +136,7 @@ pub fn run(
         let was_paused = shell.paused();
         while pending {
             match event::read()? {
-                Event::Key(key) => shell.key(key),
+                Event::Key(key) => shell.key(crate::keyev::from_crossterm(key)),
                 Event::Resize(w, h) => shell.resize(w, h),
                 _ => {}
             }

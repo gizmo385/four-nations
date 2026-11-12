@@ -8,8 +8,8 @@
 //! and nothing here duplicates the tools' logic. While a drag is under way the anchor is set, so
 //! the map draws the live rectangle in the tool's hue as it does for the keyboard.
 
+use crate::tools::Tool;
 use fn_sim::Pos;
-use fn_ui::tools::Tool;
 
 use crate::app::App;
 use crate::keyev::{KeyCode, KeyEvent, KeyModifiers};

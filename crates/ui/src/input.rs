@@ -1,6 +1,6 @@
 //! Keys to actions, and actions to changes of the app (docs/design/tui.md, "Input").
 //!
-//! [`bindings`] says which crossterm key means which [`Action`]; [`map_key`] reads it. What each
+//! [`bindings`] says which key means which [`Action`]; [`map_key`] reads it. What each
 //! key is *called* (its label, its short verb, its key help wording) is not here but in the one
 //! table in `fn_ui::keys`, which the hint bar, the key help screen and `--help` are built from.
 //! A test here walks every binding and every action `map_key` can return and fails if the table
@@ -8,9 +8,9 @@
 
 use std::sync::LazyLock;
 
+use crate::Tool;
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use fn_ui::Tool;
-pub use fn_ui::keys::{Action, Group, HelpRow, help_rows};
+pub use crate::keys::{Action, Group, HelpRow, help_rows};
 
 /// How far Shift moves the cursor.
 pub const SHIFT_STEP: i32 = 10;
@@ -159,7 +159,7 @@ fn build_table() -> Vec<Binding> {
 }
 
 /// Whether `action` may reach the watch spectator's own `UiState` in free look (#330,
-/// `crate::spectate`): camera and cursor movement, browsing a unit or a read-only screen, never
+/// `fn_tui::spectate`): camera and cursor movement, browsing a unit or a read-only screen, never
 /// anything that would change the agent's own game. Every [`Action`] variant is matched by name,
 /// with no wildcard arm, so a new one fails to compile here until it's judged -- that's this
 /// crate's one enforcement that a new binding never reaches a spectator unclassified, since a
@@ -167,11 +167,11 @@ fn build_table() -> Vec<Binding> {
 ///
 /// `Action::PickTool` is judged by `tool`, not blanket: Build's own key only opens the
 /// browse-only picker (#330's acceptance criteria, "Build list (U, browse only)"); it never
-/// places anything by itself (`crate::spectate` refuses `Enter` inside it), so it alone is
+/// places anything by itself (`fn_tui::spectate` refuses `Enter` inside it), so it alone is
 /// allowed, and any other (including a tool added after this was written) is refused, the safe
 /// default. `Action::Confirm` is allowed in general (mostly "select a unit to see its bar"); the
 /// Research screen's own exception (`Enter` there sets the agent's research target) is judged by
-/// `crate::spectate`, which knows which screen is open and this function doesn't.
+/// `fn_tui::spectate`, which knows which screen is open and this function doesn't.
 pub fn spectator_allowed(action: Action) -> bool {
     match action {
         Action::Move { .. } | Action::Jump { .. } => true,
@@ -488,7 +488,7 @@ mod tests {
     /// key it is listed under is in that entry's label.
     #[test]
     fn every_key_map_key_handles_is_in_the_key_table() {
-        let table = fn_ui::keys::table();
+        let table = crate::keys::table();
         let mut actions: Vec<Action> = bindings().iter().map(|b| b.action).collect();
         actions.push(Action::QuitNow);
         for action in actions {
@@ -532,7 +532,7 @@ mod tests {
             // words of its "Any other key" label.
             .chain(["1", "2", "3", "4", "R", "Y", "Any", "other", "key"].map(String::from))
             .collect();
-        for e in fn_ui::keys::table() {
+        for e in crate::keys::table() {
             // `Type` (the name prompt) is every character, not one key.
             if e.keys == "Type" {
                 continue;

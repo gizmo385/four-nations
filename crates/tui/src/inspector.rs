@@ -30,6 +30,7 @@ use fn_ui::{Session, Tool};
 use crate::panel::hint_text;
 use crate::state::UiState;
 use crate::widgets::{Marks, Row, Tone, fit, meter, wrap};
+pub use fn_ui::view::settler_view;
 
 /// A meter bar is this many cells.
 const BAR_CELLS: usize = 10;
@@ -213,17 +214,6 @@ fn wrap_with_tail(text: &str, tail: &str, width: usize, ellipsis: char) -> Vec<S
 /// nation's accent, so the Avatar State reads apart from anything else he could be doing.
 fn task_tone(is_avatar: bool, task: Option<Task>) -> Tone {
     if is_avatar && task == Some(Task::Rite) { Tone::Avatar } else { Tone::Text }
-}
-
-/// What the inspector says about `unit`, and the Nation screen's detail strip too (#660): the
-/// plain `unit_view`, except that while the unit channels a bend its task line names the ability
-/// and the time left (#278).
-pub fn settler_view(session: &Session, unit: &Unit) -> UnitView {
-    let mut view = unit_view(session, unit);
-    if let Some(text) = crate::panel::channel_text(session, unit) {
-        view.task = text;
-    }
-    view
 }
 
 /// A selected settler: the old selection bar's rows (task, carrying, meters, rank progress and
