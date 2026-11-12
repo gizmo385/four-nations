@@ -13,8 +13,9 @@
 //! - **The hop.** The unit stands on the gate for `GlideDef::ticks` ticks and lands on the
 //!   partner. A need doesn't interrupt it (`World::act` skips everything else while a hop is on),
 //!   and both ends count the crossing (`Building::crossings`).
-//! - **Who.** People only. A unit with a load walks, and one inside a building has no route to
-//!   look at. Beasts (`beast.rs`) never hop.
+//! - **Who.** People only. A unit with a load walks past a Wind Gate and rides a Sky Lift
+//!   (`[building.lift]`, `GlideDef::loads`, #756), which compares every trip the same way, loaded
+//!   or not. One inside a building has no route to look at. Beasts (`beast.rs`) never hop.
 //! - **Looked at once.** A route is looked over when it starts, not every tick:
 //!   `Glider::seen` remembers where the last one was going and how many steps it had left, and a
 //!   route to the same place that is no longer than that is the same route.
@@ -67,9 +68,10 @@ impl Glider {
     }
 }
 
-/// Whether `u` may take a gate: people (never a beast) carrying nothing.
+/// Whether `u` may take a gate at all: people, never a beast. Whether a load may ride is up to
+/// the pair (`GlideDef::loads`).
 fn can_glide(u: &Unit) -> bool {
-    u.beast.is_none() && u.carrying.is_none() && u.inside.is_none()
+    u.beast.is_none() && u.inside.is_none()
 }
 
 impl World {
@@ -118,6 +120,7 @@ impl World {
         let route = u.route.as_ref()?;
         let (pos, dest) = (u.pos, route[0]);
         let rules = self.rules_for(u);
+        let loaded = u.carrying.is_some();
         let (mut walk, mut from) = (0.0f32, pos);
         for &to in route.iter().rev() {
             if from.chebyshev(to) > 1 {
@@ -138,7 +141,7 @@ impl World {
         let ends: Vec<(Pos, Pos, u32)> = self
             .of_kind(Kind::Glide)
             .filter_map(|b| {
-                let glide = defs.building(b.id).glide?;
+                let glide = defs.building(b.id).glide.filter(|g| g.loads || !loaded)?;
                 let partner = self.pair_partner(b.anchor, defs)?;
                 Some((b.anchor, partner, glide.ticks(b.anchor.chebyshev(partner) as u32)))
             })
@@ -174,10 +177,9 @@ impl World {
         let pos = self.units[i].pos;
         let hop = self.building_record(pos).and_then(|b| {
             let glide = defs.building(b.id).glide?;
-            (self.pair_partner(b.anchor, defs) == Some(to)).then(|| Hop {
-                from: b.anchor,
-                to,
-                left: glide.ticks(b.anchor.chebyshev(to) as u32),
+            let loaded = self.units[i].carrying.is_some();
+            (self.pair_partner(b.anchor, defs) == Some(to) && (glide.loads || !loaded)).then(|| {
+                Hop { from: b.anchor, to, left: glide.ticks(b.anchor.chebyshev(to) as u32) }
             })
         });
         let u = &mut self.units[i];

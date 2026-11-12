@@ -88,6 +88,9 @@
 #             end, plus a hop of `seconds + seconds_per_tile x distance`, plus its partner's walk
 #             to where it is going, and takes the gate when that is faster (ties walk). Needs
 #             don't interrupt a hop; a unit with a load walks.
+# - lift:     the same fields as `glide` (needs `pair`, not with `glide`), but loads ride too: the
+#             comparison is made for every unit trip, loaded or not (#756, the Sky Lift). Beasts
+#             never ride either.
 # - orchard:  plants and tends a renewable resource around itself (issue #142, docs/design/
 #             research.md, "The orchard"). Every `plant_seconds` it plants one `plants` (a
 #             renewable resource) on a free tile of its own mapgen terrain within `radius` (a
@@ -1427,4 +1430,35 @@ item = "metal"
 count = 4
 [[building.cost]]
 item = "tool"
+count = 2
+
+# --- #756 (research horizons phase 6: `sky_lifts`) ---
+
+# The Earth + Air fusion (docs/design/horizons-phase-6.md, "`sky_lifts`"): a pair, both ends
+# against rock, that anyone rides, loaded or not (`[building.lift]` is a `[building.glide]` that
+# carries loads, `world/glide.rs`). The same route comparison as the Wind Gate: walk to A, the ride
+# (4 s plus 0.25 s a tile: 12 s over 32 tiles), walk from B, against the direct walk. Build
+# deliveries, refuels and meals ride too; beasts never do. Both ends must be in one walkable
+# region, as for any pair. Unlocked by the `sky_lifts` fusion tech after the gate.
+[[building]]
+id = "sky_lift"
+name = "Sky Lift"
+verb = "Raise"
+work = 80.0
+passable = true        # the unit steps on to board
+beside = ["mountain"]  # each end stands against rock
+[building.pair]
+reach = 32
+min_tiles = 8
+[building.lift]
+seconds = 4.0          # a ride takes 4 s plus 0.25 s a tile
+seconds_per_tile = 0.25
+[[building.cost]]
+item = "wood"
+count = 12
+[[building.cost]]
+item = "stone"
+count = 6
+[[building.cost]]
+item = "metal"
 count = 2

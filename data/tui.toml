@@ -712,3 +712,9 @@ fg = [150, 175, 200]
 glyph = "Δ"
 ascii = "Z"
 fg = [140, 190, 230]
+
+# Earth + Air's Sky Lift (fusion, horizons phase 6): a tower on the rock face.
+[building.sky_lift]
+glyph = "⇑"
+ascii = "H"
+fg = [200, 215, 225]

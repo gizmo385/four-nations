@@ -405,8 +405,12 @@ pub fn pair_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
             format!("Partner: ({}, {}), {distance} tiles", partner.x, partner.y)
         }
     }];
-    if def.glide.is_some() && world.building_at(anchor).is_some() {
-        lines.push(format!("Crossings: {}", world.crossings_at(anchor)));
+    if let Some(glide) = def.glide
+        && world.building_at(anchor).is_some()
+    {
+        // A lift counts the people it has carried; a gate, its crossings.
+        let label = if glide.loads { "Riders" } else { "Crossings" };
+        lines.push(format!("{label}: {}", world.crossings_at(anchor)));
     }
     lines
 }
@@ -1438,6 +1442,15 @@ mod tests {
         let want = format!("Partner: ({}, {}), {tiles} tiles", other.x, other.y);
         assert_eq!(details(&s, pos)[1..], [want, "Crossings: 0".to_owned()]);
         assert!(tooltip_lines(&s, Tool::Select, pos).unwrap().len() <= 4);
+    }
+
+    /// The Sky Lift (#756): its partner, and a tally of its riders rather than crossings.
+    #[test]
+    fn a_sky_lift_counts_its_riders() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "sky_lift", pos);
+        assert_eq!(details(&s, pos)[1..], ["No partner".to_owned(), "Riders: 0".to_owned()]);
     }
 
     /// The Balloon Dock (#692, #698): its partner, hold and bunker; the balloon only once the

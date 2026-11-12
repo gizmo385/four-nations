@@ -1162,3 +1162,22 @@ item = "tool"
 count = 8
 [tech.unlocks]
 buildings = ["airship_dock"]
+
+# --- #756 (research horizons phase 6: `sky_lifts`) -----------------------------------------------
+
+# The Earth + Air fusion (docs/design/horizons-phase-6.md, "`sky_lifts`"): a pair built against
+# rock that anyone rides, loads and all. The 3 residents of each nation, the 1 master and the 6
+# tools are provisional (#752's playtest sets them).
+[[tech]]
+id = "sky_lifts"
+name = "Sky Lifts"
+description = "Earth anchors the towers in the rock and Air keeps the cars aloft."
+fusion = ["earth", "air"]
+cost = 1000
+prereqs = ["masonry", "carpentry"]
+requires = { residents = { earth = 3, air = 3 }, masters = 1, masters_of = ["earth", "air"] }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["sky_lift"]
