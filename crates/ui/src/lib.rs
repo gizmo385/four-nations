@@ -52,6 +52,8 @@ pub mod rows;
 pub mod saves;
 pub mod screens;
 pub mod script;
+#[cfg(feature = "serde")]
+mod ser;
 pub mod session;
 pub mod sparkline;
 pub mod state;

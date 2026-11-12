@@ -14,6 +14,7 @@ use crate::view::{humanize, multiplier};
 /// The side panel's Research section: the tech the pool is currently paying for, its progress,
 /// and the knowledge rate.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ResearchStatus {
     /// The tech currently being paid for (the queue's front), or a "no target" message.
     pub label: String,
@@ -40,6 +41,7 @@ pub struct ResearchStatus {
 /// What an Archive's scribing is doing (`World::scribing_on`): nothing while a target is set,
 /// paused at the stock limit, else the points toward the next copy.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Scribing {
     /// A research target is set: knowledge goes to the tech.
     Off,
@@ -157,6 +159,7 @@ pub fn clear_target(session: &mut Session) -> Result<String, String> {
 
 /// How a tech reads in the screen: never both known and queued, so one colour tells you which.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum TechState {
     Known,
     /// In the current queue: either the chosen target or one of its unknown prereqs.
@@ -366,6 +369,7 @@ pub fn missing_needs(
 }
 
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct TechCard {
     pub id: TechId,
     pub name: String,
@@ -399,6 +403,7 @@ pub struct TechCard {
 /// A school option's place in its fork (docs/design/horizons-phase-4.md, "Mockups"): the
 /// school's question heads the fork, and the second option follows an "or".
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SchoolSlot {
     /// "Which city?"
     pub question: String,
@@ -448,6 +453,7 @@ pub fn closed_reason(research: &Research, defs: &Defs, tech: TechId) -> Option<S
 /// Columns by depth, each holding the techs at that depth: shared techs plus the nation's own
 /// branch, in `TechId` order within a column. Other nations' branches are never built.
 #[derive(Clone, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ScreenView {
     pub columns: Vec<Vec<TechCard>>,
 }

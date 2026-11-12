@@ -1222,6 +1222,8 @@ name = "fn_ui"
 version = "0.1.0"
 dependencies = [
  "fn_sim",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

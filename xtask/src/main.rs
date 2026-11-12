@@ -2,8 +2,10 @@
 //!
 //!     cargo xtask ci [--fast] [--no-goldens]
 //!                               fmt + clippy + tests for the whole workspace, plus clippy on
-//!                               fn_sim/fn_ui/fn_tui for wasm32 (#594); --fast uses the
-//!                               `ci` profile (opt-level 1 for our own crates), as CI does;
+//!                               fn_sim/fn_ui/fn_tui for wasm32 (#594), and clippy plus the
+//!                               view-model tests on fn_ui with its `serde` feature (#858);
+//!                               --fast uses the `ci` profile (opt-level 1 for our own
+//!                               crates), as CI does;
 //!                               --no-goldens sets FN_GOLDEN=skip, so every golden comparison
 //!                               is a no-op that passes. `ci --fast` with no other flags is
 //!                               exactly what GitHub CI runs. Tests run with cargo-nextest
@@ -226,6 +228,7 @@ fn ci(fast: bool, no_goldens: bool) -> Result {
     .concat();
     cargo_env(&clippy, &env)?;
     clippy_wasm(&profile, &env)?;
+    serde_feature(&profile, &env)?;
     cargo_env(&test_args(&[&["--workspace"][..], EXCLUDED].concat(), &profile)?, &env)?;
     println!("ci OK");
     Ok(())
@@ -317,6 +320,22 @@ fn clippy_wasm(profile: &[&str], env: &[(&str, &str)]) -> Result {
     cargo_env(&args, env)
 }
 
+/// `fn_ui`'s optional `serde` feature (#858) is off in every other step, so build, lint and test
+/// it here: clippy on the crate with the feature on, then the tests that serialise the view models.
+fn serde_feature(profile: &[&str], env: &[(&str, &str)]) -> Result {
+    let mut clippy = vec!["clippy", "-p", "fn_ui", "--features", "serde", "--all-targets"];
+    clippy.extend(profile);
+    clippy.extend(["--", "-D", "warnings"]);
+    cargo_env(&clippy, env)?;
+    let mut test = test_args(&["-p", "fn_ui", "--features", "serde"], profile)?;
+    if nextest_installed() {
+        test.extend(["-E", "test(serde_views)"]);
+    } else {
+        test.extend(["--", "serde_views"]);
+    }
+    cargo_env(&test, env)
+}
+
 /// Whether the toolchain has the standard library for [`WASM_TARGET`].
 fn wasm_target_installed() -> bool {
     let Ok(out) =
@@ -350,6 +369,7 @@ fn check(crates: &[String], fast: bool) -> Result {
     .concat();
     cargo_env(&clippy, &env)?;
     clippy_wasm(&profile, &env)?;
+    serde_feature(&profile, &env)?;
 
     let picked: Vec<String> =
         if crates.is_empty() { changed_crates(&root())? } else { crates.to_vec() };

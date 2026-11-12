@@ -14,6 +14,7 @@ use crate::tools::Tool;
 /// An action the player could take on what they're looking at. Each frontend words it for its
 /// own input: "Click to select" in one, "Enter to select" in the other.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Hint {
     /// Select the unit here.
     SelectUnit,
@@ -25,6 +26,7 @@ pub enum Hint {
 
 /// One line of a tooltip, and so its role. The text is final English except for hints.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Line {
     Title(String),
     Detail(String),

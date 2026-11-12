@@ -29,6 +29,7 @@ use crate::tools::{bend_ability, usable_abilities};
 
 /// One ability as the Bend tool shows it.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BendRow {
     /// The ability's display name, as the banner badge shows it ("Hearthflame"), and what
     /// `act {designate, tool: "bend", ability}` takes.
@@ -42,6 +43,7 @@ pub struct BendRow {
 
 /// The Bend tool banner's content.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BendView {
     /// Every ability `B` cycles through, in `B`'s order; the current one is flagged. Empty only
     /// if the nation has no ability defined at all (the data tests guard against that).
@@ -134,6 +136,7 @@ pub fn effect_lines(session: &Session, id: AbilityId) -> Vec<String> {
 
 /// One ability on the abilities screen (#719): what it does and whether it can be used now.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AbilityRow {
     pub id: AbilityId,
     /// The display name ("Hearthflame").

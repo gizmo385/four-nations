@@ -20,6 +20,7 @@ use crate::tools::Tool;
 
 /// Everything the side panel shows.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SideView {
     pub nation: String,
     pub seed: u64,
@@ -90,6 +91,7 @@ pub fn side_view(
 
 /// One line of the Stores section: an item the stockpiles hold.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StoreRow {
     pub name: String,
     pub count: u32,
@@ -125,6 +127,7 @@ pub fn store_rows(session: &Session) -> Vec<StoreRow> {
 /// same question, read with `observe()`. `cap` is reported even with no zone designated at all
 /// (`tiles == 0`): it's a setting, not a fact about the world right now.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StockpileCapacity {
     pub tiles: u32,
     pub used: u32,
@@ -209,6 +212,7 @@ pub fn population_by_nation(world: &World, defs: &Defs) -> Vec<(String, usize)> 
 /// names"), in a **fixed order** so a group's place never jitters tick to tick (sorting by count
 /// would).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Activity {
     Idle,
     Haul,
@@ -318,6 +322,7 @@ impl Activity {
 
 /// The settlement's beasts (#699, `World::beasts`), for the Settlement glance's Beasts row.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BeastCount {
     /// Every beast in the settlement.
     pub total: usize,
@@ -430,6 +435,7 @@ pub fn climate_effects(climate: &fn_sim::seasons::ClimateDef) -> String {
 /// `docs/design/side-panel.md` "How it fits #299 and #306"): shown under People whenever the
 /// chosen difficulty preset has seasons on (#295); `None` otherwise, which hides the section.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SeasonView {
     /// The heading's title: the season and the year ("Autumn · Y1"; the divider format upper
     /// cases it, docs/design/side-panel.md "Headings").
@@ -505,6 +511,7 @@ pub fn humanize(name: &str) -> String {
 
 /// How a meter reads: the same colours for every nation (`Theme::ok`, `warn`, `bad`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Status {
     Ok,
     Warn,
@@ -527,6 +534,7 @@ pub fn need_status(frac: f32, low: f32) -> Status {
 pub use fn_sim::needs::HEALTH_LOW;
 
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NeedView {
     pub label: &'static str,
     /// In `[0, 1]`.
@@ -542,6 +550,7 @@ impl NeedView {
 
 /// Everything the selection bar shows for a unit, except the portrait.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct UnitView {
     pub id: UnitId,
     pub name: String,
@@ -621,6 +630,7 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
 /// just the panel's own two rows' worth; and the nation's traits (today's panel's own Modifiers,
 /// moved here, since they only change when research does).
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NationView {
     pub nation: String,
     pub seed: u64,

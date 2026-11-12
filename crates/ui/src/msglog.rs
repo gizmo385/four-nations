@@ -31,6 +31,7 @@ const SEARCH: usize = 32;
 /// Which line of the log the cursor is on. Held as the line's id, not its row, so a new line
 /// arriving at the top does not move it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LineKey {
     /// The entry's id ([`Entry::id`]); for a fold, its first line's.
     pub id: u64,
@@ -40,6 +41,7 @@ pub struct LineKey {
 
 /// One line of the log as shown.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Line {
     pub key: LineKey,
     /// When it happened: the newest of a fold's lines.

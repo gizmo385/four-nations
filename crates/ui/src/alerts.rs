@@ -44,6 +44,7 @@ pub const MAX_HISTORY: usize = 1000;
 
 /// What an alert is about. Decides how long its toast stays and how many show at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Kind {
     /// A bend that finished or failed.
     Bend,
@@ -132,6 +133,7 @@ impl Kind {
 /// reads the log by. Set where the entry is made ([`Kind::category`]), never worked out by the
 /// screen drawing it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Category {
     /// Something that needs an eye: a death, the winter warning and the season turning, a full
     /// stockpile, a plant picked to death, a failed bend, an endeavor sign met.
@@ -178,6 +180,7 @@ impl Category {
 /// How soon an open alert wants an eye (#656): the panel lists them most urgent first. The
 /// order is the declaration order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Urgency {
     /// A settler's life: anyone starving, freezing or dying.
     Life,
@@ -227,6 +230,7 @@ impl Kind {
 /// variant and the same name. Set where the entry is made; only the message log's view reads it
 /// (`crate::msglog`), so the history, and the run log an agent reads, stay one line per event.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Fold {
     /// A finished bend of the named ability.
     Bend(String),
@@ -248,6 +252,7 @@ struct ToastSpec {
 
 /// One line of the log.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Entry {
     /// Which line it is: counts up from 1 as lines are made, so it names the line for as long as
     /// the line is in the history, whatever drops off the front (#661: the log's cursor and its
@@ -271,13 +276,16 @@ pub struct Entry {
     /// Seconds its toast has left; at or below zero it is history only. Always zero for an entry
     /// that never toasts (`toast` is `None`): a routine success (#417, a finished `Bend`), a
     /// `Death` or an `Agent` line.
+    #[cfg_attr(feature = "serde", serde(skip))]
     left: f32,
     /// `Some` for a kind and an outcome that toasts at all; `None` for a routine success (#417),
     /// a `Death` or an `Agent` line, which are log-only.
+    #[cfg_attr(feature = "serde", serde(skip))]
     toast: Option<ToastSpec>,
     /// A `Bend` that failed rather than finished. Ignored for every other kind: only `Bend`
     /// alerts need the distinction, since a finished bend is routine (#377) but a failed one
     /// still says something worth an agent's attention.
+    #[cfg_attr(feature = "serde", serde(skip))]
     failed: bool,
 }
 
@@ -621,6 +629,7 @@ impl Alerts {
 /// One toast [`Alerts::toasts`] shows: already folded by kind and subject, so its text is
 /// exactly what the side panel's Alerts section puts on screen.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Toast {
     pub kind: Kind,
     /// The message log's category of the lines it stands for (`Entry::category`).

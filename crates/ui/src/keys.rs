@@ -104,6 +104,7 @@ impl Action {
 
 /// Where the key help lists a binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Group {
     Cursor,
     Units,
@@ -236,6 +237,7 @@ pub fn mode_name(mode: Mode, tool: Tool) -> String {
 
 /// The long wording a binding has in the key help, and where it is listed.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Help {
     pub group: Group,
     pub what: String,
@@ -261,6 +263,7 @@ pub struct Entry {
 
 /// One item of a hint bar: "Esc or T close".
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Hint {
     pub keys: String,
     pub verb: &'static str,
@@ -279,6 +282,7 @@ impl Hint {
 
 /// One line of the key help: the keys, and what they do.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct HelpRow {
     pub group: Group,
     pub keys: String,

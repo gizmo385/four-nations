@@ -11,5 +11,14 @@ autotests = false
 name = "it"
 path = "tests/it.rs"
 
+[features]
+# `Serialize` on the public view-model types (#858), for a frontend that hands them to a webview
+# or a script as JSON. Off by default: the terminal UI and the window UI don't need it.
+serde = ["dep:serde"]
+
 [dependencies]
 fn_sim = { path = "../sim" }
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

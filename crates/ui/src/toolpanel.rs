@@ -37,6 +37,7 @@ use crate::tools::{Order, Tool, bend_ability, preview_order, usable_abilities};
 
 /// How a line should read, without naming a colour.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Emphasis {
     Plain,
     /// A reason or a state that is background to the rest.
@@ -45,6 +46,7 @@ pub enum Emphasis {
 
 /// One line of the section.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Line {
     /// Text that wraps to the panel's width.
     Text(String, Emphasis),
@@ -84,6 +86,7 @@ pub struct ToolState<'a> {
 
 /// One tool in the list (`/`, #664).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ToolChoice {
     pub tool: Tool,
     /// The letter that picks it: "H".

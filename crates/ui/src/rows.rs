@@ -125,6 +125,7 @@ impl Marks {
 
 /// The colour a span of text wears: a theme token, so every nation reads the same way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Tone {
     Text,
     Dim,
@@ -171,6 +172,7 @@ impl Tone {
 /// One line of a panel: spans of text left to right, and optionally one flush right. The left
 /// side gives way (with an ellipsis) when the line is too long.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Row {
     pub left: Vec<(String, Tone)>,
     pub right: Option<(String, Tone)>,

@@ -25,6 +25,7 @@ use crate::session::Session;
 
 /// What the pointer (or the cursor's `Enter`) does on the map.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Tool {
     /// Pick a unit.
     #[default]
