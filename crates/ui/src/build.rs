@@ -430,6 +430,7 @@ fn occupant_task(unit: &Unit) -> &'static str {
         Some(Task::Study(_)) => "studying",
         Some(Task::Chart(_)) => "charting",
         Some(Task::Sleep) => "sleeping",
+        Some(Task::Bath(_)) => "bathing",
         Some(Task::Healing(_)) => "healing",
         _ => "idle",
     }

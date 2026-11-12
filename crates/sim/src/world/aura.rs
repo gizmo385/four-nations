@@ -78,6 +78,34 @@ impl World {
         out
     }
 
+    /// Every finished building whose `[building.chi_regen]` is in season now (#741, the Sun
+    /// Stone), with its footprint: what `chi_stone_factor` reads for each unit this tick.
+    pub(super) fn chi_stones(&self, defs: &Defs) -> Vec<(Footprint, u32, f32)> {
+        let season = &self.season(defs).id;
+        self.buildings()
+            .filter_map(|b| {
+                let c = defs.building(b.id).chi_regen.as_ref()?;
+                c.seasons.contains(season).then(|| (b.footprint(), c.radius, c.factor))
+            })
+            .collect()
+    }
+
+    /// The chi regen multiplier at `pos` from `stones`: the best one in reach, since two don't
+    /// stack, or 1.0.
+    pub(super) fn chi_stone_factor(stones: &[(Footprint, u32, f32)], pos: Pos) -> f32 {
+        let here = Footprint::single(pos);
+        stones
+            .iter()
+            .filter(|(f, r, _)| f.gap(here) <= *r as i32)
+            .map(|&(_, _, factor)| factor)
+            .fold(1.0, f32::max)
+    }
+
+    /// The chi regen multiplier at `pos` right now (#741), for readouts.
+    pub fn chi_stone_at(&self, pos: Pos, defs: &Defs) -> f32 {
+        Self::chi_stone_factor(&self.chi_stones(defs), pos)
+    }
+
     /// Why a landmark can't go up: one of it already stands, or is designated.
     pub(super) fn landmark_blocker(
         &self,

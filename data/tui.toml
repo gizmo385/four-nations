@@ -397,6 +397,17 @@ glyph = "◇"
 ascii = "Y"
 fg = [120, 230, 170]
 
+# Fire's Sun Stone and Bathhouse (#741).
+[building.sun_stone]
+glyph = "☀"
+ascii = "U"
+fg = [255, 200, 60]
+
+[building.bathhouse]
+glyph = "♨"
+ascii = "B"
+fg = [230, 140, 120]
+
 # Earth's Sandstone Works (#740).
 [building.sandstone_works]
 glyph = "▤"

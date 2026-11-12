@@ -148,6 +148,9 @@ pub enum Task {
     /// Resting at a healing building's anchor (`BuildingDef::healing`, issue #375), walking to
     /// one or inside it.
     Healing(Pos),
+    /// Bathing at a bath's anchor (`BuildingDef::bath`, the Bathhouse, #741), walking to one or
+    /// inside it.
+    Bath(Pos),
     /// Fetching a remedy (herbs, to start) from the stockpile tile `Pos` and taking it like a
     /// meal (`data/harm.toml`'s `[[remedy]]`, issue #390, `World::plan_remedy`/`take_remedy`).
     Remedy(Pos),
@@ -955,6 +958,7 @@ impl World {
         u.work = 0.0;
         u.bed = None;
         u.healing = None;
+        u.bath = None;
     }
 
     pub(super) fn finish_job(&mut self, i: usize) {
@@ -1061,6 +1065,9 @@ impl World {
                     u.route = Some(route);
                     u.work = 0.0;
                     u.bed = bed;
+                    if let Task::Bath(anchor) = task {
+                        u.bath = Some(anchor);
+                    }
                     return;
                 }
                 None => {
@@ -1117,7 +1124,11 @@ impl World {
     ) -> Option<(Task, Vec<Pos>, Option<Pos>)> {
         let plain = |(task, route)| (task, route, None);
         match need {
-            Need::Energy => Some(self.plan_sleep(i, defs)),
+            // A tired unit with a bath in reach bathes instead of lying down (#741).
+            Need::Energy => Some(match self.plan_bath(i, defs) {
+                Some((route, anchor)) => (Task::Bath(anchor), route, None),
+                None => self.plan_sleep(i, defs),
+            }),
             Need::Thirst => self.plan_drink(i, defs).map(plain),
             Need::Hunger => self.plan_food(i, defs).map(plain),
         }
@@ -1223,6 +1234,54 @@ impl World {
             });
         let (stand, key) = found?;
         Some((route_from(flood.path_to(stand)?), key))
+    }
+
+    /// Where to bathe (#741): the route to the nearest finished bath with room within its
+    /// `seek_tiles`, for a unit whose energy is under its `seek_energy_below` and that is off its
+    /// cooldown, and the anchor it reserves (`Unit::bath`). `None` otherwise.
+    pub(super) fn plan_bath(&self, i: usize, defs: &Defs) -> Option<(Vec<Pos>, Pos)> {
+        if !defs.buildings.iter().any(|b| b.bath.is_some()) {
+            return None;
+        }
+        let u = &self.units[i];
+        if self.tick < u.bath_ready_at {
+            return None;
+        }
+        let mut targets: HashMap<Pos, Vec<(u32, Pos, u32)>> = HashMap::new();
+        for b in self.buildings() {
+            let def = defs.building(b.id);
+            let Some(bath) = def.bath else { continue };
+            if def.capacity == 0 || u.needs.energy >= bath.seek_energy_below {
+                continue;
+            }
+            let foot = b.footprint();
+            targets.entry(foot.entrance()).or_default().push((
+                bath.seek_tiles * STRAIGHT,
+                foot.anchor,
+                def.capacity,
+            ));
+        }
+        if targets.is_empty() {
+            return None;
+        }
+        let rules = self.rules_for(u);
+        let (flood, found) = Flood::nearest(&self.map, u.pos, rules, &targets, |_, c, baths| {
+            baths
+                .iter()
+                .find(|&&(max_cost, anchor, limit)| {
+                    c <= max_cost && self.bath_has_room(anchor, i, limit)
+                })
+                .map(|&(_, anchor, _)| ((), anchor))
+        });
+        let (stand, key) = found?;
+        Some((route_from(flood.path_to(stand)?), key))
+    }
+
+    /// Whether fewer than `limit` other units have claimed the bath anchored on `key`.
+    fn bath_has_room(&self, key: Pos, me: usize, limit: u32) -> bool {
+        let claimed =
+            self.units.iter().enumerate().filter(|&(k, u)| k != me && u.bath == Some(key)).count();
+        (claimed as u32) < limit
     }
 
     /// Whether fewer than `limit` other units have already claimed the healing building keyed
@@ -1481,6 +1540,28 @@ impl World {
                 // step inside. A no-op once already inside.
                 if self.units[i].inside.is_none() {
                     self.enter_building(i, anchor, defs);
+                }
+            }
+            Task::Bath(anchor) => {
+                let Some(bath) = self.building_at(anchor).and_then(|id| defs.building(id).bath)
+                else {
+                    return self.finish_need(i);
+                };
+                if self.units[i].route.as_ref().is_some_and(|r| !r.is_empty()) {
+                    self.walk(i, defs);
+                    return;
+                }
+                if self.units[i].inside.is_none() && !self.enter_building(i, anchor, defs) {
+                    return;
+                }
+                // Inside: soak for `minutes`, then come out rested and warm.
+                let u = &mut self.units[i];
+                u.work += 1.0 / TICKS_PER_SECOND as f32;
+                if u.work >= bath.minutes * 60.0 {
+                    u.needs.energy = defs.needs.max();
+                    u.warm_until = self.tick + minutes_to_ticks_min1(bath.warm_minutes);
+                    u.bath_ready_at = self.tick + minutes_to_ticks_min1(bath.cooldown_minutes);
+                    self.finish_need(i);
                 }
             }
             // Job tasks never sit in the need slot.

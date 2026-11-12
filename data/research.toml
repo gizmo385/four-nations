@@ -983,6 +983,31 @@ prereqs = ["meditation"]
 [tech.unlocks]
 abilities = ["project"]
 
+# --- #741 (research horizons phase 5: `sun_stone`, `hot_springs`) -----------------------------
+
+[[tech]]
+id = "sun_stone"
+name = "Sun Stone"
+description = "The Sun Warriors' stone gathers the summer sun for firebenders."
+nation = "fire"
+cost = 250
+prereqs = ["dancing_dragon"]
+[tech.teaching]
+[tech.unlocks]
+buildings = ["sun_stone"]
+
+[[tech]]
+id = "hot_springs"
+name = "Hot Springs"
+description = "Build baths over the springs, where the mountain's heat rises."
+nation = "fire"
+cost = 250
+prereqs = ["brickmaking"]
+[tech.teaching]
+site = { terrains = ["mountain"], within = 30, min_tiles = 4 }
+[tech.unlocks]
+buildings = ["bathhouse"]
+
 # --- #737 (research horizons phase 5: lost teachings) -------------------------------------------
 
 # A teaching scroll read when every teaching is kept, lost or ruled out by its site reads for this

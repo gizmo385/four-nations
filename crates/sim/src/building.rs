@@ -572,6 +572,32 @@ pub struct HealingDef {
     pub revive_to: f32,
 }
 
+/// A building that speeds chi regen in reach during some seasons (`[building.chi_regen]`,
+/// docs/design/horizons-phase-5.md, "`sun_stone`"): a unit within `radius` (Chebyshev from the
+/// footprint, unscaled) of a finished one, while the season is one of `seasons`, regains chi
+/// `factor` times as fast, awake or asleep. Two don't stack (`World::chi_stone_at`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChiRegenDef {
+    pub radius: u32,
+    pub factor: f32,
+    /// Season ids from `data/seasons.toml`, checked once the defs load.
+    pub seasons: Vec<String>,
+}
+
+/// A bath (`[building.bath]`, docs/design/horizons-phase-5.md, "`hot_springs`"): a unit whose
+/// energy need comes due below `seek_energy_below`, off its cooldown, walks to a finished one
+/// with room within `seek_tiles` instead of lying down. It bathes inside for `minutes`, then its
+/// energy is full and the cold can't hurt it for `warm_minutes` (`Unit::warm_until`). One bath
+/// per unit per `cooldown_minutes`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BathDef {
+    pub seek_energy_below: f32,
+    pub seek_tiles: u32,
+    pub minutes: f32,
+    pub warm_minutes: f32,
+    pub cooldown_minutes: f32,
+}
+
 /// Largest multiplier an aura may give one stat (`[building.aura]`).
 pub const MAX_AURA: f32 = 4.0;
 
@@ -662,6 +688,10 @@ pub struct BuildingDef {
     /// Set if units heal here: Water's Healing Hut (issue #375). Needs a `capacity` above 0,
     /// the number of places a hurt settler heals in at once, each through its door.
     pub healing: Option<HealingDef>,
+    /// Chi regen in reach during some seasons (`ChiRegenDef`, the Sun Stone, #741), or `None`.
+    pub chi_regen: Option<ChiRegenDef>,
+    /// A bath tired units visit instead of sleeping (`BathDef`, the Bathhouse, #741), or `None`.
+    pub bath: Option<BathDef>,
     /// Set if this is a power source: work inside a `uses_power` building within its reach runs
     /// faster (issue #428, `world/power.rs`).
     pub power: Option<PowerDef>,
@@ -928,6 +958,24 @@ struct RawHealing {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawChiRegen {
+    radius: u32,
+    factor: f32,
+    seasons: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawBath {
+    seek_energy_below: f32,
+    seek_tiles: u32,
+    minutes: f32,
+    warm_minutes: f32,
+    cooldown_minutes: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawPower {
     radius: u32,
     boost: f32,
@@ -1116,6 +1164,8 @@ struct RawBuilding {
     farm: Option<RawFarm>,
     irrigation: Option<RawIrrigation>,
     healing: Option<RawHealing>,
+    chi_regen: Option<RawChiRegen>,
+    bath: Option<RawBath>,
     power: Option<RawPower>,
     chart: Option<RawChart>,
     archive: Option<RawArchive>,
@@ -1274,6 +1324,12 @@ impl BuildingsFile {
                     b.id, b.spirit_seats
                 ));
             }
+            if b.bath.is_some() && capacity == 0 {
+                return err(format!(
+                    "building {}: bath needs a capacity, the door a unit bathes through",
+                    b.id
+                ));
+            }
             if b.healing.is_some() && capacity == 0 {
                 return err(format!(
                     "building {}: healing needs a capacity, the door a unit heals through",
@@ -1382,6 +1438,14 @@ impl BuildingsFile {
             let irrigation = match &b.irrigation {
                 None => None,
                 Some(i) => Some(resolve_irrigation(&b.id, i)?),
+            };
+            let chi_regen = match &b.chi_regen {
+                None => None,
+                Some(c) => Some(resolve_chi_regen(&b.id, c)?),
+            };
+            let bath = match &b.bath {
+                None => None,
+                Some(c) => Some(resolve_bath(&b.id, c, needs)?),
             };
             let healing = match &b.healing {
                 None => None,
@@ -1552,6 +1616,8 @@ impl BuildingsFile {
                 farm,
                 irrigation,
                 healing,
+                chi_regen,
+                bath,
                 power,
                 chart,
                 archive,
@@ -2025,6 +2091,53 @@ fn resolve_healing(
         vial_item,
         vial_stock: h.vial_stock,
         revive_to: h.revive_to,
+    })
+}
+
+/// Checks a `[building.chi_regen]` (#741): radius 1 to 12, factor above 1 and at most
+/// `MAX_AURA`, and at least one season (whose ids `Defs` checks once seasons load).
+fn resolve_chi_regen(building: &str, c: &RawChiRegen) -> Result<ChiRegenDef, DefsError> {
+    let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
+    if !(1..=12).contains(&c.radius) {
+        return err("chi_regen radius must be 1 to 12");
+    }
+    if !(c.factor.is_finite() && c.factor > 1.0 && c.factor <= MAX_AURA) {
+        return err(&format!("chi_regen factor must be above 1 and at most {MAX_AURA}"));
+    }
+    if c.seasons.is_empty() {
+        return err("chi_regen needs at least one season");
+    }
+    Ok(ChiRegenDef { radius: c.radius, factor: c.factor, seasons: c.seasons.clone() })
+}
+
+/// Checks a `[building.bath]` (#741): the threshold inside the energy meter, and every time
+/// positive.
+fn resolve_bath(building: &str, b: &RawBath, needs: &NeedsSettings) -> Result<BathDef, DefsError> {
+    let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
+    if !(b.seek_energy_below.is_finite()
+        && b.seek_energy_below > 0.0
+        && b.seek_energy_below <= needs.max())
+    {
+        return err("bath seek_energy_below must be inside the energy meter");
+    }
+    if !(1..=100).contains(&b.seek_tiles) {
+        return err("bath seek_tiles must be 1 to 100");
+    }
+    for (name, v) in [
+        ("minutes", b.minutes),
+        ("warm_minutes", b.warm_minutes),
+        ("cooldown_minutes", b.cooldown_minutes),
+    ] {
+        if !(v.is_finite() && v > 0.0) {
+            return err(&format!("bath {name} must be positive"));
+        }
+    }
+    Ok(BathDef {
+        seek_energy_below: b.seek_energy_below,
+        seek_tiles: b.seek_tiles,
+        minutes: b.minutes,
+        warm_minutes: b.warm_minutes,
+        cooldown_minutes: b.cooldown_minutes,
     })
 }
 

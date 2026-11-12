@@ -405,6 +405,17 @@ impl crate::defs::Defs {
         self.seasons = toml::from_str::<SeasonsFile>(seasons)
             .map_err(|e| DefsError(format!("seasons.toml: {e}")))?
             .resolve(&self.buildings)?;
+        // A `[building.chi_regen]` names seasons (#741, the Sun Stone).
+        for b in &self.buildings {
+            for s in b.chi_regen.iter().flat_map(|c| &c.seasons) {
+                if !self.seasons.seasons.iter().any(|d| d.id == *s) {
+                    return Err(DefsError(format!(
+                        "building {}: chi_regen: unknown season {s:?}",
+                        b.id
+                    )));
+                }
+            }
+        }
         Ok(self)
     }
 }
