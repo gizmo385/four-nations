@@ -919,6 +919,33 @@ site = { terrains = ["mountain"], within = 30, min_tiles = 20 }
 [tech.unlocks]
 buildings = ["crystal_grotto"]
 
+# --- #739 (research horizons phase 5: `spirit_library`, `spirit_water`) ------------------------
+
+[[tech]]
+id = "spirit_library"
+name = "Spirit Library"
+description = "Wan Shi Tong's foxes come to study beside your scholars."
+cost = 250
+prereqs = ["writing"]
+[tech.teaching]
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "study_hall"
+spirit_seats = 1
+
+[[tech]]
+id = "spirit_water"
+name = "Spirit Water"
+description = "Water from the spirit oasis, kept for the one who can't be saved any other way."
+nation = "water"
+cost = 250
+prereqs = ["healing"]
+[tech.teaching]
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "healing_hut"
+vials_per_year = 1
+
 # --- #737 (research horizons phase 5: lost teachings) -------------------------------------------
 
 # A teaching scroll read when every teaching is kept, lost or ruled out by its site reads for this

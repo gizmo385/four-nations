@@ -31,8 +31,8 @@ use fn_sim::needs::DeathCause;
 use fn_sim::research::MILLIS_PER_POINT;
 use fn_sim::world::{
     Arrival, BendEvent, BendOutcome, CaravanEvent, CaravanEventKind, ChartEvent, ChartEventKind,
-    Death, Event, FindEvent, SeasonEvent, SeasonEventKind, StrainEvent, TICKS_PER_SECOND,
-    TeachingEvent, TeachingEventKind, UnitId,
+    Death, Event, FindEvent, HarmEventKind, SeasonEvent, SeasonEventKind, StrainEvent,
+    TICKS_PER_SECOND, TeachingEvent, TeachingEventKind, UnitId,
 };
 
 use crate::endeavor;
@@ -760,7 +760,13 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
                 .at(ev.pos)
                 .folding(Fold::Strain(name))
         }
-        // Harm reaches the alert log here, but has no line yet: its wording is #393's.
+        // A vial of spirit water saving a settler (#739): "Spirit water saved Kya".
+        Event::Harm(h) if h.kind == HarmEventKind::Revived => {
+            let name = session.world.unit(h.unit).map_or("a settler", |u| u.name.as_str());
+            let text = format!("Spirit water saved {name}");
+            Line::new(Kind::Death, text.clone(), toast(&text)).at(h.pos).of(h.unit)
+        }
+        // The rest of harm reaches the alert log here, but has no line yet: its wording is #393's.
         Event::Harm(_) => return None,
         // Caravans (#437, #438): coming and going toast; a deal or request done is log only.
         Event::Caravan(ev) => caravan_line(session, ev),
@@ -1451,6 +1457,25 @@ mod tests {
         assert_eq!(line.place, None);
     }
 
+    /// A vial of spirit water saving a settler (#739) names them, toasts, and follows them.
+    #[test]
+    fn spirit_water_names_the_settler_it_saved() {
+        let s = Session::new(7, Nation::Water, 48, 32);
+        let u = &s.world.units[0];
+        let ev = fn_sim::world::HarmEvent {
+            tick: 1,
+            unit: u.id,
+            pos: u.pos,
+            kind: HarmEventKind::Revived,
+        };
+        let line = line_for(&s, &Event::Harm(ev)).expect("a line");
+        assert_eq!(line.text, format!("Spirit water saved {}", u.name));
+        assert_eq!((line.kind, line.unit, line.place), (Kind::Death, Some(u.id), Some(u.pos)));
+        assert!(line.toast.is_some());
+        let rough = fn_sim::world::HarmEvent { kind: HarmEventKind::SleepingRough, ..ev };
+        assert!(line_for(&s, &Event::Harm(rough)).is_none(), "the rest of harm has no line yet");
+    }
+
     #[test]
     fn a_new_world_clears_the_log() {
         let mut s = Session::new(1, Nation::Fire, 48, 32);
@@ -1849,7 +1874,7 @@ mod tests {
                 Event::Endeavor(_) => Some(Kind::Endeavor),
                 Event::Arrival(_) => Some(Kind::Arrival),
                 Event::Season(_) | Event::Strain(_) => Some(Kind::Season),
-                Event::Harm(_) => None,
+                Event::Harm(h) => (h.kind == HarmEventKind::Revived).then_some(Kind::Death),
                 Event::Caravan(_) => Some(Kind::Trade),
                 Event::Chart(_) => Some(Kind::Chart),
                 Event::Beast(_) => Some(Kind::Arrival),

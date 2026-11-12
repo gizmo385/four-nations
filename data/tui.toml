@@ -207,6 +207,12 @@ glyph = "◇"
 ascii = "*"
 fg = [120, 230, 170]
 
+# A vial of spirit water from the Healing Hut (#739).
+[item.spirit_vial]
+glyph = "♁"
+ascii = "!"
+fg = [150, 210, 255]
+
 # --- Fire production (#124) ---
 [item.metal]
 glyph = "▬"

@@ -624,6 +624,21 @@ fn school_effects(session: &Session, id: BuildingId) -> Vec<String> {
     if def.fuel_free_upgrade.is_some_and(known) {
         out.push("Needs no fuel".to_owned());
     }
+    if let Some((tech, n)) = def.spirit_upgrade
+        && known(tech)
+    {
+        out.push(if n == 1 {
+            "A fox spirit studies here".to_owned()
+        } else {
+            format!("{n} fox spirits study here")
+        });
+    }
+    if let Some((tech, n)) = def.vial_upgrade
+        && known(tech)
+    {
+        let s = if n == 1 { "" } else { "s" };
+        out.push(format!("Fills {n} vial{s} of spirit water each spring"));
+    }
     if let Some((tech, a)) = &def.automate_upgrade
         && known(*tech)
     {

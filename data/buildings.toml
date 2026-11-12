@@ -203,6 +203,8 @@ work = 40.0
 passable = false
 footprint = [2, 2]
 seats = 2
+# Seats a fox spirit fills in each finished hall (#739): `spirit_library` adds one.
+spirit_seats = 0
 uses_power = true
 [[building.cost]]
 item = "wood"
@@ -731,6 +733,13 @@ seek_below = 60.0
 regen_per_minute = 8.0
 stop_at = 90.0
 modifier = "water_work"
+# Spirit water (#739): `spirit_water` fills `vials_per_year` each spring, beside the first hut,
+# while fewer than `vial_stock` are held. A vial saves a settler who would have died, setting
+# health and the need that was killing them to `revive_to`.
+vials_per_year = 0
+vial_item = "spirit_vial"
+vial_stock = 3
+revive_to = 30.0
 
 # Water's orchard, on the water (issue #374, docs/design/nation-buildings.md, "Water: heal, fish
 # through winter, restore chi"). Unlocked by `water_travel`: it plants up to 3 fish spots in the

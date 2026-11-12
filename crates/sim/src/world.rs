@@ -78,6 +78,7 @@ mod tally;
 mod tea;
 mod teachings;
 mod trade;
+mod vial;
 mod work;
 
 pub use avatar::AvatarState;
@@ -1052,6 +1053,7 @@ impl World {
             self.log_event(c);
         }
         self.refresh_enclosure(defs);
+        self.tick_foxes(defs);
         self.tick_scribing(defs);
         self.tick_needs(defs);
         self.tick_season(defs);
@@ -1219,6 +1221,10 @@ impl World {
             let chi_max = self.chi_max_for(&u, defs);
             u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen, rest, chi_max);
             self.care.observe(&u, exposed, defs);
+            // A stored vial of spirit water saves a settler who would have died (#739).
+            if u.needs.is_dead() && !u.is_avatar() {
+                self.use_vial(&mut u, defs);
+            }
             if u.needs.is_dead() {
                 if u.is_avatar() {
                     // The Avatar never dies (docs/design/endgame.md, "Needs and leaving"); his
