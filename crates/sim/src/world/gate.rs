@@ -45,6 +45,7 @@
 
 use crate::building::{BuildingId, CostItem};
 use crate::endeavor::{StageDef, TaskDef, TaskWho};
+use crate::geom::Footprint;
 use crate::jobs::{ItemId, JobKind, Stack};
 
 use super::build::{Blocker, Site};
@@ -207,6 +208,9 @@ fn task_def<'d>(stage: &'d StageDef, task: &GateTask) -> Option<&'d TaskDef> {
     stage.tasks.iter().find(|t| t.id == task.id)
 }
 
+/// How far from the settlement's anchor `World::find_endeavor_site` looks for the gate's site.
+const GATE_SEARCH: i32 = 24;
+
 /// Queries, and the commands behind `Command::BeginEndeavor` and `Command::CancelEndeavor`.
 impl World {
     /// Whether `anchor` is the anchor of the endeavor's site.
@@ -294,6 +298,63 @@ impl World {
         self.endeavor = EndeavorState::Building(GateSite::new(anchor, tick, first));
         self.gate_progressed(defs);
         Ok(())
+    }
+
+    /// The nearest spot to the settlement's anchor where the gate's footprint is free and its door
+    /// can be walked to from the stockpile, searching `GATE_SEARCH` tiles out (row-major ties). The
+    /// endeavor must be Ready, as for `check_endeavor_site`. The economy opening's `begin_gate`
+    /// and `complete_endeavor` both place the gate with this.
+    pub fn find_endeavor_site(&self, defs: &Defs) -> Option<Pos> {
+        let gate = defs.endeavor.building?;
+        let (w, h) = defs.building(gate).footprint;
+        let anchor = self.settlement_anchor();
+        let flood = self.flood_from_anchor(anchor, defs);
+        let r = GATE_SEARCH;
+        let mut spots: Vec<Pos> = (anchor.y - r..=anchor.y + r)
+            .flat_map(|y| (anchor.x - r..=anchor.x + r).map(move |x| Pos::new(x, y)))
+            .collect();
+        spots.sort_by_key(|&p| (p.chebyshev(anchor), p));
+        spots.into_iter().find(|&p| {
+            self.check_endeavor_site(p, defs).is_ok()
+                && flood.cost(Footprint::new(p, w, h).entrance()).is_some()
+        })
+    }
+
+    /// A dev hook (#751): stands the gate now, whatever the endeavor's state, and returns whether
+    /// it changed anything (`false` if the endeavor is already Complete). For the harness's
+    /// `united` runs and the `<nation>-united` scenarios, where the economy opening never
+    /// finishes the gate on its own inside 420 minutes.
+    ///
+    /// It takes the same road a finished gate does: a Dormant endeavor is made Ready, a site is
+    /// placed at `find_endeavor_site` (a finished gate on the map, or none if no spot is free),
+    /// every unfinished stage is skipped (no `StageDone` for it, so `stage_minute.N` stays blank:
+    /// those stages were not played), and the endeavor is Complete with its event at this tick.
+    /// The Avatar, who would have come and gone with the rite, is dismissed.
+    pub fn complete_endeavor(&mut self, defs: &Defs) -> bool {
+        if self.united() {
+            return false;
+        }
+        if self.endeavor == EndeavorState::Dormant {
+            self.endeavor = EndeavorState::Ready { tick: self.tick };
+        }
+        if matches!(self.endeavor, EndeavorState::Ready { .. })
+            && let Some(at) = self.find_endeavor_site(defs)
+        {
+            let _ = self.begin_endeavor(at, defs);
+        }
+        match self.gate().map(|g| g.anchor) {
+            Some(anchor) => {
+                self.drop_gate_jobs(anchor);
+                self.finish_gate(anchor, defs);
+            }
+            None => {
+                // No spot for the building: the city still stands, without its gate.
+                self.endeavor = EndeavorState::Complete { tick: self.tick };
+                self.endeavor_event(EndeavorEventKind::Complete);
+            }
+        }
+        self.dismiss_avatar();
+        true
     }
 
     /// Withdraws the site, if no work on it has started: materials delivered drop beside it and

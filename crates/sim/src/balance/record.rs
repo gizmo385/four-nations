@@ -52,6 +52,12 @@ pub struct RunSpec {
     /// reads on the original grid), so the difference between a run and its offset twin is the
     /// chaos floor of the sim, not a balance change (the jitter run, `balance jitter`, #538).
     pub step_offset: u32,
+    /// The minute the gate is stood by `World::complete_endeavor` (#751), unless the opening has
+    /// finished it by then: a United City to play in. The economy opening does not finish the gate
+    /// inside 420 minutes on its own, so a `united` run plays the opening to this minute and
+    /// continues from a standing gate. `None`: nothing is stood, the gate is whatever the opening
+    /// builds.
+    pub gate_at: Option<f32>,
 }
 
 impl RunSpec {
@@ -69,6 +75,7 @@ impl RunSpec {
             player: Player::Economy(Economy::new(PEOPLE)),
             detectors: Detectors::default(),
             step_offset: 0,
+            gate_at: None,
         }
     }
 }
@@ -147,6 +154,15 @@ pub struct RunRecord {
     /// record.
     #[serde(default)]
     pub stage_minutes: Vec<(String, Option<f32>)>,
+    /// The minute the gate stood and the endeavor was Complete (`gate_minute`, #751): the
+    /// opening finishing the last stage, or `RunSpec::gate_at`. `None` if it never stood. Absent
+    /// from an older record.
+    #[serde(default)]
+    pub gate_minute: Option<f32>,
+    /// Whether the gate was stood by `RunSpec::gate_at`'s hook and not built (`gate_minute` is
+    /// then that minute). Absent from an older record.
+    #[serde(default)]
+    pub gate_stood: bool,
     /// What each school did (`SCHOOL_TALLIES`'s order): absent from an older record.
     #[serde(default)]
     pub school_tallies: Vec<(String, u32)>,
@@ -412,7 +428,12 @@ fn run_world_observed(
         wood,
     )];
     let (mut warmed, mut studying) = (0_u32, 0_u32);
+    let gate_tick = spec.gate_at.map(minutes_to_ticks);
+    let mut gate_stood = false;
     for tick in 0..total_ticks {
+        if gate_tick == Some(tick) {
+            gate_stood = world.complete_endeavor(defs);
+        }
         let offset = u64::from(spec.step_offset);
         if Opening::due(tick) {
             let (w, s) = sample_school(&world, defs);
@@ -520,6 +541,11 @@ fn run_world_observed(
         population: world.population() as u32,
         autopsies,
         flags: watch.raised(),
+        gate_minute: world.endeavor_events().find_map(|e| match e.kind {
+            EndeavorEventKind::Complete => Some(ticks_to_minutes(e.tick)),
+            _ => None,
+        }),
+        gate_stood,
         stage_minutes: defs
             .endeavor
             .stages

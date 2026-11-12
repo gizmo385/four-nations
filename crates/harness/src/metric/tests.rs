@@ -202,3 +202,33 @@ fn deadlines_follow_what_the_target_asks() {
     assert_eq!(parse("deaths_by.150").deadline(&at_most, &rec, &defs), 150.0);
     assert_eq!(parse("longest_gap").deadline(&at_most, &rec, &defs), 180.0);
 }
+
+/// horizons-phase-6.md, "Measuring it" (#751): `gate_minute`, and `after_gate.NAME` counting a
+/// minute metric from it.
+#[test]
+fn the_gate_minute_and_metrics_counted_from_it() {
+    let mut rec = record(Nation::Earth, 1);
+    assert_eq!(read("gate_minute", &rec), Some(f64::INFINITY), "no gate stood");
+    assert_eq!(read("after_gate.first_offer_minute", &rec), None, "no gate, no reading");
+    rec.gate_minute = Some(240.0);
+    rec.teachings.offers = vec![300.0];
+    assert_eq!(read("gate_minute", &rec), Some(240.0));
+    assert_eq!(read("after_gate.first_offer_minute", &rec), Some(60.0));
+    assert_eq!(read("after_gate.sign_minute.stone", &rec), Some(-140.0), "before the gate");
+    rec.teachings.offers.clear();
+    assert_eq!(read("after_gate.first_offer_minute", &rec), Some(f64::INFINITY));
+
+    let defs = Defs::bundled();
+    assert_eq!(parse("after_gate.first_offer_minute").name(), "after_gate.first_offer_minute");
+    let err = Metric::parse("after_gate.deaths", &defs).expect_err("not a minute");
+    assert!(err.contains("not a minute"), "{err}");
+    assert!(Metric::parse("after_gate.nonsense", &defs).is_err());
+
+    // The deadline of an `after_gate` bar counts from the gate too.
+    rec.minutes = 420.0;
+    let bar = Bar { at_most: Some(90.0), at_least: None };
+    let m = parse("after_gate.first_offer_minute");
+    assert_eq!(m.deadline(&bar, &rec, &defs), 330.0);
+    rec.gate_minute = None;
+    assert_eq!(m.deadline(&bar, &rec, &defs), rec.minutes);
+}

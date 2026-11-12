@@ -610,7 +610,7 @@ fn parse_play_args(args: Vec<String>) -> Result<PlayArgs, String> {
     Ok(a)
 }
 
-/// `--prelude OPENING:MINUTES`: `economy`, `economy_branch_first` or `opening` (a scenario's
+/// `--prelude OPENING:MINUTES`: `economy`, `economy_branch_first`, `economy_united` or `opening` (a scenario's
 /// `prelude.opening`), then the
 /// game minutes it runs before turn 0.
 fn parse_prelude(s: &str) -> Result<Prelude, String> {
@@ -619,6 +619,7 @@ fn parse_prelude(s: &str) -> Result<Prelude, String> {
     let opening = match opening {
         "economy" => PreludeOpening::Economy,
         "economy_branch_first" => PreludeOpening::EconomyBranchFirst,
+        "economy_united" => PreludeOpening::EconomyUnited,
         "opening" => PreludeOpening::Opening,
         _ => return Err(bad()),
     };

@@ -917,6 +917,16 @@ never played past the gate, so it first needs a United City to play in (#751):
   to minute 420, and the new metrics count from `gate_minute`. #751 also adds four scenarios,
   `<nation>-united`, whose prelude runs the economy opening to the gate. The playtest starts
   from these.
+
+  **As built (#751).** The economy opening cannot finish the gate by minute 420: measured on
+  seeds 1-4 of each nation (steady, Normal), 14 of 16 runs finish no stage, and none finishes the
+  Pillars. So the United City is stood for the run: `World::complete_endeavor` (a dev hook) skips
+  the unplayed stages and completes the endeavor, with a finished gate on the map and the
+  Avatar dismissed. The `united` style (`data/harness.toml`, `gate_at = 240`) plays the steady
+  opening to minute 240, stands the gate, and plays on to 420; the `<nation>-united` scenarios'
+  `economy_united` prelude does the same for 240 minutes. `RunRecord::gate_minute` records the
+  minute (the metric `gate_minute`) and `after_gate.NAME` counts a minute metric from it.
+  Making the opening finish the gate itself is the follow-up that retires the hook.
 - **What the opening does after the gate.** It targets each other nation's teachable techs as
   soon as they are borrowable, cheapest first. Then it targets each fusion it can, in file
   order. It plays each fusion's simplest use: one aqueduct from the nearest river or lake to the

@@ -1024,29 +1024,15 @@ fn have_enough(world: &World, cost: &[CostItem]) -> bool {
     })
 }
 
-/// How far from the anchor the opening looks for the gate's site.
-const GATE_SEARCH: i32 = 24;
-
 /// Places the gate's site once the endeavor is Ready (docs/design/horizons-phase-4.md, "Measuring
 /// it": the fork reads the minute its third stage finishes, #731): the nearest spot to the
-/// anchor where every footprint tile is free and its door can be walked to from the stockpile.
+/// anchor where every footprint tile is free and its door can be walked to from the stockpile
+/// (`World::find_endeavor_site`).
 fn begin_gate(world: &mut World, defs: &Defs, anchor: Pos) {
     if world.check_endeavor_site(anchor, defs) == Err(crate::world::EndeavorError::NotReady) {
         return;
     }
-    let Some(gate) = defs.endeavor.building else { return };
-    let (w, h) = defs.building(gate).footprint;
-    let flood = world.flood_from_anchor(anchor, defs);
-    let r = GATE_SEARCH;
-    let mut spots: Vec<Pos> = (anchor.y - r..=anchor.y + r)
-        .flat_map(|y| (anchor.x - r..=anchor.x + r).map(move |x| Pos::new(x, y)))
-        .collect();
-    spots.sort_by_key(|&p| (p.chebyshev(anchor), p));
-    let found = spots.into_iter().find(|&p| {
-        world.check_endeavor_site(p, defs).is_ok()
-            && flood.cost(Footprint::new(p, w, h).entrance()).is_some()
-    });
-    if let Some(at) = found {
+    if let Some(at) = world.find_endeavor_site(defs) {
         let _ = world.apply(Command::BeginEndeavor { anchor: at }, defs);
     }
 }

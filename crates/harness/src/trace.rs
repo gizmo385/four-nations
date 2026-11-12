@@ -162,6 +162,7 @@ pub fn run(args: &[String]) -> Result<String, String> {
     spec.preset = Some(a.preset.clone());
     spec.player = style.player(PEOPLE);
     spec.detectors = config.detectors;
+    spec.gate_at = style.gate_at.map(|m| m as f32);
 
     let mut trace = Trace::new(&a);
     let record = run_observed(&spec, &defs, &mut |m| trace.observe(m, &defs));

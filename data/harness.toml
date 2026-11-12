@@ -17,6 +17,10 @@
 #   school       "first" or "second": which of the nation's school techs, in file order, the
 #                opening targets as soon as its capstone is known, ahead of everything else
 #                (horizons-phase-4.md, "Measuring it"); absent: the school is reached in file order
+#   gate_at      the game minute the gate is stood for the player (fn_sim::World::complete_endeavor,
+#                #751), after which the run plays on in a United City; absent: the gate is the
+#                opening's to build. The economy opening does not finish the gate inside 420
+#                minutes, so a style that needs the United City names the minute
 #   inherits     another style's id; every field not set here comes from it
 #
 # A field left out of a style that doesn't inherit takes the economy opening's own default.
@@ -55,6 +59,15 @@ school = "first"
 id = "school_second"
 inherits = "steady"
 school = "second"
+
+# horizons-phase-6.md's "Measuring it": the steady player in a United City. The economy opening
+# plays to minute 240, then the gate is stood for it (the opening is nowhere near finishing it on
+# its own, #751), and it plays on to 420. The `<nation>-united` scenarios start from the same
+# moment (their prelude is `economy_united` for 240 minutes).
+[[style]]
+id = "united"
+inherits = "steady"
+gate_at = 240
 
 # difficulty.md's no-input row.
 [[style]]
@@ -431,6 +444,19 @@ metric = "deaths"
 lower = { style = "steady", preset = "normal" }
 higher = { style = "steady", preset = "hard" }
 first_seeds = 12
+
+# --- The United City (horizons-phase-6.md, "Measuring it", #751) ---
+# The `united` style stands the gate at minute 240 and plays on to 420 (`gate_minute` is that
+# minute; `after_gate.NAME` counts a minute metric from it). Phase 6's own targets come with the
+# balance run (#764); this one keeps the 420-minute United City runs in the panel.
+[[target]]
+id = "united_city_stands"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "gate_minute"
+at_most = 240
+minutes = 420
+first_seeds = 8
 
 # --- Forks (horizons-phase-4.md, "Measuring it", #731) ---
 # Two runs that must NOT separate too far, per nation: the side that reads lower on `metric` by

@@ -206,6 +206,16 @@ impl World {
         self.avatar = AvatarState::Farewell { at };
     }
 
+    /// The gate was stood by `World::complete_endeavor`, not by a rite: whoever of him is here
+    /// leaves, and he does not arrive later.
+    pub(super) fn dismiss_avatar(&mut self) {
+        if self.units.iter().any(Unit::is_avatar) {
+            self.avatar_departs();
+        } else {
+            self.avatar = AvatarState::Departed;
+        }
+    }
+
     /// His farewell is over: he leaves the settlement for good.
     fn avatar_departs(&mut self) {
         if let Some(i) = self.units.iter().position(Unit::is_avatar) {

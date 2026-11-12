@@ -444,3 +444,49 @@ fn ice_pays_a_gate_stages_stone_with_northern_city() {
     let g = w.gate().unwrap();
     assert!(g.delivered.iter().all(|s| s.item == ice), "{:?}", g.delivered);
 }
+
+/// #751: the dev hook stands the gate from any state, skipping the stages nobody played.
+#[test]
+fn the_dev_hook_stands_the_gate_from_a_dormant_or_a_half_built_endeavor() {
+    let defs = earth_only();
+    let gate = defs.building_id("harmony_gate").unwrap();
+
+    let mut dormant = world(Nation::Earth, 3, &defs);
+    dormant.endeavor = EndeavorState::Dormant;
+    assert!(dormant.complete_endeavor(&defs));
+    assert!(dormant.united());
+    let EndeavorState::Complete { tick } = *dormant.endeavor() else { unreachable!() };
+    assert_eq!(dormant.endeavor_events().next_back().unwrap().tick, tick);
+    assert_eq!(dormant.endeavor_events().next_back().unwrap().kind, EndeavorEventKind::Complete);
+    assert!(stages_done(&dormant).is_empty(), "no stage was played");
+    assert_eq!(dormant.buildings().filter(|b| b.id == gate).count(), 1, "a gate on the map");
+    assert!(dormant.sites.is_empty());
+    assert!(dormant.jobs().iter().all(|j| !matches!(j.kind, JobKind::EndeavorTask { .. })));
+    assert_eq!(*dormant.avatar(), AvatarState::Departed);
+    assert!(!dormant.complete_endeavor(&defs), "already Complete: nothing to do");
+
+    let mut building = world(Nation::Earth, 3, &defs);
+    begin(&mut building, &defs);
+    assert!(building.complete_endeavor(&defs));
+    assert!(building.united());
+    assert!(!building.jobs().iter().any(|j| j.kind == JobKind::Build { pos: ANCHOR }));
+    assert_eq!(building.buildings().filter(|b| b.id == gate).count(), 1);
+    // The settlement carries on: ticks after the hook trip no invariant.
+    for _ in 0..600 {
+        building.tick(&defs);
+        building.assert_invariants(&defs);
+    }
+}
+
+/// #751: the hook is deterministic, the same world standing the same gate in the same place.
+#[test]
+fn the_dev_hook_is_deterministic() {
+    let defs = earth_only();
+    let stand = || {
+        let mut w = world(Nation::Earth, 3, &defs);
+        w.endeavor = EndeavorState::Dormant;
+        w.complete_endeavor(&defs);
+        w.buildings().map(|b| b.footprint()).collect::<Vec<_>>()
+    };
+    assert_eq!(stand(), stand());
+}
