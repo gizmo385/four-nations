@@ -6,7 +6,7 @@ use eframe::egui::{self, Event, Key, Modifiers};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use fn_gui::app::GuiApp;
-use fn_gui::frame::{BoxKind, PageKind, Surface, surface};
+use fn_gui::frame::{BoxKind, PageKind, Surface, modal, surface};
 use fn_sim::Nation;
 use fn_tui::shell::Shell;
 
@@ -51,10 +51,15 @@ fn the_title_screen_and_embark_are_native() {
 
 #[test]
 fn the_game_menu_and_its_questions_are_boxes_over_the_native_map() {
+    // No box with nothing open.
+    assert_eq!(modal(&game("")), None);
     // Esc with nothing to close opens the menu; Quit… is its last row.
-    assert_eq!(surface(&game("<esc>")), Surface::CellsBox(BoxKind::Menu));
+    let menu = game("<esc>");
+    assert_eq!(surface(&menu), Surface::Native, "the map stays under the box");
+    assert_eq!(modal(&menu), Some(BoxKind::Menu));
     let asked = game("<esc> <down*6> <enter>");
-    assert_eq!(surface(&asked), Surface::CellsBox(BoxKind::Ask));
+    assert_eq!(surface(&asked), Surface::Native);
+    assert_eq!(modal(&asked), Some(BoxKind::Ask), "the question hides the menu behind it");
     // F9 asks before it replaces the game, with no menu open at all.
     let mut shell = game("");
     shell.key(fn_ui::keyev::KeyEvent::new(
@@ -64,25 +69,40 @@ fn the_game_menu_and_its_questions_are_boxes_over_the_native_map() {
     if let fn_tui::shell::Mode::Game(app) = &shell.mode
         && app.ui.prompt.is_some()
     {
-        assert_eq!(surface(&shell), Surface::CellsBox(BoxKind::Ask));
+        assert_eq!(modal(&shell), Some(BoxKind::Ask));
     }
 }
 
-/// The question the saves screen asks stays in the full-screen frame it was asked from.
+/// A question asked from a full screen (the saves screen's) or a page is a box over it, and the
+/// screen stays under it.
 #[test]
-fn a_question_over_a_full_screen_is_in_that_screens_cells() {
-    let mut shell = game("n");
-    if let fn_tui::shell::Mode::Game(app) = &mut shell.mode {
-        app.ui.prompt = Some(fn_ui::state::Prompt::QuickLoad);
+fn a_question_over_a_screen_or_a_page_is_a_box_over_it() {
+    for (keys, base) in [("n", Surface::CellsFull), ("u", Surface::Page(PageKind::Build))] {
+        let mut shell = game(keys);
+        if let fn_tui::shell::Mode::Game(app) = &mut shell.mode {
+            app.ui.prompt = Some(fn_ui::state::Prompt::QuickLoad);
+        }
+        assert_eq!(surface(&shell), base, "{keys}");
+        assert_eq!(modal(&shell), Some(BoxKind::Ask), "{keys}");
     }
-    assert_eq!(surface(&shell), Surface::CellsFull);
 }
 
 #[test]
-fn embarks_exit_prompt_covers_the_whole_frame() {
-    let mut shell = game("");
+fn embarks_exit_prompt_is_a_box_over_embark() {
+    let defs = fn_sim::Defs::bundled();
+    let mut shell = Shell::new_embark(
+        7,
+        Nation::Earth,
+        defs.embark.map_sizes[0].clone(),
+        fn_sim::embark::SurveyMode::Exact,
+        None,
+        SIZE,
+        None,
+    );
+    assert_eq!(modal(&shell), None);
     shell.exit_prompt = true;
-    assert_eq!(surface(&shell), Surface::CellsFull);
+    assert_eq!(surface(&shell), Surface::Embark);
+    assert_eq!(modal(&shell), Some(BoxKind::Exit));
 }
 
 fn harness(app: &mut GuiApp, size: egui::Vec2) -> Harness<'_> {
@@ -156,7 +176,8 @@ fn the_menu_is_a_box_and_the_bar_says_so() {
     h.key_press(Key::Escape);
     h.run_steps(2);
     drop(h);
-    assert_eq!(app.frame().surface, Some(Surface::CellsBox(BoxKind::Menu)));
+    assert_eq!(app.frame().surface, Some(Surface::Native));
+    assert_eq!(app.frame().modal, Some(BoxKind::Menu));
     assert!(app.frame().hint_text.starts_with("MENU"), "{}", app.frame().hint_text);
 }
 

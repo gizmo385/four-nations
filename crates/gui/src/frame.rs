@@ -15,8 +15,9 @@
 //! - [`Surface::Title`] and [`Surface::Embark`]: the title's steps and the embark screen, as
 //!   egui widgets of their own ([`crate::title`], [`crate::embark`]) with the hint bar below.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
-//! - [`Surface::CellsBox`]: the native view, with only one box's rectangle painted from the
-//!   terminal's own drawing over the map.
+//!
+//! Over any of them goes at most one box ([`modal`], [`crate::boxes`]): the game menu, a confirm
+//! box or embark's exit prompt, as an `egui::Modal` that dims the window and takes its clicks.
 //!
 //! The shell is always sized to the window in cells ([`Shell::resize`]), so a page's pagination
 //! and a box's size match what the cell painter shows. Native surfaces draw no map cells at
@@ -32,12 +33,13 @@ use eframe::egui::{
 use fn_tui::color::Palette;
 use fn_tui::layout::{MIN_HEIGHT, MIN_WIDTH};
 use fn_tui::shell::{self, Mode, Shell};
-use fn_tui::{ask, banner, draw, menu, title};
+use fn_tui::{banner, title};
 use fn_ui::app::App;
 use fn_ui::keyev::KeyEvent;
 use fn_ui::state::{BANNER_HEIGHT, Modal, Prompt, Screen, UiState};
 use ratatui::buffer::Buffer;
 
+use crate::boxes;
 use crate::cells::{self, CellLayout, Metrics};
 use crate::color::to_egui;
 use crate::embark::{self, EmbarkView};
@@ -50,13 +52,15 @@ use crate::side;
 pub const PANEL_DEFAULT: f32 = 300.0;
 pub const PANEL_RANGE: (f32, f32) = (260.0, 440.0);
 
-/// Which box a [`Surface::CellsBox`] paints.
+/// Which box [`modal`] puts over the surface, as an [`egui::Modal`] ([`crate::boxes`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoxKind {
     /// The game menu (`fn_tui::menu`).
     Menu,
-    /// A confirm box (`fn_tui::ask`).
+    /// A confirm box (`fn_tui::ask`), for any [`Prompt`].
     Ask,
+    /// Embark's exit prompt (`Shell::exit_prompt`).
+    Exit,
 }
 
 /// Which native full screen a [`Surface::Page`] shows.
@@ -68,9 +72,10 @@ pub enum PageKind {
     Research,
 }
 
-/// What the shell shows now, as far as the window is concerned.
+/// What the shell shows now, as far as the window is concerned. A box over it is [`modal`]'s.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
+    /// The map, the side panel and the hint bar. The menu is this under its box.
     Native,
     /// The title screen's steps (`fn_gui::title`), natively.
     Title,
@@ -78,15 +83,11 @@ pub enum Surface {
     /// The embark screen (`fn_gui::embark`): the survey and its report, natively.
     Embark,
     CellsFull,
-    CellsBox(BoxKind),
 }
 
-/// Whether what `shell` shows is native, cells over the whole window or cells in a box.
+/// Whether what `shell` shows is native, a native page, or cells over the whole window, under
+/// whatever box [`modal`] puts over it.
 pub fn surface(shell: &Shell) -> Surface {
-    // The exit prompt (embark's `Q`, the title's) is drawn over the whole frame.
-    if shell.exit_prompt {
-        return Surface::CellsFull;
-    }
     match &shell.mode {
         Mode::Title(_) => Surface::Title,
         Mode::Embark(_) => Surface::Embark,
@@ -96,18 +97,10 @@ pub fn surface(shell: &Shell) -> Surface {
 
 fn game_surface(ui: &UiState) -> Surface {
     // The same order `fn_tui::draw::draw` takes: a screen covers a modal, a modal the map.
-    let base = match (ui.screen, ui.modal) {
+    match (ui.screen, ui.modal) {
         (Some(screen), _) => screen_surface(screen),
         (None, Some(modal)) => modal_surface(modal),
         (None, None) => Surface::Native,
-    };
-    match (&ui.prompt, base) {
-        // Asked from a full screen (the saves screen's load and overwrite): in the same
-        // terminal frame.
-        (Some(_), Surface::CellsFull) => Surface::CellsFull,
-        // Asked over the map: the question alone, the menu behind it hidden, as the TUI does.
-        (Some(prompt), _) => prompt_surface(prompt),
-        (None, base) => base,
     }
 }
 
@@ -129,20 +122,39 @@ fn modal_surface(modal: Modal) -> Surface {
     match modal {
         // The Build picker is a full screen (`fn_tui::build`, #652), native since #881.
         Modal::Build => Surface::Page(PageKind::Build),
-        Modal::Menu => Surface::CellsBox(BoxKind::Menu),
+        // The menu is a box over the map, which stays as it is under it.
+        Modal::Menu => Surface::Native,
         // The LOST TEACHING box (#743): the terminal's frame until it has a native painter.
         Modal::Teaching => Surface::CellsFull,
     }
 }
 
-fn prompt_surface(prompt: &Prompt) -> Surface {
+/// The box (#879) that is open over whatever [`surface`] says, if any: embark's exit prompt, a
+/// confirm box for the open [`Prompt`] (over the page or the screen it was asked from, or over
+/// the map, the menu behind it hidden as the TUI hides it), or the game menu.
+pub fn modal(shell: &Shell) -> Option<BoxKind> {
+    if shell.exit_prompt {
+        return Some(BoxKind::Exit);
+    }
+    let Mode::Game(app) = &shell.mode else { return None };
+    if let Some(prompt) = &app.ui.prompt {
+        return Some(prompt_box(prompt));
+    }
+    match app.ui.modal {
+        // A screen covers the menu, as it does in the TUI.
+        Some(Modal::Menu) if app.ui.screen.is_none() => Some(BoxKind::Menu),
+        Some(Modal::Menu | Modal::Build | Modal::Teaching) | None => None,
+    }
+}
+
+fn prompt_box(prompt: &Prompt) -> BoxKind {
     match prompt {
         Prompt::Quit
         | Prompt::NewMap
         | Prompt::Nation(_)
         | Prompt::QuickLoad
         | Prompt::LoadSave(_)
-        | Prompt::SaveOver(_) => Surface::CellsBox(BoxKind::Ask),
+        | Prompt::SaveOver(_) => BoxKind::Ask,
     }
 }
 
@@ -174,6 +186,8 @@ pub struct Frame {
     pub timings: Timings,
     /// What was shown last frame.
     pub surface: Option<Surface>,
+    /// The box over it last frame.
+    pub modal: Option<BoxKind>,
     /// The hint bar's text last frame (for tests and the web page's `data-` attributes).
     pub hint_text: String,
     /// The keys the window's own widgets (the side panel's clicks) stand for, not yet given to
@@ -203,10 +217,12 @@ impl Frame {
             self.size = (cols, rows);
         }
         let surface = surface(shell);
+        let modal = modal(shell);
         self.surface = Some(surface);
+        self.modal = modal;
         match (&mut shell.mode, surface) {
-            (Mode::Game(app), Surface::Native | Surface::CellsBox(_)) => {
-                self.show_native(root, app, surface, palette, &metrics, (cols, rows));
+            (Mode::Game(app), Surface::Native) => {
+                self.show_native(root, app, modal.is_none(), palette, &metrics, (cols, rows));
             }
             (Mode::Title(_), Surface::Title) => {
                 self.map = None;
@@ -223,6 +239,10 @@ impl Frame {
                 self.map = None;
                 self.show_cells(root, shell, palette, &metrics, (cols, rows));
             }
+        }
+        if let Some(kind) = modal {
+            let clicks = boxes::show(root.ctx(), shell, kind, palette, &metrics);
+            self.keys.extend(clicks);
         }
         if self.overlay {
             self.show_overlay(root, window, surface, &metrics);
@@ -245,7 +265,7 @@ impl Frame {
                 let avail = ui.available_rect_before_wrap();
                 let started = Instant::now();
                 let mut buf = Buffer::empty(ratatui::layout::Rect::new(0, 0, cols, rows));
-                shell::draw(shell, palette, &mut buf);
+                shell::draw_under_boxes(shell, palette, &mut buf);
                 let layout = CellLayout::new(&buf);
                 cells::paint(&ui.painter_at(avail), avail.min, metrics, &layout);
                 cells::expose(ui, avail.min, metrics, &layout, buf.area);
@@ -326,7 +346,7 @@ impl Frame {
         self.show_bar(root, &bar, metrics);
 
         // The question and the help take every key: the map and the panel show but press none.
-        let live = !screen.asking() && !screen.helping();
+        let live = !screen.asking() && !screen.helping() && !shell.exit_prompt;
         let panel_fill = to_egui(palette.token(palette.theme.panel), Color32::BLACK);
         let mut keys = Vec::new();
         egui::Panel::right("side")
@@ -350,13 +370,13 @@ impl Frame {
         self.keys.extend(keys);
     }
 
-    /// The native game: hint bar, side panel, map, banner, and a box over the map if one is
-    /// open.
+    /// The native game: hint bar, side panel, map and banner. `live` is whether the window takes
+    /// the side panel's clicks: not with a box over it.
     fn show_native(
         &mut self,
         root: &mut Ui,
         app: &mut App,
-        surface: Surface,
+        live: bool,
         palette: &Palette,
         metrics: &Metrics,
         (cols, _rows): (u16, u16),
@@ -370,8 +390,7 @@ impl Frame {
         self.show_bar(root, &hints::bar(app, palette, cols), metrics);
 
         // The native side panel (#877). Its clicks come back as keys, which the window feeds
-        // the shell; with a box open over the map it shows but takes none.
-        let live = surface == Surface::Native;
+        // the shell; with a box open it shows but takes none.
         let mut clicks = Vec::new();
         egui::Panel::right("side")
             .default_size(PANEL_DEFAULT)
@@ -404,11 +423,6 @@ impl Frame {
             }
             view.show(ui, map_rect, app, palette);
             self.timings.map = view.last_paint_ms;
-            if let Surface::CellsBox(kind) = surface {
-                let started = Instant::now();
-                paint_box(ui, kind, avail, app, palette, metrics);
-                self.timings.cells = started.elapsed().as_secs_f32() * 1000.0;
-            }
         });
     }
 
@@ -453,43 +467,4 @@ fn show_banner(ui: &mut Ui, strip: Rect, app: &App, palette: &Palette, font: &Fo
                 .truncate(),
         );
     });
-}
-
-/// Draws `kind`'s box as the terminal would, centred in `over` (the map's rectangle), and paints
-/// only the box's own rectangle.
-fn paint_box(
-    ui: &mut Ui,
-    kind: BoxKind,
-    over: Rect,
-    app: &App,
-    palette: &Palette,
-    metrics: &Metrics,
-) {
-    let (cols, rows) = metrics.grid_in(over.size());
-    let outer = ratatui::layout::Rect::new(0, 0, cols, rows);
-    let mut buf = Buffer::empty(outer);
-    let (session, state) = (&app.session, &app.ui);
-    let area = match kind {
-        BoxKind::Menu => {
-            draw::draw_modal(session, state, Modal::Menu, palette, outer, &mut buf);
-            menu::area(outer)
-        }
-        BoxKind::Ask => {
-            let Some(question) = ask::current(session, state) else { return };
-            ask::draw(&question, state.ask_cursor, palette, outer, &mut buf);
-            ask::area(&question, outer)
-        }
-    };
-    // Only the box: copy its cells out, so the map's own look shows round it.
-    let mut only = Buffer::empty(ratatui::layout::Rect::new(0, 0, area.width, area.height));
-    for y in 0..area.height {
-        for x in 0..area.width {
-            only[(x, y)] = buf[(area.x + x, area.y + y)].clone();
-        }
-    }
-    let origin =
-        over.min + vec2(f32::from(area.x) * metrics.cell.x, f32::from(area.y) * metrics.cell.y);
-    let layout = CellLayout::new(&only);
-    cells::paint(&ui.painter_at(over), origin, metrics, &layout);
-    cells::expose(ui, origin, metrics, &layout, only.area);
 }

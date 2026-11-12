@@ -17,12 +17,14 @@
 //!   whole window above the hint bar. Build (#881) and Research (#884) so far.
 //! - **Embark** ([`embark`]) is native: the survey on square tiles and the site report as a side
 //!   panel (`fn_ui::embark`'s rows); a click on the map is the arrow keys to that block.
-//! - **Cells** ([`cells`]) paint a ratatui buffer as egui shapes: the unconverted screens,
-//!   and boxes.
+//! - **Boxes** ([`boxes`]): the game menu, the confirm boxes and embark's exit prompt as
+//!   `egui::Modal`s over whatever is showing (#879).
+//! - **Cells** ([`cells`]) paint a ratatui buffer as egui shapes: the unconverted screens.
 //!
 //! Nothing here reads the clock but [`app`]'s frame time.
 
 pub mod app;
+pub mod boxes;
 pub mod browser_saves;
 pub mod camera;
 pub mod cells;

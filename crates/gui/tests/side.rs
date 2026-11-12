@@ -5,7 +5,7 @@ use eframe::egui::{self, Event};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use fn_gui::app::GuiApp;
-use fn_gui::frame::{BoxKind, Surface};
+use fn_gui::frame::Surface;
 use fn_gui::side;
 use fn_sim::Nation;
 use fn_tui::color::{ColorDepth, Palette};
@@ -211,16 +211,19 @@ fn clicking_an_alert_is_the_logs_keys_on_its_line() {
     assert_eq!(clicked.ui.screen, by_hand.ui.screen);
 }
 
-/// With a box over the map the panel still shows, but a click on it does nothing.
+/// With a box open the panel still shows but takes no clicks: a click on it lands on the dimmed
+/// backdrop, which is a click outside the box (`Esc`), and opens nothing.
 #[test]
 fn a_box_takes_the_panels_clicks() {
     let mut app = GuiApp::with_shell(game("<esc>"));
     let mut h = harness(&mut app);
+    assert!(h.query_by_label("Resume").is_some());
     h.get_by_label("[T]").click();
     h.run_steps(2);
     drop(h);
-    assert_eq!(app.frame().surface, Some(Surface::CellsBox(BoxKind::Menu)));
-    assert_eq!(state(&app).ui.screen, None);
+    assert_eq!(app.frame().surface, Some(Surface::Native));
+    assert_eq!(app.frame().modal, None, "the click was outside the box: Esc, Resume");
+    assert_eq!(state(&app).ui.screen, None, "and the panel's [T] did not open Research");
 }
 
 /// The tool section follows the tool, in the tool's own words, and the list (`/`) is there

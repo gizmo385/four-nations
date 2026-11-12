@@ -676,11 +676,11 @@ pub fn draw_exit_prompt(palette: &Palette, area: Rect, buf: &mut Buffer) {
         width,
         height,
     );
-    draw_frame(buf, outer, palette, " QUIT? ", TitleAt::Centre, "");
+    draw_frame(buf, outer, palette, &format!(" {} ", fn_ui::ask::EXIT_TITLE), TitleAt::Centre, "");
     if outer.height >= 3 {
         let inner = Rect::new(outer.x + 2, outer.y + 1, outer.width - 4, outer.height - 2);
         let mut p = Painter::new(buf, inner, palette);
-        p.row(&Row::text("Go back to the title screen, or exit?", Tone::Text));
+        p.row(&Row::text(fn_ui::ask::EXIT_QUESTION, Tone::Text));
     }
     let bar = Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1);
     draw_hint_bar(buf, bar, palette, keys::Mode::Exit, BarBody::Keys, false, false);

@@ -15,6 +15,8 @@
 
 use fn_sim::Nation;
 
+use crate::Session;
+
 /// One row of the menu, in the order it lists them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuRow {
@@ -94,6 +96,28 @@ impl MenuPage {
     }
 }
 
+impl MenuPage {
+    /// The box's title: the menu's, or the nation list's.
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Rows => "MENU",
+            Self::Nations => "SWITCH NATION",
+        }
+    }
+}
+
+/// The note on the nation list's row for the nation being played.
+pub const PLAYING: &str = "playing";
+
+/// [`MenuPage::Nations`]' rows, in [`Nation::ALL`]'s order: each nation's name, and whether it is
+/// the one being played (which the row says, [`PLAYING`]).
+pub fn nation_rows(session: &Session) -> Vec<(String, bool)> {
+    Nation::ALL
+        .iter()
+        .map(|&n| (session.defs.nation(n).name.clone(), n == session.world.nation))
+        .collect()
+}
+
 /// The cursor after a step of `dy` rows (its sign only) on a list of `len`, stopping at the
 /// list's edges, as `crate::build::step` and `crate::saves::step` do.
 pub fn step(at: usize, dy: i32, len: usize) -> usize {
@@ -126,6 +150,17 @@ mod tests {
         assert_eq!(MenuRow::Quit.label_for(true), "Quit…");
         assert_eq!(MenuRow::Quit.label_for(false), "Title screen…");
         assert_eq!(MenuRow::Save.label_for(false), "Save…");
+    }
+
+    #[test]
+    fn the_pages_have_titles_and_the_nation_list_marks_the_one_playing() {
+        assert_eq!(MenuPage::Rows.title(), "MENU");
+        assert_eq!(MenuPage::Nations.title(), "SWITCH NATION");
+        let session = Session::new(7, Nation::Fire, 48, 32);
+        let rows = nation_rows(&session);
+        assert_eq!(rows.len(), Nation::ALL.len());
+        let playing: Vec<&str> = rows.iter().filter(|(_, p)| *p).map(|(n, _)| n.as_str()).collect();
+        assert_eq!(playing, [session.defs.nation(Nation::Fire).name.as_str()]);
     }
 
     #[test]

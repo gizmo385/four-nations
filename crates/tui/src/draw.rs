@@ -24,6 +24,16 @@ pub fn too_small_text() -> String {
 
 /// Draws the whole frame into `buf`, which covers the terminal.
 pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer) {
+    draw_with(session, ui, palette, buf, true);
+}
+
+/// [`draw`] without the confirm box (`ui.prompt`): what is under it. A frontend that shows the
+/// question as a widget of its own (`fn_gui`'s modals) paints this and puts the box over it.
+pub fn draw_under_prompt(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer) {
+    draw_with(session, ui, palette, buf, false);
+}
+
+fn draw_with(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer, boxes: bool) {
     let area = buf.area;
     let Some(regions) = layout::regions(area) else {
         buf.set_stringn(area.x, area.y, too_small_text(), usize::from(area.width), Style::new());
@@ -59,7 +69,7 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
     }
     // A question that can lose progress goes over whatever is open (#655), centred on the full
     // screen it was asked from or else on the map.
-    if let Some(ask) = crate::ask::current(session, ui) {
+    if boxes && let Some(ask) = crate::ask::current(session, ui) {
         let over = if full { regions.page } else { regions.map };
         crate::ask::draw(&ask, ui.ask_cursor, palette, over, buf);
     }
@@ -87,10 +97,7 @@ pub fn draw_modal(
                 &fn_ui::time::clock_text(session),
                 &Marks::new(palette.ascii),
             );
-            let nations: Vec<(String, bool)> = fn_sim::Nation::ALL
-                .iter()
-                .map(|&n| (session.defs.nation(n).name.clone(), n == session.world.nation))
-                .collect();
+            let nations = crate::menu::nation_rows(session);
             crate::menu::draw(ui, &nations, &clock, palette, area, buf)
         }
         Modal::Teaching => {
