@@ -10,7 +10,7 @@
 
 use crate::color::Palette;
 use crate::page::{self, Page};
-use crate::widgets::{Marks, Painter, Row, Tone, ToneStyle, window_start, wrap};
+use crate::widgets::{Marks, Painter, Row, Tone, ToneStyle, window_start};
 use fn_sim::research::TechId;
 use fn_ui::Session;
 use fn_ui::research::{TechCard, screen_view};
@@ -28,27 +28,16 @@ pub fn draw_confirm(
     area: Rect,
     buf: &mut Buffer,
 ) {
-    let width: u16 = 68;
+    let width = CONFIRM_WIDTH as u16 + 4;
     let text = usize::from(width.saturating_sub(4).min(area.width.saturating_sub(8)).max(1));
     let marks = Marks::new(palette.ascii);
-    let lines = confirm_lines(session, tech);
-    let last = lines.len() - 1;
-    let mut rows = Vec::new();
-    for (i, line) in lines.into_iter().enumerate() {
-        if line.is_empty() {
-            rows.push(Row::text(String::new(), Tone::Text));
-        } else if i == last {
-            let pad = text.saturating_sub(line.chars().count()) / 2;
-            rows.push(Row::text(format!("{}{line}", " ".repeat(pad)), Tone::Accent));
-        } else {
-            let tone = if i == 0 { Tone::Title } else { Tone::Text };
-            for piece in wrap(&line, text, usize::MAX, marks.ellipsis) {
-                rows.push(Row::text(piece, tone));
-            }
-        }
-    }
+    let mut rows = confirm_body(session, tech, &marks, text);
+    // The keys, centred.
+    let keys = confirm_lines(session, tech).pop().unwrap_or_default();
+    let pad = text.saturating_sub(keys.chars().count()) / 2;
+    rows.push(Row::text(format!("{}{keys}", " ".repeat(pad)), Tone::Accent));
     let height = u16::try_from(rows.len() + 2).unwrap_or(u16::MAX);
-    let inner = crate::modal::draw(buf, area, (width, height), palette, "CHOOSE A SCHOOL", "");
+    let inner = crate::modal::draw(buf, area, (width, height), palette, CONFIRM_TITLE, "");
     let mut p = Painter::new(buf, inner, palette);
     for row in &rows {
         p.row(row);

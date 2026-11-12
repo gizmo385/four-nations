@@ -230,6 +230,36 @@ fn bold(painter: &egui::Painter, at: Pos2, galley: Arc<Galley>) {
     painter.galley(at + vec2(BOLD_OFFSET, 0.0), galley, Color32::WHITE);
 }
 
+/// `row`'s text painted into `rect` (one cell high): its left spans, and its right-hand text (if
+/// any) flush right, bold when `bold`. Returns the row's words as the accessibility tree has
+/// them. The background is the caller's.
+pub fn paint_row(
+    painter: &egui::Painter,
+    look: &Look<'_>,
+    row: &Row,
+    rect: Rect,
+    bold_text: bool,
+) -> String {
+    let draw = |galley: Arc<Galley>, at: Pos2| {
+        if bold_text {
+            bold(painter, at, galley);
+        } else {
+            painter.galley(at, galley, Color32::WHITE);
+        }
+    };
+    let top = rect.center().y - look.cell.y * 0.5;
+    draw(painter.layout_job(look.job(&row.left)), pos2(rect.left(), top));
+    let mut text: String = row.left.iter().map(|(t, _)| t.as_str()).collect();
+    if let Some((right, tone)) = &row.right {
+        let galley = painter.layout_job(look.job(&[(right.clone(), *tone)]));
+        let x = rect.right() - galley.size().x;
+        draw(galley, pos2(x, top));
+        text.push_str("  ");
+        text.push_str(right);
+    }
+    text
+}
+
 /// One row of toned text across the free width of `ui`: its left spans, and its right-hand
 /// text (if any) flush right. `selected` gives it the `select` background and bold text.
 /// `sense` is `Sense::click()` for a row that can be picked. The row is exposed to the
@@ -247,23 +277,7 @@ pub fn text_row(ui: &mut Ui, look: &Look<'_>, row: &Row, selected: bool, sense: 
     if clickable && response.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
-    let draw = |galley: Arc<Galley>, at: Pos2| {
-        if selected {
-            bold(&painter, at, galley);
-        } else {
-            painter.galley(at, galley, Color32::WHITE);
-        }
-    };
-    let top = rect.center().y - look.cell.y * 0.5;
-    draw(painter.layout_job(look.job(&row.left)), pos2(rect.left(), top));
-    let mut text: String = row.left.iter().map(|(t, _)| t.as_str()).collect();
-    if let Some((right, tone)) = &row.right {
-        let galley = painter.layout_job(look.job(&[(right.clone(), *tone)]));
-        let x = rect.right() - galley.size().x;
-        draw(galley, pos2(x, top));
-        text.push_str("  ");
-        text.push_str(right);
-    }
+    let text = paint_row(&painter, look, row, rect, selected);
     let role = if clickable { egui::Role::Button } else { egui::Role::Label };
     response.widget_info(|| WidgetInfo::labeled(role, true, text.clone()));
     response
