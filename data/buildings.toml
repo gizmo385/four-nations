@@ -1150,3 +1150,28 @@ earth = "Hall of Records"
 fire = "Royal Archive"
 water = "Story Lodge"
 air = "Temple Archive"
+
+# The High Temple (#723, docs/design/horizons-phase-4.md, "`high_temple`"): one per game,
+# against the rock, never taken down. Chi returns 2x and study runs 1.5x within 8 tiles.
+[[building]]
+id = "high_temple"
+name = "High Temple"
+verb = "Raise"
+work = 300.0
+passable = false
+footprint = [3, 3]
+beside = ["mountain"]
+landmark = true
+[building.aura]
+radius = 8
+chi_regen = 2.0
+study = 1.5
+[[building.cost]]
+item = "stone"
+count = 40
+[[building.cost]]
+item = "wood"
+count = 30
+[[building.cost]]
+item = "tool"
+count = 4

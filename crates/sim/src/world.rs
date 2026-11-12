@@ -24,6 +24,7 @@ use crate::research::{self, Research, ResearchError, TechId};
 use crate::rng::{self, SimRng};
 
 mod archive;
+mod aura;
 mod avatar;
 mod balloon;
 mod beast;
@@ -1137,7 +1138,14 @@ impl World {
                 1.0
             };
             let sick = self.is_sick(&u);
-            let healing = self.healing_bonus_for(&u, defs);
+            let aura = self.aura_at(u.pos, defs);
+            // A healing building's own rate wins inside it; elsewhere an aura speeds passive
+            // regen (#723).
+            let healing = self.healing_bonus_for(&u, defs).or_else(|| {
+                (aura.heal > 1.0).then(|| {
+                    (defs.needs.health.regen_per_minute * aura.heal, defs.needs.health.max)
+                })
+            });
             u.needs.tick_at_cold_healing(
                 &defs.needs,
                 TICKS_PER_SECOND,
@@ -1161,7 +1169,7 @@ impl World {
                 self.modifiers_for(&u, defs).chi_regen
             } else {
                 self.modifiers.chi_regen
-            };
+            } * aura.chi_regen;
             let chi_max = self.chi_max_for(&u, defs);
             u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen, rest, chi_max);
             self.care.observe(&u, exposed, defs);

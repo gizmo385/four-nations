@@ -192,6 +192,7 @@ impl std::fmt::Display for CommandError {
             Self::Designate(DesignateError::CannotDeconstruct) => {
                 f.write_str("can't be taken down")
             }
+            Self::Designate(DesignateError::Landmark) => f.write_str("A landmark stays"),
             Self::Research(e) => e.fmt(f),
             Self::Bend(e) => e.fmt(f),
             Self::Build(e) => e.fmt(f),

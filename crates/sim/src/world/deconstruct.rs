@@ -52,6 +52,9 @@ impl World {
         if defs.building(b.id).endeavor {
             return Err(DesignateError::CannotDeconstruct);
         }
+        if defs.building(b.id).landmark {
+            return Err(DesignateError::Landmark);
+        }
         let anchor = b.anchor;
         if self.jobs.iter().any(|j| j.kind == JobKind::Deconstruct { pos: anchor }) {
             return Err(DesignateError::AlreadyDesignated);

@@ -248,6 +248,8 @@ pub(crate) fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> Stri
         Blocker::Beside(_) => why.to_string(),
         // "must be 20 tiles from any stockpile" (the Waystation, `OutpostDef::far_from_stores`).
         Blocker::NearStores(_) => why.to_string(),
+        // "only one": a landmark, such as the High Temple (#723).
+        Blocker::OnlyOne => why.to_string(),
     }
 }
 
