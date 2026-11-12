@@ -6,7 +6,9 @@
 # unit only claims a bend job if its chi covers the cost.
 #
 # `[[ability]]`: one per ability, in file order (`AbilityId` is the index).
-# - `nation`: only this nation can use it.
+# - `nation`: only this nation can use it. A JOINT bend (#759) names `nations = ["a", "b"]` in its
+#   place: exactly two distinct nations, one caster of each channels it together, and a fusion
+#   tech of the same two nations must unlock it. It can't have a `speed_modifier`.
 # - `chi`: cost, in (0, chi.max]. `work`: channel seconds at a modifier of 1.0, >= 0.
 # - `speed_modifier` (optional): a nation modifier (data/nations.toml) that divides the channel
 #   time, like a harvest's `modifier`.
@@ -18,7 +20,8 @@
 # - `[ability.effect]`: `kind` picks one variant of the effect enum in crates/sim/src/bending.rs;
 #   unknown keys are rejected. Terrain, biome and resource ids must exist.
 # - An ability is available from the start unless a tech lists it under `unlocks.abilities` in
-#   data/research.toml (that tech must be of the same nation, and the only one to list it).
+#   data/research.toml (that tech must be of the same nation, or a fusion of a joint bend's two,
+#   and the only one to list it).
 #
 # The four effects landed as separate work (#68 to #71): the magnitude of `irrigate` scales
 # `wet_minutes`, that of `heat_source` scales `duration_minutes`, and that of `wind_carry` scales
@@ -436,3 +439,26 @@ work = 30.0
 kind = "reveal"
 radius = 20
 finds = ["gold_seam", "lost_ruins", "great_ruins"]
+
+# Water + Air, from the `cloudbending` fusion (#759, docs/design/horizons-phase-6.md, "Joint
+# bends"): a JOINT bend. `nations` stands in for `nation`: it has one slot per nation, claimed
+# separately by the nearest able unit of that nation, and its channel runs only while both casters
+# are at the target. Each pays the full `chi` (a master pays `master_chi` of it) and gets a bend
+# and a form. It has no `speed_modifier`, as two casters would have two. Numbers are provisional
+# (#752 sets them). Plots in the 13x13 patch grow at `growth_boost` for `minutes`, under the
+# best-boost rule with the Irrigation Channel, a canal and the aqueduct; winter is still the
+# climate band's.
+[[ability]]
+id = "call_rain"
+nations = ["water", "air"]
+name = "Call Rain"
+verb = "Call rain"
+description = "A waterbender and an airbender bring a cloud over the fields. Crops under it grow as if irrigated for a season."
+chi = 70.0
+work = 30.0
+rank = "adept"
+[ability.effect]
+kind = "rain"
+radius = 6
+growth_boost = 1.5
+minutes = 15.0

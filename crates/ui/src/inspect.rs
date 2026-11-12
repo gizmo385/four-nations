@@ -43,7 +43,8 @@ fn clock(secs: f32) -> String {
 
 /// "Lit: 12m 03s left" for a flame on `tile`, "Earth Tent: 12m 03s left" for a shelter (#362, by
 /// the ability that lit it, same as the TUI's own glyph for it), or "Wet: sprouts in 3m 20s" for
-/// a watered one. `None` for anything else.
+/// a watered one, "Needs an Air bender" for a joint bend still short of a caster (#759). `None` for
+/// anything else.
 pub fn bending_status_line(world: &World, defs: &Defs, tile: Pos) -> Option<String> {
     if let Some(flame) = world.flames().into_iter().find(|f| f.pos == tile) {
         // Hearthflame, and a save from before the split (`ability` is `None`), keep today's
@@ -53,6 +54,10 @@ pub fn bending_status_line(world: &World, defs: &Defs, tile: Pos) -> Option<Stri
             _ => "Lit",
         };
         return Some(format!("{label}: {} left", clock(flame.seconds_left)));
+    }
+    // A joint bend (Call Rain, #759) designated here, still short of a caster.
+    if let Some(nation) = world.joint_missing(tile, defs) {
+        return Some(crate::text::needs_bender(nation));
     }
     let (_, left) = world.wet_tiles().into_iter().find(|(p, _)| *p == tile)?;
     Some(format!("Wet: sprouts in {}", clock(left)))

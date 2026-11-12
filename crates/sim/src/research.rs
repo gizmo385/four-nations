@@ -1790,8 +1790,14 @@ mod tests {
         cost = 25
     ";
 
+    /// The bundled bending without Call Rain, its last ability: a joint bend needs the
+    /// `cloudbending` fusion (#759), which these tests' own research tables don't have.
+    fn bending() -> &'static str {
+        &BENDING[..BENDING.find("# Water + Air, from the `cloudbending`").expect("Call Rain")]
+    }
+
     fn load(research: &str, nations: &str) -> Result<Defs, DefsError> {
-        Defs::from_toml(BIOMES, RESOURCES, nations, research, NEEDS, JOBS, BENDING, BUILDINGS)
+        Defs::from_toml(BIOMES, RESOURCES, nations, research, NEEDS, JOBS, bending(), BUILDINGS)
     }
 
     /// Loads the bundled nations with `BASICS` plus `techs`.
@@ -2382,6 +2388,8 @@ mod tests {
         let mut files = crate::defs::BUNDLED_FILES;
         let research = format!("{}\n{extra}\n", without_fire_school(files[3]));
         files[3] = &research;
+        // The cut drops `cloudbending` with the blocks after Fire's school, and Call Rain with it.
+        files[6] = bending();
         Defs::from_files(files)
     }
 
@@ -2468,6 +2476,7 @@ mod tests {
             school_tech("works", "fire", "fire_purpose", "")
         );
         files[3] = &research;
+        files[6] = bending();
         let nations = files[2].replacen(
             "starting_techs = [\"fire_making\"]",
             "starting_techs = [\"fire_making\", \"sun\"]",

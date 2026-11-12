@@ -123,6 +123,13 @@ pub fn article(word: &str) -> &'static str {
     }
 }
 
+/// The status of a designated joint bend (Call Rain, #759) that still waits for a caster of
+/// `nation`: "Needs an Air bender", "Needs a Water bender".
+pub fn needs_bender(nation: fn_sim::Nation) -> String {
+    let name = nation.title();
+    format!("Needs {} {name} bender", article(name))
+}
+
 /// The bend picker's own count of who could cast a rank-gated ability right now (#361,
 /// `docs/design/bending.md` "Seeing it"): "2 adepts", "no master", or, for an ability with no
 /// rank at all, the plain "{n} bender(s)" #248 already gave it. `count` is `World::caster_count`,
@@ -399,6 +406,12 @@ mod tests {
 
     use super::*;
     use crate::session::Session;
+
+    #[test]
+    fn a_joint_bend_names_the_bender_it_waits_for() {
+        assert_eq!(needs_bender(Nation::Air), "Needs an Air bender");
+        assert_eq!(needs_bender(Nation::Water), "Needs a Water bender");
+    }
 
     /// The closest resource to the first unit whose harvest is used up when worked (a tree, not
     /// a fishing spot) and that anyone can work.

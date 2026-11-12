@@ -1123,3 +1123,22 @@ count = 6
 [[tech.unlocks.upgrades]]
 building = "steam_engine"
 bank = { beside = ["water", "river", "lake", "canal"], radius = 4 }
+
+# --- #759 (research horizons phase 6: `cloudbending`) --------------------------------------------
+
+# Water + Air fusion (docs/design/horizons-phase-6.md, "`cloudbending`: Call Rain"). Unlocks the
+# joint bend `call_rain` (data/bending.toml). The 3 residents of each nation, the 1 master and the
+# 4 tools are provisional (#752's playtest sets them).
+[[tech]]
+id = "cloudbending"
+name = "Cloudbending"
+description = "Water lifts the sea into the sky and Air carries the cloud inland."
+fusion = ["water", "air"]
+cost = 1000
+prereqs = ["farming"]
+requires = { residents = { water = 3, air = 3 }, masters = 1, masters_of = ["water", "air"] }
+[[tech.cost_items]]
+item = "tool"
+count = 4
+[tech.unlocks]
+abilities = ["call_rain"]

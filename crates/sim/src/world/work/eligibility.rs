@@ -160,6 +160,32 @@ impl World {
         }
     }
 
+    /// Which of a job's slots unit `i` would fill: always 0 for an ordinary job, and for a joint
+    /// bend (#759) the index of the unit's nation in the ability's `nations`.
+    pub(super) fn claim_slot(&self, i: usize, kind: JobKind, defs: &Defs) -> usize {
+        let JobKind::Bend { ability, .. } = kind else { return 0 };
+        let Some(pair) = defs.ability(ability).nations else { return 0 };
+        let nation = self.nation_of(&self.units[i]);
+        pair.iter().position(|&n| n == nation).unwrap_or(0)
+    }
+
+    /// Whether `job` has a slot unit `i` could take right now: unclaimed, for an ordinary job; the
+    /// slot of the unit's own nation, for a joint bend (#759), and never for the Avatar or a
+    /// unit of neither nation.
+    pub(super) fn job_open_to(&self, job: &Job, i: usize, defs: &Defs) -> bool {
+        if !job.joint {
+            return job.claimed_by.is_none();
+        }
+        let JobKind::Bend { ability, .. } = job.kind else { return false };
+        let Some(pair) = defs.ability(ability).nations else { return false };
+        let u = &self.units[i];
+        if u.is_avatar() || u.is_beast() {
+            return false;
+        }
+        let nation = self.nation_of(u);
+        pair.iter().position(|&n| n == nation).is_some_and(|slot| job.slot_open(slot))
+    }
+
     /// See `ClaimKey`.
     pub(super) fn claim_key(&self, i: usize, defs: &Defs) -> ClaimKey {
         let is_avatar = self.units[i].is_avatar();
@@ -167,7 +193,7 @@ impl World {
         let jobs = self
             .jobs
             .iter()
-            .filter(|j| j.claimed_by.is_none())
+            .filter(|j| self.job_open_to(j, i, defs))
             .map(|j| {
                 let gate = self.job_gate(i, j.kind, defs).map(|g| {
                     if let Bar::Room(item) = g.bar

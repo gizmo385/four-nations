@@ -264,6 +264,19 @@ pub(super) struct Patch {
     fallow_ticks: u64,
 }
 
+/// A cloud over the fields (Call Rain, #759): every farm plot within `radius` tiles (Chebyshev)
+/// of `center` takes `boost` as an irrigation rate (`World::irrigation_rate`, the best boost in
+/// reach) while `tick < until_tick`. Kept in `World::rains`; a new rain over the same `center`
+/// replaces the old one.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Rain {
+    pub center: Pos,
+    pub radius: u32,
+    pub boost: f32,
+    /// The first tick the rain is over.
+    pub until_tick: u64,
+}
+
 /// A speed burst a unit is riding (Air Scooter, #143). While it lasts, the rider's `move_speed`
 /// is multiplied by `multiplier` on top of every other modifier.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -369,6 +382,10 @@ impl World {
             }
             let Some(job) = self.job(id) else { continue };
             let JobKind::Bend { ability, pos } = job.kind else { continue };
+            // A joint bend channels only while both casters are in place (#759).
+            if job.joint && !self.joint_in_place(job) {
+                continue;
+            }
             let def = defs.ability(ability);
             let rate = self.bend_rate(u, def, defs);
             let remaining_secs = (def.work - job.progress).max(0.0) / rate.max(1e-3);
@@ -427,7 +444,19 @@ impl World {
         let avatar_knows = defs.endeavor.avatar.as_ref().is_some_and(|a| {
             a.abilities.contains(&ability) && self.units.iter().any(Unit::is_avatar)
         });
-        if def.nation != self.nation
+        if let Some(pair) = def.nations {
+            // A joint bend (#759) is unlocked by a fusion that is open to every nation, and waits
+            // for its second caster with a status (`joint_missing`) instead of refusing the
+            // designation. It is offered where someone of either nation lives, and only once its
+            // fusion is on the tree: a fusion is out of sight until the gate stands.
+            let here = pair.contains(&self.nation)
+                || self.units.iter().any(|u| pair.contains(&self.nation_of(u)));
+            let hidden =
+                def.unlocked_by.is_some_and(|t| !self.research.is_known(t) && !self.united());
+            if !here || hidden {
+                return Err(BendError::WrongNation);
+            }
+        } else if def.nation != self.nation
             && !avatar_knows
             && !self.units.iter().any(|u| self.nation_of(u) == def.nation)
         {
@@ -481,7 +510,20 @@ impl World {
             return Err(BendError::AlreadyDesignated);
         }
         self.validate_bend(def, pos, defs).map_err(BendError::InvalidTarget)?;
+        // A joint bend waits for a pair of casters, so no more of them are queued than there are
+        // pairs (at least one: it waits with a status when a nation has nobody able, #759).
+        if def.is_joint() {
+            let pairs = self.joint_caster_counts(ability, defs).map_or(0, |c| c[0].1.min(c[1].1));
+            let waiting = self.bend_designations().filter(|&(a, _)| a == ability).count();
+            if waiting >= pairs.max(1) {
+                return Err(BendError::InvalidTarget("no more pairs of casters to wait on"));
+            }
+        }
         let id = self.add_job(JobKind::Bend { ability, pos });
+        if def.is_joint() {
+            let idx = self.job_index(id).expect("just added");
+            self.jobs[idx].joint = true;
+        }
         // Wind Carry and Metalbend take over the tile's haul job (validation just confirmed a
         // stack is there).
         if owns_ground_stack(&def.effect) {
@@ -685,14 +727,18 @@ impl World {
             return false;
         }
         if unit.is_avatar() {
-            return defs.endeavor.avatar.as_ref().is_some_and(|a| a.abilities.contains(&ability));
+            // The Avatar has no nation to fill a joint bend's slot with.
+            return !def.is_joint()
+                && defs.endeavor.avatar.as_ref().is_some_and(|a| a.abilities.contains(&ability));
         }
         let unit_nation = self.nation_of(unit);
-        if unit_nation != def.nation {
+        if !def.of_nation(unit_nation) {
             return false;
         }
         let tech_known = match def.unlocked_by {
             None => true,
+            // A fusion is the settlement's, whichever of its two nations the caster is of.
+            Some(tech) if def.is_joint() => self.research.is_known(tech),
             Some(tech) => unit_nation == self.nation && self.research.is_known(tech),
         };
         tech_known && self.meets_rank(unit, def, defs)
@@ -758,6 +804,51 @@ impl World {
         self.units.iter().filter(|u| self.can_cast(u, ability, defs)).count()
     }
 
+    /// For a joint bend (#759), each of its two nations with how many living units of it could
+    /// cast it at all (`can_cast`, chi-free like `caster_count`): the bend picker's "Water 9
+    /// adepts + Air 2 adepts". `None` for every other ability.
+    pub fn joint_caster_counts(
+        &self,
+        ability: AbilityId,
+        defs: &Defs,
+    ) -> Option<[(Nation, usize); 2]> {
+        let pair = defs.abilities.get(ability.0 as usize)?.nations?;
+        Some(pair.map(|n| {
+            let count = self
+                .units
+                .iter()
+                .filter(|u| self.nation_of(u) == n && self.can_cast(u, ability, defs))
+                .count();
+            (n, count)
+        }))
+    }
+
+    /// The nation a designated joint bend on `pos` is still waiting for a caster of (#759): the
+    /// first of its two nations whose slot nobody holds, or `None` for an ordinary bend, one with
+    /// both casters on the way, or no designation. The status "Needs an Air bender".
+    pub fn joint_missing(&self, pos: Pos, defs: &Defs) -> Option<Nation> {
+        let job = self
+            .jobs
+            .iter()
+            .find(|j| matches!(j.kind, JobKind::Bend { pos: p, .. } if p == pos))?;
+        let JobKind::Bend { ability, .. } = job.kind else { return None };
+        let pair = defs.ability(ability).nations?;
+        (0..2).find(|&slot| job.slot_open(slot)).map(|slot| pair[slot])
+    }
+
+    /// Whether both casters of the joint bend `job` have a slot, are at the target and are free
+    /// of a need: the only time its channel runs (#759).
+    fn joint_in_place(&self, job: &Job) -> bool {
+        let (Some(a), Some(b)) = (job.claimed_by, job.partner) else { return false };
+        [a, b].into_iter().all(|id| {
+            self.units.iter().find(|u| u.id == id).is_some_and(|u| {
+                u.need_task.is_none()
+                    && matches!(u.job_task, Some(Task::Bend(t)) if t == job.id)
+                    && u.route.as_ref().is_some_and(|r| r.is_empty())
+            })
+        })
+    }
+
     /// Channel seconds per second: the caster's own effective modifiers (`modifiers_for`, #239;
     /// the Avatar's are his own, #237) read by the nation modifier the ability names, or 1.0.
     /// A bending beast (#697) takes its row's `seconds` for the whole bend instead, whatever any
@@ -787,6 +878,19 @@ impl World {
         if !self.go_or_abandon(i, id, stand, defs) {
             return;
         }
+        // A joint bend (#759) runs only while both casters are in place, and the first slot's
+        // caster alone drives the clock, so two casters don't make it twice as fast.
+        let mut partner = None;
+        if self.jobs[idx].joint {
+            if !self.joint_ready(i, idx) {
+                return;
+            }
+            let me = self.units[i].id;
+            if self.jobs[idx].claimed_by != Some(me) {
+                return;
+            }
+            partner = self.jobs[idx].partner;
+        }
         let rate = self.bend_rate(&self.units[i], def, defs);
         let job = &mut self.jobs[idx];
         job.progress += rate / TICKS_PER_SECOND as f32;
@@ -800,18 +904,28 @@ impl World {
         }
         self.jobs.remove(idx);
         self.finish_job(i);
+        let partner = partner.and_then(|id| self.units.iter().position(|u| u.id == id));
+        if let Some(p) = partner {
+            self.finish_job(p);
+        }
         let mut moved = None;
         let outcome = match self.validate_bend(def, pos, defs) {
             Ok(()) => {
                 moved = self.apply_bend(i, ability, def, pos, defs);
-                // A beast's tally is its own (`World::bored_by`): it has no ranks, no forms and
-                // no mastery to credit (#697).
-                if let Some(beast) = &mut self.units[i].beast {
-                    beast.bored += 1;
-                } else {
-                    self.units[i].bends += 1;
-                    *self.units[i].bends_by.entry(ability).or_insert(0) += 1;
-                    self.note_rank_up(i, defs);
+                if let Some(p) = partner {
+                    self.spend_bend_chi(p, def, defs);
+                }
+                for c in std::iter::once(i).chain(partner) {
+                    // A beast's tally is its own (`World::bored_by`): it has no ranks, no forms
+                    // and no mastery to credit (#697).
+                    if let Some(beast) = &mut self.units[c].beast {
+                        beast.bored += 1;
+                    } else {
+                        // Each caster of a joint bend gets its own bend and form (#759).
+                        self.units[c].bends += 1;
+                        *self.units[c].bends_by.entry(ability).or_insert(0) += 1;
+                        self.note_rank_up(c, defs);
+                    }
                 }
                 BendOutcome::Done
             }
@@ -924,6 +1038,38 @@ impl World {
             .copied()
     }
 
+    /// Whether unit `i`, standing at its spot for joint bend `idx`, can see the channel run
+    /// (#759): the other caster holds the other slot, is at the target and is free of a need.
+    /// If the other caster has set the job aside for a need, it loses the slot (progress is
+    /// kept), which opens for another unit of its nation; an absent or still-walking one is
+    /// waited for.
+    fn joint_ready(&mut self, i: usize, idx: usize) -> bool {
+        let me = self.units[i].id;
+        let job = &self.jobs[idx];
+        let other = if job.claimed_by == Some(me) { job.partner } else { job.claimed_by };
+        let Some(other) = other else { return false };
+        let Some(o) = self.units.iter().position(|u| u.id == other) else { return false };
+        if self.units[o].need_task.is_some() {
+            // Only `job_task` is safe to clear mid-need (`take_haul_job`): the route belongs to
+            // the need now.
+            self.units[o].job_task = None;
+            self.jobs[idx].release(other);
+            self.wake_idle();
+            return false;
+        }
+        self.joint_in_place(&self.jobs[idx])
+    }
+
+    /// Takes the chi a finished bend costs unit `i` (a master's own discount, #360). A beast
+    /// pays none.
+    fn spend_bend_chi(&mut self, i: usize, def: &AbilityDef, defs: &Defs) {
+        if !self.units[i].is_beast() {
+            let cost = self.chi_cost(&self.units[i], def, defs);
+            let u = &mut self.units[i];
+            u.chi = (u.chi - cost).max(0.0);
+        }
+    }
+
     /// Spends the chi (a master's own discount, #360) and takes effect. The target was just
     /// validated. Returns the stack Wind Carry moved, if that is what it was.
     fn apply_bend(
@@ -934,11 +1080,7 @@ impl World {
         pos: Pos,
         defs: &Defs,
     ) -> Option<Moved> {
-        if !self.units[i].is_beast() {
-            let cost = self.chi_cost(&self.units[i], def, defs);
-            let u = &mut self.units[i];
-            u.chi = (u.chi - cost).max(0.0);
-        }
+        self.spend_bend_chi(i, def, defs);
         let magnitude = self.bend_magnitude(def);
         let caster = self.units[i].id;
         self.apply_effect(&def.effect, ability, caster, pos, magnitude, defs)
@@ -1128,6 +1270,14 @@ impl World {
                     Ok(())
                 } else {
                     Err("nothing here is tired")
+                }
+            }
+            // A patch with at least one farm plot in it (#759); rain on bare ground is wasted chi.
+            Effect::Rain { radius, .. } => {
+                if self.plots_within(pos, *radius).next().is_some() {
+                    Ok(())
+                } else {
+                    Err("no farm plots in reach")
                 }
             }
             #[cfg(test)]
@@ -1343,6 +1493,18 @@ impl World {
                 self.strain.retain(|&s, _| chebyshev(pos, s) > *radius);
                 None
             }
+            // A new rain over the same patch replaces the old one, and never adds to it (#759).
+            Effect::Rain { radius, growth_boost, minutes } => {
+                let until_tick = self.tick + minutes_to_ticks_min1(minutes * magnitude);
+                self.rains.retain(|r| r.center != pos);
+                self.rains.push(Rain {
+                    center: pos,
+                    radius: *radius,
+                    boost: *growth_boost,
+                    until_tick,
+                });
+                None
+            }
             #[cfg(test)]
             Effect::Probe => None,
         }
@@ -1494,6 +1656,8 @@ mod earth_tests;
 mod fire_tests;
 #[cfg(test)]
 mod glide_tests;
+#[cfg(test)]
+mod joint_tests;
 #[cfg(test)]
 mod metalbend_tests;
 #[cfg(test)]
