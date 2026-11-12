@@ -45,7 +45,7 @@ changing the TUI.
 | `app.rs` (`GuiApp`) | Reads the clock, translates keys (F12 is the window's own: the timing overlay), hands each frame to `Frame` | Stays: shell, keys and clock only (#876) |
 | `frame.rs`, `hints.rs` | `surface` (the exhaustive native/cells match), the native layout (hint bar, side panel slot, map, banner), the box painter, the timing overlay; the hint bar from `fn_ui::keys` | New in #876. Arms flip to native as screens convert |
 | `side.rs` | The side panel: `fn_ui::panel::SidePanel` as egui widgets (title, header with pause and speed buttons, Settlement, Alerts, Tool section and list), monospace, tones coloured by `fn_tui::widgets::ToneStyle`. A click returns the keys it stands for (`side::Clicks`), which `GuiApp` types into the shell after the frame; an alert is `L`, a `Down` per line above it and `Enter` (`side::alert_keys`). The inspector (`inspector.rs`) is its last section: `fn_ui::inspector::Inspected` as egui widgets, meters as bars, a pinned heading over a body that scrolls in at most two fifths of the panel (#882) | New in #877 |
-| `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Gains click semantics, a hover tooltip and a cached overview (#878) |
+| `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Square tiles (#868's default), click semantics from `fn_ui::pointer`, a hover tooltip and a cached overview texture, `overview.rs` (#878; done) |
 | `keys.rs` | egui `Event` to `fn_tui::keyev::KeyEvent` | Stays, retargeted to #857's frontend-neutral key type |
 | `fonts.rs` | Loads DejaVu Sans Mono from the system path | Bundles it with `include_bytes!` (#859) |
 | `color.rs` | ratatui `Color` to `Color32` | Stays (the map look and the cell painter both need it) |
@@ -177,7 +177,7 @@ One row is roughly one agent PR (the #842 estimates). "Words" means a row-model 
 | 1 | Cell painter, frame skeleton, hint bar, tool banner (#872, #876; done) | `fn_gui::cells`, `fn_gui::frame`, `fn_gui::hints` | none (`fn_ui::keys` already) | 2 |
 | 2 | Side panel: header, Settlement glance, Alerts, Tool section (#873, #877) | `fn_gui::side` | `fn_tui::panel`'s `Data` rows and `widgets::{Row, Tone}` | 2.5 |
 | 3 | Inspector (#882; done) | `fn_gui::inspector` | `fn_ui::inspector` (moved from `fn_tui::inspector`: settler, tile and placement rows) | 1 |
-| 4 | Map mouse: click, select, one-tile apply, hover tooltip, overview cache (#878) | `mapview.rs` | none (`fn_ui::inspect::tooltip_lines`) | 1 |
+| 4 | Map mouse: click, select, one-tile apply, hover tooltip, overview cache (#878; done) | `mapview.rs` | none (`fn_ui::inspect::tooltip_lines`) | 1 |
 | 5 | Game menu, Quit and confirm boxes, prompts, embark exit prompt (#879) | `fn_gui::boxes` | `fn_tui::menu` items, `fn_tui::ask` | 1 |
 | 6 | Title, nation picker, seed step, Load (#880; done) | `fn_gui::title` | `fn_tui::title` steps | 1 |
 | 7 | Embark (#883) | `fn_gui::embark`, reusing `MapView` | `fn_tui::embark` report | 1.5 |
@@ -270,11 +270,12 @@ nothing needs the mouse, and the hint bar keeps naming keys.
 
 | Where | Action | As which key or method |
 |---|---|---|
-| Map, Select | Left click | Cursor to the tile (`point_at`), then `Enter` if a unit stands there (select), else `Esc` (deselect) |
+| Map, Select | Left click | Cursor to the tile (`point_at`), then `Enter` if a unit can be selected there, else `Esc` if one is selected (deselect). With nothing selected a click on bare ground only moves the cursor: `Esc` would open the game menu |
 | Map, Select | Left drag, right or middle drag | Pan the camera (widget-only state, no game effect) |
-| Map, a tool | Left click | One-tile apply: `Enter` `Enter` on that tile |
+| Map, a tool | Left click | One-tile apply: `Enter` `Enter` on that tile (with a corner set, the click is the second corner: one `Enter`; the Gate and a chute's foot take one) |
 | Map, a tool | Left drag | The rectangle: `Enter` at the start, cursor, `Enter` on release (`fn_tui::pointer` today) |
-| Map, a tool | Right click | `Esc` (drop the corner, else leave the tool) |
+| Map, a tool | Right click | `Esc` (drop the corner, else leave the tool). In Select it does nothing |
+| Map, tool list open | Any press | `Esc`: it closes the list and goes no further |
 | Map | Wheel | Zoom about the pointer |
 | Map | Hover for 0.4 s | Tooltip from `fn_ui::inspect::tooltip_lines`. It does not move the cursor, so the inspector stays on what the keyboard points at. This is vision.md's "hover anything and see why" |
 | Side panel | Click a section's `[N]`/`[T]`/`[G]`/`[L]` | That key |

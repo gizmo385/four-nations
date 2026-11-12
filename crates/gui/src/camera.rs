@@ -1,24 +1,24 @@
 //! Where the map widget looks, apart from the terminal's own view (`UiState::view`): a centre in
-//! tiles and a cell size in pixels. Pure arithmetic, so the tests check it without a window.
+//! tiles and a tile size in pixels. Pure arithmetic, so the tests check it without a window.
+//!
+//! Tiles are square (decision #868's recommended default: shapes read true and a drag covers what
+//! it looks like it covers). The terminal's tall cells are not reproduced here.
 
 use eframe::egui::{Pos2, Rect, Vec2, pos2, vec2};
 use fn_sim::Pos;
 
-/// A monospace glyph cell is this fraction of its height wide.
-pub const CELL_ASPECT: f32 = 0.6;
-/// The largest a cell grows (pixels high).
+/// The largest a tile grows (pixels a side).
 pub const MAX_CELL: f32 = 48.0;
-/// Below this height glyphs stop being legible and the map draws one block per tile.
+/// Below this size glyphs stop being legible and the map draws one block per tile.
 pub const GLYPH_MIN: f32 = 9.0;
-/// The smallest a cell may shrink: one pixel per tile.
+/// The smallest a tile may shrink: one pixel per tile.
 pub const MIN_CELL: f32 = 1.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Camera {
     /// The tile coordinate (fractional) at the middle of the widget.
     pub centre: Vec2,
-    /// A cell's height in pixels; its width is [`CELL_ASPECT`] of that while glyphs show, and
-    /// the same as the height (square blocks) in the overview.
+    /// A tile's side in pixels (tiles are square).
     pub cell: f32,
 }
 
@@ -32,13 +32,9 @@ impl Camera {
         self.cell >= GLYPH_MIN
     }
 
-    /// One tile's size on screen.
+    /// One tile's size on screen: a square.
     pub fn tile_size(&self) -> Vec2 {
-        if self.glyphs() {
-            vec2(self.cell * CELL_ASPECT, self.cell)
-        } else {
-            vec2(self.cell, self.cell)
-        }
+        vec2(self.cell, self.cell)
     }
 
     /// The screen position of tile `(x, y)`'s top-left corner in `rect`.
@@ -82,7 +78,7 @@ impl Camera {
         self.centre += before - after;
     }
 
-    /// The smallest cell that still shows the whole `w` x `h` map in `rect`, at least
+    /// The smallest tile that still shows the whole `w` x `h` map in `rect`, at least
     /// [`MIN_CELL`].
     pub fn whole_map_cell(rect: Rect, w: i32, h: i32) -> f32 {
         (rect.width() / w as f32).min(rect.height() / h as f32).max(MIN_CELL)

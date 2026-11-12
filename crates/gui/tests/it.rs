@@ -9,6 +9,7 @@ mod frame;
 mod glyphs;
 mod inspector;
 mod keys;
+mod mapview;
 mod page;
 mod research;
 mod semantic;
