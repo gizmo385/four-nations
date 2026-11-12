@@ -15,5 +15,6 @@ mod semantic;
 mod side;
 #[cfg(feature = "shots")]
 mod snapshot;
+mod style;
 mod theme;
 mod title;

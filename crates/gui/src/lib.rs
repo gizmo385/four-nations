@@ -39,13 +39,15 @@ pub mod mapview;
 pub mod page;
 pub mod screens;
 pub mod side;
+pub mod style;
 pub mod theme;
 pub mod title;
 #[cfg(target_arch = "wasm32")]
 pub mod webpage;
 
 /// What a new window or page sets up once: the bundled fonts ([`fonts`]) and the dark theme
-/// ([`theme`]). Both entry points (`main.rs`, native and web) call it.
+/// ([`theme`]). Both entry points (`main.rs`, native and web) call it. The Seal style
+/// ([`style`]) follows the nation, so `GuiApp` installs it, and again when the nation changes.
 pub fn setup(ctx: &eframe::egui::Context) {
     fonts::install(ctx);
     theme::install(ctx);

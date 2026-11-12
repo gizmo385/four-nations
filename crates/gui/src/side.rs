@@ -142,6 +142,12 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics, live: 
     let model = model(app, palette);
     let fill = |rgb| to_egui(palette.token(rgb), Color32::BLACK);
     let mut clicks = Clicks::new();
+    // The panel's corners wear the accent's brackets, as a box's do.
+    crate::style::corner_brackets(
+        ui.painter(),
+        ui.max_rect().shrink(1.0),
+        fill(palette.theme.accent),
+    );
     egui::Frame::NONE.inner_margin(Margin::symmetric(PAD, PAD / 2)).show(ui, |ui| {
         let width = ui.available_width();
         let look = Look {
@@ -196,11 +202,24 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics, live: 
     clicks
 }
 
-/// The nation between two seals, centred.
+/// The seal on the panel's top edge: the nation between two seals, centred, with the edge's rule
+/// running out to both sides of it (`┏━━━ ◆ EARTH KINGDOM ◆ ━━━┓` in cells).
 fn title(ui: &mut Ui, look: &Look<'_>, text: &str) {
-    ui.vertical_centered(|ui| {
-        ui.add(Label::new(look.text(text, Tone::Title)).selectable(false));
-    });
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), look.ch), Sense::hover());
+    ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0, look.rule));
+    ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(rect)
+            .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+        |ui| {
+            egui::Frame::NONE.fill(look.panel).inner_margin(Margin::symmetric(8, 0)).show(
+                ui,
+                |ui| {
+                    ui.add(Label::new(look.text(text, Tone::Title)).selectable(false));
+                },
+            );
+        },
+    );
 }
 
 /// A button for the header: a key as a click.
@@ -321,6 +340,10 @@ pub(crate) fn heading_cased(
         |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             gap(ui, &mut |ui| {
+                // The diamond is a label of its own, so the title keeps its words to itself.
+                let marks = Marks::new(look.palette.ascii);
+                ui.add(Label::new(look.text(marks.bullet, tone)).selectable(false));
+                ui.add_space(look.cw);
                 let title = if upper { title.to_uppercase() } else { title.to_owned() };
                 ui.add(Label::new(look.text(&title, tone)).selectable(false));
             });

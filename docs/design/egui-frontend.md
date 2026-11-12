@@ -216,7 +216,7 @@ new goes in data:
 |---|---|---|
 | `panel_fill`, `window_fill` | `panel` | Opaque slate |
 | `extreme_bg_color` (bar tracks, text edits) | `inset` | |
-| `override_text_color`, weak text | `text`, `dim` | |
+| Text (the non-interactive widget stroke; `override_text_color` stays unset so a button's text can be `on_accent`), weak text | `text`, `dim` | |
 | Widget strokes, panel frames, separators | `accent_soft`, 1 px | Square corners: every `corner_radius` 0 |
 | `selection.bg_fill` | `select` | Quiet background, bold text, never reversed |
 | Active and hovered widget fill | `accent`, text `on_accent` | |

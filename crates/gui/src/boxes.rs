@@ -28,6 +28,7 @@ use fn_ui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_ui::menu::{self, MenuPage, MenuRow};
 
 use crate::cells::Metrics;
+use crate::color::to_egui;
 use crate::frame::BoxKind;
 use crate::page::{self, Look};
 
@@ -97,6 +98,12 @@ fn modal(
             ui.add_space(look.cell.y);
             body(ui)
         });
+    // The Seal theme's accent brackets at the box's corners (#874), as on the page frame.
+    crate::style::corner_brackets(
+        &ctx.layer_painter(shown.response.layer_id),
+        shown.response.rect,
+        to_egui(look.palette.token(look.palette.theme.accent), Color32::WHITE),
+    );
     let mut keys = shown.inner;
     // A click outside the box is `Esc`: the safe answer, or back (never a decision).
     if shown.backdrop_response.clicked() {
