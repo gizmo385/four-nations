@@ -184,6 +184,10 @@ impl World {
                 tick: self.tick,
                 kind: SeasonEventKind::Changed { season: idx },
             });
+            // The first tick of spring (the first season): spirit water (#739).
+            if idx == 0 {
+                self.tick_vials(defs);
+            }
             if defs.seasons.seasons[idx].winter && severity > 0.0 {
                 let count = self.apply_frost(defs);
                 self.log_event(SeasonEvent {

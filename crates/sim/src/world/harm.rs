@@ -78,6 +78,9 @@ pub enum HarmEventKind {
     FellSick,
     /// Sickness ran out (`World::apply_sickness`'s own `sick_until`), issue #389.
     Recovered,
+    /// A stored vial of spirit water saved a settler who would have died (`World::use_vial`,
+    /// #739).
+    Revived,
 }
 
 /// In-game minutes a death within this long of the last harm names that harm as

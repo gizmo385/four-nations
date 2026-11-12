@@ -127,6 +127,12 @@ reveals = 2
 id = "glow_crystal"
 name = "Glow Crystal"
 
+# Spirit water, from a Healing Hut once `spirit_water` is known (#739): saves a settler who
+# would have died.
+[[item]]
+id = "spirit_vial"
+name = "Spirit Water"
+
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.

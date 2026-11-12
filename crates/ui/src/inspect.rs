@@ -559,11 +559,18 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         // A study hall says how many of its seats are filled right now (#338): the Build
         // modal's own line (`build::building_detail`) only has the total, since nothing is
         // built yet when it shows it.
-        if let Some(seats) =
-            world.building_at(tile).map(|b| defs.building(b).seats).filter(|&s| s > 0)
+        if let Some(def) = world.building_at(tile).map(|b| defs.building(b)).filter(|d| d.seats > 0)
         {
             let filled = world.occupants(at).count();
-            lines.push(Line::Detail(format!("Study: {filled}/{seats} seats filled")));
+            // Fox spirits (#739) fill seats of their own: "Study: 2/3 seats filled, and a fox".
+            let foxes = world.foxes_of(def);
+            let seats = def.seats.saturating_sub(foxes);
+            let fox = match foxes {
+                0 => String::new(),
+                1 => ", and a fox".to_owned(),
+                n => format!(", and {n} foxes"),
+            };
+            lines.push(Line::Detail(format!("Study: {filled}/{seats} seats filled{fox}")));
         }
         // The hall that takes research bills says which tech its deliveries are toward while
         // one is short (#729): "Toward Metal City: Metal 5/8".

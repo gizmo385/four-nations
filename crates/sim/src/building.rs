@@ -560,6 +560,16 @@ pub struct HealingDef {
     /// Nation modifier (`Modifiers::get`) that scales `regen_per_minute`, if any (Water's
     /// `water_work`).
     pub modifier: Option<String>,
+    /// Vials of spirit water a finished one drops each spring (`World::tick_vials`, #739): 0
+    /// unless the `vials_per_year` upgrade is known, which replaces it.
+    pub vials_per_year: u32,
+    /// The vial item, or `None` for a building that never fills one.
+    pub vial_item: Option<ItemId>,
+    /// No new vial while this many are held (in stockpiles or waiting on the ground).
+    pub vial_stock: u32,
+    /// What a vial sets health, and each need that was killing the settler, to when it saves
+    /// them (`World::use_vial`).
+    pub revive_to: f32,
 }
 
 /// Largest multiplier an aura may give one stat (`[building.aura]`).
@@ -617,6 +627,11 @@ pub struct BuildingDef {
     /// nonzero value is what tells `world/build.rs` to open that many `JobKind::Study` jobs when
     /// construction finishes.
     pub seats: u32,
+    /// How many of `seats` a fox spirit fills in each finished one (`spirit_seats`, #739,
+    /// docs/design/horizons-phase-5.md, "`spirit_library`"): 0 unless the data or the upgrade
+    /// says otherwise. A fox studies like a seated scholar but isn't a unit, so a hall's
+    /// settler seats are `seats_at` minus its foxes (`World::foxes_of`).
+    pub spirit_seats: u32,
     /// How many units may be inside at once (`docs/design/buildings.md`, "Units inside
     /// buildings", #226): defaults to `seats` (so a study hall needs no data of its own), else 0.
     /// Only a building with a capacity above 0 may be entered (`World::enter_building`). A `bed`
@@ -701,6 +716,12 @@ pub struct BuildingDef {
     /// The tech after which no tile within the radius of a finished one is cold (`shelter`
     /// upgrade, #727), with the radius, or `None`.
     pub shelter_upgrade: Option<(TechId, u32)>,
+    /// The tech that adds fox spirits to each finished one, with how many (`spirit_seats`
+    /// upgrade, `spirit_library`, #739), or `None`.
+    pub spirit_upgrade: Option<(TechId, u32)>,
+    /// The tech that makes a healing building fill vials each spring, with how many a year
+    /// (`vials_per_year` upgrade, `spirit_water`, #739), or `None`.
+    pub vial_upgrade: Option<(TechId, u32)>,
     /// The end game's great work (#236): hidden from the build picker and refused by
     /// `Command::DesignateBuild`. `data/endeavor.toml` names it and holds its stages.
     pub endeavor: bool,
@@ -891,6 +912,14 @@ struct RawHealing {
     regen_per_minute: f32,
     stop_at: f32,
     modifier: Option<String>,
+    #[serde(default)]
+    vials_per_year: u32,
+    #[serde(default)]
+    vial_item: Option<String>,
+    #[serde(default)]
+    vial_stock: u32,
+    #[serde(default)]
+    revive_to: f32,
 }
 
 #[derive(Deserialize)]
@@ -1067,6 +1096,8 @@ struct RawBuilding {
     footprint: [u8; 2],
     #[serde(default)]
     seats: u32,
+    #[serde(default)]
+    spirit_seats: u32,
     /// Defaults to `seats` when absent (#226): most buildings with a capacity are study halls,
     /// where capacity and seats are the same number.
     #[serde(default)]
@@ -1231,6 +1262,12 @@ impl BuildingsFile {
                     b.id
                 ));
             }
+            if b.spirit_seats > 0 && (b.spirit_seats > b.seats || b.chart.is_some()) {
+                return err(format!(
+                    "building {}: spirit_seats = {} must be at most its seats, on a study hall",
+                    b.id, b.spirit_seats
+                ));
+            }
             if b.healing.is_some() && capacity == 0 {
                 return err(format!(
                     "building {}: healing needs a capacity, the door a unit heals through",
@@ -1342,7 +1379,7 @@ impl BuildingsFile {
             };
             let healing = match &b.healing {
                 None => None,
-                Some(h) => Some(resolve_healing(&b.id, h, needs)?),
+                Some(h) => Some(resolve_healing(&b.id, h, needs, items)?),
             };
             let power = match &b.power {
                 None => None,
@@ -1494,6 +1531,7 @@ impl BuildingsFile {
                 passable: b.passable,
                 footprint: (w, h),
                 seats: b.seats,
+                spirit_seats: b.spirit_seats,
                 capacity,
                 bed: b.bed.map(|d| BedDef { sleep_bonus: d.sleep_bonus, seek_tiles: d.seek_tiles }),
                 heat: b.heat.map(|d| HeatDef {
@@ -1528,6 +1566,8 @@ impl BuildingsFile {
                 seat_upgrades: Vec::new(),
                 free_upgrade: None,
                 shelter_upgrade: None,
+                spirit_upgrade: None,
+                vial_upgrade: None,
                 endeavor: b.endeavor,
                 beside: b.beside,
                 also_on: b.also_on,
@@ -1928,6 +1968,7 @@ fn resolve_healing(
     building: &str,
     h: &RawHealing,
     needs: &NeedsSettings,
+    items: &[ItemDef],
 ) -> Result<HealingDef, DefsError> {
     let err = |msg: &str| Err(DefsError(format!("buildings.toml: building {building}: {msg}")));
     let max = needs.health.max;
@@ -1948,11 +1989,35 @@ fn resolve_healing(
     {
         return err(&format!("healing has an unknown modifier {m:?}"));
     }
+    let vial_item = match &h.vial_item {
+        None => None,
+        Some(id) => match items.iter().position(|i| i.id == *id) {
+            Some(i) => Some(ItemId(i as u16)),
+            None => return err(&format!("healing vial_item names unknown item {id:?}")),
+        },
+    };
+    if vial_item.is_some() {
+        if !(1..=20).contains(&h.vial_stock) {
+            return err("healing vial_stock must be 1 to 20");
+        }
+        if !(h.revive_to.is_finite() && h.revive_to > 0.0 && h.revive_to <= max) {
+            return err(&format!("healing revive_to must be in (0, {max}]"));
+        }
+        if h.vials_per_year > 4 {
+            return err("healing vials_per_year must be 0 to 4");
+        }
+    } else if h.vials_per_year > 0 || h.vial_stock > 0 || h.revive_to != 0.0 {
+        return err("healing vials_per_year, vial_stock and revive_to need a vial_item");
+    }
     Ok(HealingDef {
         seek_below: h.seek_below,
         regen_per_minute: h.regen_per_minute,
         stop_at: h.stop_at,
         modifier: h.modifier.clone(),
+        vials_per_year: h.vials_per_year,
+        vial_item,
+        vial_stock: h.vial_stock,
+        revive_to: h.revive_to,
     })
 }
 
@@ -2021,11 +2086,13 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                     .iter()
                     .filter(|&&n| n)
                     .count()
-                + usize::from(up.automate.is_some());
+                + usize::from(up.automate.is_some())
+                + usize::from(up.spirit_seats.is_some())
+                + usize::from(up.vials_per_year.is_some());
             if named != 1 {
                 return err(format!(
                     "{name:?} must name exactly one property: seats, recipe, free, shelter, \
-                     boost, aura, fuel_free or automate"
+                     boost, aura, fuel_free, automate, spirit_seats or vials_per_year"
                 ));
             }
             if let Some(n) = tech.nation {
@@ -2124,6 +2191,33 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                     return taken(other, "boost");
                 }
                 b.boost_upgrade = Some((TechId(t as u16), boost, (boost * 1000.0).round() as u32));
+            }
+            if let Some(n) = up.spirit_seats {
+                if b.seats == 0 || b.chart.is_some() {
+                    return err(format!("{name:?} has no study seats for a fox spirit"));
+                }
+                if !(1..=4).contains(&n) || b.spirit_seats + n > b.seats {
+                    return err(format!(
+                        "spirit_seats = {n} must be 1 to 4, and with the building's own at most \
+                         its seats"
+                    ));
+                }
+                if let Some((other, _)) = b.spirit_upgrade {
+                    return taken(other, "spirit_seats");
+                }
+                b.spirit_upgrade = Some((TechId(t as u16), n));
+            }
+            if let Some(n) = up.vials_per_year {
+                if !b.healing.as_ref().is_some_and(|h| h.vial_item.is_some()) {
+                    return err(format!("{name:?} has no vial_item to fill"));
+                }
+                if !(1..=4).contains(&n) {
+                    return err(format!("vials_per_year = {n} must be 1 to 4"));
+                }
+                if let Some((other, _)) = b.vial_upgrade {
+                    return taken(other, "vials_per_year");
+                }
+                b.vial_upgrade = Some((TechId(t as u16), n));
             }
             if let Some(radius) = up.shelter {
                 if !(1..=12).contains(&radius) {

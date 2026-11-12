@@ -64,6 +64,65 @@ impl World {
         def.seats + extra
     }
 
+    /// The fox spirits in each finished building `def` (`spirit_seats`, #739): its own plus the
+    /// `spirit_library` upgrade once known, never more than its seats.
+    pub fn foxes_of(&self, def: &BuildingDef) -> u32 {
+        let up = def.spirit_upgrade.filter(|(t, _)| self.research.is_known(*t)).map_or(0, |u| u.1);
+        (def.spirit_seats + up).min(self.seats_of(def))
+    }
+
+    /// The seats settlers take at a building `id` anchored on `anchor`: `seats_for` less its
+    /// foxes, who fill seats rather than add them (#739).
+    pub(super) fn settler_seats_for(&self, id: BuildingId, anchor: Pos, defs: &Defs) -> u32 {
+        let def = defs.building(id);
+        self.seats_for(id, anchor, defs).saturating_sub(self.foxes_of(def))
+    }
+
+    /// The fox spirits studying right now: every finished hall's `foxes_of`, while a seat is
+    /// worth holding (`study_wanted`). Like a scholar with no target, a fox rests (#284).
+    pub fn foxes_studying(&self, defs: &Defs) -> u32 {
+        if !self.study_wanted(defs) {
+            return 0;
+        }
+        self.buildings().map(|b| self.foxes_of(defs.building(b.id))).sum()
+    }
+
+    /// One tick of the fox spirits (#739): each studies exactly as a seated scholar does in its
+    /// hall (`study_millis_at`), times the `study` modifier, through `add_toward_target`, so it
+    /// feeds scribing when the queue is empty and an Archive stands. Foxes aren't units: they
+    /// never eat, sleep, walk or leave, and nothing pre-empts them.
+    pub(super) fn tick_foxes(&mut self, defs: &Defs) {
+        if !self.study_wanted(defs) {
+            return;
+        }
+        let halls: Vec<(Pos, u32)> = self
+            .buildings()
+            .map(|b| (b.anchor, self.foxes_of(defs.building(b.id))))
+            .filter(|&(_, n)| n > 0)
+            .collect();
+        for (anchor, foxes) in halls {
+            let rate = self.study_millis_at(anchor, defs) as f32 * self.modifiers().study;
+            let research_cost = self.knobs(defs).research_cost;
+            let scribing = self.scribing_on(defs);
+            for _ in 0..foxes {
+                self.research.add_toward_target(rate.round() as u64, defs, research_cost, scribing);
+            }
+        }
+    }
+
+    /// Knowledge millis one seat at the hall anchored on `anchor` makes per tick, before the
+    /// `study` modifier: the base rate times a powered hall's boost (#428) and any aura's study
+    /// multiplier (#723), in integer millis so the result is exact on every platform.
+    fn study_millis_at(&self, anchor: Pos, defs: &Defs) -> u64 {
+        let def = self.building_at(anchor).map(|b| defs.building(b));
+        let boost_millis = def
+            .filter(|d| d.uses_power)
+            .and_then(|_| self.footprint_at(anchor))
+            .map_or(1000, |f| self.power_boost_millis(f, defs));
+        let aura = self.footprint_at(anchor).map_or(1000, |f| self.aura_over(f, defs).study_millis);
+        defs.research.study_millis_per_tick * boost_millis as u64 / 1000 * aura as u64 / 1000
+    }
+
     /// Opens the seats each finished hall is missing against `seats_at`, and closes the ones it
     /// has too many of: Study jobs, or Chart jobs at a Map Room. Runs when a tech completes, when
     /// a hall or an Archive finishes or comes down, and after `load`, so learning `writing`,
@@ -76,7 +135,7 @@ impl World {
             .filter(|b| defs.building(b.id).seats > 0)
             .map(|b| {
                 let d = defs.building(b.id);
-                (b.anchor, d.chart.is_some(), self.seats_for(b.id, b.anchor, defs))
+                (b.anchor, d.chart.is_some(), self.settler_seats_for(b.id, b.anchor, defs))
             })
             .collect();
         for (anchor, chart, want) in halls {
@@ -149,19 +208,9 @@ impl World {
                 return;
             }
         }
-        // A powered hall's seat produces `boost` times the knowledge (issue #428), kept in
-        // integer millis so the boost's effect is exact on every platform: `boost_millis` is
-        // `boost * 1000`, rounded at load.
-        let def = self.building_at(anchor).map(|b| defs.building(b));
-        let boost_millis = def
-            .filter(|d| d.uses_power)
-            .and_then(|_| self.footprint_at(anchor))
-            .map_or(1000, |f| self.power_boost_millis(f, defs));
-        // An aura over the hall multiplies with the power boost, in millis too (#723).
-        let aura = self.footprint_at(anchor).map_or(1000, |f| self.aura_over(f, defs).study_millis);
-        let millis =
-            defs.research.study_millis_per_tick * boost_millis as u64 / 1000 * aura as u64 / 1000;
-        let rate = millis as f32 * self.modifiers().study;
+        // A powered hall's seat produces `boost` times the knowledge (issue #428), and an aura
+        // over the hall multiplies with it (#723).
+        let rate = self.study_millis_at(anchor, defs) as f32 * self.modifiers().study;
         let research_cost = self.knobs(defs).research_cost;
         let scribing = self.scribing_on(defs);
         self.research.add_toward_target(rate.round() as u64, defs, research_cost, scribing);

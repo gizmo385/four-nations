@@ -350,6 +350,13 @@ pub struct Upgrade {
     /// once the tech is known (`great_works`' Lightning Station, #725).
     #[serde(default)]
     pub automate: Option<UpgradeAutomate>,
+    /// Fox spirits added to each finished study hall, 1 to 4: each fills one of its seats and
+    /// studies like a scholar (`spirit_library`, #739).
+    #[serde(default)]
+    pub spirit_seats: Option<u32>,
+    /// Replaces a healing building's `vials_per_year`, 1 to 4 (`spirit_water`, #739).
+    #[serde(default)]
+    pub vials_per_year: Option<u32>,
 }
 
 /// The `aura` upgrade's value: the multipliers of a `[building.aura]`, whose radius is the heat

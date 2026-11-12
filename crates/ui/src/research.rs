@@ -81,7 +81,8 @@ fn points(millis: u64) -> f64 {
 /// (`World::study_seats_filled`). A unit still walking to a seat contributes nothing yet.
 fn effective_rate(world: &World, defs: &Defs) -> (f64, f64) {
     let base = defs.research.passive_knowledge_per_minute;
-    let seats = world.study_seats_filled() as f64;
+    // Fox spirits (#739) study like seated scholars.
+    let seats = (world.study_seats_filled() as u32 + world.foxes_studying(defs)) as f64;
     let study =
         seats * defs.research.study_knowledge_per_minute * f64::from(world.modifiers().study);
     (base, study)
@@ -275,6 +276,22 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
                 what.push(format!("speeds study {s}x"));
             }
             return Some(format!("{} {} nearby", b.display_name(nation), what.join(" and ")));
+        }
+        if let Some(n) = u.spirit_seats {
+            // "A fox spirit studies in each study hall" (#739).
+            let who = if n == 1 {
+                "A fox spirit studies".to_owned()
+            } else {
+                format!("{n} fox spirits study")
+            };
+            return Some(format!("{who} in each {}", b.display_name(nation).to_lowercase()));
+        }
+        if let Some(n) = u.vials_per_year {
+            let s = if n == 1 { "" } else { "s" };
+            return Some(format!(
+                "{} fills {n} vial{s} of spirit water each spring",
+                b.display_name(nation)
+            ));
         }
         if u.fuel_free == Some(true) {
             return Some(format!("{} needs no fuel", b.display_name(nation)));

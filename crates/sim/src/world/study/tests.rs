@@ -141,6 +141,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         passable: true,
         footprint: (1, 1),
         seats: 0,
+        spirit_seats: 0,
         capacity: 0,
         bed: None,
         heat: None,
@@ -171,6 +172,8 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         seat_upgrades: Vec::new(),
         free_upgrade: None,
         shelter_upgrade: None,
+        spirit_upgrade: None,
+        vial_upgrade: None,
         endeavor: false,
         beside: None,
         also_on: Vec::new(),
@@ -544,4 +547,56 @@ fn an_aura_over_the_hall_multiplies_with_the_power_boost() {
     let m = Defs::bundled().research.study_millis_per_tick;
     assert_eq!(seat_gain(true, false), TICKS * (m * 1500 / 1000));
     assert_eq!(seat_gain(true, true), TICKS * (m * 2000 / 1000 * 1500 / 1000));
+}
+
+/// Grants `id` and every prereq under it.
+fn grant_with_prereqs(w: &mut World, defs: &Defs, id: TechId) {
+    for &p in &defs.tech(id).prereqs.clone() {
+        grant_with_prereqs(w, defs, p);
+    }
+    w.research.grant(id);
+}
+
+/// `spirit_library` (#739): a fox fills one seat in each finished hall rather than adding one.
+#[test]
+fn a_fox_spirit_takes_a_seat_in_every_hall() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[at(0, 0)]);
+    let hall = defs.building_id("study_hall").unwrap();
+    let base = defs.building(hall).seats;
+    place_study_hall(&mut w, &defs, at(2, 2));
+    assert_eq!(w.foxes_of(defs.building(hall)), 0, "no fox before the teaching");
+    grant_with_prereqs(&mut w, &defs, defs.tech_id("spirit_library").unwrap());
+    w.sync_seats(&defs);
+    let seats = w.seats_at(at(2, 2), &defs);
+    assert_eq!(seats, base + 2, "writing's two seats");
+    assert_eq!(w.foxes_of(defs.building(hall)), 1);
+    assert_eq!(study_jobs_at(&w, at(2, 2)) as u32, seats - 1, "the fox's seat is no job");
+    // A hall raised afterwards opens its settler seats only.
+    let (fw, fh) = defs.building(hall).footprint;
+    w.raise(crate::geom::Footprint::new(at(5, 2), fw, fh), hall, &defs);
+    assert_eq!(study_jobs_at(&w, at(5, 2)) as u32, seats - 1);
+}
+
+/// A fox studies like a seated scholar, and rests with nothing to study (#284).
+#[test]
+fn a_fox_adds_a_scholars_knowledge_and_rests_with_no_target() {
+    let (mut w, defs) = setup(Nation::Earth, &GRID, &[]);
+    place_study_hall(&mut w, &defs, at(2, 2));
+    // Only the teaching, not `writing`: the fox doesn't need its seats.
+    w.research.grant(defs.tech_id("spirit_library").unwrap());
+    w.sync_seats(&defs);
+    assert_eq!(w.foxes_studying(&defs), 0, "nothing queued");
+    let before = w.research().pool_millis();
+    w.tick(&defs);
+    let idle = w.research().pool_millis() - before;
+    start_research(&mut w, &defs, "earth_shaping");
+    assert_eq!(w.foxes_studying(&defs), 1);
+    let passive = defs.research.passive_millis_per_tick;
+    let study = defs.research.study_millis_per_tick;
+    assert!(idle <= passive, "a fox with no target adds nothing");
+    let before = w.research().pool_millis();
+    for _ in 0..100 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.research().pool_millis() - before, 100 * (passive + study));
 }

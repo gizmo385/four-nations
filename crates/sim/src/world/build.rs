@@ -293,7 +293,8 @@ impl World {
         }
         // A Map Room's seats open Chart jobs instead of Study ones (#402). Known upgrades
         // count from the start (`seats_of`).
-        let seats = self.seats_for(building, foot.anchor, defs);
+        // Foxes (#739) fill seats rather than add them.
+        let seats = self.settler_seats_for(building, foot.anchor, defs);
         if def.chart.is_some() {
             self.open_chart_seats(foot.anchor, seats);
         } else {
