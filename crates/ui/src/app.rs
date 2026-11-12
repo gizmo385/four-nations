@@ -39,6 +39,9 @@ pub struct App {
     /// The clock's pause from just before the game menu opened (#306), so `close_menu` can put
     /// it back rather than the menu itself toggling pause.
     menu_prev_paused: Option<bool>,
+    /// The clock's pause from just before the LOST TEACHING box opened (#743), for
+    /// `close_teaching` to put back.
+    teaching_prev_paused: Option<bool>,
     /// `--fast` (#321): carried across New map… and Switch nation… (`Self::restart`), which otherwise build a
     /// brand new [`Session`] (and so a plain [`crate::Clock::default`]) from scratch. A host or
     /// session setting, not the player's own clock state, so it survives a restart the way the
@@ -69,6 +72,7 @@ impl App {
             saves: None,
             reopen_embark: false,
             menu_prev_paused: None,
+            teaching_prev_paused: None,
             fast,
             legend_rows: screens::no_legend,
         }
@@ -302,6 +306,10 @@ impl App {
                 Action::Move { dx, dy, .. } => return self.move_tech(dx, dy),
                 Action::Jump { dy, .. } => return self.move_tech(0, dy * self.tech_page()),
                 Action::Confirm => {
+                    // `! Choose a teaching` (#743) reopens the LOST TEACHING box.
+                    if research::opens_draft(&self.session, self.ui.tech) {
+                        return self.open_teaching();
+                    }
                     // A school option asks first (#729): choosing it closes its mate.
                     if let Some(tech) = research::needs_confirm(&self.session, self.ui.tech) {
                         self.ui.school_confirm = Some(tech);
@@ -907,6 +915,7 @@ impl App {
         };
         self.session.clock = self.session.clock.clone().with_fast(self.fast);
         self.menu_prev_paused = None;
+        self.teaching_prev_paused = None;
         let can_quit = self.ui.can_quit;
         self.ui = UiState::new(&self.session, self.screen);
         self.ui.can_quit = can_quit;
@@ -943,6 +952,89 @@ impl App {
         match modal {
             Modal::Build => self.build_modal_key(key),
             Modal::Menu => self.menu_key(key),
+            Modal::Teaching => self.teaching_key(key),
+        }
+    }
+
+    /// Opens the LOST TEACHING box (#743, `crate::teaching`) on its first row, "Decide later",
+    /// and pauses the clock. Over the map: a screen open now is closed first.
+    pub fn open_teaching(&mut self) {
+        if crate::teaching::draft(&self.session).is_none() {
+            return;
+        }
+        self.ui.screen = None;
+        self.ui.school_confirm = None;
+        self.ui.tool_list = None;
+        if self.ui.modal != Some(Modal::Teaching) {
+            self.teaching_prev_paused = Some(self.session.clock.paused);
+        }
+        self.session.clock.paused = true;
+        self.ui.modal = Some(Modal::Teaching);
+        self.ui.teaching_cursor = 0;
+        if let Some(offer) = self.session.world.teaching_offers().last() {
+            self.ui.teaching_seen = Some(offer.tick.max(self.ui.teaching_seen.unwrap_or(0)));
+        }
+    }
+
+    /// Closes the LOST TEACHING box, restoring the clock's pause from before it opened.
+    fn close_teaching(&mut self) {
+        if let Some(paused) = self.teaching_prev_paused.take() {
+            self.session.clock.paused = paused;
+        }
+        if self.ui.modal == Some(Modal::Teaching) {
+            self.ui.modal = None;
+        }
+    }
+
+    /// Opens the LOST TEACHING box by itself (owner #733): once per offer, when an offer newer
+    /// than any it opened for is pending and nothing else (a screen, a modal, a question) is
+    /// open. One that arrives while something is open waits for it to close.
+    fn auto_open_teaching(&mut self) {
+        let Some(newest) = self.session.world.teaching_offers().iter().map(|o| o.tick).max() else {
+            return;
+        };
+        let fresh = self.ui.teaching_seen.is_none_or(|seen| newest > seen);
+        let clear = self.ui.screen.is_none() && self.ui.modal.is_none() && self.ui.prompt.is_none();
+        if fresh && clear {
+            self.open_teaching();
+        }
+    }
+
+    /// What a key does while the LOST TEACHING box is up (#743): arrows or `W`/`S` move the
+    /// cursor, `Enter` takes the row it is on, and `Esc` is "Decide later". Keeping a teaching
+    /// asks nothing more: the box already says the rest is lost. With several offers pending,
+    /// the next one's box follows at once.
+    fn teaching_key(&mut self, key: KeyEvent) {
+        let Some(draft) = crate::teaching::draft(&self.session) else {
+            return self.close_teaching();
+        };
+        let last = draft.rows() - 1;
+        let at = self.ui.teaching_cursor.min(last);
+        match key.code {
+            KeyCode::Esc => self.close_teaching(),
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
+                self.ui.teaching_cursor = at.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('s' | 'S') => {
+                self.ui.teaching_cursor = (at + 1).min(last);
+            }
+            KeyCode::Enter => {
+                let choice = draft.choices()[at];
+                if choice == crate::teaching::Choice::Later {
+                    return self.close_teaching();
+                }
+                match crate::teaching::take(&mut self.session, choice) {
+                    Ok(notice) => self.ui.notice = notice,
+                    Err(why) => self.ui.notice = why,
+                }
+                self.settle(0.0);
+                if crate::teaching::draft(&self.session).is_some() {
+                    self.ui.teaching_cursor = 0;
+                } else {
+                    self.close_teaching();
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1219,6 +1311,7 @@ impl App {
     pub fn settle(&mut self, dt: f32) {
         self.ui.alerts.update(&self.session, dt);
         self.ui.track(&self.session);
+        self.auto_open_teaching();
         self.dirty = true;
     }
 

@@ -59,6 +59,7 @@ mod ser;
 pub mod session;
 pub mod sparkline;
 pub mod state;
+pub mod teaching;
 pub mod text;
 pub mod theme;
 pub mod time;

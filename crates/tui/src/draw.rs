@@ -93,6 +93,11 @@ pub fn draw_modal(
                 .collect();
             crate::menu::draw(ui, &nations, &clock, palette, area, buf)
         }
+        Modal::Teaching => {
+            if let Some(draft) = crate::teaching::draft(session) {
+                crate::teaching::draw(&draft, ui.teaching_cursor, palette, area, buf);
+            }
+        }
     }
 }
 
@@ -118,6 +123,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Modal::Build => Mode::Build,
             Modal::Menu if ui.menu_page == MenuPage::Nations => Mode::MenuNations,
             Modal::Menu => Mode::Menu,
+            Modal::Teaching => Mode::Teaching,
         };
     }
     if let Some(screen) = ui.screen {

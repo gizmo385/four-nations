@@ -367,6 +367,10 @@ pub struct Alerts {
     /// Whole research points banked with no target set, and the tick that began (#656); `None`
     /// while a target is set or nothing is banked. Open while it is `Some`.
     research_idle: Option<(u64, u32)>,
+    /// The tick the oldest pending teaching draft was offered (#743), while one waits for a
+    /// pick: the open alert "A teaching waits for your choice [T]". The log already has the
+    /// draft's own line, so this one is the panel's only.
+    teaching_waits: Option<u64>,
     /// The arrival tick of the caravan already warned about leaving (#438), so the warning is
     /// one line a visit.
     trade_warned: Option<u64>,
@@ -407,6 +411,8 @@ impl Alerts {
         } else {
             self.research_idle = None;
         }
+        // A teaching draft waiting for a pick (#743): open while any is pending.
+        self.teaching_waits = world.teaching_offers().first().map(|o| o.tick);
         // A caravan about to leave (#438): its own line, once a visit.
         if let Some(v) = world.caravan()
             && self.trade_warned != Some(v.arrived)
@@ -599,6 +605,15 @@ impl Alerts {
                 text: describe_stores_full(&self.stores_full),
             });
         }
+        if let Some(since) = self.teaching_waits {
+            open.push(Toast {
+                kind: Kind::Research,
+                category: Category::Alert,
+                urgency: Urgency::Idle,
+                since,
+                text: TEACHING_WAITS.to_owned(),
+            });
+        }
         if let Some((since, points)) = self.research_idle {
             open.push(Toast {
                 kind: Kind::Research,
@@ -778,7 +793,11 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
         // The teaching draft (#737): a scroll read, a teaching kept, or an empty scroll.
         Event::Teaching(ev) => {
             let text = describe_teaching_event(defs, ev);
-            Line::new(Kind::Tech, text.clone(), toast(&text))
+            let line = Line::new(Kind::Tech, text.clone(), toast(&text));
+            match ev.kind {
+                TeachingEventKind::Searched { at, .. } => line.at(at),
+                _ => line,
+            }
         }
         // A reveal bend's find (#736): only a promoted find (great ruins) is worth a line. A
         // glide over a lost ruin or a seismic sense over a seam already shows on the map.
@@ -857,13 +876,24 @@ fn caravan_line(session: &Session, ev: &CaravanEvent) -> Line {
     }
 }
 
-/// A teaching event's line (#737, docs/design/horizons-phase-5.md, "Mockups"): "A teaching
-/// scroll was read. Choose a teaching", "Kept Guru Teachings. Pai Sho is lost", or "The
-/// teaching scroll held nothing new: 100 knowledge".
+/// A teaching event's line (#737, #743, docs/design/horizons-phase-5.md, "Mockups"): "A
+/// teaching scroll was read. Choose a teaching [T]", "Kept Guru Teachings. Pai Sho is lost",
+/// "The teaching scroll held nothing new: 100 knowledge", or "Searched the great ruins: 2
+/// ancient scrolls and a teaching scroll".
 pub fn describe_teaching_event(defs: &fn_sim::Defs, ev: &TeachingEvent) -> String {
     match &ev.kind {
         TeachingEventKind::Offered { .. } => {
-            "A teaching scroll was read. Choose a teaching".to_owned()
+            "A teaching scroll was read. Choose a teaching [T]".to_owned()
+        }
+        TeachingEventKind::Searched { resource, .. } => {
+            let name = defs.resource(*resource).name.to_lowercase();
+            match defs.harvest(*resource) {
+                Some(h) => format!(
+                    "Searched the {name}: {}",
+                    crate::teaching::yield_phrase(defs, h, h.count)
+                ),
+                None => format!("Searched the {name}"),
+            }
         }
         TeachingEventKind::Kept { kept, lost } => {
             let names: Vec<&str> = lost.iter().map(|&t| defs.tech(t).name.as_str()).collect();
@@ -1043,6 +1073,9 @@ fn join_and(parts: &[String]) -> String {
 }
 
 /// "No research target is set. 84 points are waiting." (#656)
+/// The open alert while a teaching draft waits (#743).
+pub const TEACHING_WAITS: &str = "A teaching waits for your choice [T]";
+
 fn describe_research_idle(points: u32) -> String {
     let (noun, verb) = if points == 1 { ("point", "is") } else { ("points", "are") };
     format!("No research target is set. {points} {noun} {verb} waiting.")

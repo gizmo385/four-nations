@@ -1,7 +1,7 @@
 //! What is under the cursor: the lines of the Here section (the terminal UI, #418; CURSOR until
 //! then).
 
-use fn_sim::building::BuildingId;
+use fn_sim::building::{BuildingDef, BuildingId};
 use fn_sim::defs::Terrain;
 use fn_sim::world::{ChartStanding, PlotStage, Unit};
 use fn_sim::{Defs, Pos, World};
@@ -259,6 +259,50 @@ fn aura_line(world: &World, defs: &Defs, unit: &Unit) -> Option<String> {
         format!("Near the {}", def.display_name(world.nation))
     };
     Some(format!("{by}: {}", parts.join(", ")))
+}
+
+/// The readouts of the buildings the lost teachings unlock (#743, docs/design/
+/// horizons-phase-5.md): the Pai Sho Table's White Lotus terms, a source recipe's stock (the
+/// Crystal Grotto's glow crystals), the Sun Stone's reach and whether it is warm now, who soaks
+/// in a Bathhouse, and the spirit water a Healing Hut holds.
+pub fn teaching_lines(world: &World, defs: &Defs, def: &BuildingDef, at: Pos) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(p) = &def.pai_sho {
+        out.push(format!(
+            "White Lotus: {} more deals each winter, requests pay {}",
+            p.lotus_deals,
+            crate::text::boost_label(p.request_reward)
+        ));
+    }
+    if let Some(r) =
+        def.recipe.as_ref().filter(|r| r.inputs.is_empty() && def.alt_recipes.is_empty())
+    {
+        let made = plural(&defs.item(r.output.item).name);
+        let held = world.stored_total(r.output.item);
+        out.push(format!("Grows {made}: {held}/{} in stores", r.stock_limit));
+    }
+    if let Some(c) = &def.chi_regen {
+        let now = if world.chi_stone_at(at, defs) > 1.0 { ", warm now" } else { "" };
+        out.push(format!(
+            "Chi {} within {} tiles in {}{now}",
+            crate::text::boost_label(c.factor),
+            c.radius,
+            c.seasons.join(" and ")
+        ));
+    }
+    if def.bath.is_some() {
+        let soaking = world.occupants(at).count();
+        out.push(format!("Bath: {soaking}/{} soaking", def.capacity));
+    }
+    if let Some(item) = def.healing.as_ref().and_then(|h| h.vial_item) {
+        let per_year = world.vials_per_year(def);
+        if per_year > 0 {
+            let held = world.vials_held(item);
+            let s = if per_year == 1 { "" } else { "s" };
+            out.push(format!("Spirit water: {held} held, {per_year} vial{s} each spring"));
+        }
+    }
+    out
 }
 
 /// "Tool" as "Tools" and "Wares" as "Wares": an item named as what a building makes.
@@ -556,6 +600,9 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
             }
         }
         lines.extend(horizons_lines(world, defs, at).into_iter().map(Line::Detail));
+        if let Some(def) = world.building_at(tile).map(|b| defs.building(b)) {
+            lines.extend(teaching_lines(world, defs, def, at).into_iter().map(Line::Detail));
+        }
         // A study hall says how many of its seats are filled right now (#338): the Build
         // modal's own line (`build::building_detail`) only has the total, since nothing is
         // built yet when it shows it.
@@ -709,8 +756,15 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
                 } else {
                     ""
                 };
+            // A harvest that drops more than its item (a great ruin's teaching scroll, #743)
+            // says everything it yields: "Search: 2 ancient scrolls and a teaching scroll".
+            let yields = if h.also.is_empty() {
+                format!("{count} {item}{tunnel}")
+            } else {
+                crate::teaching::yield_phrase(defs, h, count)
+            };
             lines.push(Line::Detail(format!(
-                "{}: {count} {item}{tunnel} - {:.0}s{suffix}{scroll_reach}",
+                "{}: {yields} - {:.0}s{suffix}{scroll_reach}",
                 h.verb, h.work
             )));
             lines.push(Line::Hint(if tool == Tool::Harvest {

@@ -733,6 +733,11 @@ impl World {
             self.tallies.count_harvest(extra.item, extra.count);
             self.place_ground(pos, extra);
         }
+        if h.also.iter().any(|s| defs.item(s.item).reveals.is_some()) {
+            let tick = self.tick;
+            let kind = TeachingEventKind::Searched { at: pos, resource: h.resource };
+            self.log_event(TeachingEvent { tick, kind });
+        }
         match h.regrow {
             Some(seconds) => match self.harvest_strain(pos, h, defs) {
                 Some(strain_mult) => {

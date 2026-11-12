@@ -75,6 +75,21 @@ pub enum TeachingEventKind {
     /// A teaching scroll read with nothing left to offer gave `points` knowledge instead
     /// (owner #735).
     Empty { points: u32 },
+    /// A harvest that drops a teaching scroll (a great ruin's search, #736) finished at `at`:
+    /// `resource` is what stood there (#743's "Searched the great ruins" alert).
+    Searched { at: Pos, resource: ResourceId },
+}
+
+/// Why keeping a teaching might not pay yet: the reason line under its Keep row in the draft
+/// (docs/design/horizons-phase-5.md, "Mockups": `Needs: Known on the road`, `No master yet.`).
+/// The sim says it, so every frontend words the same fact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TeachingCaveat {
+    /// Prereqs not known yet, then `requires` conditions not met, as the tree's Locked cards
+    /// list them.
+    Needs { prereqs: Vec<TechId>, conditions: Vec<crate::research::Condition> },
+    /// It changes what a master pays (`master_chi`), and nobody here is a master yet.
+    NoMaster,
 }
 
 /// `teachings_rng` for a new world (`research.teachings`).
@@ -258,6 +273,34 @@ impl World {
         let tick = self.tick;
         self.log_event(TeachingEvent { tick, kind: TeachingEventKind::Kept { kept: tech, lost } });
         Ok(())
+    }
+
+    /// Why keeping `tech` might not pay yet ([`TeachingCaveat`]): unmet needs first, then a
+    /// master's modifier with no master. `None` when nothing stands in its way.
+    pub fn teaching_caveat(&self, tech: TechId, defs: &Defs) -> Option<TeachingCaveat> {
+        let def = defs.tech(tech);
+        let prereqs: Vec<TechId> =
+            def.prereqs.iter().copied().filter(|p| !self.research.is_known(*p)).collect();
+        let conditions = def.requires.unmet(&self.facts(), defs);
+        if !prereqs.is_empty() || !conditions.is_empty() {
+            return Some(TeachingCaveat::Needs { prereqs, conditions });
+        }
+        let masters = || self.units.iter().any(|u| self.rank_of(u, defs).rank == Rank::Master);
+        if def.unlocks.modifiers.master_chi.is_some() && !masters() {
+            return Some(TeachingCaveat::NoMaster);
+        }
+        None
+    }
+
+    /// Teachings no draft has offered yet that one still could ([`World::eligible_teachings`]),
+    /// once the first teaching scroll has been read: the TEACHINGS column's "? 2 more to find"
+    /// (owner #734: nothing before the first scroll, then a count, never names). `None` before
+    /// any draft.
+    pub fn teachings_to_find(&self, defs: &Defs) -> Option<usize> {
+        let drafted = !self.teachings.kept.is_empty()
+            || !self.teachings.lost.is_empty()
+            || !self.teachings.offers.is_empty();
+        drafted.then(|| self.eligible_teachings(defs).len())
     }
 
     /// `Facts::kept` and `Facts::lost`.
