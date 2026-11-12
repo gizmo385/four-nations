@@ -147,6 +147,14 @@ impl World {
         Some(PowerAt { source, boost: def.boost })
     }
 
+    /// Whether the power `power_for` names reaches `footprint` only along a rail run (#722):
+    /// for the cursor panel's "Powered x1.5 by rail from ..." (#730).
+    pub fn powered_by_rail(&self, footprint: Footprint, defs: &Defs) -> bool {
+        let Some(p) = self.power_for(footprint, defs) else { return false };
+        self.power_def(p.source, defs)
+            .is_some_and(|def| !self.source_reaches(p.source, &def, &footprint))
+    }
+
     /// Which source powers the single tile `pos` (`power_for` over `Footprint::single`): for the
     /// reach tint and the cursor panel on an empty tile (#429).
     pub fn power_at(&self, pos: Pos, defs: &Defs) -> Option<PowerAt> {

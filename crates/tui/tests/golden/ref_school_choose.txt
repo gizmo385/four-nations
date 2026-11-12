@@ -1,0 +1,40 @@
+┏──────────────────────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────────────────────┓
+│◂TIER 3                       TIER 4                       TIER 5                       TIER 6                        │
+│  · Masonry                    · Cartography                · Earth Rail                 · Omashu Chutes              │
+│    Locked · 120 pts             Locked · 250 pts             Locked · 250 pts             Locked · 250 pts           │
+│    Needs Carpentry              Needs Writing                Needs Earthen Walls          Needs Earth Rail           │
+│                                                                                                                      │
+│  · Writing                    · Earthen Walls              · Metalbending              ┌─ WHICH CITY? ─────────────  │
+│    Locked · 120 pts             Locked · 120 pts             Locked · 500 pts           · Agrarian Ring              │
+│    Needs Pottery                Needs Earth Shaping,         Needs Seismic Sense,         Locked · 1000 pts          │
+│                                 Masonry                      Masonry                      + 6 Tool                   │
+│                                                                                           Needs Metalbending         │
+│                                                                                                                      │
+│  · Tunneling            ┏─────────────────────────CHOOSE A SCHOOL──────────────────────────┓─────── or ────────────  │
+│    Locked · 120 pts     │ Which city? Metal City or Agrarian Ring.                         │tal City                 │
+│    Needs Earth Shaping  │                                                                  │cked · 1000 pts          │
+│                         │ Set Metal City as the target? Once it is learned, Agrarian Ring  │8 Metal                  │
+│                         │ is closed for the rest of this game.                             │eds Metalbending         │
+│                         │                                                                  │──────────────────────┘  │
+│                         │ It costs 1000 pts and 8 Metal. Haulers take them to a Scroll     │                         │
+│  · Tea Ceremony         │ Library as soon as you choose. Change your mind before it is     │                         │
+│    Locked · 120 pts     │ learned and they come back.                                      │                         │
+│    Needs Herbalism, Pott│                                                                  │                         │
+│                         │ In stores: 0 Metal                                               │                         │
+│                         │                                                                  │                         │
+│  · Trade Wares          │              Enter  choose Metal City     Esc  back              │                         │
+│    Locked · 250 pts     ┗──────────────────────────────────────────────────────────────────┛                         │
+│    Needs Carpentry,             Needs Writing                                                                        │
+│    Known on the road                                                                                                 │
+│                                                                                                                      │
+│                               · Archives                                                                             │
+│                                 Locked · 500 pts                                                                     │
+│                                 Needs Writing,                                                                       │
+│                                 3 scrolls read                                                                       │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Metal City                                                                               Locked · 1000 pts + 8 Metal │
+│ Lay rails of bent metal that carry goods and power through the mountain.                                             │
+│ Needs Metalbending                                                                                                   │
+│ School: Which city? Choosing one closes the other for the rest of the game.                                          │
+┗───────────────────────────────────────────────────────────────────────────────────────────────────── tiers 3-6 of 6 ─┛
+ CHOOSE A SCHOOL  Enter choose · Esc back                                                                 PAUSED ? keys

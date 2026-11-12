@@ -37,6 +37,7 @@ mod runs_dir;
 mod save_list;
 mod saves;
 mod scenario;
+mod school_readouts;
 mod schools;
 mod title;
 mod tool_list;

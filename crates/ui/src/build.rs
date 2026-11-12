@@ -540,6 +540,91 @@ fn beast_lines(beast: &fn_sim::beast::BeastDef) -> Vec<String> {
 }
 
 /// [`BuildingDetail`] for `id`, for the Build modal's detail pane.
+/// "2x" or "1.5x".
+fn times(x: f32) -> String {
+    crate::text::boost_label(x)
+}
+
+/// What an aura does, as a clause list: "heal 2x and restore chi 1.5x" (`fire`) or "Chi returns
+/// 2x and study runs 1.5x" (a standing aura).
+fn aura_parts(a: &fn_sim::building::AuraDef, fire: bool) -> String {
+    let mut parts = Vec::new();
+    if a.heal > 1.0 {
+        parts.push(if fire {
+            format!("heal {}", times(a.heal))
+        } else {
+            format!("healing runs {}", times(a.heal))
+        });
+    }
+    if a.chi_regen > 1.0 {
+        parts.push(if fire {
+            format!("restore chi {}", times(a.chi_regen))
+        } else {
+            format!("chi returns {}", times(a.chi_regen))
+        });
+    }
+    if a.study > 1.0 {
+        parts.push(if fire {
+            format!("speed study {}", times(a.study))
+        } else {
+            format!("study runs {}", times(a.study))
+        });
+    }
+    parts.join(" and ")
+}
+
+/// The build entry's lines for the schools' effects (docs/design/horizons-phase-4.md, #730): a
+/// ring's walls and gates, a power-carrying rail, and the upgrades a known school tech gives.
+fn school_effects(session: &Session, id: BuildingId) -> Vec<String> {
+    let (world, defs) = (&session.world, &session.defs);
+    let def = defs.building(id);
+    let known = |t: fn_sim::research::TechId| world.research().is_known(t);
+    let mut out = Vec::new();
+    let rings = world.has_feature(fn_sim::research::Feature::ShelteredRings, defs);
+    if rings && defs.seasons.enclosure.as_ref().is_some_and(|e| e.walls.contains(&id)) {
+        out.push(if def.passable {
+            "People pass, and it closes a ring".to_owned()
+        } else {
+            "A closed ring shelters what's inside".to_owned()
+        });
+    }
+    if def.track.is_some_and(|t| t.power_reach.is_some()) {
+        out.push("Carries power to buildings beside it".to_owned());
+    }
+    if def.also_on.contains(&fn_sim::Terrain::Tunnel) {
+        out.push("Can be laid in tunnels".to_owned());
+    }
+    if let Some(a) = &def.aura {
+        let mut line = format!("{} within {} tiles", aura_parts(a, false), a.radius);
+        line[..1].make_ascii_uppercase();
+        out.push(line);
+    }
+    if def.landmark {
+        out.push("One per game; it can't be moved".to_owned());
+    }
+    if let Some((tech, a)) = &def.heat_aura_upgrade
+        && known(*tech)
+    {
+        out.push(format!("Flames {} nearby", aura_parts(a, true)));
+    }
+    if def.fuel_free_upgrade.is_some_and(known) {
+        out.push("Needs no fuel".to_owned());
+    }
+    if let Some((tech, a)) = &def.automate_upgrade
+        && known(*tech)
+    {
+        let speed = if (a.rate - 0.5).abs() < 1e-3 {
+            "at half speed".to_owned()
+        } else if a.rate >= 1.0 {
+            "as fast as a crafter".to_owned()
+        } else {
+            format!("at {} speed", times(a.rate))
+        };
+        out.push(format!("Machines within {} tiles run with no crafter, {speed}", a.radius));
+    }
+    out
+}
+
 pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     let def = session.defs.building(id);
     let costs: Vec<CostLine> = def
@@ -684,6 +769,7 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if def.uses_power {
         effects.push("Uses power".to_owned());
     }
+    effects.extend(school_effects(session, id));
     if effects.is_empty() {
         effects.push("Nothing beyond shelter".to_owned());
     }

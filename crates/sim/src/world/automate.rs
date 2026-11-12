@@ -14,6 +14,10 @@ use crate::jobs::{ItemId, JobKind, Stack};
 use super::work::route_from;
 use super::*;
 
+/// A batch's inputs as `(item, delivered, needed)`, and the work done as a fraction
+/// (`World::craft_batch`).
+pub type CraftBatch = (Vec<(ItemId, u32, u32)>, f32);
+
 impl World {
     /// The rate the building anchored on `pos` runs at with no crafter, if it is automated now.
     pub fn automated(&self, pos: Pos, defs: &Defs) -> Option<f32> {
@@ -22,6 +26,31 @@ impl World {
             return None;
         }
         self.yard_rate(pos, defs)
+    }
+
+    /// Whether the building anchored on `pos` stands in an automating yard, on automation or
+    /// taken off it: what `Command::SetAutomated` accepts.
+    pub fn automatable(&self, pos: Pos, defs: &Defs) -> bool {
+        self.yard_rate(pos, defs).is_some()
+    }
+
+    /// The batch under way at the recipe building anchored on `pos`, for a client's readout:
+    /// each input as `(item, delivered, needed)`, and the work done as a fraction of the batch.
+    /// `None` off a recipe building; all zeros before a batch begins.
+    pub fn craft_batch(&self, pos: Pos, defs: &Defs) -> Option<CraftBatch> {
+        let recipe = self.recipe_at(pos, defs)?;
+        let state = self.anchored(pos)?.craft.as_ref();
+        let inputs = recipe
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(k, c)| {
+                let got = state.and_then(|s| s.delivered.get(k)).copied().unwrap_or(0);
+                (c.item, got.min(c.count), c.count)
+            })
+            .collect();
+        let done = state.map_or(0.0, |s| (s.progress / recipe.work.max(f32::EPSILON)).min(1.0));
+        Some((inputs, done))
     }
 
     /// The rate of the best automating yard the building anchored on `pos` stands in, whether

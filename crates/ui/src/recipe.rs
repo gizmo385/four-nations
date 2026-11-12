@@ -48,6 +48,24 @@ pub fn switch(session: &mut Session, at: Pos) -> Result<String, String> {
     Err(format!("Can't switch recipe: {why}"))
 }
 
+/// `O` in Select mode on a recipe building in an automating yard (`great_works`, #725, #730):
+/// puts it on automation or gives it back to a crafter (`Command::SetAutomated`). `None` when the
+/// building under `at` isn't in a yard, so the key falls through; else the outcome as a notice.
+pub fn toggle_automation(session: &mut Session, at: Pos) -> Option<Result<String, String>> {
+    let anchor = session.world.footprint_at(at)?.anchor;
+    if !session.world.automatable(anchor, &session.defs) {
+        return None;
+    }
+    let on = session.world.automated(anchor, &session.defs).is_none();
+    let b = session.world.building_at(anchor)?;
+    let name = session.defs.building(b).display_name(session.world.nation).to_owned();
+    Some(match session.apply(Command::SetAutomated { pos: anchor, on }) {
+        Ok(()) if on => Ok(format!("{name} automated")),
+        Ok(()) => Ok(format!("{name} back to a crafter")),
+        Err(e) => Err(format!("Can't automate: {e}")),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use fn_sim::geom::Footprint;

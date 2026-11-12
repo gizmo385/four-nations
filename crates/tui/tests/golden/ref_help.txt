@@ -28,7 +28,7 @@
 │                                                            O      Standing order (Harvest)                           │
 │                                                            O      Also sites, stockpiles (Cancel)                    │
 │                                                            O      Move a chute foot or partner (Select)              │
-│                                                                                                                      │
+│                                                            O      Automate a machine in a yard (Select)              │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

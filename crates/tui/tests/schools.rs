@@ -34,7 +34,7 @@ fn tech(app: &App, id: &str) -> TechId {
 
 /// Learns `ids` by way of a save: the sim has no command that grants a tech, and a save's research
 /// is its known list in `TechId` order.
-fn learn(app: &mut App, ids: &[&str]) {
+pub(crate) fn learn(app: &mut App, ids: &[&str]) {
     let defs = &app.session.defs;
     let text = app.session.world.save(defs).expect("saves");
     let known: Vec<usize> = ids.iter().map(|id| usize::from(tech(app, id).0)).collect();
