@@ -7,8 +7,9 @@
 //!   ([`hints`]), the side panel, the map and the tool banner.
 //! - **The map** is a widget of its own ([`mapview`]): the per-tile look `fn_tui::map::tile_cell`
 //!   computes, painted as glyphs in egui's bundled monospace font, with pan by drag, zoom by the
-//!   wheel and, zoomed far out, one coloured block per tile. A click moves the cursor, and a drag
-//!   with a designate tool active makes the rectangle (`fn_ui::pointer`).
+//!   wheel and, zoomed far out, a cached one-pixel-per-tile texture ([`overview`]). Tiles are
+//!   square. Clicks, drags and right clicks are the keys they stand for (`fn_ui::pointer`, #878),
+//!   and hovering a tile shows its tooltip.
 //! - **The side panel** ([`side`]) is `fn_ui::panel::SidePanel` as egui widgets; its clicks are
 //!   the keys they stand for. Its inspector ([`inspector`], #882) is native too.
 //! - **The title** ([`title`]) is native: the steps of `fn_tui::title` as egui rows and buttons,
@@ -36,6 +37,7 @@ pub mod hints;
 pub mod inspector;
 pub mod keys;
 pub mod mapview;
+pub mod overview;
 pub mod page;
 pub mod screens;
 pub mod side;

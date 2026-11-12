@@ -542,14 +542,7 @@ impl UiState {
     /// same way, so `Enter` still reaches a scholar sitting inside; the inspector lists
     /// them in the same order (`crate::build::occupant_rows`). Nothing happens with neither.
     pub fn select_here(&mut self, session: &Session) {
-        let world = &session.world;
-        let mut here: Vec<UnitId> = world.units_at(self.cursor).map(|u| u.id).collect();
-        if here.is_empty()
-            && world.building_at(self.cursor).is_some()
-            && let Some(anchor) = world.footprint_at(self.cursor).map(|f| f.anchor)
-        {
-            here = world.occupants(anchor).collect();
-        }
+        let here = self.selectable_here(session);
         let next = match here.iter().position(|&id| Some(id) == self.selected) {
             Some(i) => here[(i + 1) % here.len()],
             None => match here.first() {
@@ -558,6 +551,22 @@ impl UiState {
             },
         };
         self.select(Some(next));
+    }
+
+    /// The units `Enter` in Select mode could select at the cursor, in the order it cycles them:
+    /// whoever stands there, else (on a building's own tile with nobody visibly there, #226,
+    /// #229) its occupants. Empty when `Enter` would do nothing, which is how a click on the
+    /// map knows whether it points at a unit (`crate::pointer`).
+    pub fn selectable_here(&self, session: &Session) -> Vec<UnitId> {
+        let world = &session.world;
+        let mut here: Vec<UnitId> = world.units_at(self.cursor).map(|u| u.id).collect();
+        if here.is_empty()
+            && world.building_at(self.cursor).is_some()
+            && let Some(anchor) = world.footprint_at(self.cursor).map(|f| f.anchor)
+        {
+            here = world.occupants(anchor).collect();
+        }
+        here
     }
 
     /// `Enter` in the message log (#661): puts the cursor on `place` and centres the view there,
