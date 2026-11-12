@@ -40,10 +40,14 @@ impl MapView {
         }
     }
 
-    /// Lays out, handles input for and paints the map into `rect`.
+    /// Lays out, handles input for and paints the map into `rect`. With a screen, box or
+    /// question open the map still paints (it is what the box floats over) but takes no input
+    /// (`fn_ui::pointer::map_has_pointer`).
     pub fn show(&mut self, ui: &mut Ui, rect: Rect, app: &mut App, palette: &Palette) {
         let (w, h) = (app.session.world.map.width(), app.session.world.map.height());
-        let response = ui.interact(rect, ui.scope_id().with("map"), Sense::click_and_drag());
+        let live = pointer::map_has_pointer(app);
+        let sense = if live { Sense::click_and_drag() } else { Sense::hover() };
+        let response = ui.interact(rect, ui.scope_id().with("map"), sense);
 
         // A keyboard move off screen brings the camera along.
         if self.last_cursor != Some(app.ui.cursor) && !self.camera.shows(rect, app.ui.cursor, 3.0) {
@@ -51,7 +55,7 @@ impl MapView {
         }
 
         // The wheel zooms about the pointer.
-        if let Some(hover) = response.hover_pos() {
+        if live && let Some(hover) = response.hover_pos() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.zoom_delta().ln() * 200.0);
             if scroll != 0.0 {
                 self.camera.zoom_at(rect, hover, (scroll / 200.0).exp());
@@ -61,13 +65,17 @@ impl MapView {
         let rectangle_tool =
             !matches!(app.ui.tool, Tool::Select | Tool::Gate) && pointer::map_has_pointer(app);
         let primary_pans = !rectangle_tool;
-        if response.dragged_by(PointerButton::Secondary)
-            || response.dragged_by(PointerButton::Middle)
-            || (primary_pans && response.dragged_by(PointerButton::Primary))
+        if live
+            && (response.dragged_by(PointerButton::Secondary)
+                || response.dragged_by(PointerButton::Middle)
+                || (primary_pans && response.dragged_by(PointerButton::Primary)))
         {
             self.camera.pan(response.drag_delta());
         }
-        if rectangle_tool && let Some(p) = response.interact_pointer_pos() {
+        if live
+            && rectangle_tool
+            && let Some(p) = response.interact_pointer_pos()
+        {
             let tile = self.camera.screen_to_tile(rect, p);
             if response.drag_started_by(PointerButton::Primary) {
                 // Where the button went down, not where the drag threshold was crossed.
@@ -81,7 +89,8 @@ impl MapView {
                 self.pointer.up(app, tile);
             }
         }
-        if response.clicked_by(PointerButton::Primary)
+        if live
+            && response.clicked_by(PointerButton::Primary)
             && let Some(p) = response.interact_pointer_pos()
         {
             pointer::click(app, self.camera.screen_to_tile(rect, p));

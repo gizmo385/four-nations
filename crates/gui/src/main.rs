@@ -1,6 +1,6 @@
 //! `cargo run -p fn_gui [-- SEED NATION ...]`: the game in a window (#842's spike). Takes
 //! `fn_tui`'s own arguments (no arguments for the title screen) plus `--keys SCRIPT` to play
-//! before the window opens; `F12` hides the egui panel.
+//! before the window opens; `F12` shows the dev timing overlay.
 //!
 //! Built for wasm32 (#843's check of egui in the browser), the same app runs on a page's canvas
 //! instead (`web/play/index.html`, published at `/play/`, #866): the title screen, as the desktop

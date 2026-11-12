@@ -38,7 +38,7 @@ pub fn tint(ui: &UiState) -> Option<Tint> {
 /// The badge: the tool's name, the Build tool's chosen building, the Bend ability it channels
 /// or the Clear tool's mode, `· REPEATING` while the standing-order toggle (`O`, #277) is on,
 /// and `· TEARDOWN` while the Cancel tool's own teardown toggle (`O`, #335) is on.
-fn badge(session: &Session, ui: &UiState) -> String {
+pub fn badge(session: &Session, ui: &UiState) -> String {
     let mut s = ui.tool.name().to_uppercase();
     match ui.tool {
         Tool::Build => {
@@ -88,7 +88,7 @@ fn enter_hint(session: &Session, ui: &UiState) -> Option<String> {
 /// where there is one, then what `Esc` does. What the tool does is the panel's Tool section's
 /// (#781), so the banner doesn't say it again. The control hint only shows before a corner is
 /// set: mid-drag, `Enter` and `Esc` say enough on their own.
-fn segments(session: &Session, ui: &UiState) -> Vec<String> {
+pub fn segments(session: &Session, ui: &UiState) -> Vec<String> {
     let anchored = ui.anchor.is_some();
     let mut segs = Vec::new();
     if let Some(hint) = enter_hint(session, ui) {
