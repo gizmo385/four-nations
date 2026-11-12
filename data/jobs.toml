@@ -113,6 +113,20 @@ name = "Herbs"
 id = "scroll_copy"
 name = "Scroll Copy"
 
+# --- Research horizons phase 5 (#736, #737) ---
+# A great ruin's teaching scroll. Read at a study hall, it opens the teaching draft (#737): two
+# teachings are offered, the player keeps one and the other is lost. Readable like an ancient
+# scroll, so never stockpiled.
+[[item]]
+id = "teaching_scroll"
+name = "Teaching Scroll"
+reveals = 2
+
+# Earth's Crystal Grotto grows these (#738, `crystal_growing`): only caravans want them.
+[[item]]
+id = "glow_crystal"
+name = "Glow Crystal"
+
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.
@@ -335,9 +349,3 @@ count = 2
 work = 40.0
 also = [{ item = "teaching_scroll", count = 1 }]
 
-# Read at a study hall, it opens the teaching draft (#737): two teachings are offered, the player
-# keeps one and the other is lost. Readable like an ancient scroll, so never stockpiled.
-[[item]]
-id = "teaching_scroll"
-name = "Teaching Scroll"
-reveals = 2

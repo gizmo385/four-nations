@@ -57,6 +57,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         pickers: None,
         hothouse: None,
         tea_house: None,
+        pai_sho: None,
         chute: None,
         pair: None,
         glide: None,

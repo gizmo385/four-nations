@@ -82,8 +82,8 @@ pub fn view(session: &Session) -> TradersView {
         .map(|(slot, offer)| {
             let slot = slot as u8;
             let (request, name, give, get, times) = match offer.kind {
-                OfferKind::Deal(d) => {
-                    let deal = &caravan.deals[usize::from(d)];
+                OfferKind::Deal(_) | OfferKind::Lotus { .. } => {
+                    let deal = offer.kind.deal(caravan, defs).expect("a slot names a real deal");
                     let mut get: Vec<String> =
                         deal.get.iter().map(|&(i, n)| count_of(defs, i, n)).collect();
                     if deal.knowledge > 0 {

@@ -23,16 +23,23 @@
 //!   `extra_deals` more deals, drawn from `rng::stream(seed, "trade.tea")` among those not
 //!   already shown, and stays `extra_stay_minutes` longer, fixed at arrival. The first
 //!   `deals_per_visit` deals and the request are drawn as without a house.
+//! - **White Lotus** (#738, docs/design/horizons-phase-5.md, "`pai_sho`"): while a Pai Sho
+//!   Table stands when a caravan makes camp in winter, the visit shows `lotus_deals` more deals
+//!   (`OfferKind::Lotus`), drawn from `rng::stream(seed, "trade.lotus")` among every other
+//!   caravan's deals (not the visitor's, not the settlement's own nation's), after the Tea
+//!   House's. The deals drawn without a table are unchanged. While a table stands, a request's
+//!   reward is multiplied by its `request_reward`.
 //! - **No map footprint.** The camp is a reserved rectangle the world remembers, not a building:
 //!   nothing about it needs pathing, and its glyphs and screen are a follow-up.
 
 use serde::{Deserialize, Serialize};
 
+use crate::building::PaiShoDef;
 use crate::flood::Flood;
 use crate::jobs::{ItemId, JobKind, Stack};
 use crate::nation::Nation;
 use crate::path::STRAIGHT;
-use crate::trade::{CaravanDef, Goods, Reward};
+use crate::trade::{CaravanDef, DealDef, Goods, Reward};
 
 use super::work::route_from;
 use super::*;
@@ -53,6 +60,14 @@ fn new_tea_rng(seed: u64) -> SimRng {
     rng::stream(seed, "trade.tea")
 }
 
+fn default_lotus_rng() -> SimRng {
+    rng::stream(0, "trade.lotus")
+}
+
+fn new_lotus_rng(seed: u64) -> SimRng {
+    rng::stream(seed, "trade.lotus")
+}
+
 /// Where the caravans stand: whose turn is next and the visit in progress.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TradeState {
@@ -70,17 +85,33 @@ pub struct TradeState {
     /// House loads this seeded by 0.
     #[serde(default = "default_tea_rng")]
     tea_rng: SimRng,
+    /// Draws the White Lotus deals a Pai Sho Table adds in winter (`trade.lotus`, #738). A save
+    /// from before it loads this seeded by 0.
+    #[serde(default = "default_lotus_rng")]
+    lotus_rng: SimRng,
 }
 
 impl TradeState {
     pub(super) fn new(seed: u64) -> Self {
-        Self { turns: 0, visit: None, rng: new_rng(seed), tea_rng: new_tea_rng(seed) }
+        Self {
+            turns: 0,
+            visit: None,
+            rng: new_rng(seed),
+            tea_rng: new_tea_rng(seed),
+            lotus_rng: new_lotus_rng(seed),
+        }
     }
 }
 
 impl Default for TradeState {
     fn default() -> Self {
-        Self { turns: 0, visit: None, rng: default_rng(), tea_rng: default_tea_rng() }
+        Self {
+            turns: 0,
+            visit: None,
+            rng: default_rng(),
+            tea_rng: default_tea_rng(),
+            lotus_rng: default_lotus_rng(),
+        }
     }
 }
 
@@ -104,6 +135,26 @@ pub enum OfferKind {
     Deal(u8),
     /// The caravan's request at this index (`CaravanDef::requests`).
     Request(u8),
+    /// A White Lotus deal (#738): `nation`'s caravan's deal at index `deal`, brought along by a
+    /// Pai Sho Table in winter.
+    Lotus { nation: Nation, deal: u8 },
+}
+
+impl OfferKind {
+    /// The deal this slot is (`Deal` from the visiting `caravan`'s list, `Lotus` from its own
+    /// nation's), or `None` for a request.
+    pub fn deal<'d>(self, caravan: &'d CaravanDef, defs: &'d Defs) -> Option<&'d DealDef> {
+        match self {
+            Self::Deal(d) => caravan.deals.get(usize::from(d)),
+            Self::Lotus { nation, deal } => defs
+                .trade
+                .caravans
+                .iter()
+                .find(|c| c.nation == nation)
+                .and_then(|c| c.deals.get(usize::from(deal))),
+            Self::Request(_) => None,
+        }
+    }
 }
 
 /// One slot of a visit and how far it has got.
@@ -207,8 +258,8 @@ impl World {
         let caravan = self.caravan_def(defs)?;
         let offer = self.trade.visit.as_ref()?.offers.get(usize::from(slot))?;
         let give = match offer.kind {
-            OfferKind::Deal(d) => &caravan.deals.get(usize::from(d))?.give,
             OfferKind::Request(r) => &caravan.requests.get(usize::from(r))?.give,
+            kind => &kind.deal(caravan, defs)?.give,
         };
         let owed = offer.taken - offer.done;
         Some(give.iter().map(|g| (g, (g.count * owed).saturating_sub(offer.held_of(g)))).collect())
@@ -236,8 +287,8 @@ impl World {
         let visit = self.trade.visit.as_mut().ok_or(TradeError::NoCaravan)?;
         let offer = visit.offers.get_mut(usize::from(slot)).ok_or(TradeError::NoSuchOffer)?;
         let most = match offer.kind {
-            OfferKind::Deal(d) => caravan.deals[usize::from(d)].times,
             OfferKind::Request(_) => 1,
+            kind => kind.deal(caravan, defs).map_or(0, |d| d.times),
         };
         if offer.taken >= most {
             return Err(TradeError::AllTaken);
@@ -350,6 +401,8 @@ impl World {
         let request = self.trade.rng.random_range(0..caravan.requests.len()) as u8;
         let offer = |kind| Offer { kind, taken: 0, done: 0, held: Vec::new() };
         let mut offers: Vec<Offer> = deals.into_iter().map(|d| offer(OfferKind::Deal(d))).collect();
+        // White Lotus deals (#738), on their own stream, after everything drawn above.
+        offers.extend(self.lotus_deals(nation, defs).into_iter().map(offer));
         offers.push(offer(OfferKind::Request(request)));
         self.trade.visit =
             Some(Visit { nation, arrived: self.tick, leaves: self.tick + stay, camp, offers });
@@ -398,8 +451,8 @@ impl World {
             let (nation, camp) = (v.nation, v.camp);
             let offer = &mut v.offers[usize::from(slot)];
             let give = match offer.kind {
-                OfferKind::Deal(d) => &caravan.deals[usize::from(d)].give,
                 OfferKind::Request(r) => &caravan.requests[usize::from(r)].give,
+                kind => &kind.deal(caravan, defs).expect("a slot names a real deal").give,
             };
             if offer.done >= offer.taken || give.iter().any(|g| offer.held_of(g) < g.count) {
                 return;
@@ -418,8 +471,14 @@ impl World {
             let kind = offer.kind;
             let tick = self.tick;
             match kind {
-                OfferKind::Deal(d) => {
-                    let deal = &caravan.deals[usize::from(d)];
+                OfferKind::Deal(_) | OfferKind::Lotus { .. } => {
+                    let deal = kind.deal(caravan, defs).expect("a slot names a real deal");
+                    // A Lotus deal is logged as its own nation's, whose list names it.
+                    let (nation, d) = match kind {
+                        OfferKind::Lotus { nation, deal } => (nation, deal),
+                        OfferKind::Deal(d) => (nation, d),
+                        OfferKind::Request(_) => unreachable!("matched above"),
+                    };
                     for &(item, count) in &deal.get {
                         self.place_ground(camp, Stack { item, count });
                         // Bought goods count toward the lifetime tally like mined ones, so a
@@ -435,9 +494,14 @@ impl World {
                     });
                 }
                 OfferKind::Request(r) => {
+                    // A Pai Sho Table multiplies every request's reward (#738).
+                    let times = self.pai_sho(defs).map_or(1.0, |p| p.request_reward);
+                    let scaled = |n: u32| (n as f32 * times).round() as u32;
                     match caravan.requests[usize::from(r)].reward {
-                        Reward::Knowledge(k) => self.research.add_knowledge(u64::from(k) * 1000),
-                        Reward::Draw(milli) => self.add_draw(milli, defs),
+                        Reward::Knowledge(k) => {
+                            self.research.add_knowledge(u64::from(scaled(k)) * 1000)
+                        }
+                        Reward::Draw(milli) => self.add_draw(scaled(milli), defs),
                     }
                     self.log_event(CaravanEvent {
                         tick,
@@ -518,3 +582,46 @@ impl World {
 
 #[cfg(test)]
 mod tests;
+
+impl World {
+    /// The best standing Pai Sho Table's effects (#738): the most `lotus_deals` and the highest
+    /// `request_reward` of any finished table. `None` with none standing.
+    pub fn pai_sho(&self, defs: &Defs) -> Option<PaiShoDef> {
+        self.of_kind(super::buildings::Kind::PaiSho)
+            .filter_map(|b| defs.building(b.id).pai_sho)
+            .reduce(|a, b| PaiShoDef {
+                lotus_deals: a.lotus_deals.max(b.lotus_deals),
+                request_reward: a.request_reward.max(b.request_reward),
+            })
+    }
+
+    /// The White Lotus deals a caravan of `visitor` brings now (#738): none unless a Pai Sho
+    /// Table stands and it is winter; else `lotus_deals` of every other caravan's deals (not
+    /// `visitor`'s, not the settlement's own nation's), drawn without repeats from
+    /// `trade.lotus` and listed in pool order.
+    fn lotus_deals(&mut self, visitor: Nation, defs: &Defs) -> Vec<OfferKind> {
+        let Some(table) = self.pai_sho(defs) else { return Vec::new() };
+        if !self.season(defs).winter {
+            return Vec::new();
+        }
+        let home = self.nation;
+        let mut pool: Vec<(usize, OfferKind)> = defs
+            .trade
+            .caravans
+            .iter()
+            .filter(|c| c.nation != visitor && c.nation != home)
+            .flat_map(|c| {
+                (0..c.deals.len() as u8).map(|deal| OfferKind::Lotus { nation: c.nation, deal })
+            })
+            .enumerate()
+            .collect();
+        let count = (table.lotus_deals as usize).min(pool.len());
+        for k in 0..count {
+            let j = self.trade.lotus_rng.random_range(k..pool.len());
+            pool.swap(k, j);
+        }
+        pool.truncate(count);
+        pool.sort_by_key(|&(at, _)| at);
+        pool.into_iter().map(|(_, k)| k).collect()
+    }
+}

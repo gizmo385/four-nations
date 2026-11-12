@@ -82,7 +82,7 @@ fn deals(w: &World) -> Vec<u8> {
         .iter()
         .filter_map(|o| match o.kind {
             OfferKind::Deal(d) => Some(d),
-            OfferKind::Request(_) => None,
+            OfferKind::Request(_) | OfferKind::Lotus { .. } => None,
         })
         .collect()
 }
@@ -282,10 +282,10 @@ fn two_houses_do_not_stack() {
 
 #[test]
 fn a_caravan_that_already_shows_every_deal_still_stays_longer() {
-    // Water has 5 deals (#711). With a visit showing 5, its visit already shows them
+    // Water has 6 deals (#711, and #738's crystals). With a visit showing 6, its visit already shows them
     // all, so the house has none left to add. Its stay is longer all the same.
     let src = TRADE
-        .replacen("deals_per_visit = 3", "deals_per_visit = 5", 1)
+        .replacen("deals_per_visit = 3", "deals_per_visit = 6", 1)
         .replacen("interval_minutes = 15.0", "interval_minutes = 10.0", 1)
         .replacen("offset_minutes = 4.0", "offset_minutes = 0.2", 1)
         .replacen("opens = \"known_on_the_road\"", "", 1)
@@ -297,8 +297,8 @@ fn a_caravan_that_already_shows_every_deal_still_stays_longer() {
     to_first_camp(&mut w, &defs);
     let v = w.caravan().expect("camped");
     assert_eq!(v.nation, Nation::Water);
-    assert_eq!(w.caravan_def(&defs).unwrap().deals.len(), 5);
-    assert_eq!(deals(&w), [0, 1, 2, 3, 4], "every deal, and none twice");
+    assert_eq!(w.caravan_def(&defs).unwrap().deals.len(), 6);
+    assert_eq!(deals(&w), [0, 1, 2, 3, 4, 5], "every deal, and none twice");
     assert_eq!(v.leaves - v.arrived, minutes(13.0), "the bundled 9 minutes and 4");
 }
 

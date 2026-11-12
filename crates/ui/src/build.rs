@@ -270,7 +270,12 @@ pub(crate) fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> Stri
 /// nor the endeavor's gate, which the Endeavor screen places (#236).
 fn available_to_nation(session: &Session, def: &BuildingDef) -> bool {
     !def.endeavor
-        && def.unlocked_by.is_none_or(|t| session.defs.tech(t).open_to(session.world.nation))
+        && def.unlocked_by.is_none_or(|t| {
+            let tech = session.defs.tech(t);
+            // A teaching's building shows once the teaching is kept (#737).
+            tech.open_to(session.world.nation)
+                && (tech.teaching.is_none() || session.world.kept_teachings().any(|k| k == t))
+        })
 }
 
 /// Every building the current nation can build or may yet unlock, by its name for them, with

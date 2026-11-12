@@ -1212,3 +1212,49 @@ count = 1
 [[building.cost]]
 item = "stone"
 count = 1
+
+# --- #738 (research horizons phase 5: `pai_sho`, `crystal_growing`) ----------------------------
+
+# The Pai Sho Table (docs/design/horizons-phase-5.md, "`pai_sho`"): while one stands, White Lotus
+# traders join the caravan that makes camp in winter with more deals from every other nation's
+# lists, and every caravan request pays double.
+[[building]]
+id = "pai_sho_table"
+name = "Pai Sho Table"
+verb = "Build"
+work = 30.0
+passable = false
+[building.pai_sho]
+lotus_deals = 3           # extra deals on each winter visit, from every other nation's lists
+request_reward = 2.0      # every caravan request's reward is multiplied by this
+[[building.cost]]
+item = "wood"
+count = 8
+[[building.cost]]
+item = "stone"
+count = 4
+
+# The Crystal Grotto (`crystal_growing`, Earth): grows glow crystals from a bored tunnel's walls,
+# a source recipe like the Mine Shaft's, idle once 12 wait in stores.
+[[building]]
+id = "crystal_grotto"
+name = "Crystal Grotto"
+verb = "Build"
+work = 60.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+beside = ["tunnel"]       # tunnel only: a bored passage, not bare rock
+[[building.cost]]
+item = "stone"
+count = 8
+[[building.cost]]
+item = "tool"
+count = 2
+[building.recipe]
+output = "glow_crystal"
+output_count = 1
+work = 120.0
+modifier = "earthworks"
+input = []
+stock_limit = 12

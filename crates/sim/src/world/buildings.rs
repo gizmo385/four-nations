@@ -160,6 +160,8 @@ pub(super) enum Kind {
     Balloon,
     /// A Tea House (`tea.rs`).
     Tea,
+    /// A Pai Sho Table (`trade.rs`, #738).
+    PaiSho,
     /// An Archive (`archive.rs`).
     Archive,
     /// A building with an aura (`aura.rs`).
@@ -192,6 +194,7 @@ impl Kind {
             (def.houses_beast, Kind::BeastHome),
             (def.balloon.is_some(), Kind::Balloon),
             (def.tea_house.is_some(), Kind::Tea),
+            (def.pai_sho.is_some(), Kind::PaiSho),
             (def.archive.is_some(), Kind::Archive),
             (def.aura.is_some(), Kind::Aura),
             (def.shelter_upgrade.is_some(), Kind::Shelter),

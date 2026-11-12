@@ -125,6 +125,13 @@ give = [{ item = "scroll_copy", count = 2 }]
 get = [{ item = "metal", count = 3 }]
 times = 1
 
+# Glow crystals from Earth's Crystal Grotto (#738, docs/design/horizons-phase-5.md,
+# "`crystal_growing`"): the richest ware a caravan takes.
+[[caravan.deal]]
+give = [{ item = "glow_crystal", count = 2 }]
+get = [{ item = "metal", count = 5 }]
+times = 2
+
 [[caravan.request]]
 name = "Food for the families at Fire Fountain City"
 give = [{ item = "food", count = 40 }]
@@ -158,6 +165,12 @@ times = 2
 [[caravan.deal]]
 give = [{ item = "scroll_copy", count = 1 }]
 get = [{ item = "tool", count = 2 }]
+times = 2
+
+# Glow crystals (#738).
+[[caravan.deal]]
+give = [{ item = "glow_crystal", count = 2 }]
+get = [{ item = "tool", count = 4 }]
 times = 2
 
 [[caravan.request]]
@@ -210,3 +223,9 @@ reward = { draw = 0.5 }
 name = "Copies for the Eastern Air Temple"
 give = [{ item = "scroll_copy", count = 2 }]
 reward = { draw = 0.25 }
+
+# Glow crystals (#738): the monks light their halls with them, and pay a whole newcomer's draw.
+[[caravan.request]]
+name = "Crystals for the halls of the Northern Air Temple"
+give = [{ item = "glow_crystal", count = 3 }]
+reward = { draw = 1.0 }

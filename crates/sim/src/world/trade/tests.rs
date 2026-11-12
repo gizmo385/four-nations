@@ -201,7 +201,7 @@ fn deal_getting(w: &World, defs: &Defs, item: &str) -> Option<u8> {
         .iter()
         .position(|o| match o.kind {
             OfferKind::Deal(d) => caravan.deals[usize::from(d)].get.iter().any(|&(i, _)| i == item),
-            OfferKind::Request(_) => false,
+            OfferKind::Request(_) | OfferKind::Lotus { .. } => false,
         })
         .map(|n| n as u8)
 }
@@ -414,4 +414,189 @@ fn a_taken_ore_deal_moves_the_ore_sign() {
     });
     assert!(lot > 0);
     assert_eq!(w.tallies().harvested(ore), lot, "the lot of ore is in the tally");
+}
+
+// ---- The Pai Sho Table (#738) ----
+
+/// A finished Pai Sho Table at (2, 2).
+fn table(w: &mut World, defs: &Defs) {
+    let id = defs.building_id("pai_sho_table").unwrap();
+    w.raise(Footprint::new(at(2, 2), 1, 1), id, defs);
+}
+
+/// Moves the clock to just before the first caravan slot that falls in winter.
+fn to_winter_slot(w: &mut World, defs: &Defs) {
+    let (interval, offset) = (minutes(10.0), minutes(0.2));
+    let mut t = offset;
+    loop {
+        w.tick = t;
+        if w.season(defs).winter {
+            break;
+        }
+        t += interval;
+    }
+    w.tick = t - 1;
+}
+
+fn lotus(w: &World) -> Vec<(Nation, u8)> {
+    w.caravan()
+        .map(|v| {
+            v.offers
+                .iter()
+                .filter_map(|o| match o.kind {
+                    OfferKind::Lotus { nation, deal } => Some((nation, deal)),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn plain_deals(w: &World) -> Vec<OfferKind> {
+    w.caravan()
+        .unwrap()
+        .offers
+        .iter()
+        .map(|o| o.kind)
+        .filter(|k| !matches!(k, OfferKind::Lotus { .. }))
+        .collect()
+}
+
+#[test]
+fn the_pai_sho_teaching_and_table_load() {
+    let defs = Defs::bundled();
+    let tech = defs.tech(defs.tech_id("pai_sho").unwrap());
+    assert!(tech.teaching.is_some() && !tech.core);
+    assert_eq!(tech.requires.chapter.as_deref(), Some("known_on_the_road"));
+    let t = defs.building(defs.building_id("pai_sho_table").unwrap());
+    assert_eq!(t.pai_sho, Some(PaiShoDef { lotus_deals: 3, request_reward: 2.0 }));
+}
+
+/// In winter, a standing table brings three White Lotus deals from the other caravans' lists,
+/// never the visitor's or the settlement's own, and leaves the visit's own deals and request as
+/// they were without it.
+#[test]
+fn a_table_brings_lotus_deals_in_winter_and_keeps_the_rest() {
+    let defs = defs_with(false, None);
+    for seed in 1..=16 {
+        let mut plain = world(seed, 1, &defs);
+        to_winter_slot(&mut plain, &defs);
+        run(&mut plain, &defs, 2);
+        let mut with = world(seed, 1, &defs);
+        table(&mut with, &defs);
+        to_winter_slot(&mut with, &defs);
+        run(&mut with, &defs, 2);
+
+        let visitor = with.caravan().expect("camped").nation;
+        let extra = lotus(&with);
+        assert_eq!(extra.len(), 3, "seed {seed}");
+        assert!(extra.iter().all(|&(n, _)| n != visitor && n != Nation::Earth), "seed {seed}");
+        assert!(extra.windows(2).all(|p| p[0] != p[1]), "seed {seed}: no repeats");
+        assert!(lotus(&plain).is_empty());
+        assert_eq!(plain_deals(&plain), plain_deals(&with), "seed {seed}: the rest unchanged");
+        // Each slot names a real deal the visit can take.
+        let caravan = with.caravan_def(&defs).unwrap();
+        for o in &with.caravan().unwrap().offers {
+            assert!(
+                matches!(o.kind, OfferKind::Request(_)) || o.kind.deal(caravan, &defs).is_some()
+            );
+        }
+    }
+}
+
+#[test]
+fn a_table_brings_nothing_outside_winter() {
+    let defs = defs_with(false, None);
+    let mut w = world(1, 1, &defs);
+    table(&mut w, &defs);
+    run(&mut w, &defs, minutes(0.2) + 1);
+    assert!(!w.season(&defs).winter, "the first caravan comes in spring");
+    assert!(w.caravan().is_some());
+    assert!(lotus(&w).is_empty());
+}
+
+/// With a table, the monks' 60-knowledge request pays 120.
+#[test]
+fn a_table_doubles_a_requests_reward() {
+    let defs = defs_with(false, Some("order = [\"air\", \"earth\", \"fire\", \"water\"]"));
+    let (mut w, slot) = (1..64)
+        .find_map(|seed| {
+            let mut w = world(seed, 3, &defs);
+            table(&mut w, &defs);
+            run(&mut w, &defs, minutes(0.2) + 1);
+            let v = w.caravan().unwrap();
+            let slot = (v.offers.len() - 1) as u8;
+            let caravan = w.caravan_def(&defs).unwrap();
+            let OfferKind::Request(r) = v.offers[usize::from(slot)].kind else {
+                panic!("the request")
+            };
+            (caravan.requests[usize::from(r)].reward == Reward::Knowledge(60)).then_some((w, slot))
+        })
+        .expect("some seed offers the knowledge request");
+    w.apply(Command::TakeDeal { slot }, &defs).unwrap();
+    let mut gained = 0;
+    for _ in 0..minutes(7.0) {
+        let before = w.research().pool_millis();
+        w.tick(&defs);
+        if w.caravan_events().any(|e| matches!(e.kind, CaravanEventKind::RequestDone { .. })) {
+            gained = w.research().pool_millis() - before;
+            break;
+        }
+    }
+    assert!(gained >= 120_000, "double the 60 points: {gained}");
+    assert!(gained < 180_000);
+}
+
+/// A lotus deal works like any other: take it, hand over its goods, and its goods come.
+#[test]
+fn a_lotus_deal_can_be_taken_and_completes() {
+    let defs = defs_with(false, None);
+    let mut w = world(3, 3, &defs);
+    table(&mut w, &defs);
+    to_winter_slot(&mut w, &defs);
+    run(&mut w, &defs, 2);
+    let caravan = w.caravan_def(&defs).unwrap();
+    // The first lotus slot whose goods the stores hold (fish, wood, stone).
+    let stocked = ["fish", "wood", "stone"].map(|i| defs.item_id(i).unwrap());
+    let slot =
+        w.caravan().unwrap().offers.iter().position(|o| {
+            matches!(o.kind, OfferKind::Lotus { .. })
+                && o.kind.deal(caravan, &defs).unwrap().give.iter().all(|g| {
+                    !g.any_food && g.items.iter().any(|i| stocked.contains(i)) || g.any_food
+                })
+        });
+    let slot = slot.expect("a lotus deal the stores can pay");
+    w.apply(Command::TakeDeal { slot: slot as u8 }, &defs).unwrap();
+    run_until(&mut w, &defs, minutes(7.5), |w| {
+        w.caravan_events().any(|e| matches!(e.kind, CaravanEventKind::DealDone { .. }))
+    });
+}
+
+/// `crystal_growing` (#738): an Earth teaching behind tunnelling, with its site rule; the grotto
+/// is a source recipe beside a tunnel; and three caravans take glow crystals.
+#[test]
+fn the_crystal_grotto_and_its_trade_rows_load() {
+    let defs = Defs::bundled();
+    let tech = defs.tech(defs.tech_id("crystal_growing").unwrap());
+    assert_eq!(tech.nation, Some(Nation::Earth));
+    let site = tech.teaching.as_ref().and_then(|t| t.site.as_ref()).expect("a site rule");
+    assert_eq!((site.within, site.min_tiles), (30, 20));
+    let g = defs.building(defs.building_id("crystal_grotto").unwrap());
+    assert_eq!(g.beside.as_deref(), Some(&[Terrain::Tunnel][..]));
+    let recipe = g.recipe.as_ref().expect("a recipe");
+    assert!(recipe.inputs.is_empty());
+    assert_eq!(recipe.stock_limit, 12);
+    let crystal = defs.item_id("glow_crystal").unwrap();
+    let takes = |n: Nation| {
+        let c = defs.trade.caravans.iter().find(|c| c.nation == n).unwrap();
+        let deal = c.deals.iter().find(|d| d.give.iter().any(|g| g.accepts(crystal)));
+        let request = c.requests.iter().find(|r| r.give.iter().any(|g| g.accepts(crystal)));
+        (deal.map(|d| d.get.clone()), request.map(|r| r.reward))
+    };
+    let metal = defs.item_id("metal").unwrap();
+    let tool = defs.item_id("tool").unwrap();
+    assert_eq!(takes(Nation::Fire).0, Some(vec![(metal, 5)]));
+    assert_eq!(takes(Nation::Water).0, Some(vec![(tool, 4)]));
+    assert_eq!(takes(Nation::Air).1, Some(Reward::Draw(1000)));
+    assert_eq!(takes(Nation::Earth), (None, None));
 }

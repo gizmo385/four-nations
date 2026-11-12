@@ -37,6 +37,10 @@ fn teaching(id: &str, nation: Option<Nation>, site: Option<SiteRule>) -> TechDef
 /// The bundled defs plus three teachings: two shared, one Air's, and one Earth's.
 fn defs_with_teachings() -> Defs {
     let mut defs = Defs::bundled();
+    // The bundled teachings (#738 on) become plain techs, so only these four are drawn.
+    for t in &mut defs.techs {
+        t.teaching = None;
+    }
     defs.techs.push(teaching("t_shared_a", None, None));
     defs.techs.push(teaching("t_shared_b", None, None));
     defs.techs.push(teaching("t_air", Some(Nation::Air), None));
@@ -145,7 +149,10 @@ fn hidden_teachings_are_refused_and_offers_pile_up_in_read_order() {
 
 #[test]
 fn a_scroll_with_nothing_to_offer_reads_for_knowledge() {
-    let defs = Defs::bundled();
+    let mut defs = Defs::bundled();
+    for t in &mut defs.techs {
+        t.teaching = None;
+    }
     let mut w = world(&defs);
     assert!(w.eligible_teachings(&defs).is_empty());
     let before = w.research().pool_millis();
