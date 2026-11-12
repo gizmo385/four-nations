@@ -67,6 +67,8 @@ pub fn record(nation: Nation, seed: u64) -> RunRecord {
         population: 12,
         autopsies: Vec::new(),
         flags: Vec::new(),
+        stage_minutes: Vec::new(),
+        school_tallies: Vec::new(),
     }
 }
 

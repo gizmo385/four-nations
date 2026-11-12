@@ -82,7 +82,7 @@ pub(super) fn buildable(nation: Nation, defs: &Defs) -> impl Iterator<Item = Bui
 }
 
 /// The anchor of the nearest finished building or site of `id` to `from`, if there is one.
-fn nearest_of(world: &World, defs: &Defs, id: &str, from: Pos) -> Option<Pos> {
+pub(super) fn nearest_of(world: &World, defs: &Defs, id: &str, from: Pos) -> Option<Pos> {
     let building = defs.building_id(id)?;
     world
         .buildings()
@@ -101,7 +101,12 @@ fn nearest_stockpile(world: &World, from: Pos) -> Option<Pos> {
 /// anchor (module doc, "Placement"). `anchor` where the rules say nothing.
 pub(super) fn site_anchor(world: &World, defs: &Defs, id: &str, anchor: Pos) -> Pos {
     let near = |of: &str| nearest_of(world, defs, of, anchor);
+    // Great Works (#731): a new machine goes in a yard that automates it.
+    if let Some(yard) = super::schools::yard_anchor(world, defs, id) {
+        return yard;
+    }
     match id {
+        "high_temple" => super::schools::temple_anchor(world, defs, anchor),
         "oil_lamp" => near("bed"),
         "hothouse" => near("farm_plot"),
         "farm_plot" => near("hothouse"),
@@ -255,7 +260,10 @@ fn road_path(world: &World, defs: &Defs, anchor: Pos) -> Option<Vec<Pos>> {
 /// far from each other, neither near the anchor; and the Archive, which goes where the most study
 /// halls are in its reach (`trade_techs::raise_archive`, #713).
 pub(super) fn raises_itself(id: &str) -> bool {
-    matches!(id, "waystation" | "wind_gate" | "balloon_dock" | "archive")
+    matches!(
+        id,
+        "waystation" | "wind_gate" | "balloon_dock" | "archive" | "ring_gate" | "metal_rail"
+    )
 }
 
 /// How many of `id` the opening wants standing, for the buildings `raises_itself`: the
@@ -294,8 +302,14 @@ pub(super) struct FarDeposit {
 /// order counts when its tile now holds no resource and lies beyond `FORAGE_RADIUS`, where the
 /// opening's orders on trees stop. `None` with no stockpile or no such deposit.
 pub(super) fn far_deposit(world: &World, defs: &Defs, anchor: Pos) -> Option<FarDeposit> {
+    far_deposits(world, defs, anchor).into_iter().next()
+}
+
+/// Every deposit `far_deposit` weighs, farthest from stores first (Southern Ways' second
+/// Waystation goes at the second, #731).
+pub(super) fn far_deposits(world: &World, defs: &Defs, anchor: Pos) -> Vec<FarDeposit> {
     let items = deposit_items(defs);
-    let start = nearest_stockpile(world, anchor)?;
+    let Some(start) = nearest_stockpile(world, anchor) else { return Vec::new() };
     let flood = world.flood_from_anchor(start, defs);
     let zones: Vec<Pos> = world.stockpile_zones().collect();
     let r = DEPOSIT_RADIUS;
@@ -313,7 +327,7 @@ pub(super) fn far_deposit(world: &World, defs: &Defs, anchor: Pos) -> Option<Far
         .filter(|&p| world.map.get(p).is_some_and(|t| yields_any(t, defs, &items)));
     let deposits: std::collections::BTreeSet<Pos> =
         standing.chain(quarried.filter(|p| p.chebyshev(anchor) <= r)).collect();
-    deposits
+    let mut far = deposits
         .into_iter()
         .filter_map(|deposit| {
             let stand = (-1..=1)
@@ -324,7 +338,9 @@ pub(super) fn far_deposit(world: &World, defs: &Defs, anchor: Pos) -> Option<Far
             let from_stores = zones.iter().map(|z| z.chebyshev(deposit)).min()?;
             Some(FarDeposit { deposit, stand, from_stores })
         })
-        .max_by_key(|f| (f.from_stores, std::cmp::Reverse(f.deposit)))
+        .collect::<Vec<_>>();
+    far.sort_by_key(|f| (std::cmp::Reverse(f.from_stores), f.deposit));
+    far
 }
 
 /// Designates one Waystation beside the far deposit, once, when the deposit is as far from

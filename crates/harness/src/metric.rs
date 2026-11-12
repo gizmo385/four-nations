@@ -48,6 +48,12 @@ pub enum Metric {
     CloseCallsPer10ph,
     DepletedPerPh,
     Suffering,
+    /// The minute the endeavor's Nth stage (from 1, file order) finished (#731).
+    StageMinute(u32),
+    /// The minute the first school tech was learned (#731).
+    SchoolMinute,
+    /// One of `fn_sim::balance::SCHOOL_TALLIES` at the run's end (#731).
+    Tally(String),
 }
 
 impl Metric {
@@ -87,6 +93,20 @@ impl Metric {
             ("care", Some("close_calls_per_10ph")) => Metric::CloseCallsPer10ph,
             ("care", Some("depleted_per_ph")) => Metric::DepletedPerPh,
             ("care", Some("suffering")) => Metric::Suffering,
+            ("stage_minute", Some(n)) => {
+                let n = number(n)?;
+                if n == 0 || n as usize > defs.endeavor.stages.len() {
+                    return Err(format!("metric {name:?}: no stage {n}"));
+                }
+                Metric::StageMinute(n)
+            }
+            ("school_minute", None) => Metric::SchoolMinute,
+            ("tally", Some(t)) => {
+                if !fn_sim::balance::SCHOOL_TALLIES.contains(&t) {
+                    return Err(format!("metric {name:?}: no tally {t:?}"));
+                }
+                Metric::Tally(t.to_owned())
+            }
             _ => return Err(format!("unknown metric {name:?}")),
         };
         Ok(metric)
@@ -112,6 +132,9 @@ impl Metric {
             Metric::CloseCallsPer10ph => "care.close_calls_per_10ph".to_owned(),
             Metric::DepletedPerPh => "care.depleted_per_ph".to_owned(),
             Metric::Suffering => "care.suffering".to_owned(),
+            Metric::StageMinute(n) => format!("stage_minute.{n}"),
+            Metric::SchoolMinute => "school_minute".to_owned(),
+            Metric::Tally(t) => format!("tally.{t}"),
         }
     }
 
@@ -190,6 +213,24 @@ impl Metric {
             } else {
                 0.0
             }),
+            // An older record has no stages: no reading. A stage not finished reads as never.
+            Metric::StageMinute(n) => {
+                let (_, minute) = rec.stage_minutes.get(*n as usize - 1)?;
+                Some(minute.map_or(f64::INFINITY, f64::from))
+            }
+            Metric::SchoolMinute => Some(
+                rec.techs
+                    .iter()
+                    .filter(|(id, _)| {
+                        defs.tech_id(id).is_some_and(|t| defs.tech(t).school.is_some())
+                    })
+                    .map(|&(_, m)| f64::from(m))
+                    .fold(f64::INFINITY, f64::min),
+            ),
+            Metric::Tally(t) => {
+                let (_, n) = rec.school_tallies.iter().find(|(id, _)| id == t)?;
+                Some(f64::from(*n))
+            }
         }
     }
 
@@ -199,9 +240,11 @@ impl Metric {
     pub fn deadline(&self, bar: &Bar, rec: &RunRecord, defs: &Defs) -> f32 {
         let end = rec.minutes;
         match self {
-            Metric::SignMinute(_) | Metric::ReadyMinute | Metric::FirstDeath => {
-                bar.at_most.map_or(end, |m| m as f32).min(end)
-            }
+            Metric::SignMinute(_)
+            | Metric::ReadyMinute
+            | Metric::FirstDeath
+            | Metric::StageMinute(_)
+            | Metric::SchoolMinute => bar.at_most.map_or(end, |m| m as f32).min(end),
             Metric::DeathsBy(m)
             | Metric::PopAt(m)
             | Metric::WoodAt(m)

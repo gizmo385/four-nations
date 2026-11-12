@@ -94,8 +94,9 @@ impl Entry {
 /// Every distinct metric the targets and pairs of `config` read, as (name, metric), by name.
 pub fn metric_list(config: &Config) -> Vec<(String, Metric)> {
     let mut all: BTreeMap<String, Metric> = BTreeMap::new();
-    for m in config.targets.iter().map(|t| &t.metric).chain(config.pairs.iter().map(|p| &p.metric))
-    {
+    let targets = config.targets.iter().map(|t| &t.metric);
+    let pairs = config.pairs.iter().map(|p| &p.metric);
+    for m in targets.chain(pairs).chain(config.forks.iter().map(|f| &f.metric)) {
         all.entry(m.name()).or_insert_with(|| m.clone());
     }
     all.into_iter().collect()

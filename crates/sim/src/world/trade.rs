@@ -261,8 +261,20 @@ impl World {
         for stack in held {
             self.place_ground(camp, stack);
         }
-        self.jobs.retain(|j| j.kind != JobKind::Trade { pos: camp, slot });
+        self.drop_trade_jobs(|kind| kind == JobKind::Trade { pos: camp, slot });
         Ok(())
+    }
+
+    /// Removes the `Trade` jobs `drop` picks; a unit holding one lets go of it (anything in hand
+    /// goes back to stores, `run_idle`), so no unit is left holding a job that is gone.
+    fn drop_trade_jobs(&mut self, drop: impl Fn(JobKind) -> bool) {
+        let gone: Vec<JobId> = self.jobs.iter().filter(|j| drop(j.kind)).map(|j| j.id).collect();
+        for i in 0..self.units.len() {
+            if matches!(self.units[i].job_task, Some(Task::Trade(id)) if gone.contains(&id)) {
+                self.finish_job(i);
+            }
+        }
+        self.jobs.retain(|j| !gone.contains(&j.id));
     }
 
     /// Arrivals and departures on their ticks, and once a second a `Trade` job for every slot
@@ -354,7 +366,7 @@ impl World {
         for stack in v.offers.into_iter().flat_map(|o| o.held) {
             self.place_ground(v.camp, stack);
         }
-        self.jobs.retain(|j| !matches!(j.kind, JobKind::Trade { .. }));
+        self.drop_trade_jobs(|kind| matches!(kind, JobKind::Trade { .. }));
         let nation = v.nation;
         self.log_event(CaravanEvent { tick: self.tick, kind: CaravanEventKind::Left { nation } });
     }

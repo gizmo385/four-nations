@@ -159,3 +159,18 @@ fn a_waystation_keeps_the_cold_off_within_six_tiles_once_known() {
     assert!(!w.is_cold(at(8, 2), &defs) && w.camp_shelters(at(8, 2), &defs));
     assert!(w.is_cold(pos, &defs), "7 tiles out is past it");
 }
+
+/// #731: a hungry settler with no stores forages fish straight from the shore, which has no
+/// resource on it (eating read the tile's resource and panicked).
+#[test]
+fn a_hungry_settler_can_eat_from_the_shore() {
+    let defs = Defs::bundled();
+    let mut w = World::with_map(1, coast(20, 8, 4, 128), Nation::Water, &[at(5, 4)], &defs);
+    grant(&mut w, &defs, "southern_ways");
+    w.units[0].needs = Needs { hunger: 10.0, ..Needs::full(&defs.needs) };
+    let start = w.units[0].needs.hunger;
+    for _ in 0..TICKS_PER_SECOND * 120 {
+        w.tick(&defs);
+    }
+    assert!(w.units[0].needs.hunger > start, "ate: {}", w.units[0].needs.hunger);
+}

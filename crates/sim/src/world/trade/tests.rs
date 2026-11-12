@@ -286,6 +286,23 @@ fn a_cancelled_deal_leaves_what_was_handed_over_at_the_camp() {
     );
 }
 
+/// #731: cancelling a deal while a settler holds its haul job lets the settler go too, so no unit
+/// is left holding a job that is gone (the sim's invariant check panicked on it).
+#[test]
+fn cancelling_a_deal_mid_haul_frees_the_settler() {
+    let (mut w, defs) = fire_visit(1, 1);
+    let slot =
+        deal_getting(&w, &defs, "brick").or_else(|| deal_getting(&w, &defs, "metal")).unwrap();
+    w.apply(Command::TakeDeal { slot }, &defs).unwrap();
+    run_until(&mut w, &defs, minutes(7.0), |w| {
+        w.units.iter().any(|u| matches!(u.job_task, Some(Task::Trade(_))))
+    });
+    w.apply(Command::CancelDeal { slot }, &defs).unwrap();
+    assert!(w.units.iter().all(|u| !matches!(u.job_task, Some(Task::Trade(_)))));
+    w.check_invariants(&defs).expect("no unit holds a job that is gone");
+    run(&mut w, &defs, 60);
+}
+
 #[test]
 fn goods_for_an_unfinished_deal_are_left_when_the_caravan_goes() {
     let (mut w, defs) = fire_visit(1, 1);

@@ -23,7 +23,8 @@ fn quick_is_twelve_steady_normal_seeds_for_every_nation() {
 }
 
 /// The full tier is the doc's table: 32 seeds of `steady`, `careless`, `branch_first` and `idle`
-/// on Normal, `steady` and `idle` on Hard and Sandbox at 12 seeds, all four nations.
+/// on Normal, `steady` and `idle` on Hard and Sandbox at 12 seeds, all four nations; and the two
+/// school styles at 32 seeds on Normal and Hard for the `[[fork]]` checks (horizons-phase-4.md).
 #[test]
 fn full_is_the_docs_table() {
     let defs = Defs::bundled();
@@ -42,7 +43,12 @@ fn full_is_the_docs_table() {
     {
         assert_eq!(count(style, preset), 4 * 12, "{style} on {preset}");
     }
-    assert_eq!(jobs.len(), 4 * 128 + 4 * 48);
+    for style in ["school_first", "school_second"] {
+        for preset in ["normal", "hard"] {
+            assert_eq!(count(style, preset), 4 * 32, "{style} on {preset}");
+        }
+    }
+    assert_eq!(jobs.len(), 4 * 128 + 4 * 48 + 4 * 128);
 }
 
 /// Quick's runs are runs the full tier makes too, which is what lets it pair with the baseline.

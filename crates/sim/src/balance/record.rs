@@ -142,6 +142,96 @@ pub struct RunRecord {
     pub autopsies: Vec<Autopsy>,
     /// Every health flag raised, in `Flag::ALL`'s order, with the minute each first was.
     pub flags: Vec<Raised>,
+    /// Every endeavor stage in `data/endeavor.toml`'s order with the minute it was finished
+    /// (`stage_minute.N`, docs/design/horizons-phase-4.md "Measuring it"). Absent from an older
+    /// record.
+    #[serde(default)]
+    pub stage_minutes: Vec<(String, Option<f32>)>,
+    /// What each school did (`SCHOOL_TALLIES`'s order): absent from an older record.
+    #[serde(default)]
+    pub school_tallies: Vec<(String, u32)>,
+}
+
+/// The per-school tallies a run reports (docs/design/horizons-phase-4.md, "Measuring it"), one per
+/// school option: tiles inside a closed ring at the end, buildings powered along rail at the end,
+/// settler-minutes in a sun-warmed fire's aura, batches a yard finished alone, ice delivered for
+/// stone, shore catches, scholar-minutes seated under a study aura, and items packed-up buildings
+/// gave back.
+pub const SCHOOL_TALLIES: [&str; 8] = [
+    "sheltered_tiles",
+    "rail_powered",
+    "aura_heal",
+    "automated_batches",
+    "ice_paid",
+    "shore_fish",
+    "temple_study",
+    "packed_refund",
+];
+
+/// The sampled school tallies of one probe minute: settlers inside a heat aura (`aura_heal`) and
+/// scholars seated under a study aura (`temple_study`).
+fn sample_school(world: &World, defs: &Defs) -> (u32, u32) {
+    use crate::geom::Footprint;
+    let auras = world.auras(defs);
+    let fires: Vec<_> = auras
+        .iter()
+        .filter(|(f, _)| {
+            world
+                .building_at(f.anchor)
+                .is_some_and(|b| defs.building(b).heat_aura_upgrade.is_some())
+        })
+        .collect();
+    let warmed = if fires.is_empty() {
+        0
+    } else {
+        world
+            .units
+            .iter()
+            .filter(|u| !u.is_beast() && u.inside().is_none())
+            .filter(|u| {
+                fires.iter().any(|(f, a)| f.gap(Footprint::single(u.pos)) <= a.radius as i32)
+            })
+            .count() as u32
+    };
+    let studying = if auras.iter().any(|(_, a)| a.study > 1.0) {
+        world
+            .buildings()
+            .filter(|b| defs.building(b.id).seats > 0)
+            .filter(|b| world.aura_over(b.footprint(), defs).study_millis > 1000)
+            .map(|b| world.occupants(b.anchor).count() as u32)
+            .sum()
+    } else {
+        0
+    };
+    (warmed, studying)
+}
+
+/// `RunRecord::school_tallies` for a finished run: the world's own counters, the two sampled
+/// tallies, and the two read off the world at the end.
+fn school_tallies(world: &World, defs: &Defs, warmed: u32, studying: u32) -> Vec<(String, u32)> {
+    let sheltered = if world.has_feature(crate::research::Feature::ShelteredRings, defs) {
+        world.map.iter().filter(|&(p, _)| world.is_sheltered(p, defs)).count() as u32
+    } else {
+        0
+    };
+    let rail = world
+        .buildings()
+        .filter(|b| defs.building(b.id).uses_power)
+        .filter(|b| world.powered_by_rail(b.footprint(), defs))
+        .count() as u32;
+    SCHOOL_TALLIES
+        .iter()
+        .map(|&name| {
+            let n = match name {
+                "sheltered_tiles" => sheltered,
+                "rail_powered" => rail,
+                "aura_heal" => warmed,
+                "temple_study" => studying,
+                other => world.tallies().school(other),
+            };
+            (name.to_owned(), n)
+        })
+        .collect()
 }
 
 impl RunRecord {
@@ -249,9 +339,13 @@ fn run_world_observed(
         &ore_items,
         wood,
     )];
+    let (mut warmed, mut studying) = (0_u32, 0_u32);
     for tick in 0..total_ticks {
         let offset = u64::from(spec.step_offset);
         if Opening::due(tick) {
+            let (w, s) = sample_school(&world, defs);
+            warmed += w;
+            studying += s;
             let sample = probe.sample(&world, defs);
             watch.observe(&sample);
             observe(Minute { world: &world, sample: &sample, watch: &watch });
@@ -354,6 +448,21 @@ fn run_world_observed(
         population: world.population() as u32,
         autopsies,
         flags: watch.raised(),
+        stage_minutes: defs
+            .endeavor
+            .stages
+            .iter()
+            .map(|s| {
+                let minute = world.endeavor_events().find_map(|e| match &e.kind {
+                    EndeavorEventKind::StageDone(id) if *id == s.id => {
+                        Some(ticks_to_minutes(e.tick))
+                    }
+                    _ => None,
+                });
+                (s.id.clone(), minute)
+            })
+            .collect(),
+        school_tallies: school_tallies(&world, defs, warmed, studying),
     };
     (record, world)
 }

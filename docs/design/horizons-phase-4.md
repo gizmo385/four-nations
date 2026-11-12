@@ -838,6 +838,99 @@ levers per pair, all data: Earth, `[enclosure] winter_growth` and the Metal Rail
 tile. Fire, the campfire `aura` and `automate.rate`. Water, the shore fishing `work` and the
 Waystation `shelter`. Air, the temple's `study` and `packed_work`.
 
+### Measured
+
+The phase-4 run (#731): seeds 1 to 32, all four nations, through `balance verdict` on the full
+tier, 1,216 runs. Besides the old panel it has `school_first` and `school_second` on Normal and
+Hard, 300 minutes each. The control is `main` at 108f4f9 (after #730), on the old styles only,
+with the four crash fixes below applied, because `main` alone crashes on the panel.
+
+**What the opening does with each school** (`crates/sim/src/autoplay/schools.rs`). It follows the
+table above, except:
+
+- **Agrarian Ring**: plots sit among stockpiles, water and buildings on most maps, so a rectangle
+  round all of them rarely has every tile free for a wall. Each plot in turn seeds a group (the
+  plots within 0, 6, 12, 24 tiles, or all of them), and the ring that shelters most plots wins. If
+  none fits, it rings the open field nearest the anchor (6x5 outside, 18 walls) and sows 4 plots
+  inside. The ring is begun once 10 walls' bill is in hand.
+- **Metal City**: the line runs from beside the Hot Spring Mill to the nearest powered building
+  outside the mill's own reach (a Scroll Library or Workshop first). It takes the shortest run of
+  free tiles, at most 30, rather than a fixed elbow.
+- **High Temple**: the opening looks for the nearest spot against the rock within 40 tiles of
+  the study hall, because the usual search round the hall rarely reaches rock.
+- **Nomad Way**: not played. Farm plots never strain, so the doc's move never triggers (#892).
+- **The pick waits for its bill**: while an item on the pick's bill is missing from stores
+  altogether, the pick goes to the back of the research plan, and the bill's items are wanted
+  (bends and gathering go to them). Queued straight after the capstone, a bill that never fills
+  held every other tech up behind it.
+- **The gate**: the opening now places the gate once it is Ready (`begin_gate`). Without that,
+  `stage_minute.3` could never be read.
+
+**Sim crashes the run turned up**, all fixed here with a test where one reproduces:
+
+- Cancelling a deal, or the caravan leaving, removed `Trade` jobs a settler still held. This is on
+  `main` today and crashes the old panel (3 runs of 704).
+- A newcomer was appended after the Avatar, out of id order.
+- A hungry settler foraging fish straight from the shore (Southern Ways) read the tile's
+  resource, which a shore tile doesn't have. This is a real game crash on `main`.
+- The Avatar ranked every unclaimed job, including kinds he never takes.
+- `research_idle` counted the school option its sibling had closed as "available", which flagged
+  and excluded every run that had learned a school.
+
+**Results**, Normal unless said. "Learned" counts runs of 32 that learned the pick by minute 300.
+The tally column is over the runs that learned it:
+
+| Nation | Pick | Learned (by 200) | Median minute | Tally above 0 | Median tally |
+|---|---|---|---|---|---|
+| Air | high_temple | 32 (32) | 134 | 12 of 32 | 0 scholar-minutes |
+| Air | nomad_way | 3 (1) | 209 | 0 of 3 | 0 |
+| Water | northern_city | 26 (26) | 161 | 22 of 26 | 16 ice paid |
+| Water | southern_ways | 1 (0) | 237 | 1 of 1 | 248 fish |
+| Earth | agrarian_ring | 31 (31) | 161 | 29 of 31 | 12 tiles |
+| Earth | metal_city | 27 (26) | 167 | 24 of 27 | 1 building |
+| Fire | sun_warriors | 2 (1) | 188 | 2 of 2 | 1,324 settler-minutes |
+| Fire | great_works | 21 (18) | 146 | 14 of 21 | 3 batches |
+
+On Hard the item-billed picks come about 30 to 40 minutes later: `agrarian_ring` at 201 (15 of 32
+by 200), `metal_city` at 208 (8 by 200), `northern_city` at 195 (17 by 200), `high_temple` at 160,
+and `great_works` at 173. `sun_warriors` and `southern_ways` are never learned on Hard.
+
+Against the doc's expectations:
+
+- **Both options viable: not measurable yet.** The Arch finished in 2 of 512 school runs, and the
+  Foundation in about a quarter to a half. Every pair is two runs that never got there, so
+  `schools_both_viable` reads "no data" for Air, Water and Earth. For Fire it reads 1 win and 21
+  ties, which the check calls a pass but which says nothing. The Hard fork is "no data" for
+  both nations. Two 600-minute runs per nation still never passed the Foundation. A pair where
+  neither side got there now counts as no data, not a pass. Which reading to use instead is #891.
+- **The school arrives in time: yes for the item bills, no for the scroll bills.**
+  `school_by_200_first` passes for Air, Water and Earth (21 of 21, 23 of 27, 29 of 30 counted).
+  It fails for Fire, whose first pick is the scroll-billed Sun Warriors (1 of 26).
+  `school_by_200_second` fails everywhere: Air and Water are scroll-billed, Earth reaches 26 of 32
+  (81%, just under 85%), and Fire's `great_works` 18 of 27. The opening reads its first three
+  scrolls by minute 75 to 105, before the fork opens, and rarely finds three more. So for Fire,
+  Water and Air one side of the fork is out of reach on most maps (#890).
+- **Each school does something: Earth's ring, Water's ice, Earth's rail and Fire's yard mostly
+  do.** Sheltered tiles in 29 of 31 runs, ice paid in 22 of 26, rail power in 24 of 27, automated
+  batches in 14 of 21. The temple's study aura shows in only 12 of 32 runs. The rock is usually
+  more than 8 tiles from the study hall, and Air is short of wood for the temple's 30 (seed 1 holds
+  2 wood at minute 290). Nomad Way's tally is 0, as above.
+- **Items compete: the control is unchanged until the gate.** 620 of the 704 old-panel runs are
+  identical to the control. The other 84 first differ at minute 107 to 180, which is when the
+  opening now places the gate and the Avatar comes. Every old target has the same pass/fail
+  result per nation as on `main`. The counts differ only where the `research_idle` fix stops
+  excluding runs (Air's `no_deaths_by_180` counts 22 runs, not 11).
+- **Decision timeline**: `longest_gap` medians grow with a school style where the pick waits on
+  its bill: Water 19 to 27 minutes and Fire 19 to 29 with `school_first`, Earth 19 to 25. Air is
+  unchanged at 18.
+- **No regressions from phase 4.** 13 old targets fail, and all 13 fail on the control too
+  (`food_winter2`, the careless and idle death bars, `decision_gap`, `pop16_window`,
+  `ready_window` and others). That is the state of `main`, not this phase's doing, and it needs
+  its own look. The committed `baseline.json` predates phase 4's data and isn't reblessed here.
+
+Owner questions this run raised: #890 (the three scroll bills almost never get paid), #891 (what
+the fork check should read) and #892 (how to play Nomad Way).
+
 ## Risks
 
 - **Nomad Way is hard to script.** The opening's move is crude, and a person who plans moves

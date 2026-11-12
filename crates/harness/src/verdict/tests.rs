@@ -419,3 +419,76 @@ fn a_target_limited_to_some_nations_leaves_the_rest_out() {
     let nations: Vec<Nation> = target_of(&v, "stone").nations.iter().map(|n| n.nation).collect();
     assert_eq!(nations, vec![Nation::Earth, Nation::Fire]);
 }
+
+// horizons-phase-4.md, "Measuring it": the `[[fork]]` check (#731).
+const FORK: &str = "[[fork]]\nid = \"both\"\ndoc = \"horizons-phase-4.md#measuring-it\"\n\
+    metric = \"stage_minute.3\"\na = { style = \"steady\", preset = \"normal\" }\n\
+    b = { style = \"careless\", preset = \"normal\" }\ntie = 5.0\nmax_share = 0.75\n";
+
+fn arch_at(nation: Nation, seed: u64, minute: Option<f32>) -> fn_sim::balance::RunRecord {
+    let mut r = record(nation, seed);
+    r.stage_minutes = ["foundation", "pillars", "arch", "rite"]
+        .iter()
+        .map(|s| (s.to_string(), if *s == "arch" { minute } else { None }))
+        .collect();
+    r
+}
+
+/// Earth's `a` side finishes the arch at `a_minute(seed)`, everyone else and `b` at 200.
+fn fork_panel(a_minute: impl Fn(u64) -> Option<f32>) -> Vec<Run> {
+    let mut runs = panel("steady", "normal", 8, |n, s| {
+        arch_at(n, s, if n == Nation::Earth { a_minute(s) } else { Some(200.0) })
+    });
+    runs.extend(panel("careless", "normal", 8, |n, s| arch_at(n, s, Some(200.0))));
+    runs
+}
+
+fn fork_earth(v: &Verdict) -> &ForkNation {
+    v.forks[0].nations.iter().find(|n| n.nation == Nation::Earth).expect("earth judged")
+}
+
+#[test]
+fn a_fork_passes_while_neither_side_wins_too_often() {
+    let defs = Defs::bundled();
+    let cfg = config(FORK, &defs);
+    // Earth's `a` wins 4 seeds, loses 2 and ties 2 (within 5 minutes).
+    let minute = |s: u64| {
+        Some(match s {
+            1..=4 => 150.0,
+            5 | 6 => 250.0,
+            _ => 203.0,
+        })
+    };
+    let v = judge(&cfg, &fork_panel(minute), &defs);
+    let e = fork_earth(&v);
+    assert_eq!((e.paired, e.a_wins, e.b_wins, e.ties), (8, 4, 2, 2));
+    assert_eq!(e.status, Status::Pass);
+    assert!(!v.failed());
+}
+
+#[test]
+fn a_fork_fails_when_one_side_wins_more_than_its_share() {
+    let defs = Defs::bundled();
+    let cfg = config(FORK, &defs);
+    // 7 of 8 is past 75%.
+    let v = judge(&cfg, &fork_panel(|s| Some(if s <= 7 { 150.0 } else { 200.0 })), &defs);
+    assert_eq!(fork_earth(&v).a_wins, 7);
+    assert_eq!(fork_earth(&v).status, Status::Fail);
+    assert_eq!(v.forks[0].status, Status::Fail);
+    assert!(v.failed());
+}
+
+#[test]
+fn a_fork_neither_side_reaches_is_no_data() {
+    let defs = Defs::bundled();
+    let cfg = config(FORK, &defs);
+    let mut runs = panel("steady", "normal", 8, |n, s| arch_at(n, s, None));
+    runs.extend(panel("careless", "normal", 8, |n, s| arch_at(n, s, None)));
+    let v = judge(&cfg, &runs, &defs);
+    let e = fork_earth(&v);
+    assert_eq!((e.paired, e.ties), (8, 8), "two runs that never got there tie");
+    assert_eq!(e.status, Status::NoData);
+    // One side getting there is a win, though: seed 8's `a` never does, so `b` wins it.
+    let v = judge(&cfg, &fork_panel(|s| (s <= 7).then_some(150.0)), &defs);
+    assert_eq!((fork_earth(&v).a_wins, fork_earth(&v).b_wins), (7, 1));
+}

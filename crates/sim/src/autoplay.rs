@@ -108,6 +108,7 @@ use crate::world::{Command, TICKS_PER_SECOND, World};
 
 mod horizons;
 mod pacing;
+mod schools;
 mod trade_techs;
 
 /// Every building `Economy` raises for `nation` (`horizons::buildable`), in data order: what the
@@ -471,6 +472,27 @@ impl Economy {
         plan
     }
 
+    /// Under a school style, the plan without the other option (learning it would close the
+    /// pick), and with the pick moved to the back while some item on its bill is missing from
+    /// stores altogether (scrolls, most often): queued early, a bill that may never fill would
+    /// hold every other tech up behind it, which no player would sit through. A bill partly in
+    /// hand is queued and fills as the items come. The pick goes back on the front once each
+    /// item is on hand.
+    fn hold_school(&self, world: &World, defs: &Defs, mut plan: Vec<TechId>) -> Vec<TechId> {
+        let Some(pick) = self.school.and_then(|p| p.tech(world.nation, defs)) else { return plan };
+        plan.retain(|&t| t == pick || defs.tech(t).school != defs.tech(pick).school);
+        let missing = defs
+            .tech(pick)
+            .cost_items
+            .iter()
+            .any(|s| !have_enough(world, &[CostItem { item: s.item, count: 1 }]));
+        if missing && plan.first() == Some(&pick) {
+            plan.remove(0);
+            plan.push(pick);
+        }
+        plan
+    }
+
     /// Issues whatever the opening still wants done, reading `world` fresh. Call this once per
     /// `Opening::due` tick (the same fixed decision points; `Economy` doesn't need its own).
     pub fn step(&self, world: &mut World, defs: &Defs) {
@@ -483,6 +505,7 @@ impl Economy {
         self.quarry_and_mine(world, defs, anchor, &deposits);
         recover_scrolls(world, defs, anchor);
         let plan = self.research_plan(world.nation, defs, |t| world.research().is_known(t));
+        let plan = self.hold_school(world, defs, plan);
         queue_next_known_tech(world, defs, plan.into_iter());
         if !self.beds_only {
             pacing::forage_missing_kinds(world, defs, anchor);
@@ -502,6 +525,14 @@ impl Economy {
         trade_techs::gather_far_wood(world, defs, anchor);
         trade_techs::raise_archive(world, defs, anchor);
         trade_techs::set_workshop_recipes(world, defs, self.wood_wanted(world, defs));
+        begin_gate(world, defs, anchor);
+        // Phase 4's schools (#731), each once its tech is known.
+        schools::ring_farms(world, defs);
+        schools::metal_line(world, defs);
+        if !self.beds_only {
+            schools::sun_fire(world, defs, anchor, pacing::campfire_target(world, defs));
+        }
+        schools::southern_camp(world, defs, anchor);
         if self.farms {
             self.sow_plots(world, defs, "farm_plot");
         }
@@ -530,6 +561,23 @@ impl Economy {
             for c in &def.cost {
                 if !wanted.contains(&c.item) && !have_enough(world, std::slice::from_ref(c)) {
                     wanted.push(c.item);
+                }
+            }
+        }
+        // Northern City keeps ice in stores to pay for stone (#731).
+        for item in schools::wanted(world, defs) {
+            if !wanted.contains(&item) {
+                wanted.push(item);
+            }
+        }
+        // The school pick's item bill, until it is learned (`hold_school`).
+        if let Some(pick) = self.school.and_then(|p| p.tech(world.nation, defs))
+            && !world.research().is_known(pick)
+        {
+            for s in &defs.tech(pick).cost_items {
+                let c = CostItem { item: s.item, count: s.count };
+                if !wanted.contains(&s.item) && !have_enough(world, std::slice::from_ref(&c)) {
+                    wanted.push(s.item);
                 }
             }
         }
@@ -938,6 +986,33 @@ fn have_enough(world: &World, cost: &[CostItem]) -> bool {
             world.ground_items().filter(|(_, s)| s.item == c.item).map(|(_, s)| s.count).sum();
         world.stored_total(c.item) + ground >= c.count
     })
+}
+
+/// How far from the anchor the opening looks for the gate's site.
+const GATE_SEARCH: i32 = 24;
+
+/// Places the gate's site once the endeavor is Ready (docs/design/horizons-phase-4.md, "Measuring
+/// it": the fork reads the minute its third stage finishes, #731): the nearest spot to the
+/// anchor where every footprint tile is free and its door can be walked to from the stockpile.
+fn begin_gate(world: &mut World, defs: &Defs, anchor: Pos) {
+    if world.check_endeavor_site(anchor, defs) == Err(crate::world::EndeavorError::NotReady) {
+        return;
+    }
+    let Some(gate) = defs.endeavor.building else { return };
+    let (w, h) = defs.building(gate).footprint;
+    let flood = world.flood_from_anchor(anchor, defs);
+    let r = GATE_SEARCH;
+    let mut spots: Vec<Pos> = (anchor.y - r..=anchor.y + r)
+        .flat_map(|y| (anchor.x - r..=anchor.x + r).map(move |x| Pos::new(x, y)))
+        .collect();
+    spots.sort_by_key(|&p| (p.chebyshev(anchor), p));
+    let found = spots.into_iter().find(|&p| {
+        world.check_endeavor_site(p, defs).is_ok()
+            && flood.cost(Footprint::new(p, w, h).entrance()).is_some()
+    });
+    if let Some(at) = found {
+        let _ = world.apply(Command::BeginEndeavor { anchor: at }, defs);
+    }
 }
 
 /// Finished buildings plus unfinished sites of `building`, counted together: a bed being built

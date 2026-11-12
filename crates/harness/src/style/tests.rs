@@ -2,7 +2,7 @@ use super::*;
 
 fn economy(styles: &Styles, id: &str) -> (bool, HealingPolicy, BedPolicy, ResearchOrder) {
     match styles.get(id).unwrap_or_else(|| panic!("no style {id}")).play {
-        Play::Economy { farms, healing, beds, research } => (farms, healing, beds, research),
+        Play::Economy { farms, healing, beds, research, .. } => (farms, healing, beds, research),
         Play::Idle => panic!("{id} is idle"),
     }
 }
@@ -11,7 +11,10 @@ fn economy(styles: &Styles, id: &str) -> (bool, HealingPolicy, BedPolicy, Resear
 fn the_bundled_styles_load_and_resolve() {
     let styles = Styles::bundled();
     let ids: Vec<&str> = styles.iter().map(|s| s.id.as_str()).collect();
-    assert_eq!(ids, ["steady", "careless", "branch_first", "idle"]);
+    assert_eq!(
+        ids,
+        ["steady", "careless", "branch_first", "school_first", "school_second", "idle"]
+    );
 
     assert_eq!(
         economy(&styles, "steady"),

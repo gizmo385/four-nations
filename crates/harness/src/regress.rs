@@ -41,6 +41,10 @@ pub fn groups(config: &Config) -> Vec<Group> {
         add(p.metric.name(), &p.lower.style, &p.lower.preset);
         add(p.metric.name(), &p.higher.style, &p.higher.preset);
     }
+    for f in &config.forks {
+        add(f.metric.name(), &f.a.style, &f.a.preset);
+        add(f.metric.name(), &f.b.style, &f.b.preset);
+    }
     out
 }
 

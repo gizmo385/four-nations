@@ -1000,6 +1000,10 @@ impl World {
         }
         site.delivered[idx] += stack.count;
         if !direct {
+            if defs.item(stack.item).id == "ice" {
+                self.tallies.count_school("ice_paid", stack.count);
+            }
+            let site = self.sites.get_mut(&pos).expect("just read");
             site.stand_in_delivered[idx] += stack.count;
             match site.stand_in_items.iter_mut().find(|s| s.item == stack.item) {
                 Some(s) => s.count += stack.count,

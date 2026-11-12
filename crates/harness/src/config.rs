@@ -122,6 +122,21 @@ struct RawPair {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawFork {
+    id: String,
+    doc: String,
+    metric: String,
+    a: RawSide,
+    b: RawSide,
+    tie: Option<f64>,
+    max_share: Option<f64>,
+    minutes: Option<f32>,
+    first_seeds: Option<usize>,
+    nations: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawConfig {
     #[serde(default)]
     panel: RawPanel,
@@ -135,6 +150,8 @@ struct RawConfig {
     target: Vec<RawTarget>,
     #[serde(default)]
     pair: Vec<RawPair>,
+    #[serde(default)]
+    fork: Vec<RawFork>,
     #[serde(default)]
     noise: BTreeMap<String, f64>,
 }
@@ -229,6 +246,24 @@ pub struct Pair {
     pub first_seeds: Option<usize>,
 }
 
+/// Two runs that must NOT separate too far (`[[fork]]`, docs/design/horizons-phase-4.md
+/// "Measuring it", #731): per nation, neither side may win (read lower on the metric, by more
+/// than `tie`) on more than `max_share` of the paired runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fork {
+    pub id: String,
+    pub doc: String,
+    pub metric: Metric,
+    pub a: Side,
+    pub b: Side,
+    pub tie: f64,
+    pub max_share: f64,
+    pub minutes: f32,
+    pub first_seeds: Option<usize>,
+    /// Only these nations (every nation if empty).
+    pub nations: Vec<String>,
+}
+
 /// The panel's defaults (`[panel]`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Panel {
@@ -248,6 +283,7 @@ pub struct Config {
     pub styles: Styles,
     pub targets: Vec<Target>,
     pub pairs: Vec<Pair>,
+    pub forks: Vec<Fork>,
     /// Each metric's noise floor, by metric name (`[noise]`, written by `balance jitter`, #538).
     /// A metric with no entry has none: any median delta past 0 counts.
     pub noise: BTreeMap<String, f64>,
@@ -429,6 +465,48 @@ impl Config {
             });
         }
 
+        let mut forks = Vec::new();
+        for f in &raw.fork {
+            let what = format!("fork {:?}", f.id);
+            if !ids.insert(f.id.clone()) {
+                return err(format!("{what}: id used twice"));
+            }
+            if !f.doc.contains(".md#") {
+                return err(format!("{what}: `doc` must be `file.md#anchor`, got {:?}", f.doc));
+            }
+            check_side(&what, &f.a.style, &f.a.preset)?;
+            check_side(&what, &f.b.style, &f.b.preset)?;
+            if f.a.style == f.b.style && f.a.preset == f.b.preset {
+                return err(format!("{what}: both sides are the same run"));
+            }
+            if f.first_seeds == Some(0) {
+                return err(format!("{what}: first_seeds must be at least 1"));
+            }
+            let tie = f.tie.unwrap_or(0.0);
+            if tie.is_nan() || tie < 0.0 {
+                return err(format!("{what}: tie must be 0 or more, got {tie}"));
+            }
+            let nations = f.nations.clone().unwrap_or_default();
+            for n in &nations {
+                if !fn_sim::Nation::ALL.iter().any(|x| x.as_str() == n) {
+                    return err(format!("{what}: unknown nation {n:?}"));
+                }
+            }
+            forks.push(Fork {
+                id: f.id.clone(),
+                doc: f.doc.clone(),
+                metric: Metric::parse(&f.metric, defs)
+                    .map_err(|e| ConfigError(format!("{what}: {e}")))?,
+                a: Side { style: f.a.style.clone(), preset: f.a.preset.clone() },
+                b: Side { style: f.b.style.clone(), preset: f.b.preset.clone() },
+                tie,
+                max_share: share_ok(&what, f.max_share.unwrap_or(0.75))?,
+                minutes: f.minutes.unwrap_or(panel.minutes),
+                first_seeds: f.first_seeds,
+                nations,
+            });
+        }
+
         for (name, &floor) in &raw.noise {
             let what = format!("[noise] {name:?}");
             Metric::parse(name, defs).map_err(|e| ConfigError(format!("{what}: {e}")))?;
@@ -437,7 +515,7 @@ impl Config {
             }
         }
 
-        Ok(Config { panel, detectors, styles, targets, pairs, noise: raw.noise })
+        Ok(Config { panel, detectors, styles, targets, pairs, forks, noise: raw.noise })
     }
 
     /// The noise floor of the metric called `name` (see [`Config::noise`]).
