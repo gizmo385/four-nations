@@ -1166,6 +1166,10 @@ dependencies = [
  "fn_ui",
  "ratatui",
  "soft_ratatui",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
 ]
 
 [[package]]

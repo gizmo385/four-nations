@@ -89,7 +89,7 @@ impl MapView {
         self.camera.clamp(w, h);
         self.last_cursor = Some(app.ui.cursor);
 
-        let started = std::time::Instant::now();
+        let started = web_time::Instant::now();
         paint(ui, rect, &self.camera, app, palette);
         self.last_paint_ms = started.elapsed().as_secs_f32() * 1000.0;
     }

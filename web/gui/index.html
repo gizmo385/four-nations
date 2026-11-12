@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Four Nations: egui (spike)</title>
+<!-- #843's check of fn_gui (#842's egui window) in the browser. Build:
+     cargo build -p fn_gui --profile web --target wasm32-unknown-unknown
+     wasm-bindgen --target web --no-typescript --out-dir target/replayer/gui \
+       target/wasm32-unknown-unknown/web/fn_gui.wasm
+     then copy this file next to it and serve target/replayer/ (cargo xtask web --serve).
+     The query picks the game: ?seed=7&nation=2&size=0. -->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #121212; }
+  #the_canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="the_canvas"></canvas>
+<script type="module">
+  import init from './fn_gui.js';
+  const t0 = performance.now();
+  init().then(() => { window.fnGuiStarted = performance.now() - t0; });
+</script>
+</body>
+</html>
