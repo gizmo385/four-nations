@@ -305,6 +305,9 @@ pub enum Feature {
     /// A closed ring of `[enclosure] walls` shelters what's inside from winter
     /// (`agrarian_ring`, #721, `World::is_sheltered`).
     ShelteredRings,
+    /// Each nation's celestial day: a chi refill and faster regen, with warnings and Almanac
+    /// lines (`star_charts`, #760, `World::celestial_day`).
+    CelestialDays,
 }
 
 /// One `[[tech.unlocks.upgrades]]` entry: a building and exactly one property to raise: `seats`

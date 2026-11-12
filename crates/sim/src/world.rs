@@ -36,6 +36,7 @@ mod bill;
 mod build;
 mod buildings;
 mod care;
+mod celestial;
 mod chart;
 mod chute;
 mod command;
@@ -96,6 +97,7 @@ pub use buildings::Building;
 use buildings::Buildings;
 use buildings::Kind;
 pub use care::{CareNeed, CareTally, Severe};
+pub use celestial::Timing;
 pub use chart::{ChartEvent, ChartEventKind, ChartStanding};
 pub use chute::LinkError;
 pub use command::{Command, CommandError, Recorded};
@@ -1099,6 +1101,7 @@ impl World {
         self.tick_scribing(defs);
         self.tick_needs(defs);
         self.tick_season(defs);
+        self.tick_celestial(defs);
         self.tick_growth(defs);
         self.tick_strain(defs);
         self.tick_draw(defs);
@@ -1199,6 +1202,7 @@ impl World {
         let winter_severity = knobs.winter_severity;
         let in_winter = knobs.seasons && self.season(defs).winter;
         let stones = self.chi_stones(defs);
+        let celestial = self.celestial_day(defs);
         let mut dead = Vec::new();
         for mut u in std::mem::take(&mut self.units) {
             if u.is_beast() {
@@ -1261,7 +1265,8 @@ impl World {
             } else {
                 self.modifiers.chi_regen
             } * aura.chi_regen
-                * Self::chi_stone_factor(&stones, u.pos);
+                * Self::chi_stone_factor(&stones, u.pos)
+                * self.celestial_regen(&u, celestial);
             let chi_max = self.chi_max_for(&u, defs);
             u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen, rest, chi_max);
             self.care.observe(&u, exposed, defs);

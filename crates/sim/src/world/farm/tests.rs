@@ -451,7 +451,10 @@ fn the_almanac_counts_down_to_the_first_frost() {
     assert_eq!(w.almanac(&defs), None, "unknown before calendar");
     grant_calendar(&mut w, &defs);
     // No preset, no seasons: nothing to count.
-    assert_eq!(w.almanac(&defs), Some(Almanac { frost_in: None, caravan_in: None }));
+    assert_eq!(
+        w.almanac(&defs),
+        Some(Almanac { frost_in: None, caravan_in: None, celestial: vec![] })
+    );
     w.difficulty = Some("normal".into());
     let winter = 3 * season_ticks(&defs);
     w.tick = winter - 100;
