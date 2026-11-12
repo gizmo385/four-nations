@@ -46,6 +46,8 @@ pub enum RecipeError {
     NoSuchRecipe,
     /// The recipe's tech isn't known yet: the tech's name.
     Locked(String),
+    /// `Command::SetAutomated` outside every automating yard: the source's name (#725).
+    NotInYard(String),
 }
 
 impl std::fmt::Display for RecipeError {
@@ -55,6 +57,7 @@ impl std::fmt::Display for RecipeError {
             Self::Site => f.write_str("still being built"),
             Self::NoSuchRecipe => f.write_str("no such recipe"),
             Self::Locked(tech) => write!(f, "needs {tech}"),
+            Self::NotInYard(source) => write!(f, "not in a {source}'s yard"),
         }
     }
 }
@@ -160,7 +163,11 @@ impl World {
     /// The recipe's next shortfall for the batch under way at `pos`: index into
     /// `RecipeDef::inputs` (and the state's `delivered`), the item, and how much more is needed.
     /// `None` once every input for this batch is in.
-    fn next_craft_shortfall(&self, pos: Pos, recipe: &RecipeDef) -> Option<(ItemId, u32)> {
+    pub(super) fn next_craft_shortfall(
+        &self,
+        pos: Pos,
+        recipe: &RecipeDef,
+    ) -> Option<(ItemId, u32)> {
         let delivered = self.craft(pos).map(|s| s.delivered.as_slice()).unwrap_or(&[]);
         recipe.inputs.iter().enumerate().find_map(|(idx, c)| {
             let have = delivered.get(idx).copied().unwrap_or(0);
@@ -184,7 +191,7 @@ impl World {
     /// Adds a delivered stack to the building's batch under way, up to what the recipe still
     /// needs of it. Whatever it can't take (the item isn't one of the recipe's inputs, or the
     /// recipe was switched while the crafter was carrying) drops on the ground by the building.
-    fn deliver_to_craft(&mut self, pos: Pos, stack: Stack, recipe: &RecipeDef) {
+    pub(super) fn deliver_to_craft(&mut self, pos: Pos, stack: Stack, recipe: &RecipeDef) {
         let Some(idx) = recipe.inputs.iter().position(|c| c.item == stack.item) else {
             return self.place_ground(pos, stack);
         };
@@ -226,6 +233,17 @@ impl World {
             self.jobs.remove(idx);
             return self.finish_job(i);
         };
+        if self.automated(pos, defs).is_some() {
+            // Automated under the crafter (#725): what it carries goes in, and the bench is
+            // the yard's now.
+            if let Some(stack) = self.units[i].carrying.take() {
+                self.deliver_to_craft(pos, stack, recipe);
+            }
+            if self.units[i].inside.is_some() {
+                self.leave_building(i);
+            }
+            return self.abandon_job(i, id, defs);
+        }
 
         if let Some(stack) = self.units[i].carrying {
             // Carrying a trip's worth of an input to the building.

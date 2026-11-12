@@ -25,6 +25,7 @@ use crate::rng::{self, SimRng};
 
 mod archive;
 mod aura;
+mod automate;
 mod avatar;
 mod balloon;
 mod beast;
@@ -71,6 +72,8 @@ mod stand;
 mod strain;
 mod stride;
 mod study;
+#[cfg(test)]
+mod sun_tests;
 mod tally;
 mod tea;
 mod trade;
@@ -1034,6 +1037,7 @@ impl World {
         self.tick_reverts();
         self.tick_heat();
         self.tick_fuel(defs);
+        self.tick_automation(defs);
         self.tick_outposts(defs);
         self.tick_bills(defs);
         self.tick_balloons(defs);

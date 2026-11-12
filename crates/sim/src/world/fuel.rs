@@ -67,6 +67,17 @@ impl World {
         Some((b.fuel?, defs.building(b.id).fuel.as_ref()?))
     }
 
+    /// Whether `b`'s bunker no longer matters: its `fuel_free` upgrade (#724) is known. It never
+    /// burns, no Refuel is posted, and its effect stays on with the bunker empty.
+    pub fn fuel_free(&self, b: &buildings::Building, defs: &Defs) -> bool {
+        defs.building(b.id).fuel_free_upgrade.is_some_and(|t| self.research.is_known(t))
+    }
+
+    /// Whether `b`'s effect may run: `Building::fuel_lit`, or fuel-free (#724).
+    pub fn fuel_lit(&self, b: &buildings::Building, defs: &Defs) -> bool {
+        b.fuel_lit() || self.fuel_free(b, defs)
+    }
+
     /// Whether the effect of `b` (a building with `def`) is in use this tick, so its bunker
     /// burns. One arm per effect that can take fuel; an effect without an arm never burns.
     fn fuel_in_use(&self, b: &buildings::Building, def: &BuildingDef, defs: &Defs) -> bool {
@@ -97,6 +108,9 @@ impl World {
         for b in self.of_kind(Kind::Fuel) {
             let def = defs.building(b.id);
             let (Some(bunker), Some(fuel)) = (b.fuel, def.fuel.as_ref()) else { continue };
+            if self.fuel_free(b, defs) {
+                continue;
+            }
             // A bunker with no `per_minute` burns some other way (a balloon's flights).
             if bunker.count > 0 && fuel.micros_per_tick > 0 && self.fuel_in_use(b, def, defs) {
                 burning.push(b.anchor);
@@ -131,6 +145,9 @@ impl World {
     pub(super) fn fuel_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(ItemId, u32)> {
         let b = self.anchored(pos)?;
         let fuel = defs.building(b.id).fuel.as_ref()?;
+        if self.fuel_free(b, defs) {
+            return None;
+        }
         let mut best = fuel.item;
         let mut most = 0;
         for &item in &fuel.items {
@@ -157,6 +174,10 @@ impl World {
     pub(super) fn run_refuel(&mut self, i: usize, id: JobId, defs: &Defs) {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Refuel { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
+        if self.automated(pos, defs).is_some() {
+            // A Supply haul to an automated recipe building (`automate.rs`).
+            return self.run_supply(i, id, pos, defs);
+        }
         if self.pantry_shortfall(pos, defs).is_some() {
             // An outpost's pantry, not a fuel bunker (`outpost.rs`).
             return self.run_restock(i, id, pos, defs);
@@ -233,6 +254,7 @@ impl World {
         self.fuel_shortfall(pos, defs).is_some()
             || self.pantry_shortfall(pos, defs).is_some()
             || self.bill_live(pos, defs)
+            || self.supply_shortfall(pos, defs).is_some()
     }
 
     /// Whether a unit could usefully take the `Refuel` job for the building anchored on `pos`
@@ -244,6 +266,7 @@ impl World {
                 .pantry_shortfall(pos, defs)
                 .is_some_and(|short| short > 0 && self.any_source_for_pantry(pos, defs))
             || self.bill_ready(pos, defs)
+            || self.supply_ready(pos, defs)
     }
 
     /// Whether any stockpile tile or ground stack holds `item`: the cheap check before a flood.

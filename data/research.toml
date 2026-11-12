@@ -849,3 +849,46 @@ buildings = ["metal_rail"]
 [[tech.unlocks.upgrades]]
 building = "hot_spring_mill"     # power.md's Earth source (#448)
 boost = 1.5                       # from 1.2: the other nations' first sources
+
+# Fire's "What is fire for?": flames that heal and need no fuel (#724), or a yard of machines
+# that runs with no hands (#725). Steam Engine's `fuel_free` line waits on #433 giving it a
+# `[building.fuel]`.
+[[school]]
+id = "fire_purpose"
+nation = "fire"
+question = "What is fire for?"
+
+[[tech]]
+id = "sun_warriors"
+name = "Sun Warriors"
+description = "Learn fire from the dragons: flames that need no fuel, and warmth that heals."
+nation = "fire"
+cost = 1000
+prereqs = ["lightning_generation"]
+school = "fire_purpose"
+[[tech.cost_items]]
+item = "ancient_scroll"
+count = 3
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "campfire"
+aura = { heal = 2.0, chi_regen = 1.5 }     # over the campfire's own heat reach
+[[tech.unlocks.upgrades]]
+building = "hothouse"                      # #680
+fuel_free = true
+
+[[tech]]
+id = "great_works"
+name = "Great Works"
+description = "Lightning drives the machines, and the yard runs with no hands at the bench."
+nation = "fire"
+cost = 1000
+prereqs = ["lightning_generation"]
+school = "fire_purpose"
+[[tech.cost_items]]
+item = "metal"
+count = 8
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "lightning_station"
+automate = { rate = 1.0, radius = 4 }    # radius from the footprint, unscaled

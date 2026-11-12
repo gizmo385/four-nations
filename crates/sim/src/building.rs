@@ -568,6 +568,16 @@ pub struct AuraDef {
     pub study: f32,
 }
 
+/// How a power source's yard runs its recipe buildings with no crafter (`automate` upgrade,
+/// `great_works`, #725, `world/automate.rs`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AutomateDef {
+    /// The batch's speed against the recipe's plain one (its `modifier` applies, power doesn't).
+    pub rate: f32,
+    /// Chebyshev from the source's footprint, unscaled.
+    pub radius: u32,
+}
+
 impl AuraDef {
     /// `study` as integer millis (1000 is 1.0x), as power's `boost_millis` is.
     pub fn study_millis(&self) -> u32 {
@@ -691,6 +701,14 @@ pub struct BuildingDef {
     /// The tech that raises this power source's `boost`, with the new boost and its millis
     /// (`boost` upgrade, `metal_city`, #722), or `None`.
     pub boost_upgrade: Option<(TechId, f32, u32)>,
+    /// The tech that gives this heat source an aura over its heat reach, with the aura (its
+    /// `radius` unused: the reach is the fire's own), or `None` (`aura` upgrade, #724).
+    pub heat_aura_upgrade: Option<(TechId, AuraDef)>,
+    /// The tech after which the bunker never burns (`fuel_free` upgrade, #724), or `None`.
+    pub fuel_free_upgrade: Option<TechId>,
+    /// The tech after which recipe buildings near this power source run with no crafter, with
+    /// how (`automate` upgrade, #725), or `None`.
+    pub automate_upgrade: Option<(TechId, AutomateDef)>,
     /// An aura over units and halls nearby (`AuraDef`), or `None`.
     pub aura: Option<AuraDef>,
     /// At most one per settlement, counting sites, and it can't be taken down (`landmark =
@@ -1473,6 +1491,9 @@ impl BuildingsFile {
                 beside: b.beside,
                 also_on: b.also_on,
                 boost_upgrade: None,
+                heat_aura_upgrade: None,
+                fuel_free_upgrade: None,
+                automate_upgrade: None,
                 aura,
                 landmark: b.landmark,
             });
@@ -1955,11 +1976,15 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                 .iter()
                 .filter(|n| n.is_some())
                 .count()
-                + usize::from(up.boost.is_some());
+                + [up.boost.is_some(), up.aura.is_some(), up.fuel_free.is_some()]
+                    .iter()
+                    .filter(|&&n| n)
+                    .count()
+                + usize::from(up.automate.is_some());
             if named != 1 {
                 return err(format!(
-                    "{name:?} must name exactly one property: seats, recipe, free, shelter or \
-                     boost"
+                    "{name:?} must name exactly one property: seats, recipe, free, shelter, \
+                     boost, aura, fuel_free or automate"
                 ));
             }
             if let Some(n) = tech.nation {
@@ -2000,6 +2025,50 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                     return taken(other, "free");
                 }
                 b.free_upgrade = Some(TechId(t as u16));
+            }
+            if let Some(a) = up.aura {
+                if b.heat.is_none() {
+                    return err(format!("{name:?} is no heat source; aura needs [building.heat]"));
+                }
+                let what = format!("tech {}: unlocks.upgrades: {name:?}", tech.id);
+                let aura = resolve_aura(&what, 1, a.heal, a.chi_regen, a.study)?;
+                if let Some((other, _)) = b.heat_aura_upgrade {
+                    return taken(other, "aura");
+                }
+                b.heat_aura_upgrade = Some((TechId(t as u16), aura));
+            }
+            if let Some(free) = up.fuel_free {
+                if !free {
+                    return err(format!("{name:?}: fuel_free can only be true"));
+                }
+                if b.fuel.is_none() {
+                    return err(format!("{name:?} has no [building.fuel] to make free"));
+                }
+                if b.heat.is_some() {
+                    return err(format!("{name:?}: fuel_free can't go on a heat source"));
+                }
+                if let Some(other) = b.fuel_free_upgrade {
+                    return taken(other, "fuel_free");
+                }
+                b.fuel_free_upgrade = Some(TechId(t as u16));
+            }
+            if let Some(a) = up.automate {
+                if b.power.is_none() {
+                    return err(format!(
+                        "{name:?} is no power source; automate needs [building.power]"
+                    ));
+                }
+                if !(a.rate.is_finite() && (0.1..=1.0).contains(&a.rate)) {
+                    return err(format!("automate rate = {} must be 0.1 to 1.0", a.rate));
+                }
+                if !(1..=8).contains(&a.radius) {
+                    return err(format!("automate radius = {} must be 1 to 8", a.radius));
+                }
+                if let Some((other, _)) = b.automate_upgrade {
+                    return taken(other, "automate");
+                }
+                b.automate_upgrade =
+                    Some((TechId(t as u16), AutomateDef { rate: a.rate, radius: a.radius }));
             }
             if let Some(boost) = up.boost {
                 if b.power.is_none() {

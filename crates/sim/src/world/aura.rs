@@ -43,17 +43,23 @@ impl AuraEffect {
 
 impl World {
     /// Every finished building with an aura, as its footprint and def.
-    pub fn auras<'d>(&self, defs: &'d Defs) -> Vec<(Footprint, &'d AuraDef)> {
-        if !self.has_kind(Kind::Aura) {
-            return Vec::new();
-        }
-        self.of_kind(Kind::Aura)
+    pub fn auras(&self, defs: &Defs) -> Vec<(Footprint, AuraDef)> {
+        let mut out: Vec<(Footprint, AuraDef)> = self
+            .of_kind(Kind::Aura)
             .filter_map(|b| {
                 let def = defs.building(b.id);
                 let (w, h) = def.footprint;
-                Some((Footprint::new(b.anchor, w, h), def.aura.as_ref()?))
+                Some((Footprint::new(b.anchor, w, h), def.aura?))
             })
-            .collect()
+            .collect();
+        // A heat source's `aura` upgrade (#724), over its own heat reach once known.
+        out.extend(self.of_kind(Kind::HeatAura).filter_map(|b| {
+            let (tech, aura) = defs.building(b.id).heat_aura_upgrade?;
+            let heat = b.heat?;
+            (self.research.is_known(tech) && b.fuel_lit())
+                .then_some((b.footprint(), AuraDef { radius: heat.radius, ..aura }))
+        }));
+        out
     }
 
     /// The aura a unit standing on `pos` feels.
@@ -66,7 +72,7 @@ impl World {
         let mut out = AuraEffect::default();
         for (f, a) in self.auras(defs) {
             if f.gap(foot) <= a.radius as i32 {
-                out.take(a);
+                out.take(&a);
             }
         }
         out

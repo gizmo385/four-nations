@@ -22,7 +22,7 @@ impl World {
     /// bunker.
     fn open_tea_houses<'a>(&'a self, defs: &'a Defs) -> impl Iterator<Item = TeaHouseDef> + 'a {
         self.of_kind(Kind::Tea)
-            .filter(|b| b.fuel_lit())
+            .filter(|b| self.fuel_lit(b, defs))
             .filter_map(|b| defs.building(b.id).tea_house)
     }
 
@@ -36,7 +36,7 @@ impl World {
     pub fn tea_house_open(&self, pos: Pos, defs: &Defs) -> Option<bool> {
         let b = self.building_record(pos)?;
         defs.building(b.id).tea_house?;
-        Some(b.fuel_lit())
+        Some(self.fuel_lit(b, defs))
     }
 
     /// Deals a caravan camping now shows beyond `deals_per_visit`: the best open house's

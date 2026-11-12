@@ -295,6 +295,40 @@ pub struct Upgrade {
     /// Spring Mill, #722).
     #[serde(default)]
     pub boost: Option<f32>,
+    /// Gives a heat source a `[building.aura]` over its own heat reach once the tech is known
+    /// (`sun_warriors`' campfire, #724).
+    #[serde(default)]
+    pub aura: Option<UpgradeAura>,
+    /// `true`: the building's bunker never burns and no Refuel haul is posted once the tech is
+    /// known (`sun_warriors`' Hothouse, #724). Only `true` is accepted.
+    #[serde(default)]
+    pub fuel_free: Option<bool>,
+    /// Recipe buildings within `radius` of this power source run with no crafter at `rate`
+    /// once the tech is known (`great_works`' Lightning Station, #725).
+    #[serde(default)]
+    pub automate: Option<UpgradeAutomate>,
+}
+
+/// The `aura` upgrade's value: the multipliers of a `[building.aura]`, whose radius is the heat
+/// source's own reach (#724).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpgradeAura {
+    #[serde(default)]
+    pub heal: Option<f32>,
+    #[serde(default)]
+    pub chi_regen: Option<f32>,
+    #[serde(default)]
+    pub study: Option<f32>,
+}
+
+/// The `automate` upgrade's value (#725): `rate` 0.1 to 1.0, `radius` 1 to 8 (unscaled, from
+/// the source's footprint).
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpgradeAutomate {
+    pub rate: f32,
+    pub radius: u32,
 }
 
 /// A school: one permanent fork in a nation's tree (`[[school]]` in `data/research.toml`,
@@ -1608,10 +1642,18 @@ mod tests {
 
     // Schools (docs/design/horizons-phase-4.md, "Shared sim work, 1. Schools").
 
-    /// The bundled files plus `extra` appended to the research file.
+    /// The bundled research file without Fire's own school (#724, #725), which these tests
+    /// stand in for with their own: it is the file's last block.
+    fn without_fire_school(research: &str) -> &str {
+        let start = research.find("# Fire's \"What is fire for?\"").expect("Fire's school block");
+        assert!(!research[start..].contains("[[school]]\nid = \"water"), "Fire's block moved");
+        &research[..start]
+    }
+
+    /// The bundled files, less Fire's school, plus `extra` appended to the research file.
     fn with_research(extra: &str) -> Result<Defs, DefsError> {
         let mut files = crate::defs::BUNDLED_FILES;
-        let research = format!("{}\n{extra}\n", files[3]);
+        let research = format!("{}\n{extra}\n", without_fire_school(files[3]));
         files[3] = &research;
         Defs::from_files(files)
     }
@@ -1694,7 +1736,7 @@ mod tests {
         let mut files = crate::defs::BUNDLED_FILES;
         let research = format!(
             "{}\n{FIRE_SCHOOL}{}{}",
-            files[3],
+            without_fire_school(files[3]),
             school_tech("sun", "fire", "fire_purpose", "").replace("prereqs = [\"forging\"]\n", ""),
             school_tech("works", "fire", "fire_purpose", "")
         );

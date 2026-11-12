@@ -230,6 +230,30 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
             // "Waystations cost only work" (#727).
             return Some(format!("{} cost only work", plural()));
         }
+        if let Some(a) = u.aura {
+            // "Campfire heals 2x and restores chi 1.5x nearby" (#724).
+            let mut what = Vec::new();
+            if let Some(h) = a.heal.filter(|&h| h > 1.0) {
+                what.push(format!("heals {h}x"));
+            }
+            if let Some(c) = a.chi_regen.filter(|&c| c > 1.0) {
+                what.push(format!("restores chi {c}x"));
+            }
+            if let Some(s) = a.study.filter(|&s| s > 1.0) {
+                what.push(format!("speeds study {s}x"));
+            }
+            return Some(format!("{} {} nearby", b.display_name(nation), what.join(" and ")));
+        }
+        if u.fuel_free == Some(true) {
+            return Some(format!("{} needs no fuel", b.display_name(nation)));
+        }
+        if let Some(a) = u.automate {
+            return Some(format!(
+                "Machines within {} tiles of a {} run with no crafter",
+                a.radius,
+                b.display_name(nation)
+            ));
+        }
         if let Some(boost) = u.boost {
             // "Hot Spring Mill powers x1.5" (#722).
             return Some(format!("{} powers x{boost}", b.display_name(nation)));

@@ -94,6 +94,10 @@ pub struct Building {
     /// cost, since none was paid.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) free: bool,
+    /// Taken off automation by `Command::SetAutomated { on: false }` (#725): a crafter works it
+    /// even inside an automating yard.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) manual: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -164,6 +168,10 @@ pub(super) enum Kind {
     Shelter,
     /// A track that carries power along its run (`power.rs`, #722).
     PowerRail,
+    /// A heat source a tech can give an aura (`aura.rs`, #724).
+    HeatAura,
+    /// A power source a tech can make automate its yard (`automate.rs`, #725).
+    Automates,
 }
 
 impl Kind {
@@ -188,6 +196,8 @@ impl Kind {
             (def.aura.is_some(), Kind::Aura),
             (def.shelter_upgrade.is_some(), Kind::Shelter),
             (def.track.is_some_and(|t| t.power_reach.is_some()), Kind::PowerRail),
+            (def.heat_aura_upgrade.is_some(), Kind::HeatAura),
+            (def.automate_upgrade.is_some(), Kind::Automates),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -381,6 +391,7 @@ impl World {
             crossings: 0,
             dock: def.balloon.map(|_| super::balloon::Dock::default()),
             free: false,
+            manual: false,
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -621,6 +632,7 @@ impl World {
                     crossings: 0,
                     dock: None,
                     free: false,
+                    manual: false,
                 },
             );
         }

@@ -83,7 +83,7 @@ impl World {
     pub fn beast_hungry(&self, u: &Unit, defs: &Defs) -> bool {
         let Some(beast) = u.beast else { return false };
         self.anchored(beast.home)
-            .is_some_and(|b| defs.building(b.id).fuel.is_some() && !b.fuel_lit())
+            .is_some_and(|b| defs.building(b.id).fuel.is_some() && !self.fuel_lit(b, defs))
     }
 
     /// The row `u` is, if it is a beast.

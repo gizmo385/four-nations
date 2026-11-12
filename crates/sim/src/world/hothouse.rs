@@ -33,7 +33,7 @@ impl World {
             return None;
         }
         self.of_kind(Kind::Hothouse)
-            .filter(|b| b.fuel_lit() && Self::in_hothouse_reach(b, pos, defs))
+            .filter(|b| self.fuel_lit(b, defs) && Self::in_hothouse_reach(b, pos, defs))
             .filter_map(|b| defs.building(b.id).hothouse.map(|h| h.winter_growth))
             .reduce(f32::max)
     }
@@ -59,7 +59,7 @@ impl World {
         b: &'a Building,
         defs: &'a Defs,
     ) -> impl Iterator<Item = Pos> + 'a {
-        let on = self.hothouse_season(defs) && b.fuel_lit();
+        let on = self.hothouse_season(defs) && self.fuel_lit(b, defs);
         self.of_kind(Kind::Farm)
             .filter(move |_| on)
             .filter(|p| {
