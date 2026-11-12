@@ -892,3 +892,10 @@ count = 8
 [[tech.unlocks.upgrades]]
 building = "lightning_station"
 automate = { rate = 1.0, radius = 4 }    # radius from the footprint, unscaled
+
+# --- #737 (research horizons phase 5: lost teachings) -------------------------------------------
+
+# A teaching scroll read when every teaching is kept, lost or ruled out by its site reads for this
+# much knowledge instead (docs/design/horizons-phase-5.md, "The draw"; owner decision #735).
+[teachings]
+empty_scroll_knowledge = 100

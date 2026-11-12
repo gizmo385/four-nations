@@ -52,6 +52,9 @@ pub enum Event {
     Beast(BeastEvent),
     /// A reveal bend (Glide) uncovered a buried resource (`bending.rs`, #736).
     Find(FindEvent),
+    /// A teaching scroll was read (an offer, or nothing left to offer), or a teaching was kept
+    /// (`teachings.rs`, #737).
+    Teaching(TeachingEvent),
 }
 
 /// A reveal bend (`Effect::Reveal`: Air's Glide, Earth's Seismic Sense) brought a buried resource
@@ -82,6 +85,7 @@ impl Event {
             Self::Caravan(e) => e.tick,
             Self::Beast(e) => e.tick,
             Self::Find(e) => e.tick,
+            Self::Teaching(e) => e.tick,
         }
     }
 
@@ -104,6 +108,7 @@ impl Event {
             Self::Caravan(_) => 9,
             Self::Beast(_) => 10,
             Self::Find(_) => 11,
+            Self::Teaching(_) => 12,
         }
     }
 }
@@ -131,6 +136,7 @@ event_from!(
     Caravan(CaravanEvent),
     Beast(BeastEvent),
     Find(FindEvent),
+    Teaching(TeachingEvent),
 );
 
 /// A typed filter over the log: `$name()` yields every `Event::$variant`, oldest first.
@@ -175,6 +181,8 @@ event_filters! {
     beast_events => Beast(BeastEvent);
     /// Every buried resource a reveal bend uncovered so far, oldest first.
     find_events => Find(FindEvent);
+    /// Every teaching draft drawn, teaching kept and empty teaching scroll so far, oldest first.
+    teaching_events => Teaching(TeachingEvent);
 }
 
 impl World {

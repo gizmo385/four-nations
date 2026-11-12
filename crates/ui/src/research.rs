@@ -139,7 +139,7 @@ fn bill_status(world: &World, defs: &Defs, tech: TechId) -> Option<String> {
         return None;
     }
     let lacking = bill.iter().find(|&&(item, got, need)| {
-        got < need && defs.item(item).knowledge.is_none() && world.stored_total(item) == 0
+        got < need && !defs.item(item).is_readable() && world.stored_total(item) == 0
     });
     Some(match lacking {
         Some(&(item, got, need)) => format!("Waiting for {} {}", need - got, defs.item(item).name),
@@ -524,6 +524,7 @@ mod tests {
             requires: Requires::default(),
             school: None,
             cost_items: Vec::new(),
+            teaching: None,
         }
     }
 
@@ -705,7 +706,8 @@ mod tests {
         assert_eq!(needs(&two), ["Writing", "3 scrolls read", "Known on the road"]);
         let three = Facts { scrolls_read: 3, ..Facts::default() };
         assert_eq!(needs(&three), ["Writing", "Known on the road"]);
-        let road = Facts { scrolls_read: 3, chapters_met: vec!["known_on_the_road"] };
+        let road =
+            Facts { scrolls_read: 3, chapters_met: vec!["known_on_the_road"], ..Facts::default() };
         assert_eq!(needs(&road), ["Writing"]);
 
         // With no prereq in the way, only a condition keeps a tech Locked, and then nothing does.

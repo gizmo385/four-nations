@@ -116,6 +116,7 @@ pub use season::{Almanac, SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
+pub use teachings::{TeachingEvent, TeachingEventKind, TeachingOffer};
 pub use trade::{CaravanEvent, CaravanEventKind, Offer, OfferKind, TradeError, TradeState, Visit};
 use work::StandRule;
 pub use work::{DesignateError, FoodSource, IdleReason, Task};
@@ -640,6 +641,10 @@ pub struct World {
     /// the default, `placed = false`, and `load` places its great ruins.
     #[serde(default)]
     teachings: teachings::Teachings,
+    /// Draws a teaching scroll's offer (`research.teachings`, #737). A save from before phase 5
+    /// loads this seeded by 0, as `sickness_rng` does for #389.
+    #[serde(default = "teachings::default_rng")]
+    teachings_rng: SimRng,
     rng: SimRng,
 }
 
@@ -724,6 +729,7 @@ impl World {
             injury_rng: injury::new_rng(seed),
             sickness_rng: harm::new_sickness_rng(seed),
             teachings: teachings::Teachings::new(),
+            teachings_rng: teachings::new_rng(seed),
             rng: rng::stream(seed, "world.units"),
         };
         world.bury(defs);
@@ -916,9 +922,12 @@ impl World {
     /// knowledge is kept. Reached through `Command::SetResearch`.
     fn set_research(&mut self, tech: TechId, defs: &Defs) -> Result<(), ResearchError> {
         // Built from the fields, not `self.facts()`, so `research` stays free to borrow mutably.
+        let (kept, lost) = self.teaching_facts();
         let facts = research::Facts {
             scrolls_read: self.tallies.scrolls_read(),
             chapters_met: self.endeavor_log.chapters_met().collect(),
+            kept,
+            lost,
         };
         self.research.set_target(tech, self.nation, &facts, defs)
     }
@@ -927,9 +936,12 @@ impl World {
     /// met (`research::Facts`). Only ever grows, which is why `Research::set_target` checks
     /// conditions once at queue time.
     pub fn facts(&self) -> research::Facts<'_> {
+        let (kept, lost) = self.teaching_facts();
         research::Facts {
             scrolls_read: self.tallies.scrolls_read(),
             chapters_met: self.endeavor_log.chapters_met().collect(),
+            kept,
+            lost,
         }
     }
 

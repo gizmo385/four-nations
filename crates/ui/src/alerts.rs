@@ -31,7 +31,8 @@ use fn_sim::needs::DeathCause;
 use fn_sim::research::MILLIS_PER_POINT;
 use fn_sim::world::{
     Arrival, BendEvent, BendOutcome, CaravanEvent, CaravanEventKind, ChartEvent, ChartEventKind,
-    Death, Event, FindEvent, SeasonEvent, SeasonEventKind, StrainEvent, TICKS_PER_SECOND, UnitId,
+    Death, Event, FindEvent, SeasonEvent, SeasonEventKind, StrainEvent, TICKS_PER_SECOND,
+    TeachingEvent, TeachingEventKind, UnitId,
 };
 
 use crate::endeavor;
@@ -692,14 +693,14 @@ fn fresh_lines(session: &Session, events: &[Event]) -> Vec<Fresh> {
 }
 
 /// Where a full stockpile's line sorts among same-tick lines: after every world event
-/// (`Event::order` runs 0 to 11).
-const STOCKPILE_ORDER: u8 = 12;
+/// (`Event::order` runs 0 to 12).
+const STOCKPILE_ORDER: u8 = 13;
 /// Where the bend tip's line sorts among same-tick lines: last.
-const BEND_TIP_ORDER: u8 = 13;
+const BEND_TIP_ORDER: u8 = 14;
 /// Where the idle-research line sorts among same-tick lines: after the bend tip.
-const RESEARCH_ORDER: u8 = 14;
+const RESEARCH_ORDER: u8 = 15;
 /// Where a caravan's leaving warning sorts among same-tick lines: last.
-const TRADE_ORDER: u8 = 15;
+const TRADE_ORDER: u8 = 16;
 /// How long before a caravan leaves its warning comes (#438): two minutes.
 const TRADE_WARNING_TICKS: u64 = 2 * 60 * TICKS_PER_SECOND as u64;
 
@@ -767,6 +768,11 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
         Event::Beast(ev) => {
             let text = ev.describe();
             Line::new(Kind::Arrival, text.clone(), toast(&text)).at(ev.home)
+        }
+        // The teaching draft (#737): a scroll read, a teaching kept, or an empty scroll.
+        Event::Teaching(ev) => {
+            let text = describe_teaching_event(defs, ev);
+            Line::new(Kind::Tech, text.clone(), toast(&text))
         }
         // A reveal bend's find (#736): only a promoted find (great ruins) is worth a line. A
         // glide over a lost ruin or a seismic sense over a seam already shows on the map.
@@ -841,6 +847,29 @@ fn caravan_line(session: &Session, ev: &CaravanEvent) -> Line {
                 None => "Request met".to_owned(),
             };
             Line::new(Kind::Trade, text, None)
+        }
+    }
+}
+
+/// A teaching event's line (#737, docs/design/horizons-phase-5.md, "Mockups"): "A teaching
+/// scroll was read. Choose a teaching", "Kept Guru Teachings. Pai Sho is lost", or "The
+/// teaching scroll held nothing new: 100 knowledge".
+pub fn describe_teaching_event(defs: &fn_sim::Defs, ev: &TeachingEvent) -> String {
+    match &ev.kind {
+        TeachingEventKind::Offered { .. } => {
+            "A teaching scroll was read. Choose a teaching".to_owned()
+        }
+        TeachingEventKind::Kept { kept, lost } => {
+            let names: Vec<&str> = lost.iter().map(|&t| defs.tech(t).name.as_str()).collect();
+            let kept = &defs.tech(*kept).name;
+            match names.len() {
+                0 => format!("Kept {kept}"),
+                1 => format!("Kept {kept}. {} is lost", names[0]),
+                _ => format!("Kept {kept}. {} are lost", names.join(", ")),
+            }
+        }
+        TeachingEventKind::Empty { points } => {
+            format!("The teaching scroll held nothing new: {points} knowledge")
         }
     }
 }
@@ -1825,6 +1854,7 @@ mod tests {
                 Event::Chart(_) => Some(Kind::Chart),
                 Event::Beast(_) => Some(Kind::Arrival),
                 Event::Find(_) => None,
+                Event::Teaching(_) => Some(Kind::Tech),
             };
             assert_eq!(*line, want, "{ev:?}");
         }

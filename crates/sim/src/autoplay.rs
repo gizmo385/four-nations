@@ -506,6 +506,7 @@ impl Economy {
         recover_scrolls(world, defs, anchor);
         let plan = self.research_plan(world.nation, defs, |t| world.research().is_known(t));
         let plan = self.hold_school(world, defs, plan);
+        keep_teachings(world, defs, self.research);
         queue_next_known_tech(world, defs, plan.into_iter());
         if !self.beds_only {
             pacing::forage_missing_kinds(world, defs, anchor);
@@ -870,6 +871,22 @@ fn ensure_building(
     }
     if let Some(pos) = nearest_build_site(world, defs, anchor, building, search_radius) {
         let _ = world.apply(Command::DesignateBuild { pos, building }, defs);
+    }
+}
+
+/// Answers every pending teaching draft (docs/design/horizons-phase-5.md, "Measuring it",
+/// #737): the lower `TechId` with the shared tier first (file order), the higher with the branch
+/// first (reverse order), so the panel's two research orders measure both sides of every draft.
+fn keep_teachings(world: &mut World, defs: &Defs, order: ResearchOrder) {
+    while let Some(offer) = world.teaching_offers().first() {
+        let pick = match order {
+            ResearchOrder::SharedFirst => offer.techs.first(),
+            ResearchOrder::BranchFirst => offer.techs.last(),
+        };
+        let Some(&tech) = pick else { break };
+        if world.apply(Command::KeepTeaching { tech }, defs).is_err() {
+            break;
+        }
     }
 }
 
