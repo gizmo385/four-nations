@@ -812,7 +812,7 @@ impl World {
 
     /// The next cost entry this site still needs, with how much: index into `BuildingDef::cost`
     /// (and `Site::delivered`), the item, and the amount still short.
-    fn next_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(usize, ItemId, u32)> {
+    pub(super) fn next_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(usize, ItemId, u32)> {
         let site = self.sites.get(&pos)?;
         let cost = &defs.building(site.building).cost;
         cost.iter()
@@ -1013,6 +1013,11 @@ impl World {
                 }
                 self.units[i].carrying = Some(Stack { item: found, count: take });
                 self.units[i].route = None;
+            }
+            None if self.units[i].is_beast() => {
+                // A beast only hauls (#728): fully supplied, it hands the site to a builder.
+                self.jobs[idx].claimed_by = None;
+                self.finish_job(i);
             }
             None => {
                 // Fully supplied: work the site.

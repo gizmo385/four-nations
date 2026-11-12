@@ -237,3 +237,37 @@ fn removing_a_building_some_other_way_drops_its_mark() {
     w.remove_building(key, &defs).unwrap();
     assert_eq!(w.deconstruct_designations().count(), 0);
 }
+
+/// #728: with `pack_up` known (Nomad Way), a building comes down in a quarter of its work, not
+/// half, and gives back its whole bill.
+#[test]
+fn packing_up_returns_the_whole_bill_in_half_the_time() {
+    let defs = Defs::bundled();
+    assert_eq!((defs.deconstruct.packed_refund, defs.deconstruct.packed_work), (1.0, 0.25));
+    let anchor = at(10, 6);
+    let ticks = |packed: bool| {
+        let mut w = with("study_hall", anchor, &[at(9, 8)], &defs);
+        if packed {
+            w.research.grant(defs.tech_id("nomad_way").unwrap());
+            assert_eq!(w.deconstruct_terms(&defs), (1.0, 0.25));
+        } else {
+            assert_eq!(w.deconstruct_terms(&defs), (0.5, 0.5));
+        }
+        w.apply(Command::Deconstruct { pos: anchor }, &defs).unwrap();
+        let mut n = 0;
+        while w.anchored(anchor).is_some() {
+            w.tick(&defs);
+            n += 1;
+            assert!(n < 20_000, "still standing");
+        }
+        let wood = defs.item_id("wood").unwrap();
+        (n, dropped_near(&w, anchor, wood, 3))
+    };
+    let (slow, half) = ticks(false);
+    let (fast, whole) = ticks(true);
+    assert_eq!((half, whole), (5, 10), "half the 10 wood, then all of it");
+    // Walking to it is the same either way; the work itself halves (40 s of hall at Earth's
+    // construction, so a quarter takes well under the half's ticks).
+    assert!(fast < slow, "{fast} vs {slow}");
+    assert!(slow - fast >= fast / 2, "{fast} vs {slow}");
+}

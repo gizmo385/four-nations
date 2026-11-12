@@ -714,12 +714,21 @@ pub struct DeconstructDef {
     /// Seconds of work, as a share of the building's own `work` (at a `construction` modifier
     /// of 1.0, as building it is). Above 0.0, at most 1.0.
     pub work: f32,
+    /// `refund` once the `pack_up` feature is known (`nomad_way`, #728). Defaults to `refund`.
+    pub packed_refund: f32,
+    /// `work` once the `pack_up` feature is known. Defaults to `work`.
+    pub packed_work: f32,
 }
 
 impl DeconstructDef {
     /// How many of a cost of `count` come back.
     pub fn refund_of(&self, count: u32) -> u32 {
-        (count as f32 * self.refund).floor() as u32
+        Self::share_of(count, self.refund)
+    }
+
+    /// `count` times `share`, rounded down.
+    pub fn share_of(count: u32, share: f32) -> u32 {
+        (count as f32 * share).floor() as u32
     }
 }
 
@@ -731,6 +740,10 @@ const MAX_SIDE: u8 = 4;
 struct RawDeconstruct {
     refund: f32,
     work: f32,
+    #[serde(default)]
+    packed_refund: Option<f32>,
+    #[serde(default)]
+    packed_work: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -1065,7 +1078,19 @@ impl BuildingsFile {
                 "buildings.toml: deconstruct.work must be above 0.0 and at most 1.0".into(),
             ));
         }
-        Ok(DeconstructDef { refund: d.refund, work: d.work })
+        let packed_refund = d.packed_refund.unwrap_or(d.refund);
+        if !(packed_refund.is_finite() && (0.0..=1.0).contains(&packed_refund)) {
+            return Err(DefsError(
+                "buildings.toml: deconstruct.packed_refund must be 0.0 to 1.0".into(),
+            ));
+        }
+        let packed_work = d.packed_work.unwrap_or(d.work);
+        if !(packed_work.is_finite() && packed_work > 0.0 && packed_work <= 1.0) {
+            return Err(DefsError(
+                "buildings.toml: deconstruct.packed_work must be above 0.0 and at most 1.0".into(),
+            ));
+        }
+        Ok(DeconstructDef { refund: d.refund, work: d.work, packed_refund, packed_work })
     }
 
     /// Checks the data, links item names to ids, and records which tech unlocks each building.

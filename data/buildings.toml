@@ -163,6 +163,8 @@
 [deconstruct]
 refund = 0.5
 work = 0.5
+packed_refund = 1.0     # with `pack_up` known (nomad_way, #728): the whole bill comes back
+packed_work = 0.25      # and a quarter of the building's work, not half
 
 [[building]]
 id = "bed"

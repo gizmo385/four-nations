@@ -248,6 +248,9 @@ pub enum Feature {
     Almanac,
     /// `Command::StandingSow`: a farm plot that re-sows itself whenever it's empty.
     StandingSow,
+    /// Taking a building down returns `[deconstruct] packed_refund` in `packed_work`, and haul
+    /// beasts take build-site deliveries (`nomad_way`, #728).
+    PackUp,
 }
 
 /// One `[[tech.unlocks.upgrades]]` entry: a building and exactly one property to raise: `seats`
@@ -1614,7 +1617,6 @@ mod tests {
         assert_eq!(defs.school_mates(sun).collect::<Vec<_>>(), [works]);
         assert_eq!(defs.school_mates(works).collect::<Vec<_>>(), [sun]);
         assert_eq!(defs.school_techs(Nation::Fire), [sun, works]);
-        assert!(defs.school_techs(Nation::Air).is_empty());
         let forging = defs.tech_id("forging").unwrap();
         assert_eq!(defs.school_mates(forging).count(), 0);
     }

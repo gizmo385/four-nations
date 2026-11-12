@@ -236,6 +236,13 @@ impl World {
         let trip = match kind {
             JobKind::Haul { pos } => self.haul_trip(pos, defs),
             JobKind::Refuel { pos } => self.refuel_trip(pos, defs),
+            // With `pack_up` (#728), a build site's deliveries too, never the gate's.
+            JobKind::Build { pos }
+                if !self.is_gate(pos)
+                    && self.has_feature(crate::research::Feature::PackUp, defs) =>
+            {
+                self.site_trip(pos, defs)
+            }
             _ => return false,
         };
         trip.is_some_and(|t| t >= min_trip as i32)
@@ -290,6 +297,20 @@ impl World {
                 .map(|&z| pos.chebyshev(z))
                 .min()
         }
+    }
+
+    /// How far the next missing bill line of the site on `pos` has to come: the Chebyshev
+    /// distance from the nearest stack of it (or its stand-in) to the site. `None` when the site
+    /// is fully supplied or nothing is on hand.
+    fn site_trip(&self, pos: Pos, defs: &Defs) -> Option<i32> {
+        let (_, item, _) = self.next_shortfall(pos, defs)?;
+        let stand_in = defs.stand_in_for(item);
+        self.stored
+            .iter()
+            .chain(self.ground.iter())
+            .filter(|(_, s)| s.item == item || Some(s.item) == stand_in)
+            .map(|(&p, _)| p.chebyshev(pos))
+            .min()
     }
 
     /// How far the fuel for the bunker anchored on `pos` has to come: the Chebyshev distance

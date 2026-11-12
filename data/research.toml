@@ -734,8 +734,12 @@ buildings = ["archive"]
 
 # --- Phase 4: schools (docs/design/horizons-phase-4.md) ---------------------------------------
 
-# Air's "Temple or sky?" (#723). Its `[[school]]` row and `school` line come with its other
-# option, `nomad_way` (#728): a school needs both of its techs.
+# Air's "Temple or sky?": settle at a temple (#723), or pack up and move (#728).
+[[school]]
+id = "air_path"
+nation = "air"
+question = "Temple or sky?"
+
 [[tech]]
 id = "high_temple"
 name = "High Temple"
@@ -743,8 +747,23 @@ description = "Raise a temple on the peak, where chi and study come easily."
 nation = "air"
 cost = 1000
 prereqs = ["sky_bison"]
+school = "air_path"
 [[tech.cost_items]]
 item = "stone"
 count = 40
 [tech.unlocks]
 buildings = ["high_temple"]
+
+[[tech]]
+id = "nomad_way"
+name = "Nomad Way"
+description = "Build light, pack up whole, and follow fresh land."
+nation = "air"
+cost = 1000
+prereqs = ["sky_bison"]
+school = "air_path"
+[[tech.cost_items]]
+item = "ancient_scroll"
+count = 3
+[tech.unlocks]
+features = ["pack_up"]

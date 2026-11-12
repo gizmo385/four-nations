@@ -62,6 +62,17 @@ impl World {
         Ok(self.add_job(JobKind::Deconstruct { pos: anchor }))
     }
 
+    /// The refund share and the work share taking a building down has now: `[deconstruct]`'s
+    /// `refund` and `work`, or its packed pair once `pack_up` is known (#728).
+    pub fn deconstruct_terms(&self, defs: &Defs) -> (f32, f32) {
+        let d = &defs.deconstruct;
+        if self.has_feature(crate::research::Feature::PackUp, defs) {
+            (d.packed_refund, d.packed_work)
+        } else {
+            (d.refund, d.work)
+        }
+    }
+
     /// Takes back the mark on the finished building covering `pos`. Work already done on it is
     /// lost; the building itself was never touched.
     pub(super) fn cancel_deconstruct(&mut self, pos: Pos) -> Result<(), DesignateError> {
@@ -93,14 +104,16 @@ impl World {
         let rate = self.modifiers().construction;
         let job = &mut self.jobs[idx];
         job.progress += rate / TICKS_PER_SECOND as f32;
-        if job.progress < def.work * defs.deconstruct.work {
+        let (refund, work) = self.deconstruct_terms(defs);
+        let job = &mut self.jobs[idx];
+        if job.progress < def.work * work {
             return;
         }
         self.jobs.remove(idx);
         let key = self.map[pos].building.expect("anchored above").key();
         let record = self.remove_building(key, defs).expect("anchored above");
         for cost in &def.cost {
-            let count = defs.deconstruct.refund_of(cost.count);
+            let count = crate::building::DeconstructDef::share_of(cost.count, refund);
             if count > 0 {
                 self.place_ground(pos, Stack { item: cost.item, count });
             }
