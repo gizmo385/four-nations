@@ -143,6 +143,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Help => Mode::Help,
             Screen::Endeavor => Mode::Endeavor,
             Screen::Research if ui.school_confirm.is_some() => Mode::ChooseSchool,
+            Screen::Research if fn_ui::research::has_newcomers(session) => Mode::ResearchPages,
             Screen::Research => Mode::Research,
             Screen::Saves => Mode::Saves,
             Screen::Nation => Mode::Nation,

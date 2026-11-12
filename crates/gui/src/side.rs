@@ -386,7 +386,7 @@ fn glance(ui: &mut Ui, look: &Look<'_>, s: &Settlement, clicks: &mut Clicks) {
         }
     });
     row_widget(ui, look, &s.research, Some('t'), clicks);
-    if let Some(row) = &s.research_bill {
+    for row in &s.research_bill {
         row_widget(ui, look, row, Some('t'), clicks);
     }
     for row in &s.gate {

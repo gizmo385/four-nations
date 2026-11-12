@@ -76,8 +76,9 @@ pub struct Settlement {
     pub materials: Vec<String>,
     /// Target, bar and percent, or "Research: none set" in Warn (#416).
     pub research: Row,
-    /// Under it while the front tech's item bill is short (#729), indented.
-    pub research_bill: Option<Row>,
+    /// Under it, indented, while the front tech's item bill is short (#729) or it waits on a
+    /// condition that fell (`research_notes`).
+    pub research_bill: Vec<Row>,
     /// "Gate 3" with `[G]`, then what is still needed (#235, #242, #663); empty with no
     /// endeavor in the data.
     pub gate: Vec<Row>,
@@ -370,12 +371,30 @@ fn settlement(
             .map(|(name, count)| format!("{name} {count}"))
             .collect(),
         research: research_row(view, marks),
-        research_bill: view.research.bill.as_ref().map(|text| {
-            let tone = if text.starts_with("Waiting") { Tone::Warn } else { Tone::Dim };
-            Row::text(format!("  {text}"), tone)
-        }),
+        research_bill: research_notes(&view.research),
         gate: view.endeavor.as_ref().map(gate_rows).unwrap_or_default(),
     }
+}
+
+/// The rows under the Research row: the bill while it is short, or the condition the front tech
+/// waits on, broken before its live count so it fits the panel:
+/// `Waiting: 3 Fire residents` and `(2 live here)` (docs/design/horizons-phase-6.md, "Mockups").
+fn research_notes(status: &crate::research::ResearchStatus) -> Vec<Row> {
+    let mut rows = Vec::new();
+    if let Some(text) = &status.bill {
+        let tone = if text.starts_with("Waiting") { Tone::Warn } else { Tone::Dim };
+        rows.push(Row::text(format!("  {text}"), tone));
+    }
+    if let Some(text) = &status.waiting {
+        match text.split_once(" (") {
+            Some((head, count)) => {
+                rows.push(Row::text(format!("  {head}"), Tone::Warn));
+                rows.push(Row::text(format!("  ({count}"), Tone::Warn));
+            }
+            None => rows.push(Row::text(format!("  {text}"), Tone::Warn)),
+        }
+    }
+    rows
 }
 
 /// The open alerts (`Alerts::open`, #656), most urgent first, with how many are open and the key

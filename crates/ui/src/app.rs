@@ -295,7 +295,11 @@ impl App {
                     self.ui.school_confirm = None;
                     return;
                 }
-                Action::Move { .. } | Action::Jump { .. } | Action::PickTool(_) => return,
+                Action::Move { .. }
+                | Action::Jump { .. }
+                | Action::PickTool(_)
+                | Action::NextUnit
+                | Action::PrevUnit => return,
                 _ => {}
             }
         }
@@ -305,17 +309,26 @@ impl App {
             match action {
                 Action::Move { dx, dy, .. } => return self.move_tech(dx, dy),
                 Action::Jump { dy, .. } => return self.move_tech(0, dy * self.tech_page()),
+                // `Tab` turns to the other page once the gate stands (From newcomers).
+                Action::NextUnit | Action::PrevUnit => {
+                    return self.ui.switch_research_page(&self.session);
+                }
                 Action::Confirm => {
+                    let page = self.ui.research_page;
                     // `! Choose a teaching` (#743) reopens the LOST TEACHING box.
-                    if research::opens_draft(&self.session, self.ui.tech) {
+                    if research::opens_draft(&self.session, page, self.ui.tech) {
                         return self.open_teaching();
                     }
                     // A school option asks first (#729): choosing it closes its mate.
-                    if let Some(tech) = research::needs_confirm(&self.session, self.ui.tech) {
+                    if let Some(tech) = research::needs_confirm(&self.session, page, self.ui.tech) {
                         self.ui.school_confirm = Some(tech);
                         return;
                     }
-                    return research::choose(&mut self.session, self.ui.tech);
+                    if let Err(why) = research::choose(&mut self.session, page, self.ui.tech) {
+                        self.ui.status = why;
+                        self.ui.status_badge = Some(" RESEARCH ");
+                    }
+                    return;
                 }
                 Action::PickTool(Tool::CancelHarvest) => return self.clear_research(),
                 _ => {}
@@ -439,6 +452,7 @@ impl App {
             }
             self.ui.help_tab = HelpTab::default();
             if screen == Screen::Research {
+                self.ui.research_page = crate::research::ResearchPage::default();
                 let view = screen_view(&self.session);
                 self.ui.tech = research::initial_cursor(&self.session, &view);
             }
@@ -478,13 +492,13 @@ impl App {
 
     /// Moves the research cursor `(dx, dy)` cards.
     fn move_tech(&mut self, dx: i32, dy: i32) {
-        let view = screen_view(&self.session);
+        let view = self.ui.research_view(&self.session);
         self.ui.tech = research::step(&view, self.ui.tech, dx.signum(), dy);
     }
 
     /// How many cards PgUp and PgDn move in the research screen: a page of them.
     fn tech_page(&self) -> i32 {
-        let view = screen_view(&self.session);
+        let view = self.ui.research_view(&self.session);
         let (width, rows) = screens::text_size(self.ui.page());
         research::Grid::new((width, rows), view.columns.len()).cards as i32
     }
