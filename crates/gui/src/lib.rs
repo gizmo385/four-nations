@@ -15,8 +15,8 @@
 //! - **The title** ([`title`]) is native: the steps of `fn_tui::title` as egui rows and buttons,
 //!   every click a key press.
 //! - **Pages** ([`page`], [`screens`]): the full screens as egui widgets in one frame, over the
-//!   whole window above the hint bar. Build (#881), Research (#884), Abilities and Traders (#886)
-//!   and Saves (#885) so far.
+//!   whole window above the hint bar. Build (#881), Research (#884), Abilities and Traders (#886),
+//!   Saves (#885), the Nation roster and Endeavor (#887) so far.
 //! - **Embark** ([`embark`]) is native: the survey on square tiles and the site report as a side
 //!   panel (`fn_ui::embark`'s rows); a click on the map is the arrow keys to that block.
 //! - **Boxes** ([`boxes`]): the game menu, the confirm boxes and embark's exit prompt as
@@ -34,6 +34,7 @@ pub mod color;
 pub mod embark;
 pub mod fonts;
 pub mod frame;
+pub mod gauge;
 pub mod hints;
 pub mod inspector;
 pub mod keys;

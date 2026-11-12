@@ -28,12 +28,14 @@ fn the_map_is_native_and_every_screen_is_cells_for_now() {
     assert_eq!(surface(&game("u")), Surface::Page(PageKind::Build));
     // So is Research (#884), box and all.
     assert_eq!(surface(&game("t")), Surface::Page(PageKind::Research));
-    // So are Abilities and Traders (#886).
+    // So are Abilities and Traders (#886), the Nation roster and the Endeavor page (#887).
     assert_eq!(surface(&game("i")), Surface::Page(PageKind::Abilities));
     assert_eq!(surface(&game("m")), Surface::Page(PageKind::Traders));
-    // The other full screens: Nation, key help, the message log and the Endeavor page (Saves
-    // needs a store, which these shells have none of).
-    for keys in ["n", "?", "l", "g"] {
+    assert_eq!(surface(&game("n")), Surface::Page(PageKind::Nation));
+    assert_eq!(surface(&game("g")), Surface::Page(PageKind::Endeavor));
+    // The other full screens: key help and the message log (Saves needs a store, which these
+    // shells have none of).
+    for keys in ["?", "l"] {
         assert_eq!(surface(&game(keys)), Surface::CellsFull, "{keys}");
     }
 }
@@ -80,7 +82,11 @@ fn the_game_menu_and_its_questions_are_boxes_over_the_native_map() {
 /// screen stays under it.
 #[test]
 fn a_question_over_a_screen_or_a_page_is_a_box_over_it() {
-    for (keys, base) in [("n", Surface::CellsFull), ("u", Surface::Page(PageKind::Build))] {
+    for (keys, base) in [
+        ("?", Surface::CellsFull),
+        ("u", Surface::Page(PageKind::Build)),
+        ("n", Surface::Page(PageKind::Nation)),
+    ] {
         let mut shell = game(keys);
         if let fn_tui::shell::Mode::Game(app) = &mut shell.mode {
             app.ui.prompt = Some(fn_ui::state::Prompt::QuickLoad);
@@ -187,7 +193,7 @@ fn the_menu_is_a_box_and_the_bar_says_so() {
 /// A full screen is cells over the whole window: no hint bar of its own, the terminal's row.
 #[test]
 fn a_full_screen_is_the_whole_window_in_cells() {
-    let mut app = GuiApp::with_shell(game("n"));
+    let mut app = GuiApp::with_shell(game("?"));
     let mut h = harness(&mut app, egui::vec2(1600.0, 960.0));
     h.run_steps(2);
     drop(h);

@@ -185,7 +185,7 @@ One row is roughly one agent PR (the #842 estimates). "Words" means a row-model 
 | 9 | Research tree and the school box (#884) | `fn_gui::screens::research` | (`fn_ui::research` has most) | 2 |
 | 10 | Saves and naming (#885; done) | `fn_gui::screens::saves` | (`fn_ui::saves`) | 1 |
 | 11 | Traders and Abilities (#886) | `screens::{traders, abilities}` | (`fn_ui::trade`, `fn_ui::bend`) | 2 |
-| 12 | Nation roster and Endeavor (#887) | `screens::{nation, endeavor}` | `fn_tui::nation` groups | 2 |
+| 12 | Nation roster and Endeavor (#887; done) | `fn_gui::screens::{nation, endeavor}`, `fn_gui::gauge` (meters as bars) | (`fn_ui::screens::{nation, endeavor}` have them; the roster groups moved in #857) | 2 |
 | 13 | Message log, key help and legend (#888) | `screens::{log, help}` | (`fn_ui::msglog`, `fn_ui::keys`), `fn_tui::legend` rows | 2 |
 
 **Stays cells:** the watcher (`fn_tui::watch`), the studio (`fn_tui::studio`), the run browser

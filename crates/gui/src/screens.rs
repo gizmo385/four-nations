@@ -5,6 +5,8 @@
 
 pub mod abilities;
 pub mod build;
+pub mod endeavor;
+pub mod nation;
 pub mod research;
 pub mod saves;
 pub mod traders;
