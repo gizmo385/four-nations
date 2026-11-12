@@ -209,3 +209,36 @@ fn seed_and_nation_together_skip_the_menu_straight_into_a_game() {
     assert!(text.contains("FIRE NATION"), "{text}");
     assert!(!text.contains("FOUR NATIONS"), "no title screen shows at all:\n{text}");
 }
+
+/// A host that can't quit (#866, the browser): no Quit anywhere, and every way back to the title
+/// screen still works.
+#[test]
+fn without_quit_nothing_offers_or_does_it() {
+    // The title screen: New game, Load, and that is all (no saves, no runs).
+    let mut shell = Shell::new_title(SIZE, None, 1).with_quit(false);
+    let text = frame(&mut shell);
+    assert!(text.contains("New game") && text.contains("Load"), "{text}");
+    assert!(!text.contains("Quit") && !text.contains("Replays"), "{text}");
+
+    // Embark's Q goes straight back to the title screen, with no question.
+    shell.play(&fn_tui::keys::parse("<enter> <enter> <enter>").unwrap());
+    assert!(matches!(shell.mode, fn_tui::shell::Mode::Embark(_)));
+    press(&mut shell, KeyCode::Char('q'));
+    assert!(!shell.exit_prompt && !shell.quit);
+    assert!(matches!(shell.mode, fn_tui::shell::Mode::Title(_)));
+    assert!(!frame(&mut shell).contains("Quit"));
+
+    // A game started from it: Ctrl+C does nothing, and the menu's last row is the title screen.
+    shell.play(&fn_tui::keys::parse("<enter> <enter> <enter> e y").unwrap());
+    assert!(matches!(shell.mode, fn_tui::shell::Mode::Game(_)));
+    shell.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    assert!(!shell.quit, "Ctrl+C is not a quit here");
+    shell.play(&fn_tui::keys::parse(ASK_QUIT).unwrap());
+    let text = frame(&mut shell);
+    assert!(text.contains("Leave this game?") && text.contains("Keep playing"), "{text}");
+    assert!(text.contains("Go to the title screen without saving"), "{text}");
+    assert!(!text.contains("Quit the game"), "{text}");
+    shell.play(&fn_tui::keys::parse("<down> <enter>").unwrap());
+    assert!(matches!(shell.mode, fn_tui::shell::Mode::Title(_)), "back at the title screen");
+    assert!(!shell.quit);
+}

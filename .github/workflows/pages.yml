@@ -1,6 +1,7 @@
-# Publishes the web replayer (#595, #596) to GitHub Pages on every push to main. The site is
-# only the replayer: a viewer opens a run's run.jsonl from their own disk and it is replayed in
-# their browser, never uploaded. The site is public: anyone with its URL can load the game.
+# Publishes the web replayer (#595, #596) and the game itself (#866) to GitHub Pages on every push
+# to main. The replayer is at the site's root: a viewer opens a run's run.jsonl from their own
+# disk and it is replayed in their browser, never uploaded. The game (fn_gui built for the
+# browser) is at /play/. The site is public: anyone with its URL can load the game.
 name: Pages
 
 on:
@@ -38,11 +39,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: pages
-      # Only the replayer. `cargo xtask web-gui` (fn_gui in the browser, #859) writes to
-      # target/replayer/gui/ but isn't run here, so the upload below doesn't carry it; #866
-      # adds that step.
       - name: Build the replayer
         run: cargo xtask web
+      # The game, into target/replayer/play/ so it is published at .../four-nations/play/.
+      # `xtask web-gui` needs the wasm-bindgen CLI at exactly the version Cargo.lock pins for the
+      # crate (as in ci.yml). The `web` profile (optimised, LTO), not `--fast`. It leaves the
+      # replayer's files alone and `xtask web` leaves play/ alone, so the order doesn't matter.
+      - id: wbg
+        run: |
+          version="$(awk '$0 == "name = \"wasm-bindgen\"" { getline; gsub(/[^0-9.]/, "", $3); print $3 }' Cargo.lock)"
+          echo "wasm-bindgen $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wbg.outputs.version }}
+      - name: Build the game
+        run: cargo xtask web-gui
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

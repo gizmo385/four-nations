@@ -51,6 +51,12 @@ pub struct App {
 }
 
 impl App {
+    /// Sets whether the host can end the program (`UiState::can_quit`, #866); on by default.
+    pub fn with_can_quit(mut self, can_quit: bool) -> Self {
+        self.ui.can_quit = can_quit;
+        self
+    }
+
     pub fn new(session: Session, screen: (u16, u16)) -> Self {
         let fast = session.clock.is_fast();
         let mut ui = UiState::new(&session, screen);
@@ -85,7 +91,7 @@ impl App {
         self.ui.status_badge = None;
         // Ctrl+C quits at once, whatever is open, a question included.
         if map_key(key) == Some(Action::QuitNow) {
-            self.ui.quit = true;
+            self.ui.quit = self.ui.can_quit;
             return;
         }
         if let Some(prompt) = self.ui.prompt.clone() {
@@ -200,7 +206,7 @@ impl App {
             Action::Step => self.step(),
             Action::QuickSave => self.quicksave(),
             Action::AskQuickLoad => self.ask(Prompt::QuickLoad),
-            Action::QuitNow => self.ui.quit = true,
+            Action::QuitNow => self.ui.quit = self.ui.can_quit,
         }
     }
 
@@ -391,7 +397,7 @@ impl App {
             Action::Step => self.step(),
             Action::QuickSave => self.quicksave(),
             Action::AskQuickLoad => self.ask(Prompt::QuickLoad),
-            Action::QuitNow => self.ui.quit = true,
+            Action::QuitNow => self.ui.quit = self.ui.can_quit,
             Action::PickTool(_)
             | Action::ShowTools
             | Action::ToggleRepeat
@@ -594,7 +600,7 @@ impl App {
             Answer::Exit => {
                 self.ui.prompt = None;
                 self.close_menu();
-                self.ui.quit = true;
+                self.ui.quit = self.ui.can_quit;
             }
         }
     }
@@ -850,7 +856,9 @@ impl App {
     pub fn load(&mut self, world: World) {
         self.session.world = world;
         self.session.bend_choice = None;
+        let can_quit = self.ui.can_quit;
         self.ui = UiState::new(&self.session, self.screen);
+        self.ui.can_quit = can_quit;
         // What was loaded is what was saved: nothing has happened since.
         self.ui.saved_at = Some(self.session.world.tick);
         // The loaded game's past events are not news: they age out at once instead of showing
@@ -899,7 +907,9 @@ impl App {
         };
         self.session.clock = self.session.clock.clone().with_fast(self.fast);
         self.menu_prev_paused = None;
+        let can_quit = self.ui.can_quit;
         self.ui = UiState::new(&self.session, self.screen);
+        self.ui.can_quit = can_quit;
         self.ui.alerts.update(&self.session, 0.0);
         self.dirty = true;
     }

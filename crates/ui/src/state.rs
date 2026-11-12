@@ -193,6 +193,11 @@ pub struct UiState {
     /// Whether the open confirm box can offer "Save, then …": there is a save directory.
     /// Read when the box opens (`App::ask`).
     pub ask_can_save: bool,
+    /// Whether the host can end the program (#866): `false` in the browser, where there is
+    /// nothing to quit to. Set by the host (`App::with_can_quit`) and carried across a new map or
+    /// a load. With it off, `Ctrl+C` does nothing, the menu's Quit… row becomes "Title screen…"
+    /// and the Quit box offers no "Quit the game" (`crate::ask::current`).
+    pub can_quit: bool,
     /// The world tick of the last save or load of this game, for the confirm box's "last saved
     /// N minutes ago" in game time (`crate::ask`); `None` for a game never saved.
     pub saved_at: Option<u64>,
@@ -266,6 +271,7 @@ impl UiState {
             menu_page: crate::menu::MenuPage::Rows,
             ask_cursor: 0,
             ask_can_save: false,
+            can_quit: true,
             saved_at: None,
             tech: (0, 0),
             school_confirm: None,

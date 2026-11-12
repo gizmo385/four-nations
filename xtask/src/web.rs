@@ -6,9 +6,10 @@
 //! listed in `runs/index.json`, the same shape #596's published index takes, so the page's run
 //! picker lists them. The command prints a `?run=` link for each.
 //!
-//! `cargo xtask web-gui` (#859) is the same for fn_gui, the egui game, into `target/replayer/gui/`
-//! through the wasm-bindgen CLI. `web` does not build it, and `pages.yml` runs only `web`, so
-//! the game is not published (that is #866).
+//! `cargo xtask web-gui` (#859) is the same for fn_gui, the egui game, into `target/replayer/play/`
+//! through the wasm-bindgen CLI. `web` does not build it; `pages.yml` runs both, and the folder
+//! is published at `/play/` next to the replayer (#866). The folder is `play/`, not `gui/`,
+//! because that is the URL: `https://gizmo385.github.io/four-nations/play/`.
 //!
 //! The server is a few lines of std on purpose: it serves files from one folder to the local
 //! machine, nothing else, and needs no tool beyond cargo.
@@ -90,12 +91,13 @@ pub fn build() -> Result<PathBuf> {
 const GUI_HELP: &str = "\
 usage: cargo xtask web-gui [--fast] [--serve] [--port N]
 
-Builds fn_gui (the egui game) for the browser into target/replayer/gui/: the wasm built for
-wasm32-unknown-unknown, bound with the wasm-bindgen CLI, next to web/gui/index.html. Needs the CLI
+Builds fn_gui (the egui game) for the browser into target/replayer/play/: the wasm built for
+wasm32-unknown-unknown, bound with the wasm-bindgen CLI, next to web/play/index.html. Needs the CLI
 at exactly the version Cargo.lock pins for the wasm-bindgen crate; `cargo install wasm-bindgen-cli
---version VERSION --locked` installs it. `cargo xtask web` does not build or publish this.
+--version VERSION --locked` installs it. `cargo xtask web` does not build this; Pages runs both
+(the game is published at /play/).
   --fast     the `ci` profile (unoptimised, quick to build, a large wasm) instead of `web`
-  --serve    then serve target/replayer/ on http://127.0.0.1:PORT/ (the game is at /gui/)
+  --serve    then serve target/replayer/ on http://127.0.0.1:PORT/ (the game is at /play/)
   --port N   the port for --serve (default 8595)";
 
 /// `cargo xtask web-gui` (#859).
@@ -124,7 +126,7 @@ pub fn run_gui(args: &[&str]) -> Result {
     let out = build_gui(fast)?;
     println!("fn_gui for the browser built into {}", out.display());
     if serve {
-        let base = format!("http://127.0.0.1:{port}/gui/");
+        let base = format!("http://127.0.0.1:{port}/play/");
         println!("serving it at {base}");
         serve_dir(out.parent().expect("gui/ has a parent"), port)
     } else {
@@ -132,7 +134,7 @@ pub fn run_gui(args: &[&str]) -> Result {
     }
 }
 
-/// Builds fn_gui's wasm and binds it into `target/replayer/gui/`; that folder.
+/// Builds fn_gui's wasm and binds it into `target/replayer/play/`; that folder.
 pub fn build_gui(fast: bool) -> Result<PathBuf> {
     let root = root();
     // Checked first: a missing or mismatched CLI should not cost a wasm build to find out.
@@ -161,7 +163,7 @@ pub fn build_gui(fast: bool) -> Result<PathBuf> {
         &env,
     )?;
     let wasm = root.join(format!("target/{}/{profile}/fn_gui.wasm", crate::WASM_TARGET));
-    let out = root.join("target/replayer/gui");
+    let out = root.join("target/replayer/play");
     if out.exists() {
         fs::remove_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     }
@@ -176,7 +178,7 @@ pub fn build_gui(fast: bool) -> Result<PathBuf> {
     if !status.success() {
         return Err("wasm-bindgen failed".into());
     }
-    copy(&root.join("web/gui/index.html"), &out.join("index.html"))?;
+    copy(&root.join("web/play/index.html"), &out.join("index.html"))?;
     for name in ["fn_gui.js", "fn_gui_bg.wasm", "index.html"] {
         if !out.join(name).is_file() {
             return Err(format!("{} should hold {name} and doesn't", out.display()));
@@ -323,7 +325,7 @@ fn respond(dir: &Path, mut stream: TcpStream) -> std::io::Result<()> {
     let path = request.split_whitespace().nth(1).unwrap_or("/");
     let path = path.split(['?', '#']).next().unwrap_or("/");
     let rel = path.trim_start_matches('/');
-    // A folder's address (`/`, `/gui/`) is its index page.
+    // A folder's address (`/`, `/play/`) is its index page.
     let rel = if rel.is_empty() || rel.ends_with('/') {
         format!("{rel}index.html")
     } else {

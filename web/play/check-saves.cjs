@@ -1,7 +1,7 @@
 // Browser saves for fn_gui (#860), checked in headless Chromium. Not part of `cargo xtask`:
 //
 //   cargo xtask web-gui --fast --serve        (one terminal; or any server of target/replayer/)
-//   node web/gui/check-saves.cjs [http://127.0.0.1:8595/gui/]
+//   node web/play/check-saves.cjs [http://127.0.0.1:8595/play/]
 //
 // Needs Playwright (`require('playwright')`) and its Chromium, both preinstalled where this is
 // run; it never installs anything. The game is pixels, so it reads the state fn_gui publishes
@@ -15,7 +15,7 @@
 
 const { chromium } = require('playwright');
 
-const BASE = process.argv[2] || 'http://127.0.0.1:8595/gui/';
+const BASE = process.argv[2] || 'http://127.0.0.1:8595/play/';
 const KEY = (name) => `four-nations/saves/${name}`;
 const SEED = 7; // the game that gets saved
 const OTHER = 9; // the game a reload starts instead
