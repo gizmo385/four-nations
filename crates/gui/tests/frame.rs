@@ -28,9 +28,12 @@ fn the_map_is_native_and_every_screen_is_cells_for_now() {
     assert_eq!(surface(&game("u")), Surface::Page(PageKind::Build));
     // So is Research (#884), box and all.
     assert_eq!(surface(&game("t")), Surface::Page(PageKind::Research));
-    // The other full screens: Nation, key help, the message log, Abilities, Traders and the
-    // Endeavor page (Saves needs a store, which these shells have none of).
-    for keys in ["n", "?", "l", "i", "m", "g"] {
+    // So are Abilities and Traders (#886).
+    assert_eq!(surface(&game("i")), Surface::Page(PageKind::Abilities));
+    assert_eq!(surface(&game("m")), Surface::Page(PageKind::Traders));
+    // The other full screens: Nation, key help, the message log and the Endeavor page (Saves
+    // needs a store, which these shells have none of).
+    for keys in ["n", "?", "l", "g"] {
         assert_eq!(surface(&game(keys)), Surface::CellsFull, "{keys}");
     }
 }
