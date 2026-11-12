@@ -716,7 +716,8 @@ impl World {
     /// another.
     fn chi_cost(&self, unit: &Unit, def: &AbilityDef, defs: &Defs) -> f32 {
         if self.rank_of(unit, defs).rank == Rank::Master {
-            def.chi * defs.mastery.master_chi
+            // A teaching can cheapen the discount further (`master_chi` modifier, #742).
+            def.chi * defs.mastery.master_chi * self.modifiers_for(unit, defs).master_chi
         } else {
             def.chi
         }

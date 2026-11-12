@@ -1008,6 +1008,19 @@ site = { terrains = ["mountain"], within = 30, min_tiles = 4 }
 [tech.unlocks]
 buildings = ["bathhouse"]
 
+# --- #742 (research horizons phase 5: `guru_teachings`) ---------------------------------------
+
+[[tech]]
+id = "guru_teachings"
+name = "Guru Teachings"
+description = "Open the seven chakras, and let chi flow freely."
+nation = "air"
+cost = 250
+prereqs = ["meditation"]
+[tech.teaching]
+[tech.unlocks]
+modifiers = { master_chi = 0.75 }   # 0.8 x 0.75 = 0.6: a master's bends cost 60% chi
+
 # --- #737 (research horizons phase 5: lost teachings) -------------------------------------------
 
 # A teaching scroll read when every teaching is kept, lost or ruled out by its site reads for this
