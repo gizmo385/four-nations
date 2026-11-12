@@ -408,8 +408,16 @@ impl World {
     /// `docs/design/clearing.md`, issue #425) no longer blocks: build-over queues its Clear
     /// instead (`World::to_clear`, `designate_build`).
     pub fn build_blocker(&self, pos: Pos, defs: &Defs) -> Option<Blocker> {
+        self.build_blocker_on(pos, &[], defs)
+    }
+
+    /// `build_blocker`, for a building that may also stand on `also_on` (#722: Metal Rail in a
+    /// tunnel).
+    fn build_blocker_on(&self, pos: Pos, also_on: &[Terrain], defs: &Defs) -> Option<Blocker> {
         let Some(tile) = self.map.get(pos) else { return Some(Blocker::OffMap) };
-        if !matches!(tile.terrain, Terrain::Land | Terrain::Coast) {
+        if !matches!(tile.terrain, Terrain::Land | Terrain::Coast)
+            && !also_on.contains(&tile.terrain)
+        {
             Some(Blocker::Terrain)
         } else if tile.resource.is_some() && self.clear_target(pos, defs).is_err() {
             Some(Blocker::Resource)
@@ -455,7 +463,7 @@ impl World {
         let (w, h) = def.footprint;
         let foot = Footprint::new(anchor, w, h);
         foot.tiles()
-            .find_map(|at| self.build_blocker(at, defs).map(|why| (at, why)))
+            .find_map(|at| self.build_blocker_on(at, &def.also_on, defs).map(|why| (at, why)))
             .or_else(|| self.entrance_blocker(foot, def.capacity > 0, defs))
             .or_else(|| self.beside_blocker(foot, def))
             .or_else(|| self.far_blocker(foot, def))

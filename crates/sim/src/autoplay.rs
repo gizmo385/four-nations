@@ -1329,21 +1329,8 @@ mod tests {
     /// puts its pick first once the pick's prereqs are known, not before.
     #[test]
     fn the_research_order_skips_a_closed_option_and_takes_the_school_pick_first() {
-        let mut files = crate::defs::BUNDLED_FILES;
-        let tech = |id: &str| {
-            format!(
-                "[[tech]]\nid = \"{id}\"\nname = \"{id}\"\ndescription = \"\"\nnation = \"earth\"\n\
-                 cost = 1000\nprereqs = [\"earth_shaping\"]\nschool = \"city\"\n"
-            )
-        };
-        let research = format!(
-            "{}\n[[school]]\nid = \"city\"\nnation = \"earth\"\nquestion = \"Which city?\"\n{}{}",
-            files[3],
-            tech("ring"),
-            tech("rail")
-        );
-        files[3] = &research;
-        let defs = Defs::from_files(files).unwrap();
+        // Earth's bundled school (#721, #722).
+        let defs = Defs::bundled();
         let size = defs.embark.map_size("small").unwrap();
         let cfg = MapGenConfig {
             seed: 7,
@@ -1351,8 +1338,9 @@ mod tests {
             height: size.height,
             ..MapGenConfig::default()
         };
-        let (ring, rail) = (defs.tech_id("ring").unwrap(), defs.tech_id("rail").unwrap());
-        let shaping = defs.tech_id("earth_shaping").unwrap();
+        let ring = defs.tech_id("agrarian_ring").unwrap();
+        let rail = defs.tech_id("metal_city").unwrap();
+        let shaping = defs.tech_id("metalbending").unwrap();
         let fire_making = defs.tech_id("fire_making").unwrap();
 
         let mut world = World::new(&cfg, Nation::Earth, 6, &defs);

@@ -254,6 +254,9 @@ pub enum Feature {
     /// A Fish order on any `[shore_fishing]` water tile with a walkable neighbour
     /// (`southern_ways`, #727).
     ShoreFishing,
+    /// A closed ring of `[enclosure] walls` shelters what's inside from winter
+    /// (`agrarian_ring`, #721, `World::is_sheltered`).
+    ShelteredRings,
 }
 
 /// One `[[tech.unlocks.upgrades]]` entry: a building and exactly one property to raise: `seats`
@@ -288,6 +291,10 @@ pub struct Upgrade {
     /// is cold once the tech is known: 1 to 12 (`southern_ways`'s Waystation, #727).
     #[serde(default)]
     pub shelter: Option<u32>,
+    /// Replaces a power source's `boost` once the tech is known: 1.0 to 4.0 (`metal_city`'s Hot
+    /// Spring Mill, #722).
+    #[serde(default)]
+    pub boost: Option<f32>,
 }
 
 /// A school: one permanent fork in a nation's tree (`[[school]]` in `data/research.toml`,

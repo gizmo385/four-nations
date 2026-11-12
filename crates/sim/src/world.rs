@@ -38,6 +38,7 @@ mod chute;
 mod command;
 mod deconstruct;
 mod draw;
+mod enclosure;
 mod endeavor;
 mod events;
 mod farm;
@@ -61,6 +62,8 @@ mod pickers;
 mod population;
 mod power;
 mod probe;
+#[cfg(test)]
+mod rail_tests;
 mod season;
 #[cfg(test)]
 mod southern_tests;
@@ -492,6 +495,9 @@ pub struct World {
     /// The walking cost from each pair end to every tile, per map revision (`linkfield.rs`).
     #[serde(skip)]
     link_fields: linkfield::LinkFields,
+    /// Which tiles a closed ring of walls shelters (`enclosure.rs`, #721): rebuilt, never saved.
+    #[serde(skip)]
+    enclosure: Option<enclosure::Enclosure>,
     /// A v1 to v3 save's bends (#605): merged into `events` on load, never written.
     #[serde(default, skip_serializing, rename = "bend_events")]
     v3_bend_events: Vec<BendEvent>,
@@ -674,6 +680,7 @@ impl World {
             step_grids: work::StepGrids::default(),
             chute_walks: BTreeMap::new(),
             link_fields: linkfield::LinkFields::default(),
+            enclosure: None,
             v3_bend_events: Vec::new(),
             patches: Vec::new(),
             reverts: Vec::new(),
@@ -1013,6 +1020,7 @@ impl World {
         for c in completed {
             self.log_event(c);
         }
+        self.refresh_enclosure(defs);
         self.tick_scribing(defs);
         self.tick_needs(defs);
         self.tick_season(defs);
@@ -1124,7 +1132,8 @@ impl World {
             let cold = in_winter
                 && self.climate_at(u.pos, defs).is_some_and(|c| c.cold)
                 && !self.is_heated(u.pos)
-                && !self.is_sheltered(u.pos, defs);
+                && !self.camp_shelters(u.pos, defs)
+                && !self.ring_keeps_cold_off(u.pos, defs);
             let (cold_hunger, cold_energy, cold_sleep) = if cold {
                 let c = &defs.seasons.cold;
                 let scale = |m: f32| 1.0 + (m - 1.0) * winter_severity;

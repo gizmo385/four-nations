@@ -172,6 +172,8 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         shelter_upgrade: None,
         endeavor: false,
         beside: None,
+        also_on: Vec::new(),
+        boost_upgrade: None,
         aura: None,
         landmark: false,
     });

@@ -123,12 +123,13 @@ impl World {
             && self.season(defs).winter
             && self.climate_at(pos, defs).is_some_and(|c| c.cold)
             && !self.is_heated(pos)
-            && !self.is_sheltered(pos, defs)
+            && !self.camp_shelters(pos, defs)
+            && !self.ring_keeps_cold_off(pos, defs)
     }
 
     /// Whether `pos` is within the radius of a finished building whose `shelter` upgrade is
     /// known (`southern_ways`'s Waystation, #727): nobody there is cold.
-    pub fn is_sheltered(&self, pos: Pos, defs: &Defs) -> bool {
+    pub fn camp_shelters(&self, pos: Pos, defs: &Defs) -> bool {
         if !self.has_kind(Kind::Shelter) {
             return false;
         }
@@ -162,7 +163,9 @@ impl World {
             return defs.seasons.calendar.hardy_winter_growth;
         }
         let g = self.climate_at(pos, defs).map_or(1.0, |c| c.winter_growth);
-        (1.0 - (1.0 - g) * knobs.winter_severity).max(0.0)
+        let band = (1.0 - (1.0 - g) * knobs.winter_severity).max(0.0);
+        // Inside a closed ring (#721): never below the ring's own winter growth.
+        self.ring_winter_growth(pos, defs).map_or(band, |r| band.max(r))
     }
 
     /// Fires season events and the first frost. A no-op with `seasons` off.
@@ -217,6 +220,9 @@ impl World {
             if h.frost_hardy || !defs.seasons.climate_for(tile.temperature).frost {
                 continue;
             }
+            if self.ring_spares_frost(pos, defs) {
+                continue;
+            }
             hit.push((pos, seconds * regrow_knob));
         }
         let mut count = hit.len() as u32;
@@ -230,6 +236,7 @@ impl World {
                 b.plot.as_ref().is_some_and(|p| p.stage == PlotStage::Ripe)
                     && self.climate_at(b.anchor, defs).is_some_and(|c| c.frost)
                     && !self.frost_spares(b.anchor, defs)
+                    && !self.ring_spares_frost(b.anchor, defs)
             })
             .map(|b| b.anchor)
             .collect();
