@@ -5,6 +5,7 @@ mod camera;
 mod cells;
 mod frame;
 mod glyphs;
+mod inspector;
 mod keys;
 mod page;
 mod semantic;

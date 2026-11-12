@@ -14,23 +14,19 @@
 //!   While a tool is active the cursor is what the tool acts on, so the inspector describes it
 //!   (with the Build tool's "Can build here" first) even with a settler still selected.
 //!
+//! What it says is `fn_ui::inspector` (#882: the windowed frontend shows the same model); this
+//! module wraps and fits it to cells.
+//!
 //! The cursor's position is said once: in the heading for a tile, on the "Standing on" line for
 //! a settler. With too little room, rows go from the bottom: the tile line first, then the rank
 //! progress, then the meters from the last up; blank rows between groups go before any text.
 
-use fn_sim::Pos;
 use fn_sim::building::BuildingId;
-use fn_sim::world::{BuildError, CommandError, EndeavorError, Task, Unit};
-use fn_ui::build;
-use fn_ui::inspect::{Line, ground_phrase, tile_lines, tooltip_lines};
-use fn_ui::text::describe_stack;
-use fn_ui::view::{Status, UnitView, unit_view};
-use fn_ui::{Session, Tool};
+use fn_ui::Session;
+use fn_ui::inspector::{Floor, Inspected, Part};
 
-use crate::panel::hint_text;
 use crate::state::UiState;
 use crate::widgets::{Marks, Row, Tone, fit, meter, wrap};
-pub use fn_ui::view::settler_view;
 
 /// A meter bar is this many cells.
 const BAR_CELLS: usize = 10;
@@ -39,8 +35,6 @@ const LABEL: usize = 6;
 /// The most lines a paragraph wraps to. Generous: the inspector wraps rather than cuts, and the
 /// fitting drops whole groups of rows when the panel is short.
 const WRAP_LINES: usize = 8;
-/// The most rows of a tile the sections above leave it before they give up their own.
-const TILE_FLOOR: usize = 3;
 
 /// One meter as a row: `Hunger ███████░░░  72%`, then ` low` in the warning's tone when it is
 /// not ok. The cells are the game's one meter (`crate::widgets::meter`, #654): the whole bar
@@ -58,17 +52,6 @@ pub fn meter_row(label: &str, frac: f32, tone: Tone, low: bool, marks: &Marks) -
         spans.push((" low".to_owned(), tone));
     }
     Row::spans(spans)
-}
-
-/// The meters, top to bottom: health, hunger, thirst, energy, then chi.
-pub fn meter_rows(view: &UnitView, marks: &Marks) -> Vec<Row> {
-    let mut rows: Vec<Row> = view
-        .needs
-        .iter()
-        .map(|n| meter_row(n.label, n.frac, Tone::of(n.status), n.status != Status::Ok, marks))
-        .collect();
-    rows.push(meter_row("Chi", view.chi_frac, Tone::Accent, false, marks));
-    rows
 }
 
 /// What the inspector shows, before it knows how many rows it gets.
@@ -180,7 +163,8 @@ pub fn fit_blocks(blocks: &[Vec<Row>], keep: usize, rows: usize) -> Vec<Row> {
     out
 }
 
-/// The inspector for the current selection, cursor and tool, with rows `width` cells wide.
+/// The inspector for the current selection, cursor and tool, with rows `width` cells wide: the
+/// model (`fn_ui::inspector::inspect`) wrapped and drawn as cells.
 pub fn inspect(
     session: &Session,
     ui: &UiState,
@@ -188,12 +172,7 @@ pub fn inspect(
     width: usize,
     marks: &Marks,
 ) -> Inspector {
-    let settler = if ui.tool == Tool::Select { ui.selected_unit(session) } else { None };
-    match settler {
-        Some(unit) if unit.is_beast() => beast_inspector(session, unit, width, marks),
-        Some(unit) => settler_inspector(session, unit, width, marks),
-        None => tile_inspector(session, ui, choice, width, marks),
-    }
+    lay_out(&fn_ui::inspector::inspect(session, ui, choice), width, marks)
 }
 
 /// Wraps `text` and puts `tail` on its last line if it fits there, else on a line of its own,
@@ -210,239 +189,52 @@ fn wrap_with_tail(text: &str, tail: &str, width: usize, ellipsis: char) -> Vec<S
     lines
 }
 
-/// The look of a task line: the Avatar holding the Harmony Rite (#238, #242) is bold on the
-/// nation's accent, so the Avatar State reads apart from anything else he could be doing.
-fn task_tone(is_avatar: bool, task: Option<Task>) -> Tone {
-    if is_avatar && task == Some(Task::Rite) { Tone::Avatar } else { Tone::Text }
-}
-
-/// A selected settler: the old selection bar's rows (task, carrying, meters, rank progress and
-/// the tile) as the inspector's groups.
-fn settler_inspector(session: &Session, unit: &Unit, width: usize, marks: &Marks) -> Inspector {
-    let view = settler_view(session, unit);
-    let paragraph = |text: &str, tone: Tone| -> Vec<Row> {
-        wrap(text, width, WRAP_LINES, marks.ellipsis)
-            .into_iter()
-            .map(|l| Row::text(l, tone))
-            .collect()
-    };
-    let mut doing = Vec::new();
-    // The Avatar belongs to no nation of his own, so the panel's nation is not his: say whose
-    // guest he is.
-    if unit.is_avatar() {
-        let mut guest = view.nation.clone();
-        if let Some(first) = guest.get_mut(..1) {
-            first.make_ascii_uppercase();
-        }
-        doing.extend(paragraph(&guest, Tone::Dim));
-    }
-    doing.extend(paragraph(&view.task, task_tone(unit.is_avatar(), unit.task())));
-    doing.push(Row::text(format!("Carrying {}", view.carrying), Tone::Text));
-    let meters = meter_rows(&view, marks);
-    let floor = doing.len() + meters.len();
-    let rank = paragraph(&view.mastery_line, Tone::Text);
-    let tail = format!("({}, {})", view.tile.x, view.tile.y);
-    let standing = match &view.inside {
-        Some(building) => format!("In the {building}"),
-        None => {
-            let ground = ground_phrase(session, view.tile).unwrap_or_default().to_lowercase();
-            format!("Standing on {ground}")
-        }
-    };
-    let standing: Vec<Row> = wrap_with_tail(&standing, &tail, width, marks.ellipsis)
-        .into_iter()
-        .map(|l| Row::text(l, Tone::Dim))
-        .collect();
-    Inspector::new(
-        view.name.clone(),
-        view.rank_title.clone(),
-        vec![doing, meters, rank, standing],
-        width,
-        (floor, 2),
-        marks,
-    )
-}
-
-/// A selected beast (#699): its row's name, what it is doing and carrying, its home and the
-/// home's food, and the tile it stands on. It has no meters, rank or chi to show: a beast has no
-/// needs, and never bends or learns.
-fn beast_inspector(session: &Session, unit: &Unit, width: usize, marks: &Marks) -> Inspector {
-    let paragraph = |text: &str, tone: Tone| -> Vec<Row> {
-        wrap(text, width, WRAP_LINES, marks.ellipsis)
-            .into_iter()
-            .map(|l| Row::text(l, tone))
-            .collect()
-    };
-    let view = unit_view(session, unit);
-    let mut doing = paragraph(&view.task, Tone::Text);
-    doing.push(Row::text(format!("Carrying {}", view.carrying), Tone::Text));
-    let home: Vec<Row> = fn_ui::inspect::beast_home_lines(session, unit)
-        .iter()
-        .flat_map(|line| paragraph(line, Tone::Text))
-        .collect();
-    let tail = format!("({}, {})", view.tile.x, view.tile.y);
-    let ground = ground_phrase(session, view.tile).unwrap_or_default().to_lowercase();
-    let standing: Vec<Row> =
-        wrap_with_tail(&format!("Standing on {ground}"), &tail, width, marks.ellipsis)
-            .into_iter()
-            .map(|l| Row::text(l, Tone::Dim))
-            .collect();
-    let floor = doing.len() + home.len();
-    Inspector::new(
-        view.name,
-        "Beast".to_owned(),
-        vec![doing, home, standing],
-        width,
-        (floor, 2),
-        marks,
-    )
-}
-
-/// What the Build tool's choice would do on the cursor's tile: whether it fits, or the reason it
-/// doesn't (`fn_ui::build::placement`), wrapped so a long reason ("would block the Academy's
-/// door") isn't cut short. Empty off the Build tool, or with nothing placeable.
-fn placement_rows(
-    session: &Session,
-    pos: Pos,
-    choice: Option<BuildingId>,
-    width: usize,
-    ellipsis: char,
-) -> Vec<Row> {
-    let Some(choice) = choice else { return Vec::new() };
-    match build::placement(session, pos, choice).refused {
-        None => vec![Row::text("Can build here", Tone::Ok)],
-        Some(why) => {
-            let why = build::describe_error(session, CommandError::Build(why));
-            wrap(&format!("Can't build here: {why}"), width, WRAP_LINES, ellipsis)
-                .into_iter()
-                .map(|l| Row::text(l, Tone::Warn))
-                .collect()
-        }
-    }
-}
-
-/// Whether the gate fits with the cursor on `pos` (#643, `fn_ui::gate::placement`), or why not,
-/// as [`placement_rows`] says it for the Build tool's choice.
-fn gate_placement_rows(session: &Session, pos: Pos, width: usize, ellipsis: char) -> Vec<Row> {
-    let Some(placement) = fn_ui::gate::placement(session, pos) else { return Vec::new() };
-    let why = match placement.refused {
-        None => return vec![Row::text("Can place the gate here", Tone::Ok)],
-        Some(BuildError::CannotBuild { at, why }) => {
-            fn_ui::gate::describe_error(session, EndeavorError::CannotBuild { at, why })
-        }
-        Some(_) => fn_ui::gate::describe_error(session, EndeavorError::NotReady),
-    };
-    wrap(&format!("Can't place the gate here: {why}"), width, WRAP_LINES, ellipsis)
-        .into_iter()
-        .map(|l| Row::text(l, Tone::Warn))
-        .collect()
-}
-
-/// What a stockpile zone on `pos` holds, in words: "Wood 20 of 20, full", "Wood 12 of 20" or
-/// "Empty". `None` where there is no zone and nothing stored.
-fn stockpile_text(session: &Session, pos: Pos) -> Option<String> {
-    let (world, defs) = (&session.world, &session.defs);
-    let cap = defs.jobs.stockpile_stack;
-    match world.stored_at(pos) {
-        Some(s) => {
-            let full = if s.count >= cap { ", full" } else { "" };
-            Some(format!("{} {} of {cap}{full}", defs.item(s.item).name, s.count))
-        }
-        None if world.stockpile_zones().any(|q| q == pos) => Some("Empty".to_owned()),
-        None => None,
-    }
-}
-
-/// What is under the cursor: whether the Build tool's choice would fit there, then the tile's
-/// own tooltip, then anything else lying on it. What `Enter` does next in a tool is the active
-/// tool banner's own line (#307, `crate::banner`), not repeated here.
-///
-/// The heading is the first thing the tooltip names -- a settler standing there, a building, a
-/// resource or the terrain -- and the cursor's position; a stockpile zone takes the heading
-/// itself ("STOCKPILE") with what it holds first and the terrain under it after. The unit
-/// standing there, if any, is the tooltip's own job (`tooltip_lines`) -- unless it is the unit
-/// already selected, which falls back to the tile's own lines (`tile_lines`, #418).
-fn tile_inspector(
-    session: &Session,
-    ui: &UiState,
-    choice: Option<BuildingId>,
-    width: usize,
-    marks: &Marks,
-) -> Inspector {
-    let pos = ui.cursor;
-    let ellipsis = marks.ellipsis;
-    let paragraph = |text: &str, tone: Tone| -> Vec<Row> {
-        wrap(text, width, WRAP_LINES, ellipsis).into_iter().map(|l| Row::text(l, tone)).collect()
-    };
-    let mut lead = Vec::new();
-    if ui.tool == Tool::Build {
-        lead.extend(placement_rows(session, pos, choice, width, ellipsis));
-    }
-    if ui.tool == Tool::Gate {
-        lead.extend(gate_placement_rows(session, pos, width, ellipsis));
-    }
-    let unit_here = session.world.units_at(pos).next();
-    let selected_here = unit_here.is_some_and(|u| Some(u.id) == ui.selected);
-    let mut lines = if selected_here {
-        tile_lines(session, ui.tool, pos).unwrap_or_default()
-    } else {
-        tooltip_lines(session, ui.tool, pos).unwrap_or_default()
-    };
-    let shows_unit = unit_here.is_some() && !selected_here;
-    // The tile's own stockpile line is said in words below, and a building's "Built (x, y)" (its
-    // anchor, for the agent's tooltip) is a position again: the heading has the cursor's.
-    lines.retain(
-        |l| !matches!(l, Line::Detail(d) if d.starts_with("Stockpile") || d.starts_with("Built (")),
-    );
-    // The tooltip names the top thing on the tile; the section lists what else is there.
-    if let Some((_, stack)) = session.world.ground_items().find(|&(q, _)| q == pos) {
-        lines.push(Line::Detail(format!(
-            "On the ground: {}",
-            describe_stack(&session.defs, Some(stack))
-        )));
-    }
-    let mut title = None;
-    let mut stock_rows = Vec::new();
-    if let Some(text) = stockpile_text(session, pos) {
-        if shows_unit {
-            // A settler's tooltip owns the heading; the zone is one more line.
-            lines.push(Line::Detail(format!("Stockpile: {text}")));
-        } else {
-            title = Some("Stockpile".to_owned());
-            stock_rows = paragraph(&text, Tone::Text);
-        }
-    }
-    // The first title is the heading, unless the stockpile has taken it: then it is the terrain
-    // line under what the zone holds.
+/// A group of the model as rows `width` cells wide: paragraphs wrapped, a meter as its bar.
+fn rows_of(parts: &[Part], width: usize, marks: &Marks) -> Vec<Row> {
     let mut rows = Vec::new();
-    for line in lines {
-        match line {
-            Line::Title(s) if title.is_none() => title = Some(s),
-            Line::Title(s) => rows.extend(paragraph(&s, Tone::Strong)),
-            Line::Detail(s) => rows.extend(paragraph(&s, Tone::Text)),
-            Line::Hint(h) => {
-                if let Some(s) = hint_text(h) {
-                    rows.push(Row::text(s, Tone::Dim));
-                }
+    for part in parts {
+        match part {
+            Part::Text(text, tone) => rows.extend(
+                wrap(text, width, WRAP_LINES, marks.ellipsis)
+                    .into_iter()
+                    .map(|l| Row::text(l, *tone)),
+            ),
+            Part::Line(text, tone) => rows.push(Row::text(text.clone(), *tone)),
+            Part::Standing { text, tail } => rows.extend(
+                wrap_with_tail(text, tail, width, marks.ellipsis)
+                    .into_iter()
+                    .map(|l| Row::text(l, Tone::Dim)),
+            ),
+            Part::Meter { label, frac, tone, low } => {
+                rows.push(meter_row(label, *frac, *tone, *low, marks));
             }
         }
     }
-    // A building with anyone inside lists them last ("Mai, studying", #226, #229): `Enter`
-    // cycles onto one the same way it cycles several units sharing a tile (`UiState::select_here`).
-    for occupant in build::occupant_rows(session, pos) {
-        rows.push(Row::text(occupant.text(), Tone::Text));
-    }
-    let head: Vec<Row> = lead.into_iter().chain(stock_rows).collect();
-    let blocks = if head.is_empty() { vec![rows] } else { vec![head, rows] };
-    let right = format!("({}, {})", pos.x, pos.y);
-    let floor = blocks.iter().map(Vec::len).sum::<usize>().min(TILE_FLOOR);
-    let title = title.unwrap_or_else(|| "Nothing".to_owned());
-    Inspector::new(title, right, blocks, width, (floor, 1), marks)
+    rows
+}
+
+/// The model laid out for rows `width` cells wide.
+pub fn lay_out(model: &Inspected, width: usize, marks: &Marks) -> Inspector {
+    let blocks: Vec<Vec<Row>> = model.groups.iter().map(|g| rows_of(g, width, marks)).collect();
+    let floor = match model.floor {
+        Floor::Keep => blocks.iter().take(model.keep).map(Vec::len).sum(),
+        Floor::Few(n) => blocks.iter().map(Vec::len).sum::<usize>().min(n),
+    };
+    Inspector::new(
+        model.title.clone(),
+        model.right.clone(),
+        blocks,
+        width,
+        (floor, model.keep),
+        marks,
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use fn_sim::Nation;
+    use fn_sim::{Nation, Pos};
+    use fn_ui::Tool;
+    use fn_ui::view::unit_view;
 
     use super::*;
 
@@ -460,27 +252,6 @@ mod tests {
         assert_eq!((ok.left[1].1, ok.left[2].1), (Tone::Ok, Tone::Dim));
         assert_eq!((low.left[1].1, low.left[2].1), (Tone::Bad, Tone::Bad));
         assert_eq!(low.left[5], (" low".to_owned(), Tone::Bad));
-    }
-
-    #[test]
-    fn a_unit_s_meters_flag_exactly_the_ones_that_are_not_ok() {
-        let mut s = Session::new(7, Nation::Earth, 48, 32);
-        let id = s.world.units[0].id;
-        s.world.units[0].needs.energy = 0.0;
-        let unit = s.world.units.iter().find(|u| u.id == id).unwrap();
-        let view = unit_view(&s, unit);
-        let rows = meter_rows(&view, &Marks::new(false));
-        assert_eq!(rows.len(), 5, "health, hunger, thirst, energy and chi");
-        let flagged: Vec<&str> = view
-            .needs
-            .iter()
-            .zip(&rows)
-            .filter(|(_, r)| r.plain().ends_with(" low"))
-            .map(|(n, _)| n.label)
-            .collect();
-        assert_eq!(flagged, ["Energy"]);
-        assert!(!rows[4].plain().ends_with(" low"), "chi never warns");
-        assert!(rows[4].plain().starts_with("Chi"));
     }
 
     /// The heading names the settler and its rank's own title (`docs/design/bending.md` "Seeing
@@ -530,15 +301,6 @@ mod tests {
         // Fewer than the meters take: the last meters go first.
         let cut = text(5);
         assert!(cut.contains("Hunger") && !cut.contains("Chi"), "{cut}");
-    }
-
-    /// The Harmony Rite's Avatar State (#238, #242) marks the task line apart: bold, on the
-    /// nation's accent; anything else keeps the plain look.
-    #[test]
-    fn the_avatar_state_marks_the_task_line_apart() {
-        assert_eq!(task_tone(true, Some(Task::Rite)), Tone::Avatar);
-        assert_eq!(task_tone(true, None), Tone::Text);
-        assert_eq!(task_tone(false, Some(Task::Rite)), Tone::Text);
     }
 
     /// A unit inside a building (#226, #229) reads "In the Academy" in place of its ground.
@@ -691,16 +453,12 @@ mod tests {
         assert_eq!(i.right, "(1, 1)");
     }
 
-    /// The inspector's placement line (#275): `Can build here` where the chosen building
-    /// fits, and `fn_ui::build::describe_error`'s reason where it doesn't; `None` with nothing
-    /// chosen.
+    /// The Build tool's choice on a free tile reads "Can build here" first; a refusal too long for
+    /// the panel wraps onto another row instead of losing its tail.
     #[test]
     fn the_placement_row_says_whether_the_chosen_building_fits() {
-        use fn_sim::Nation;
         let session = Session::new(7, Nation::Earth, 48, 32);
         let bed = session.defs.building_id("bed").unwrap();
-        assert!(placement_rows(&session, Pos::new(-1, -1), None, 30, '…').is_empty());
-
         let free = session
             .world
             .map
@@ -712,17 +470,18 @@ mod tests {
             })
             .map(|(p, _)| p)
             .unwrap();
-        let ok = placement_rows(&session, free, Some(bed), 30, '…');
-        assert_eq!(ok.len(), 1);
-        assert_eq!(ok[0].plain(), "Can build here");
+        let mut ui = UiState::new(&session, (120, 40));
+        ui.cursor = free;
+        ui.tool = fn_ui::Tool::Build;
+        let rows = inspect(&session, &ui, Some(bed), 30, &Marks::new(false)).all_rows();
+        assert_eq!(rows[0].plain(), "Can build here");
+        let none = inspect(&session, &ui, None, 30, &Marks::new(false)).all_rows();
+        assert_ne!(none[0].plain(), "Can build here");
 
-        let off_map = placement_rows(&session, Pos::new(-1, -1), Some(bed), 60, '…');
-        assert_eq!(off_map.len(), 1);
-        assert_eq!(off_map[0].plain(), "Can't build here: off the map");
-
-        // Too long for the panel, the reason wraps onto another row instead of losing its tail.
-        let narrow = placement_rows(&session, Pos::new(-1, -1), Some(bed), 20, '…');
+        let long = Part::Text("Can't build here: off the map".to_owned(), Tone::Warn);
+        let narrow = rows_of(&[long], 20, &Marks::new(false));
         let text: Vec<_> = narrow.iter().map(Row::plain).collect();
         assert_eq!(text.join(" "), "Can't build here: off the map", "{text:?}");
+        assert!(narrow.len() > 1);
     }
 }

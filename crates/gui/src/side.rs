@@ -7,9 +7,9 @@
 //!   the panel scrolls).
 //! - **ALERTS**: each open alert whole, wrapped; a click is the message log's `Enter` on it.
 //! - **The tool section**: the active tool's groups of lines, or the tool list (`/`).
-//! - **The inspector** is still the terminal's (#882 converts it): its rows are painted as cells
-//!   in a slot under the native sections, with its heading the native kind, and it never
-//!   scrolls: it takes at most two fifths of the panel and the rest is the sections'.
+//! - **The inspector** ([`crate::inspector`], #882) closes the panel above the seed line: its
+//!   heading is pinned and its body scrolls in a slot of its own, at most two fifths of the
+//!   panel, so it is never trimmed and the sections above keep the rest.
 //!
 //! The panel never touches the game. A click returns the keys it stands for ([`Clicks`]), and
 //! the window feeds them to the shell as if typed (docs/design/egui-frontend.md, "Mouse"): the
@@ -26,9 +26,8 @@ use eframe::egui::{
     ScrollArea, Sense, Stroke, Ui, UiBuilder, vec2,
 };
 use fn_tui::color::Palette;
-use fn_tui::inspector::inspect;
 use fn_tui::panel::tool_tint;
-use fn_tui::widgets::{Marks, Painter, Row, Tone, ToneStyle};
+use fn_tui::widgets::{Marks, Row, Tone, ToneStyle};
 use fn_ui::alerts::Toast;
 use fn_ui::app::App;
 use fn_ui::keyev::{KeyCode, KeyEvent, KeyModifiers};
@@ -37,13 +36,13 @@ use fn_ui::panel::{
     AlertsSection, ChoiceTones, SETTLEMENT_KEY, Settlement, SidePanel, ToolLine, ToolSection,
 };
 use fn_ui::state::UiState;
-use ratatui::buffer::Buffer;
 
-use crate::cells::{self, CellLayout, Metrics};
+use crate::cells::Metrics;
 use crate::color::to_egui;
+use crate::inspector;
 
-/// How much of the panel's height the terminal's inspector may take, as a fraction: two fifths.
-const INSPECTOR_SHARE: (usize, usize) = (2, 5);
+/// How much of the panel's height the inspector may take, as a fraction: two fifths.
+const INSPECTOR_SHARE: (f32, f32) = (2.0, 5.0);
 /// The panel's padding, in points.
 const PAD: i8 = 6;
 
@@ -82,15 +81,17 @@ pub fn alert_keys(ui: &UiState, toast: &Toast) -> Clicks {
 }
 
 /// What every widget of one frame needs to know.
-struct Look<'a> {
-    palette: &'a Palette,
-    font: FontId,
+pub(crate) struct Look<'a> {
+    pub(crate) palette: &'a Palette,
+    pub(crate) font: FontId,
     /// A row of text, in points.
-    ch: f32,
+    pub(crate) ch: f32,
+    /// A cell's width, in points.
+    pub(crate) cw: f32,
     /// The panel's width in cells: when a pair of texts is too wide for it, they take a row each.
-    cols: usize,
-    panel: Color32,
-    rule: Color32,
+    pub(crate) cols: usize,
+    pub(crate) panel: Color32,
+    pub(crate) rule: Color32,
     /// Counts the clickable widgets, for their ids.
     next: Cell<u32>,
 }
@@ -102,7 +103,7 @@ impl Look<'_> {
         ui.make_persistent_id(("side-row", n))
     }
 
-    fn format(&self, tone: Tone) -> TextFormat {
+    pub(crate) fn format(&self, tone: Tone) -> TextFormat {
         let style = tone.style(self.palette);
         let colour = |c| to_egui(c, Color32::WHITE);
         TextFormat {
@@ -118,7 +119,7 @@ impl Look<'_> {
         }
     }
 
-    fn job(&self, spans: &[(String, Tone)]) -> LayoutJob {
+    pub(crate) fn job(&self, spans: &[(String, Tone)]) -> LayoutJob {
         let mut job = LayoutJob::default();
         for (text, tone) in spans {
             job.append(text, 0.0, self.format(*tone));
@@ -126,7 +127,7 @@ impl Look<'_> {
         job
     }
 
-    fn text(&self, text: &str, tone: Tone) -> LayoutJob {
+    pub(crate) fn text(&self, text: &str, tone: Tone) -> LayoutJob {
         self.job(&[(text.to_owned(), tone)])
     }
 }
@@ -137,14 +138,7 @@ fn chars(spans: &[(String, Tone)]) -> usize {
 
 /// Draws the panel into `ui`, the side panel's slot, and returns the keys its clicks stand for.
 /// `live` is false while a box or screen has the keys: the panel still shows but takes no click.
-pub fn show(
-    ui: &mut Ui,
-    app: &App,
-    palette: &Palette,
-    metrics: &Metrics,
-    live: bool,
-    inspector_ms: &mut f32,
-) -> Clicks {
+pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics, live: bool) -> Clicks {
     let model = model(app, palette);
     let fill = |rgb| to_egui(palette.token(rgb), Color32::BLACK);
     let mut clicks = Clicks::new();
@@ -154,6 +148,7 @@ pub fn show(
             palette,
             font: metrics.font.clone(),
             ch: metrics.cell.y,
+            cw: metrics.cell.x,
             cols: metrics.grid_in(vec2(width, 0.0)).0 as usize,
             panel: fill(palette.theme.panel),
             rule: fill(palette.theme.accent_soft),
@@ -161,23 +156,30 @@ pub fn show(
         };
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
 
-        // The inspector's rows are the terminal's (#882): fitted into the slot under the
-        // native sections, which scroll in what is left.
-        let marks = Marks::new(palette.ascii);
-        let inspector = inspect(&app.session, &app.ui, model.choice, look.cols, &marks);
-        let total = ui.available_height();
-        let rows = (total / look.ch).floor() as usize;
-        let share = rows * INSPECTOR_SHARE.0 / INSPECTOR_SHARE.1;
-        // Its heading, its first rows, and a line for the seed under them.
-        let wanted = 1 + inspector.all_rows().len();
-        let slot = wanted.min(share.max(4)).min(rows.saturating_sub(6));
-        let top = (total - (slot + 1) as f32 * look.ch).max(look.ch * 4.0);
-
-        ScrollArea::vertical()
-            .id_salt("side-sections")
-            .max_height(top)
-            .auto_shrink([false, false])
+        let inspected = fn_ui::inspector::inspect(&app.session, &app.ui, model.choice);
+        // The foot first, so what is left is the sections': a bottom panel as tall as its content
+        // (the inspector's heading, its body, the seed line), the body scrolling past two fifths
+        // of the panel.
+        let cap = ui.available_height() * INSPECTOR_SHARE.0 / INSPECTOR_SHARE.1;
+        egui::Panel::bottom("side-foot")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE)
             .show(ui, |ui| {
+                inspector::title(ui, &look, &inspected);
+                ScrollArea::vertical()
+                    .id_salt("side-inspector")
+                    .max_height(cap)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| inspector::body(ui, &look, &inspected));
+                let seed = look.text(&model.footer, Tone::Dim);
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    ui.add(Label::new(seed).selectable(false));
+                });
+            });
+        ScrollArea::vertical().id_salt("side-sections").auto_shrink([false, false]).show(
+            ui,
+            |ui| {
                 title(ui, &look, &model.title);
                 header(ui, &look, &model, app.session.clock.paused, &mut clicks);
                 glance(ui, &look, &model.settlement, &mut clicks);
@@ -185,26 +187,8 @@ pub fn show(
                 if let Some(tool) = &model.tool {
                     tool_section(ui, &look, tool, &mut clicks);
                 }
-            });
-
-        let started = web_time::Instant::now();
-        let fitted = inspector.fitted(slot.saturating_sub(1));
-        heading(ui, &look, &fitted.title, &fitted.right, Tone::Heading, None, &mut clicks);
-        let rect = ui.allocate_space(vec2(width, fitted.rows.len().max(1) as f32 * look.ch)).1;
-        let area =
-            ratatui::layout::Rect::new(0, 0, look.cols as u16, fitted.rows.len().max(1) as u16);
-        let mut buf = Buffer::empty(area);
-        let mut p = Painter::new(&mut buf, area, palette);
-        for row in &fitted.rows {
-            p.row(row);
-        }
-        cells::paint(&ui.painter_at(rect), rect.min, metrics, &CellLayout::new(&buf));
-        *inspector_ms = started.elapsed().as_secs_f32() * 1000.0;
-
-        let seed = look.text(&model.footer, Tone::Dim);
-        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.add(Label::new(seed).selectable(false));
-        });
+            },
+        );
     });
     if !live {
         clicks.clear();
@@ -312,6 +296,21 @@ fn heading(
     click: Option<char>,
     clicks: &mut Clicks,
 ) {
+    heading_cased(ui, look, (title, true), right, tone, click, clicks);
+}
+
+/// [`heading`], with the title's case chosen: `(title, upper)`. The inspector's heading is a
+/// name, which reads as one in its own case.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn heading_cased(
+    ui: &mut Ui,
+    look: &Look<'_>,
+    (title, upper): (&str, bool),
+    right: &str,
+    tone: Tone,
+    click: Option<char>,
+    clicks: &mut Clicks,
+) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), look.ch), Sense::hover());
     ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0, look.rule));
     let gap = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| {
@@ -322,7 +321,8 @@ fn heading(
         |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             gap(ui, &mut |ui| {
-                ui.add(Label::new(look.text(&title.to_uppercase(), tone)).selectable(false));
+                let title = if upper { title.to_uppercase() } else { title.to_owned() };
+                ui.add(Label::new(look.text(&title, tone)).selectable(false));
             });
             if right.is_empty() {
                 return;

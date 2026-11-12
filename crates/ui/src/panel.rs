@@ -8,7 +8,7 @@
 //! tool's description, how many materials share a row, what folds into "and 3 more, press L",
 //! and which rows a short panel gives up (docs/design/side-panel-v2.md "Zone 1"). The model keeps
 //! the text whole and says which parts are which (an alert is an [`AlertEntry`], a paragraph is
-//! [`ToolLine::Text`]); the inspector, the panel's last section, isn't part of it yet (#882).
+//! [`ToolLine::Text`]); the inspector, the panel's last section, is `crate::inspector`'s (#882).
 
 use fn_sim::building::BuildingId;
 
@@ -36,7 +36,7 @@ pub const SETTLEMENT_KEY: &str = "[N]";
 /// The Alerts section's heading.
 pub const ALERTS_TITLE: &str = "ALERTS";
 
-/// The whole panel but the inspector.
+/// The whole panel but the inspector (`crate::inspector`).
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SidePanel {

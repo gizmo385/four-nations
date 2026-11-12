@@ -37,6 +37,7 @@ pub mod endeavor;
 pub mod gate;
 pub mod input;
 pub mod inspect;
+pub mod inspector;
 pub mod keyev;
 pub mod keys;
 pub mod layout;
