@@ -240,6 +240,8 @@ fn a_taken_deal_is_hauled_and_its_goods_appear_at_the_camp() {
             .map(|(_, s)| s.count)
             .sum();
         assert!(near >= count, "{count} {item:?} by the camp, found {near}");
+        // A bought good counts toward the lifetime tally like a mined one (#834).
+        assert_eq!(w.tallies().harvested(item), count, "{item:?} in the tally");
     }
     assert!(!w.jobs.iter().any(|j| matches!(j.kind, JobKind::Trade { .. })), "nothing owed");
     // Taking a slot past its times is refused.
@@ -365,4 +367,34 @@ fn a_caravan_survives_a_save() {
     let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
     assert_eq!(loaded.caravan(), w.caravan());
     assert!(loaded.caravan_events().eq(w.caravan_events()));
+}
+
+/// The ore sign counts gold ore bought from a caravan (#834): a taken ore deal moves it.
+#[test]
+fn a_taken_ore_deal_moves_the_ore_sign() {
+    let defs = defs_with(false, None);
+    let ore = defs.item_id("gold_ore").unwrap();
+    let wood = defs.item_id("wood").unwrap();
+    // The first visit draws 3 of Fire's 6 deals; find a seed that offers the wood-for-ore one.
+    let (mut w, slot, lot) = (1..60)
+        .find_map(|seed| {
+            let mut w = world(seed, 3, &defs);
+            run(&mut w, &defs, minutes(0.2) + 1);
+            let caravan = w.caravan_def(&defs)?;
+            let (slot, lot) = w.caravan()?.offers.iter().enumerate().find_map(|(n, o)| {
+                let OfferKind::Deal(d) = o.kind else { return None };
+                let deal = &caravan.deals[usize::from(d)];
+                let lot = deal.get.iter().find(|&&(i, _)| i == ore)?.1;
+                deal.give.iter().all(|g| g.accepts(wood)).then_some((n as u8, lot))
+            })?;
+            Some((w, slot, lot))
+        })
+        .expect("some seed offers the ore deal");
+    assert_eq!(w.tallies().harvested(ore), 0);
+    assert_eq!(w.apply(Command::TakeDeal { slot }, &defs), Ok(()));
+    run_until(&mut w, &defs, minutes(7.0), |w| {
+        w.caravan_events().any(|e| matches!(e.kind, CaravanEventKind::DealDone { .. }))
+    });
+    assert!(lot > 0);
+    assert_eq!(w.tallies().harvested(ore), lot, "the lot of ore is in the tally");
 }

@@ -21,8 +21,8 @@
 //! camped, in this order and for as long as the goods can be spared:
 //!
 //! 1. the deals that feed a sign that isn't met yet (the stone sign takes the stone and bricks a
-//!    caravan sells; the ore sign is named too, though a bought ore isn't *mined* and so doesn't
-//!    count toward a harvested tally: pacing.md's "second route to the ore sign" is open work);
+//!    caravan sells; the ore sign is named too: a bought ore counts toward the harvested tally,
+//!    #834, so a caravan's ore is a second route to the sign);
 //! 2. its request, when the goods can be spared (a request's reward is draw or knowledge);
 //! 3. then the deals that spend food or wood, whichever is the more over its threshold.
 //!

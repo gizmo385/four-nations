@@ -410,6 +410,9 @@ impl World {
                     let deal = &caravan.deals[usize::from(d)];
                     for &(item, count) in &deal.get {
                         self.place_ground(camp, Stack { item, count });
+                        // Bought goods count toward the lifetime tally like mined ones, so a
+                        // caravan's ore moves the ore sign (#834).
+                        self.tallies.count_harvest(item, count);
                     }
                     if deal.knowledge > 0 {
                         self.research.add_knowledge(u64::from(deal.knowledge) * 1000);

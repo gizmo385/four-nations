@@ -206,16 +206,16 @@ No death on any of the 256 runs (`no_deaths_by_180` holds).
   misses are runs that never reach 16 (seeds 3, 4 and 6; #395, #397), not runs that come early:
   the median is 102, 110 and 109 (Air, Water, Fire).
 - **Ready in 130-170** moved from 2-8 of 32 to 1-11 of 32 and stays well below 85%, because most
-  runs are held up by a sign that isn't the clock: ore on the hard sites (#834), the food sign
+  runs are held up by a sign that isn't the clock: ore on the hard sites (fixed by #834, next section), the food sign
   (150 in stores against 3 to 8 a head into winter 2), and the stalled openings. Where Ready is
   reached, it is mostly at minute 108 to 150.
 - **Longest gap of 15 or less** is met on 0 to 2 seeds of 32 per nation, both orders. The gap is
   research with nothing to unlock, at minute 54 to 80 between Herbalism and Prospecting (Earth,
   122 to 142, between Paving and Omashu Chutes): #835. Caravans don't count in the timeline, so
   they don't hide it.
-- **Ore on seeds 2 and 6 by minute 150** is not met for any nation. The caravans' gold ore is
-  hauled home but doesn't count toward a sign that tallies ore *mined*, and the lots would be
-  small if it did: #834 (a decision).
+- **Ore on seeds 2 and 6 by minute 150** was not met for any nation here: a caravan's gold ore
+  was hauled home but didn't count toward the ore sign, and the lots were small. #834 fixed both
+  (next section).
 - **Population 16 for the passive player** (`balance economy --beds-only`: beds, one campfire
   lit apart from them, no far foraging, no deals): minute 112 to 162, median 134, 150 or later on 4
   of 22 runs. The economy opening reaches it at 94 to 127 (median 109). The passive player isn't
@@ -226,6 +226,45 @@ whole panel its median is 0 (Air), 5 (Water), 11 (Earth) and 5 (Fire) minutes. I
 because the last sign is the branch, met a tick after its last tech. For the others the last sign is
 usually the food sign, filling toward 150 after the last tech (Earth: 8 of 13 runs, after Paving),
 so the wait is a few minutes of stores filling, not of the clock.
+
+### After #834 (2026-11-11)
+
+A caravan's ore is now a second route to the ore sign, as this doc claimed. Two changes:
+
+- **Bought ore counts.** `settle_offer` adds a deal's `get` to `Tallies::harvested` when the deal
+  completes (the sign's "Ore mined" tally keys on the item, so only gold ore moves it; no other
+  sign tallies a harvested item). The owner's call (#834, option a): ore bought at a camp is ore
+  for the sign. A test (`a_taken_ore_deal_moves_the_ore_sign`) takes the Fire caravan's ore deal
+  and reads the tally.
+- **Bigger lots.** Earth's and Fire's gold ore deals sell 8 ore a take (from 3) at 50 wood (from
+  25) or 12 wares (from 6), twice a visit. Per ore that is a little cheaper in wood (6.25 against
+  8.3) and the wares stay about twice as good as raw wood (12 wares cost about 24 wood). At 3 an
+  ore, 40 ore took ten visits; at 8 it is five takes, which two visits that offer both ore deals
+  cover. Lots of 6 were tried first and left Fire at 7 of 15 hard runs (8 are needed).
+
+Measured as in the section above (seeds 1 to 32, Small, Normal, 180 minutes, `steady`, through
+`balance verdict`, on `main` at `47db3bb` (with #713's opening); "before" is that main, "counted" is
+only the tally change, "lots" is both):
+
+| `ore_by_120`, hard sites, by minute 150 | Air | Water | Earth | Fire |
+|---|---|---|---|---|
+| Before | 6/13 FAIL | 6/16 FAIL | 8/16 pass | 6/15 FAIL |
+| Bought ore counted, lots of 3 | 7/13 pass | 7/16 FAIL | 11/16 pass | 7/15 FAIL |
+| Lots of 6 (Earth, Fire only run) | | | 14/16 pass | 7/15 FAIL |
+| Lots of 8 (this change) | 10/14 pass | 10/16 pass | 14/16 pass | 10/15 pass |
+
+The hard bar is 50% of the hard runs. Earth and Fire now meet it, and Air and Water do too, since
+all four nations buy from an Earth or Fire caravan. The standard bar (85% by minute 120) was met
+by Earth and Fire before and still is (16/16 and 13/13), and Air and Water still pass it
+(10/11 and 12/14). On seed 2 the sign is met at minute 124 (Earth), 125 (Fire), 80 (Air) and 95
+(Water), from never. Seed 6 is better but not met for three nations: Earth buys its way to 35 ore
+by minute 150 and meets the sign at 165, and Air, Water and Fire stall in the opening (#395,
+#397: no wood to pay with), so no lot size can help them there.
+
+Side effects on the other targets are small (pass counts before then after): `wood_at_120` Air
+21/27 to 23/27 (now passes), Water 21/30 to 25/30, Fire 19/28 to 21/28, Earth 25/32 unchanged;
+`ready_window` Air 1/21 to 2/21, Water 11/27 to 12/27, Earth 14/32 to 13/32, Fire 9/26 to 11/26;
+`pop_at_120` and `no_deaths_by_180` unchanged.
 
 ## 1. Growth the player can drive: draw
 
@@ -332,7 +371,8 @@ other nations as friendly neighbors before the United City makes them settlers.
 **What it fixes, in harness terms:**
 
 - On seeds 2 and 6, ore is out of reach on the map for every nation (#396). An Earth or Fire
-  caravan offering ore is a second route to the sign. It doesn't replace #396's data fix.
+  caravan offering ore is a second route to the sign (#834: a deal's `get` counts toward the
+  harvested tally, and the lots are sized for it). It doesn't replace #396's data fix.
 - Fire's bricks and metal (#356) and Earth's tools get a market without adding a new building.
 - Food and wood have a use for the rest of the game, including after the gate.
 
@@ -347,7 +387,7 @@ Endeavor frame above:
 | DEALS                                       Taken     In stores  |+- RESEARCH -------------------+
 | > 30 food for 2 metal                        0/2       212 food  || Tunneling          62/120    |
 |   40 wood for 8 bricks                       1/3       847 wood  || 4.0/min                      |
-|   25 wood for 3 gold ore                     0/2       847 wood  |+- ENDEAVOR ------------- 4/9 -+
+|   50 wood for 8 gold ore                     0/2       847 wood  |+- ENDEAVOR ------------- 4/9 -+
 |                                                                  || Next: 4 more people      [G] |
 | REQUEST                                                          |+- ALERTS ---------------------+
 |   Food for the families at Fire Fountain City                    || Fire Nation traders made     |
@@ -392,8 +432,8 @@ get = [{ item = "metal", count = 2 }]
 times = 2
 
 [[caravan.deal]]
-give = [{ item = "wood", count = 25 }]
-get = [{ item = "gold_ore", count = 3 }]
+give = [{ item = "wood", count = 50 }]
+get = [{ item = "gold_ore", count = 8 }]
 times = 2
 
 [[caravan.request]]
@@ -484,7 +524,7 @@ What this means for the rest of the doc:
 | #380, #402 scrolls | A caravan `chart` reward reuses #402's reveal effect, so Air caravans become a second route to a ruin. The Air chart deal waits on #402 | #402 owns the effect |
 | #413 late research tier | Its empty techs are the measured 30-minute dead block. This doc adds no research content, and the timeline harness (A) is how #413 shows its effect | #413 |
 | #355 close-out | Runs before this. Its pacing line in endgame.md is re-measured by #440 once draw and caravans land | #355, then #440 |
-| #396 ore in reach | Caravans are a second route on seeds 2 and 6. #396's data fix still stands | #396 |
+| #396 ore in reach | Caravans are a second route on seeds 2 and 6 (#834). #396's data fix still stands | #396 |
 | #356 Fire bricks and metal | Fire caravans buy and sell them: a use for #356's outputs, not a replacement | #356 |
 | #395, #397 opening bugs | Excluded from the medians. The timeline target counts 7 of 8 seeds so one bad seed doesn't block it | those issues |
 
