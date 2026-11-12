@@ -10,7 +10,7 @@
 //!   wheel and, zoomed far out, one coloured block per tile. A click moves the cursor, and a drag
 //!   with a designate tool active makes the rectangle (`fn_ui::pointer`).
 //! - **The side panel** ([`side`]) is `fn_ui::panel::SidePanel` as egui widgets; its clicks are
-//!   the keys they stand for. Its inspector is still the terminal's cells (#882).
+//!   the keys they stand for. Its inspector ([`inspector`], #882) is native too.
 //! - **The title** ([`title`]) is native: the steps of `fn_tui::title` as egui rows and buttons,
 //!   every click a key press.
 //! - **Pages** ([`page`], [`screens`]): the full screens as egui widgets in one frame, over the
@@ -28,6 +28,7 @@ pub mod color;
 pub mod fonts;
 pub mod frame;
 pub mod hints;
+pub mod inspector;
 pub mod keys;
 pub mod mapview;
 pub mod page;

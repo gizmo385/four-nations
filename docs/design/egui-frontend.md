@@ -44,7 +44,7 @@ changing the TUI.
 | `main.rs` | Native `eframe::run_native`; wasm `WebRunner` at the title screen, or a game from a `?seed=` query (#866), with Quit hidden | Stays |
 | `app.rs` (`GuiApp`) | Reads the clock, translates keys (F12 is the window's own: the timing overlay), hands each frame to `Frame` | Stays: shell, keys and clock only (#876) |
 | `frame.rs`, `hints.rs` | `surface` (the exhaustive native/cells match), the native layout (hint bar, side panel slot, map, banner), the box painter, the timing overlay; the hint bar from `fn_ui::keys` | New in #876. Arms flip to native as screens convert |
-| `side.rs` | The side panel: `fn_ui::panel::SidePanel` as egui widgets (title, header with pause and speed buttons, Settlement, Alerts, Tool section and list), monospace, tones coloured by `fn_tui::widgets::ToneStyle`. A click returns the keys it stands for (`side::Clicks`), which `GuiApp` types into the shell after the frame; an alert is `L`, a `Down` per line above it and `Enter` (`side::alert_keys`). The inspector stays the terminal's rows, painted as cells in a slot under the sections (at most two fifths of the panel), until #882 | New in #877 |
+| `side.rs` | The side panel: `fn_ui::panel::SidePanel` as egui widgets (title, header with pause and speed buttons, Settlement, Alerts, Tool section and list), monospace, tones coloured by `fn_tui::widgets::ToneStyle`. A click returns the keys it stands for (`side::Clicks`), which `GuiApp` types into the shell after the frame; an alert is `L`, a `Down` per line above it and `Enter` (`side::alert_keys`). The inspector (`inspector.rs`) is its last section: `fn_ui::inspector::Inspected` as egui widgets, meters as bars, a pinned heading over a body that scrolls in at most two fifths of the panel (#882) | New in #877 |
 | `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Gains click semantics, a hover tooltip and a cached overview (#878) |
 | `keys.rs` | egui `Event` to `fn_tui::keyev::KeyEvent` | Stays, retargeted to #857's frontend-neutral key type |
 | `fonts.rs` | Loads DejaVu Sans Mono from the system path | Bundles it with `include_bytes!` (#859) |
@@ -174,7 +174,7 @@ One row is roughly one agent PR (the #842 estimates). "Words" means a row-model 
 |---|---|---|---|---|
 | 1 | Cell painter, frame skeleton, hint bar, tool banner (#872, #876; done) | `fn_gui::cells`, `fn_gui::frame`, `fn_gui::hints` | none (`fn_ui::keys` already) | 2 |
 | 2 | Side panel: header, Settlement glance, Alerts, Tool section (#873, #877) | `fn_gui::side` | `fn_tui::panel`'s `Data` rows and `widgets::{Row, Tone}` | 2.5 |
-| 3 | Inspector (#882) | `fn_gui::inspector` | `fn_tui::inspector::settler_view`, tile and placement rows | 1 |
+| 3 | Inspector (#882; done) | `fn_gui::inspector` | `fn_ui::inspector` (moved from `fn_tui::inspector`: settler, tile and placement rows) | 1 |
 | 4 | Map mouse: click, select, one-tile apply, hover tooltip, overview cache (#878) | `mapview.rs` | none (`fn_ui::inspect::tooltip_lines`) | 1 |
 | 5 | Game menu, Quit and confirm boxes, prompts, embark exit prompt (#879) | `fn_gui::boxes` | `fn_tui::menu` items, `fn_tui::ask` | 1 |
 | 6 | Title, nation picker, seed step, Load (#880; done) | `fn_gui::title` | `fn_tui::title` steps | 1 |

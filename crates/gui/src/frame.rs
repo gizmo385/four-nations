@@ -8,7 +8,7 @@
 //! - [`Surface::Native`]: the game as egui panels. A one-row hint bar along the bottom
 //!   ([`crate::hints`]), the side panel on the right (300 points, resizable from 260 to 440) and
 //!   the map in the middle ([`MapView`]) with the tool banner on its top edge. The side panel
-//!   is native ([`crate::side`]), but for the inspector's rows, which are still cells.
+//!   is native ([`crate::side`], inspector included).
 //! - [`Surface::Page`]: a full screen as egui widgets in the page frame ([`crate::page`]): the
 //!   whole window above the hint bar, the side panel and the map hidden. Build (#881) so far.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
@@ -313,17 +313,16 @@ impl Frame {
         // The native side panel (#877). Its clicks come back as keys, which the window feeds
         // the shell; with a box open over the map it shows but takes none.
         let live = surface == Surface::Native;
-        let (mut clicks, mut inspector_ms) = (Vec::new(), 0.0);
+        let mut clicks = Vec::new();
         egui::Panel::right("side")
             .default_size(PANEL_DEFAULT)
             .size_range(PANEL_RANGE.0..=PANEL_RANGE.1)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(panel_fill))
             .show(root, |ui| {
-                clicks = side::show(ui, app, palette, metrics, live, &mut inspector_ms);
+                clicks = side::show(ui, app, palette, metrics, live);
             });
         self.keys.extend(clicks);
-        self.timings.cells = inspector_ms;
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             let avail = ui.available_rect_before_wrap();

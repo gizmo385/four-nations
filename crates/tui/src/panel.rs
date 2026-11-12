@@ -48,7 +48,6 @@
 //! of a tile) always stay with no tool; the inspector drops its own rows from the bottom
 //! (`Inspector::fitted`).
 
-use fn_ui::inspect::Hint;
 use fn_ui::panel::{ChoiceTones, SidePanel, ToolLine, ToolSection, fold_alerts, fold_kinds};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::Buffer;
@@ -61,19 +60,7 @@ use crate::state::UiState;
 use crate::widgets::{Marks, Painter, Row, TitleAt, Tone, draw_frame, wrap};
 pub use fn_ui::view::channel_text;
 
-/// How an action hint reads in the terminal, if it can be taken yet.
-///
-/// * Selecting a unit names its key.
-/// * Starting a tool names its key.
-/// * Applying the active tool is the rectangle line ([`rect_hint`]), which the active tool
-///   banner shows in every tool (#307, `crate::banner`), so the tooltip's own hint adds nothing.
-pub fn hint_text(hint: Hint) -> Option<String> {
-    match hint {
-        Hint::SelectUnit => Some("Press Enter to select".to_owned()),
-        Hint::ApplyTool(_) => None,
-        Hint::StartTool(tool) => Some(format!("Press {} for the {} tool", tool.key(), tool.name())),
-    }
-}
+pub use fn_ui::inspector::hint_text;
 
 /// What `Enter` does next in the active tool: set a corner, or apply the tool to the rectangle
 /// ("Enter: designate 5x3"). `None` in Select mode.
@@ -534,6 +521,8 @@ pub fn panel_bg(palette: &Palette) -> Color {
 
 #[cfg(test)]
 mod tests {
+    use fn_ui::inspect::Hint;
+
     use super::*;
 
     #[test]
