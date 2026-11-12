@@ -9,7 +9,10 @@
 //! the state like every other.
 
 use crate::Session;
-use crate::research::{ScreenView, TeachingRow, TechCard, TechState, cost_text, screen_view};
+use crate::research::{
+    Newcomer, ResearchPage, ScreenView, TeachingRow, TechCard, TechState, cost_text, pair_short,
+    screen_page,
+};
 use crate::rows::{Marks, Row, Tone, wrap};
 use fn_sim::research::TechId;
 use fn_sim::world::Command;
@@ -98,35 +101,66 @@ pub fn step(view: &ScreenView, at: Cursor, dx: i32, dy: i32) -> Cursor {
 }
 
 /// `Enter`: makes the tech under the cursor the research target. A tech already known is refused
-/// by the sim and nothing changes; one with unmet prereqs queues its whole chain.
-pub fn choose(session: &mut Session, at: Cursor) {
-    let view = screen_view(session);
-    if let Some(card) = card_at(&view, at).filter(|c| c.is_tech()) {
-        let _ = session.apply(Command::SetResearch { tech: card.id });
+/// by the sim and nothing changes; one with unmet prereqs queues its whole chain. A tech waiting
+/// on a condition (residents of a nation, a master, people) is refused with what it needs, as the
+/// status line says it: `Err("Can't set target: needs 3 Fire residents (2 live here)")`.
+pub fn choose(session: &mut Session, page: ResearchPage, at: Cursor) -> Result<(), String> {
+    let view = screen_page(session, page);
+    let Some(card) = card_at(&view, at).filter(|c| c.is_tech()) else { return Ok(()) };
+    match session.apply(Command::SetResearch { tech: card.id }) {
+        Err(fn_sim::world::CommandError::Research(fn_sim::research::ResearchError::NotYet(c))) => {
+            Err(format!(
+                "Can't set target: needs {}",
+                crate::research::live_text(&c, &session.world)
+            ))
+        }
+        _ => Ok(()),
     }
 }
 
 /// Whether `Enter` at `at` reopens the LOST TEACHING box (#743): the TEACHINGS column's `!
 /// Choose a teaching` row.
-pub fn opens_draft(session: &Session, at: Cursor) -> bool {
-    let view = screen_view(session);
+pub fn opens_draft(session: &Session, page: ResearchPage, at: Cursor) -> bool {
+    let view = screen_page(session, page);
     card_at(&view, at).is_some_and(|c| matches!(c.teaching, Some(TeachingRow::Choose { .. })))
 }
 
-/// A column's header: "TIER 3", or "TEACHINGS" for the column after the last tier (#743).
+/// A column's header: "TIER 3", or "TEACHINGS" for the column after the last tier (#743). The
+/// From newcomers page names its columns itself (`ScreenView::titles`).
 pub fn column_title(view: &ScreenView, column: usize) -> String {
-    if view.teachings == Some(column) {
+    if let Some(title) = view.titles.get(column) {
+        title.clone()
+    } else if view.teachings == Some(column) {
         "TEACHINGS".to_owned()
     } else {
         format!("TIER {}", column + 1)
     }
 }
 
+/// The Research screen's tabs once the gate stands: `[Your tree]  From newcomers`, the open page
+/// in brackets and the title tone, and what `Tab` does flush right (as the key help's, #662).
+pub fn page_tabs(page: ResearchPage) -> Row {
+    let name = |(this, text): (ResearchPage, &str)| {
+        if this == page { (format!("[{text}]"), Tone::Title) } else { (text.to_owned(), Tone::Dim) }
+    };
+    let [tree, newcomers] = PAGE_TABS.map(name);
+    let mut row = Row::spans(vec![tree, ("  ".to_owned(), Tone::Text), newcomers]);
+    row.right = Some((crate::screens::TAB_NOTE.to_owned(), Tone::Dim));
+    row
+}
+
+/// The pages, left to right, and the words on each tab.
+pub const PAGE_TABS: [(ResearchPage, &str); 2] =
+    [(ResearchPage::Tree, "Your tree"), (ResearchPage::Newcomers, "From newcomers")];
+
+/// The rows the tab strip takes from the top of the body: the strip and a blank one.
+pub const TAB_ROWS: usize = 2;
+
 /// The school option under the cursor, when `Enter` on it asks first (#729,
 /// docs/design/horizons-phase-4.md "Mockups"): an open school option not already queued.
 /// Choosing it is the one research choice that closes another tech for the rest of the game.
-pub fn needs_confirm(session: &Session, at: Cursor) -> Option<TechId> {
-    let view = screen_view(session);
+pub fn needs_confirm(session: &Session, page: ResearchPage, at: Cursor) -> Option<TechId> {
+    let view = screen_page(session, page);
     let card = card_at(&view, at)?;
     let open = matches!(card.state, TechState::Available | TechState::Locked);
     (card.school.is_some() && open).then_some(card.id)
@@ -217,6 +251,7 @@ pub fn state_tone(state: TechState) -> Tone {
     match state {
         TechState::Known => Tone::Dim,
         TechState::Queued => Tone::Title,
+        TechState::Waiting => Tone::Warn,
         TechState::Available => Tone::Text,
         TechState::Locked => Tone::Dim,
         TechState::Closed => Tone::Dim,
@@ -229,6 +264,7 @@ pub fn state_word(state: TechState) -> &'static str {
     match state {
         TechState::Known => "Known",
         TechState::Queued => "Queued",
+        TechState::Waiting => "Waiting",
         TechState::Available => "Available",
         TechState::Locked => "Locked",
         TechState::Closed => "Closed",
@@ -240,7 +276,7 @@ pub fn state_word(state: TechState) -> &'static str {
 pub fn state_mark(state: TechState, marks: &Marks) -> &'static str {
     match state {
         TechState::Known => marks.known,
-        TechState::Queued => marks.seal,
+        TechState::Queued | TechState::Waiting => marks.seal,
         TechState::Available => marks.bullet,
         TechState::Locked => marks.locked,
         TechState::Closed => marks.closed,
@@ -361,19 +397,35 @@ pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks, width: usize) -> 
             Row::text(format!("{} or {}", h.repeat(side), h.repeat(rest)), Tone::Accent)
         });
     }
+    // A fusion names its two nations after its name when they fit, else on a row of their own.
+    let pair = card.newcomer.as_ref().and_then(|n| n.fusion).map(pair_short);
+    let beside = pair
+        .as_ref()
+        .filter(|p| card.name.chars().count() + 1 + p.chars().count() <= room)
+        .cloned();
     for (i, line) in wrap(&card.name, room, usize::MAX, marks.ellipsis).into_iter().enumerate() {
         rows.push(if i == 0 {
-            Row::spans(vec![
+            let mut spans = vec![
                 (pointer.to_owned(), Tone::Title),
                 (format!("{} ", state_mark(card.state, marks)), mark_tone),
                 (line, name_tone),
-            ])
+            ];
+            if let Some(p) = &beside {
+                spans.push((format!(" {p}"), Tone::Dim));
+            }
+            Row::spans(spans)
         } else {
             Row::text(format!("{pad}{line}"), name_tone)
         });
     }
+    if let (Some(p), None) = (&pair, &beside) {
+        rows.push(Row::text(format!("{pad}{p}"), Tone::Dim));
+    }
+    let borrowed_known =
+        card.state == TechState::Known && card.newcomer.as_ref().is_some_and(|n| n.from.is_some());
+    let word = if borrowed_known { "Known, borrowed" } else { card_word(card) };
     rows.push(Row::spans(vec![
-        (format!("{pad}{}", card_word(card)), tone),
+        (format!("{pad}{word}"), tone),
         (format!(" {} {} pts", marks.dot, card.cost), Tone::Dim),
     ]));
     if card.state == TechState::Closed {
@@ -418,6 +470,9 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usi
     if let Some(rows) = teaching_detail(session, card, marks, width) {
         return rows;
     }
+    if let Some(newcomer) = &card.newcomer {
+        return newcomer_detail(session, card, newcomer, marks, width);
+    }
     let def = session.defs.tech(card.id);
     let unlocks = if card.unlock.is_empty() {
         String::new()
@@ -438,6 +493,10 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usi
     let cost = match card.teaching {
         Some(TeachingRow::Kept { .. }) if card.state != TechState::Known => {
             crate::teaching::teaching_cost(&session.defs, card.id)
+        }
+        // Waiting has every point it asks for.
+        _ if card.state == TechState::Waiting => {
+            cost_text_with(&format!("{0}/{0}", card.cost), &card.items)
         }
         _ => cost_text(card.cost, &card.items),
     };
@@ -474,7 +533,142 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usi
             rows.push(Row::text(piece, tone));
         }
     }
+    rows.extend(waiting_rows(session, card, marks, width));
     rows
+}
+
+/// "500/500 pts + 4 Tool": [`cost_text`] with the points already worded.
+fn cost_text_with(points: &str, items: &str) -> String {
+    if items.is_empty() { format!("{points} pts") } else { format!("{points} pts + {items}") }
+}
+
+/// The detail strip's last row for a tech that waits on a condition: "Waiting: needs 3 Fire
+/// residents (2 live here)". Empty for any other card.
+fn waiting_rows(session: &Session, card: &TechCard, marks: &Marks, width: usize) -> Vec<Row> {
+    if card.state != TechState::Waiting {
+        return Vec::new();
+    }
+    let Some(condition) = crate::research::waiting_condition(&session.world, &session.defs) else {
+        return Vec::new();
+    };
+    let line = format!("Waiting: needs {}", crate::research::live_text(&condition, &session.world));
+    wrap(&line, width.max(1), usize::MAX, marks.ellipsis)
+        .into_iter()
+        .map(|piece| Row::text(piece, Tone::Warn))
+        .collect()
+}
+
+/// The detail strip of a card of the From newcomers page (docs/design/horizons-phase-6.md,
+/// "Mockups"): the name with state and cost, what it is, what it unlocks (a borrowed tech's
+/// modifiers for its own nation's residents only), where it comes from and the borrowed price or
+/// the two nations of a fusion, the prereqs a borrower is spared, then every condition with its
+/// live count, or what a waiting tech is waiting for.
+fn newcomer_detail(
+    session: &Session,
+    card: &TechCard,
+    newcomer: &Newcomer,
+    marks: &Marks,
+    width: usize,
+) -> Vec<Row> {
+    let (defs, world) = (&session.defs, &session.world);
+    let def = defs.tech(card.id);
+    let mut name = vec![(card.name.clone(), Tone::Title)];
+    if !card.target
+        && let Some(&target) = world.research().queue().last()
+    {
+        name.push((format!("   Target: {}", defs.tech(target).name), Tone::Dim));
+    }
+    let cost = if card.state == TechState::Waiting {
+        cost_text_with(&format!("{0}/{0}", card.cost), &card.items)
+    } else {
+        cost_text(card.cost, &card.items)
+    };
+    let mut right = format!("{} {} {cost}", card_word(card), marks.dot);
+    if !card.bill.is_empty() {
+        right = format!("{right}  {}", card.bill);
+    }
+    let mut rows = vec![Row { left: name, right: Some((right, state_tone(card.state))) }];
+    let push = |rows: &mut Vec<Row>, text: &str, tone: Tone| {
+        for piece in wrap(text, width.max(1), usize::MAX, marks.ellipsis) {
+            rows.push(Row::text(piece, tone));
+        }
+    };
+    push(&mut rows, &def.description, Tone::Text);
+    // What it unlocks, then what only its own nation's residents get from it.
+    let (_, rest) = crate::research::unlock_parts(defs, world.nation, card.id, def);
+    let mut unlocks = rest.join(", ");
+    if unlocks.is_empty() && newcomer.modifiers.is_empty() {
+        unlocks = crate::research::unlock_summary(defs, world.nation, card.id, def);
+    }
+    let mut gives = String::new();
+    if !unlocks.is_empty() && unlocks != "-" {
+        gives = if unlocks.starts_with("Leads to ") {
+            unlocks.clone()
+        } else {
+            format!("Unlocks {unlocks}")
+        };
+    }
+    if !newcomer.modifiers.is_empty() {
+        gives = if gives.is_empty() {
+            newcomer.modifiers.clone()
+        } else {
+            format!("{gives}. {}", newcomer.modifiers)
+        };
+    }
+    if !gives.is_empty() {
+        push(&mut rows, &gives, Tone::Dim);
+    }
+    // Where it comes from, and the price.
+    if let Some(from) = newcomer.from {
+        let mut line = format!(
+            "Borrowed from the {} at {}x cost.",
+            defs.nation(from).name,
+            defs.research.borrow_cost
+        );
+        if !newcomer.waived.is_empty() {
+            line = format!("{line} No {} needed.", join_and(&newcomer.waived));
+        }
+        push(&mut rows, &line, Tone::Text);
+    } else if let Some([a, b]) = newcomer.fusion {
+        push(&mut rows, &format!("Fusion of {} and {}.", a.title(), b.title()), Tone::Text);
+    }
+    // What it asks of the settlement, or what it waits for.
+    if card.state == TechState::Waiting {
+        rows.extend(waiting_rows(session, card, marks, width));
+    } else if card.state != TechState::Known {
+        let mut asks: Vec<String> = Vec::new();
+        asks.extend(missing_prereq_names(session, card));
+        asks.extend(newcomer.conditions.iter().map(|(text, _)| text.clone()));
+        if !asks.is_empty() {
+            let unmet =
+                newcomer.conditions.iter().any(|(_, met)| !met) || card.state == TechState::Locked;
+            let tone = if unmet { Tone::Warn } else { Tone::Dim };
+            push(&mut rows, &format!("Needs {}.", join_and(&asks)), tone);
+        }
+    }
+    rows
+}
+
+/// The prereqs of `card`'s tech a settlement that borrows it still has to learn: unknown ones, in
+/// the order the sim lists them (`World::exchange`).
+fn missing_prereq_names(session: &Session, card: &TechCard) -> Vec<String> {
+    let (defs, world) = (&session.defs, &session.world);
+    let def = defs.tech(card.id);
+    let prereqs = if def.is_fusion() { def.prereqs.clone() } else { defs.borrow_prereqs(card.id) };
+    prereqs
+        .into_iter()
+        .filter(|&p| !world.research().is_known(p))
+        .map(|p| defs.tech(p).name.clone())
+        .collect()
+}
+
+/// "A", "A and B", "A, B and C".
+fn join_and(items: &[String]) -> String {
+    match items.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// The detail strip for the TEACHINGS column's own rows and its lost teachings (#743); `None`
@@ -576,8 +770,8 @@ pub fn school_lines(session: &Session, card: &TechCard) -> Vec<(String, Tone)> {
 
 /// How many rows the detail strip takes for the tech under `at` on a page whose text is `width`
 /// cells across: the usual [`DETAIL_ROWS`], one more for each row its text wraps onto (#768).
-pub fn detail_height(session: &Session, at: Cursor, width: usize) -> u16 {
-    let view = screen_view(session);
+pub fn detail_height(session: &Session, page: ResearchPage, at: Cursor, width: usize) -> u16 {
+    let view = screen_page(session, page);
     let Some(card) = card_at(&view, at) else { return DETAIL_ROWS };
     let rows = detail_rows(session, card, &Marks::new(false), width).len();
     u16::try_from(rows).unwrap_or(u16::MAX).max(DETAIL_ROWS)
@@ -590,6 +784,7 @@ mod tests {
 
     use super::*;
     use crate::new_session;
+    use crate::research::screen_view;
     use crate::rows::window_start;
 
     fn card(state: TechState, unlock: &str, needs: &str) -> TechCard {
@@ -606,6 +801,7 @@ mod tests {
             bill: String::new(),
             school: None,
             teaching: None,
+            newcomer: None,
         }
     }
 
@@ -745,5 +941,65 @@ mod tests {
         let view = screen_view(&s);
         let (c, r) = initial_cursor(&s, &view);
         assert_eq!(view.columns[c][r].id, masonry);
+    }
+
+    /// A card of the From newcomers page as the tests need it.
+    fn newcomer(state: TechState, from: Option<Nation>, fusion: Option<[Nation; 2]>) -> TechCard {
+        TechCard {
+            newcomer: Some(Newcomer {
+                from,
+                fusion,
+                modifiers: String::new(),
+                conditions: Vec::new(),
+                waived: Vec::new(),
+            }),
+            ..card(state, "Brick Kiln", "")
+        }
+    }
+
+    #[test]
+    fn a_known_borrowed_card_says_so_and_a_fusion_names_its_nations_beside_its_name() {
+        let marks = Marks::new(false);
+        let mut known = newcomer(TechState::Known, Some(Nation::Fire), None);
+        known.cost = 240;
+        let text = plain(&card_rows(&known, false, &marks, 28));
+        assert_eq!(text[1], "   Known, borrowed · 240 pts");
+
+        let mut fusion = newcomer(TechState::Locked, None, Some([Nation::Earth, Nation::Water]));
+        fusion.name = "Aqueducts".into();
+        fusion.needs = "3 Earth residents".into();
+        let text = plain(&card_rows(&fusion, false, &marks, 28));
+        assert_eq!(text[0], " · Aqueducts Earth+Water");
+        assert_eq!(text.last().unwrap(), "   Needs 3 Earth residents");
+        // In a column too narrow for both, the nations take a row of their own.
+        let text = plain(&card_rows(&fusion, false, &marks, 18));
+        assert_eq!(text[..2], [" · Aqueducts", "   Earth+Water"]);
+    }
+
+    #[test]
+    fn a_waiting_card_reads_waiting_and_the_tabs_open_on_the_page_that_is_open() {
+        let marks = Marks::new(false);
+        let waiting = card(TechState::Waiting, "Brick Kiln", "");
+        let text = plain(&card_rows(&waiting, false, &marks, 28));
+        assert_eq!(text[1], "   Waiting · 120 pts");
+        assert_eq!(
+            page_tabs(ResearchPage::Tree).plain(),
+            "[Your tree]  From newcomers Tab switches"
+        );
+        assert_eq!(
+            page_tabs(ResearchPage::Newcomers).plain(),
+            "Your tree  [From newcomers] Tab switches"
+        );
+    }
+
+    #[test]
+    fn before_the_gate_the_newcomers_page_is_empty_and_the_tree_is_unchanged() {
+        let s = new_session(7, Nation::Water);
+        assert!(!crate::research::has_newcomers(&s));
+        assert!(screen_page(&s, ResearchPage::Newcomers).columns.is_empty());
+        assert_eq!(screen_page(&s, ResearchPage::Tree), screen_view(&s));
+        assert!(screen_view(&s).titles.is_empty());
+        let view = screen_view(&s);
+        assert_eq!(column_title(&view, 0), "TIER 1");
     }
 }

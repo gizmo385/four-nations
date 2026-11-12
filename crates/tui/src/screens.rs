@@ -53,7 +53,7 @@ pub fn draw_screen(
     let detail_rows = match screen {
         Screen::Research => {
             let width = page::text_size((i32::from(area.width), i32::from(area.height))).0;
-            research::detail_height(session, ui.tech, width)
+            research::detail_height(session, ui.research_page, ui.tech, width)
         }
         Screen::Nation => crate::nation::detail_rows(area.height),
         Screen::Abilities => {
@@ -66,7 +66,7 @@ pub fn draw_screen(
     let page = page::draw(buf, area, palette, title(screen), detail_rows);
     let position = match screen {
         Screen::Research => {
-            let position = research::draw(session, ui.tech, palette, &page, buf);
+            let position = research::draw(session, ui.research_page, ui.tech, palette, &page, buf);
             if let Some(tech) = ui.school_confirm {
                 research::draw_confirm(session, tech, palette, area, buf);
             }

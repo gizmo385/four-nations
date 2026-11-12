@@ -23,7 +23,7 @@ use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone, window_start};
 use fn_ui::app::App;
 use fn_ui::keyev::{KeyCode, KeyEvent, KeyModifiers};
-use fn_ui::research::{ScreenView, screen_view};
+use fn_ui::research::{ResearchPage, ScreenView, has_newcomers};
 pub use fn_ui::screens::research::*;
 
 use crate::cells::Metrics;
@@ -106,7 +106,7 @@ fn strip_height(
 pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec<KeyEvent> {
     let look = Look::new(palette, metrics);
     let marks = Marks::new(palette.ascii);
-    let view = screen_view(&app.session);
+    let view = app.ui.research_view(&app.session);
     let mut keys = Vec::new();
 
     if view.columns.is_empty() {
@@ -130,7 +130,10 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
 
     let at = step(&view, app.ui.tech, 0, 0);
     let geo = page::geometry(ui.available_rect_before_wrap(), look.cell, 0);
-    let (cols, page_rows) = (geo.cols(look.cell), geo.rows(look.cell));
+    // Once the gate stands the body opens with the page tabs and a blank row.
+    let tabs = has_newcomers(&app.session);
+    let tab_rows = if tabs { TAB_ROWS } else { 0 };
+    let (cols, page_rows) = (geo.cols(look.cell), geo.rows(look.cell).saturating_sub(tab_rows));
     let strip_rows = strip_height(app, &view, &marks, cols, page_rows);
     // A click goes nowhere while the school box is up over the cards.
     let live = app.ui.school_confirm.is_none();
@@ -171,6 +174,18 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
         &spec,
         |ui| {
             let body = ui.max_rect();
+            let body = if tabs {
+                let strip = Rect::from_min_size(body.min, vec2(body.width(), look.cell.y));
+                ui.scope_builder(UiBuilder::new().max_rect(strip), |ui| {
+                    keys.extend(tabs_strip(ui, &look, app.ui.research_page));
+                });
+                Rect::from_min_max(
+                    pos2(body.left(), body.top() + tab_rows as f32 * look.cell.y),
+                    body.max,
+                )
+            } else {
+                body
+            };
             // The column headers: the depth, the cursor's tier in the title's tone.
             let head = Rect::from_min_size(body.min, vec2(body.width(), look.cell.y));
             for (slot, c) in shown.clone().enumerate() {
@@ -208,8 +223,9 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
 
             let below = Rect::from_min_max(pos2(body.left(), head.bottom()), body.max);
             ui.scope_builder(UiBuilder::new().max_rect(below), |ui| {
-                let scroll =
-                    ScrollArea::vertical().id_salt("research cards").auto_shrink([false, false]);
+                let scroll = ScrollArea::vertical()
+                    .id_salt(("research cards", app.ui.research_page == ResearchPage::Newcomers))
+                    .auto_shrink([false, false]);
                 scroll.show(ui, |ui| {
                     let total: usize = heights.iter().map(|h| h + 1).sum();
                     let (area, _) = ui.allocate_exact_size(
@@ -257,6 +273,28 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
     if let Some(tech) = app.ui.school_confirm {
         keys.extend(school_box(ui, app, tech, &look, &marks, cols));
     }
+    keys
+}
+
+/// The page tabs: a button per page with the open one selected, and what `Tab` does at the right.
+/// The page that is not open is `Tab`.
+fn tabs_strip(ui: &mut Ui, look: &Look<'_>, open: ResearchPage) -> Vec<KeyEvent> {
+    let mut keys = Vec::new();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = vec2(look.cell.x, 0.0);
+        for (tab, name) in PAGE_TABS {
+            let tone = if tab == open { Tone::Title } else { Tone::Dim };
+            let text = RichText::new(name).font(look.font.clone()).color(look.format(tone).color);
+            let button = Button::new(text).selected(tab == open).min_size(vec2(0.0, look.cell.y));
+            if ui.add(button).on_hover_cursor(CursorIcon::PointingHand).clicked() && tab != open {
+                keys.push(key(KeyCode::Tab));
+            }
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let dim = look.format(Tone::Dim).color;
+            ui.label(RichText::new(fn_ui::screens::TAB_NOTE).font(look.font.clone()).color(dim));
+        });
+    });
     keys
 }
 

@@ -110,6 +110,11 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
             // `Enter` here would call `research::choose`, changing the agent's own research
             // target (#330's acceptance criteria: "chooses research" is refused).
             Action::Confirm => return false,
+            // `Tab` turns to the From newcomers page once the gate stands, as in `App`.
+            Action::NextUnit | Action::PrevUnit => {
+                ui.switch_research_page(session);
+                return true;
+            }
             _ => {}
         },
         Screen::Nation => match action {
@@ -168,14 +173,14 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
 
 /// Moves the research cursor, as `App::move_tech` does.
 fn move_tech(ui: &mut UiState, session: &Session, dx: i32, dy: i32) -> bool {
-    let view = fn_ui::research::screen_view(session);
+    let view = ui.research_view(session);
     ui.tech = research::step(&view, ui.tech, dx.signum(), dy);
     true
 }
 
 /// A page of tech cards, as `App::tech_page` does.
 fn tech_page(ui: &UiState, session: &Session) -> i32 {
-    let view = fn_ui::research::screen_view(session);
+    let view = ui.research_view(session);
     let (width, rows) = screens::text_size(ui.page());
     research::Grid::new((width, rows), view.columns.len()).cards as i32
 }
@@ -243,6 +248,7 @@ fn open_screen(ui: &mut UiState, session: &Session, screen: Screen) -> bool {
         }
         ui.help_tab = crate::state::HelpTab::default();
         if screen == Screen::Research {
+            ui.research_page = fn_ui::research::ResearchPage::default();
             let view = fn_ui::research::screen_view(session);
             ui.tech = research::initial_cursor(session, &view);
         }

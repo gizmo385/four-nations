@@ -13,7 +13,7 @@ use crate::page::{self, Page};
 use crate::widgets::{Marks, Painter, Row, Tone, ToneStyle, window_start};
 use fn_sim::research::TechId;
 use fn_ui::Session;
-use fn_ui::research::{TechCard, screen_view};
+use fn_ui::research::{ResearchPage, TechCard, has_newcomers, screen_page};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 
@@ -49,16 +49,28 @@ pub fn draw_confirm(
 /// for the frame's bottom edge (#651).
 pub fn draw(
     session: &Session,
+    shown_page: ResearchPage,
     at: Cursor,
     palette: &Palette,
     page: &Page,
     buf: &mut Buffer,
 ) -> Option<String> {
-    let view = screen_view(session);
+    let view = screen_page(session, shown_page);
     let marks = Marks::new(palette.ascii);
-    let inner = page.body;
+    // Once the gate stands the body opens with the page tabs and a blank row.
+    let tabs = has_newcomers(session);
+    let tab_rows = if tabs { TAB_ROWS.min(usize::from(page.body.height)) as u16 } else { 0 };
+    if tabs {
+        let strip = Rect::new(page.body.x, page.body.y, page.body.width, tab_rows.min(1));
+        Painter::new(buf, strip, palette).row(&page_tabs(shown_page));
+    }
+    let inner =
+        Rect { y: page.body.y + tab_rows, height: page.body.height - tab_rows, ..page.body };
     let grid = Grid::new(
-        (usize::from(page.inner.width), usize::from(page.inner.height)),
+        (
+            usize::from(page.inner.width),
+            usize::from(page.inner.height).saturating_sub(usize::from(tab_rows)),
+        ),
         view.columns.len(),
     );
     let first_column = window_start(at.0, grid.columns);
@@ -153,6 +165,19 @@ pub fn draw(
         for row in &rows {
             p.row(row);
         }
+    }
+    if shown_page == ResearchPage::Newcomers {
+        // The other pages are nations; what is worth counting at the edge is the fusions.
+        return fn_ui::text::window_label(
+            "nations",
+            first_column,
+            grid.columns,
+            view.columns.len(),
+        )
+        .or_else(|| {
+            let n = view.columns.last().map_or(0, Vec::len);
+            (n > 0).then(|| format!("{n} {}", if n == 1 { "fusion" } else { "fusions" }))
+        });
     }
     fn_ui::text::window_label("tiers", first_column, grid.columns, view.columns.len())
 }

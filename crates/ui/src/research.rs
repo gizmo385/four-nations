@@ -4,8 +4,8 @@
 //! does the rest (`docs/design/research.md`).
 
 use fn_sim::building::ArchiveDef;
-use fn_sim::research::{Facts, Feature, MILLIS_PER_POINT, Research, TechDef, TechId};
-use fn_sim::world::Command;
+use fn_sim::research::{Condition, Facts, Feature, MILLIS_PER_POINT, Research, TechDef, TechId};
+use fn_sim::world::{Command, ExchangeEntry, ExchangeKind, ExchangeNeed, ExchangeStanding};
 use fn_sim::{Defs, Nation, World};
 
 use crate::session::Session;
@@ -36,6 +36,10 @@ pub struct ResearchStatus {
     /// "Metal 5/8 on the way" when stores hold what it still owes, else "Waiting for 3 Metal".
     /// `None` otherwise.
     pub bill: Option<String>,
+    /// While the front tech has its points and its bill and waits on a condition that fell
+    /// (docs/design/horizons-phase-6.md, "Conditions"): "Waiting: 3 Fire residents (2 live
+    /// here)". `None` otherwise.
+    pub waiting: Option<String>,
 }
 
 /// What an Archive's scribing is doing (`World::scribing_on`): nothing while a target is set,
@@ -117,6 +121,7 @@ pub fn research_status(world: &World, defs: &Defs) -> ResearchStatus {
                 Scribing::Off => String::new(),
             }),
             bill: None,
+            waiting: None,
         };
     };
     // A borrowed tech costs more than its own `cost` (docs/design/horizons-phase-6.md).
@@ -129,6 +134,71 @@ pub fn research_status(world: &World, defs: &Defs) -> ResearchStatus {
         more_queued: research.queue().len() - 1,
         copying: None,
         bill: bill_status(world, defs, front),
+        waiting: waiting_condition(world, defs)
+            .map(|c| format!("Waiting: {}", live_text(&c, world))),
+    }
+}
+
+/// The condition the front tech of the queue is waiting on: its points and its bill are in, and
+/// a `requires` condition fell (`Research::waiting_on`, #750). `None` otherwise.
+pub fn waiting_condition(world: &World, defs: &Defs) -> Option<Condition> {
+    let research_cost = world.knobs(defs).research_cost;
+    world.research().waiting_on(&world.facts(), defs, research_cost, world.nation)
+}
+
+/// `condition` as the screens word it, with the count it is measured against: "3 Fire residents
+/// (2 live here)", "24 people (21 here)", "an Earth or Fire master (1 here)". The sim's own
+/// `Display` words a resident count already and leaves the others bare (they are also the queueing
+/// refusal, "needs 24 people").
+pub fn live_text(condition: &Condition, world: &World) -> String {
+    live_text_for(condition, &world.facts())
+}
+
+/// `condition` as a card says it, in a column too narrow for the live count that the detail strip
+/// has: "3 Earth residents" (the column header counts them), "24 people (21)".
+fn card_text(condition: &Condition, facts: &Facts<'_>) -> String {
+    match condition {
+        Condition::Residents { nation, need, .. } => {
+            format!(
+                "{need} {} {}",
+                nation.title(),
+                if *need == 1 { "resident" } else { "residents" }
+            )
+        }
+        Condition::Population(_) => format!("{condition} ({})", facts.population),
+        Condition::Masters { count, of } => masters_text(*count, of),
+        other => other.to_string(),
+    }
+}
+
+fn live_text_for(condition: &Condition, facts: &Facts<'_>) -> String {
+    match condition {
+        Condition::Population(_) => format!("{condition} ({} here)", facts.population),
+        Condition::Masters { count, of } => {
+            let have: u32 = if of.is_empty() {
+                facts.masters.iter().map(|&m| u32::from(m)).sum()
+            } else {
+                of.iter().map(|n| u32::from(facts.masters[n.index()])).sum()
+            };
+            format!("{} ({have} here)", masters_text(*count, of))
+        }
+        other => other.to_string(),
+    }
+}
+
+/// "a master", "an Earth or Fire master", "2 Fire, Air or Water masters": the sim's wording with
+/// the article that suits the nation named first.
+fn masters_text(count: u32, of: &[Nation]) -> String {
+    let names: Vec<&str> = of.iter().map(|n| n.title()).collect();
+    let who = match names.split_last() {
+        None => String::new(),
+        Some((last, [])) => format!("{last} "),
+        Some((last, rest)) => format!("{} or {last} ", rest.join(", ")),
+    };
+    match count {
+        1 if who.starts_with(['A', 'E', 'I', 'O', 'U']) => format!("an {who}master"),
+        1 => format!("a {who}master"),
+        n => format!("{n} {who}masters"),
     }
 }
 
@@ -166,6 +236,10 @@ pub enum TechState {
     Known,
     /// In the current queue: either the chosen target or one of its unknown prereqs.
     Queued,
+    /// The front of the queue, with its points and its bill in and a `requires` condition that
+    /// fell (docs/design/horizons-phase-6.md, "Conditions"): it finishes as soon as the
+    /// condition holds again.
+    Waiting,
     Available,
     /// At least one prereq isn't known yet, or a `requires` condition isn't met. Still
     /// selectable while only prereqs are missing: `Research::set_target` queues the whole chain.
@@ -183,6 +257,7 @@ impl TechState {
         match self {
             Self::Known => "Known",
             Self::Queued => "Queued",
+            Self::Waiting => "Waiting",
             Self::Available => "Available",
             Self::Locked => "Needs prereqs",
             Self::Closed => "Closed",
@@ -234,12 +309,29 @@ pub fn tech_depths(techs: &[TechDef]) -> Vec<usize> {
 /// this way today, which is the point: the dash is a prompt to close a real gap, not a steady
 /// state, so a unit test builds a `TechDef` of its own to exercise it).
 pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) -> String {
-    let mut parts: Vec<String> = def
+    let (mut parts, rest) = unlock_parts(defs, nation, id, def);
+    parts.extend(rest);
+    if !parts.is_empty() {
+        return parts.join(", ");
+    }
+    leads_to(defs, nation, id)
+}
+
+/// `unlock_summary`'s two halves: the modifiers ("Heating x1.2"), then everything else the tech
+/// switches on (buildings, upgrades, jobs, abilities, features), each as its own list.
+pub fn unlock_parts(
+    defs: &Defs,
+    nation: Nation,
+    id: TechId,
+    def: &TechDef,
+) -> (Vec<String>, Vec<String>) {
+    let modifiers: Vec<String> = def
         .unlocks
         .modifiers
         .iter()
         .map(|(n, m)| format!("{} {}", humanize(n), multiplier(m)))
         .collect();
+    let mut parts: Vec<String> = Vec::new();
     parts.extend(
         def.unlocks
             .buildings
@@ -327,9 +419,11 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
         defs.abilities.iter().filter(|a| a.unlocked_by == Some(id)).map(|a| a.name.clone()),
     );
     parts.extend(def.unlocks.features.iter().map(|f| feature_name(*f).to_owned()));
-    if !parts.is_empty() {
-        return parts.join(", ");
-    }
+    (modifiers, parts)
+}
+
+/// What a tech with nothing to unlock says: the techs it opens ("Leads to Writing"), or "-".
+fn leads_to(defs: &Defs, nation: Nation, id: TechId) -> String {
     // Only a dependent `nation` could ever see (shared, or its own branch): naming another
     // nation's tech would leak its branch onto a screen that otherwise never shows it
     // (`screen_view`, `Defs::techs_for`).
@@ -422,6 +516,33 @@ pub struct TechCard {
     pub school: Option<SchoolSlot>,
     /// What it is in the TEACHINGS column (#743); `None` for every card of the tiers.
     pub teaching: Option<TeachingRow>,
+    /// Set on the From newcomers page: where the tech comes from and what it asks of the
+    /// settlement. `None` for every card of the tree.
+    pub newcomer: Option<Newcomer>,
+}
+
+/// What a card of the From newcomers page adds (docs/design/horizons-phase-6.md, "Mockups"): a
+/// borrowed tech of another nation, or a fusion of two.
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct Newcomer {
+    /// The nation a borrowed tech is learned from; `None` for a fusion.
+    pub from: Option<Nation>,
+    /// The two nations a fusion joins; `None` for a borrowed tech.
+    pub fusion: Option<[Nation; 2]>,
+    /// A borrowed tech's modifiers, which only residents of its own nation get: "Heating x1.2 for
+    /// Fire residents only". Empty for a fusion and for a tech with none.
+    pub modifiers: String,
+    /// Every condition on the tech with the live count it is measured against, met or not
+    /// (`condition_lines`).
+    pub conditions: Vec<(String, bool)>,
+    /// The prereqs a borrower is spared, by name: the bending of the tech's own nation.
+    pub waived: Vec<String>,
+}
+
+/// The two nations of a fusion as a card says them: "Earth+Water".
+pub fn pair_short(pair: [Nation; 2]) -> String {
+    format!("{}+{}", pair[0].title(), pair[1].title())
 }
 
 /// A card of the TEACHINGS column (#743, docs/design/horizons-phase-5.md, "Mockups"), after the
@@ -509,6 +630,41 @@ pub struct ScreenView {
     /// Which of `columns` is the TEACHINGS column (#743), always the last; `None` before the
     /// first teaching scroll is read.
     pub teachings: Option<usize>,
+    /// The column headers when they are not "TIER n": the From newcomers page's nations and
+    /// "FUSIONS". Empty on the tree.
+    pub titles: Vec<String>,
+}
+
+/// The pages of the Research screen. Once the Harmony Gate stands, `Tab` switches between the
+/// settlement's own tree and what the newcomers can teach it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResearchPage {
+    #[default]
+    Tree,
+    Newcomers,
+}
+
+impl ResearchPage {
+    pub fn other(self) -> Self {
+        match self {
+            Self::Tree => Self::Newcomers,
+            Self::Newcomers => Self::Tree,
+        }
+    }
+}
+
+/// Whether the Research screen has a second page: the gate stands, so newcomers have something
+/// to teach (`World::exchange`).
+pub fn has_newcomers(session: &Session) -> bool {
+    session.world.united()
+}
+
+/// The cards of `page`.
+pub fn screen_page(session: &Session, page: ResearchPage) -> ScreenView {
+    match page {
+        ResearchPage::Tree => screen_view(session),
+        ResearchPage::Newcomers => newcomers_view(session),
+    }
 }
 
 pub fn screen_view(session: &Session) -> ScreenView {
@@ -519,6 +675,10 @@ pub fn screen_view(session: &Session) -> ScreenView {
     for (id, def) in session.world.tree_techs(defs) {
         // A kept teaching is drawn in the TEACHINGS column, not at its depth.
         if def.teaching.is_some() {
+            continue;
+        }
+        // A fusion has its own page (`newcomers_view`).
+        if def.is_fusion() {
             continue;
         }
         let depth = depths[id.0 as usize];
@@ -532,7 +692,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         columns.push(teachings);
         columns.len() - 1
     });
-    ScreenView { columns, teachings: teachings_at }
+    ScreenView { columns, teachings: teachings_at, titles: Vec::new() }
 }
 
 /// The card for `id`, in a tier or the TEACHINGS column.
@@ -542,7 +702,13 @@ fn tech_card(session: &Session, facts: &fn_sim::research::Facts<'_>, id: TechId)
     let research = session.world.research();
     let target = research.queue().last().copied();
     let def = defs.tech(id);
-    let state = tech_state(research, facts, defs, id, def);
+    let mut state = tech_state(research, facts, defs, id, def);
+    if state == TechState::Queued
+        && research.queue().first() == Some(&id)
+        && waiting_condition(&session.world, defs).is_some()
+    {
+        state = TechState::Waiting;
+    }
     TechCard {
         id,
         name: def.name.clone(),
@@ -569,6 +735,7 @@ fn tech_card(session: &Session, facts: &fn_sim::research::Facts<'_>, id: TechId)
             }
         }),
         teaching: None,
+        newcomer: None,
     }
 }
 
@@ -590,6 +757,7 @@ fn teachings_column(session: &Session, facts: &fn_sim::research::Facts<'_>) -> V
         bill: String::new(),
         school: None,
         teaching: Some(row),
+        newcomer: None,
     };
     let mut out = Vec::new();
     let offers = world.teaching_offers();
@@ -617,6 +785,162 @@ fn teachings_column(session: &Session, facts: &fn_sim::research::Facts<'_>) -> V
         out.push(pseudo(TechId(0), format!("{n} more to find"), TeachingRow::More(n)));
     }
     out
+}
+
+/// The From newcomers page (docs/design/horizons-phase-6.md, "Mockups"): a column for each other
+/// nation, headed by its name and how many of its people live here, holding the techs it can
+/// teach, then a FUSIONS column. Built from `World::exchange`, so it is empty until the gate
+/// stands. The cards are the tree's, with `TechCard::newcomer` set.
+pub fn newcomers_view(session: &Session) -> ScreenView {
+    let (world, defs) = (&session.world, &session.defs);
+    let exchange = world.exchange(defs);
+    let facts = world.facts();
+    let mut view = ScreenView::default();
+    for nation in Nation::ALL.into_iter().filter(|&n| n != world.nation) {
+        let cards: Vec<TechCard> = exchange
+            .borrowed_from(nation)
+            .map(|entry| newcomer_card(session, &facts, entry))
+            .collect();
+        if cards.is_empty() {
+            continue;
+        }
+        let here = facts.residents[nation.index()];
+        view.titles.push(format!("{}: {here} here", defs.nation(nation).name.to_uppercase()));
+        view.columns.push(cards);
+    }
+    let fusions: Vec<TechCard> =
+        exchange.fusions().map(|entry| newcomer_card(session, &facts, entry)).collect();
+    if !fusions.is_empty() {
+        view.titles.push("FUSIONS".to_owned());
+        view.columns.push(fusions);
+    }
+    view
+}
+
+/// One row of the exchange as a card.
+fn newcomer_card(session: &Session, facts: &Facts<'_>, entry: &ExchangeEntry) -> TechCard {
+    let (world, defs) = (&session.world, &session.defs);
+    let (research, home) = (world.research(), world.nation);
+    let def = defs.tech(entry.tech);
+    let mut state = match entry.standing {
+        ExchangeStanding::Known => TechState::Known,
+        ExchangeStanding::Queued => TechState::Queued,
+        ExchangeStanding::Available => TechState::Available,
+        ExchangeStanding::Locked(_) => TechState::Locked,
+    };
+    if state == TechState::Queued
+        && research.queue().first() == Some(&entry.tech)
+        && waiting_condition(world, defs).is_some()
+    {
+        state = TechState::Waiting;
+    }
+    let needs = match &entry.standing {
+        ExchangeStanding::Locked(needs) => needs
+            .iter()
+            .map(|need| match need {
+                ExchangeNeed::Tech(id) => defs.tech(*id).name.clone(),
+                ExchangeNeed::Condition(c) => card_text(c, facts),
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => String::new(),
+    };
+    let (modifiers, rest) = unlock_parts(defs, home, entry.tech, def);
+    let from = match entry.kind {
+        ExchangeKind::Borrowed { from } => Some(from),
+        ExchangeKind::Fusion { .. } => None,
+    };
+    let fusion = match entry.kind {
+        ExchangeKind::Fusion { pair } => Some(pair),
+        ExchangeKind::Borrowed { .. } => None,
+    };
+    // A borrowed tech's modifiers reach only residents of its own nation, so the card leaves
+    // them to the detail strip, unless they are all it has.
+    let unlock = if state == TechState::Locked {
+        String::new()
+    } else if from.is_some() && !rest.is_empty() {
+        rest.join(", ")
+    } else {
+        unlock_summary(defs, home, entry.tech, def)
+    };
+    let modifiers = match from {
+        Some(nation) if !modifiers.is_empty() => {
+            format!("{} for {} residents only", modifiers.join(", "), nation.title())
+        }
+        _ => String::new(),
+    };
+    let waived = match from {
+        Some(_) => {
+            let kept = defs.borrow_prereqs(entry.tech);
+            def.prereqs
+                .iter()
+                .filter(|p| !kept.contains(p))
+                .map(|&p| defs.tech(p).name.clone())
+                .collect()
+        }
+        None => Vec::new(),
+    };
+    TechCard {
+        id: entry.tech,
+        name: def.name.clone(),
+        cost: entry.cost,
+        state,
+        unlock,
+        needs,
+        target: research.queue().last() == Some(&entry.tech),
+        closed: String::new(),
+        items: cost_items_text(defs, def),
+        bill: bill_text(research, defs, entry.tech),
+        school: None,
+        teaching: None,
+        newcomer: Some(Newcomer {
+            from,
+            fusion,
+            modifiers,
+            conditions: condition_lines(def, home, facts, defs),
+            waived,
+        }),
+    }
+}
+
+/// Every condition on `def` for a settlement of `home`, with the count it is measured against and
+/// whether it holds: the `requires` keys in `Requires::unmet`'s order, then a borrowed tech's
+/// implicit residents of its own nation. "3 Air residents (3 live here)", "an Earth or Fire master
+/// (5 here)", "24 people (21 here)".
+pub fn condition_lines(
+    def: &TechDef,
+    home: Nation,
+    facts: &Facts<'_>,
+    defs: &Defs,
+) -> Vec<(String, bool)> {
+    let r = &def.requires;
+    let mut all = Vec::new();
+    all.extend(r.scrolls_read.map(Condition::ScrollsRead));
+    all.extend(r.chapter.as_deref().map(|id| {
+        let name = defs.endeavor.chapters.iter().find(|c| c.id == id).map_or(id, |c| &c.name);
+        Condition::Chapter(name.to_owned())
+    }));
+    all.extend(r.population.map(Condition::Population));
+    all.extend(
+        r.masters.map(|count| Condition::Masters {
+            count,
+            of: r.masters_of.clone().unwrap_or_default(),
+        }),
+    );
+    for (&nation, &need) in &r.residents {
+        let have = u32::from(facts.residents[nation.index()]);
+        all.push(Condition::Residents { nation, need, have });
+    }
+    if let Some(nation) = def.borrowed_from(home) {
+        let need = defs.research.borrow_residents;
+        let asked = r.residents.get(&nation).is_some_and(|&n| n >= need);
+        if !asked {
+            let have = u32::from(facts.residents[nation.index()]);
+            all.push(Condition::Residents { nation, need, have });
+        }
+    }
+    let unmet = def.unmet(home, facts, defs);
+    all.into_iter().map(|c| (live_text_for(&c, facts), !unmet.contains(&c))).collect()
 }
 
 #[cfg(test)]
@@ -940,5 +1264,36 @@ mod tests {
         // this; what belongs here is the formatting (#338's literal example).
         assert_eq!(rate_text(3.0, 0.0), "3.0/min");
         assert_eq!(rate_text(3.0, 12.0), "3.0 base + 12.0 study");
+    }
+
+    #[test]
+    fn conditions_read_with_the_count_they_are_measured_against() {
+        let facts = Facts { population: 21, masters: [0, 0, 1, 4], ..Facts::default() };
+        let pop = Condition::Population(24);
+        assert_eq!(live_text_for(&pop, &facts), "24 people (21 here)");
+        assert_eq!(card_text(&pop, &facts), "24 people (21)");
+        let one = Condition::Masters { count: 1, of: vec![Nation::Earth, Nation::Fire] };
+        assert_eq!(live_text_for(&one, &facts), "an Earth or Fire master (5 here)");
+        let water = Condition::Masters { count: 1, of: vec![Nation::Water, Nation::Air] };
+        assert_eq!(live_text_for(&water, &facts), "a Water or Air master (0 here)");
+        let any = Condition::Masters { count: 2, of: Vec::new() };
+        assert_eq!(live_text_for(&any, &facts), "2 masters (5 here)");
+        let fire = Condition::Residents { nation: Nation::Fire, need: 3, have: 2 };
+        assert_eq!(live_text_for(&fire, &facts), "3 Fire residents (2 live here)");
+        assert_eq!(card_text(&fire, &facts), "3 Fire residents");
+    }
+
+    #[test]
+    fn fusions_are_not_on_the_tree_and_the_waiting_row_needs_a_fallen_condition() {
+        let mut s = Session::new(7, Nation::Water, 64, 64);
+        assert!(s.world.complete_endeavor(&s.defs));
+        let tree = screen_view(&s);
+        assert!(tree.columns.iter().flatten().all(|c| !s.defs.tech(c.id).is_fusion()));
+        let page = newcomers_view(&s);
+        assert!(page.columns.iter().flatten().any(|c| s.defs.tech(c.id).is_fusion()));
+        assert_eq!(page.titles.last().map(String::as_str), Some("FUSIONS"));
+        assert!(page.titles[0].ends_with(" here"), "{:?}", page.titles);
+        // Nothing queued: no waiting row.
+        assert_eq!(research_status(&s.world, &s.defs).waiting, None);
     }
 }

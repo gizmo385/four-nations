@@ -144,6 +144,9 @@ pub enum Mode {
     /// A designation tool with a corner set.
     ToolCorner,
     Research,
+    /// The research screen once the Harmony Gate stands: it has a second page, From newcomers,
+    /// which `Tab` turns to.
+    ResearchPages,
     /// The CHOOSE A SCHOOL box over the research screen (#729).
     ChooseSchool,
     Endeavor,
@@ -201,7 +204,7 @@ impl Mode {
         match self {
             Self::Select | Self::Selected | Self::Map => "SELECT",
             Self::Tool | Self::ToolCorner => "TOOL",
-            Self::Research => "RESEARCH",
+            Self::Research | Self::ResearchPages => "RESEARCH",
             Self::ChooseSchool => "CHOOSE A SCHOOL",
             Self::Teaching => "TEACHING",
             Self::Endeavor => "ENDEAVOR",
@@ -352,10 +355,12 @@ fn build() -> Vec<Entry> {
     add(&[Mode::ToolCorner], &[Action::Cancel], "Esc", "drop corner", None);
 
     // The screens, the Build picker and the menu.
-    add(&[Mode::Research], &[step], "Arrows", "choose", None);
-    add(&[Mode::Research], &[Action::Confirm], "Enter", "set as target", None);
-    add(&[Mode::Research], &[Action::Cancel, Action::ShowResearch], "Esc or T", "close", None);
-    add(&[Mode::Research], &[Action::PickTool(Tool::CancelHarvest)], "X", "clear target", None);
+    const RESEARCH: &[Mode] = &[Mode::Research, Mode::ResearchPages];
+    add(RESEARCH, &[step], "Arrows", "choose", None);
+    add(RESEARCH, &[Action::Confirm], "Enter", "set as target", None);
+    add(&[Mode::ResearchPages], &[Action::NextUnit, Action::PrevUnit], "Tab", "switch page", None);
+    add(RESEARCH, &[Action::Cancel, Action::ShowResearch], "Esc or T", "close", None);
+    add(RESEARCH, &[Action::PickTool(Tool::CancelHarvest)], "X", "clear target", None);
     add(&[Mode::ChooseSchool], &[Action::Confirm], "Enter", "choose", None);
     add(&[Mode::ChooseSchool], &[Action::Cancel], "Esc", "back", None);
 
@@ -719,6 +724,11 @@ mod tests {
         assert_eq!(
             line(Mode::Research),
             "Arrows choose · Enter set as target · Esc or T close · X clear target"
+        );
+        // Once the gate stands the screen has a second page, and `Tab` turns to it.
+        assert_eq!(
+            line(Mode::ResearchPages),
+            "Arrows choose · Enter set as target · Tab switch page · Esc or T close · X clear target"
         );
     }
 

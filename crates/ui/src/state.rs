@@ -207,6 +207,9 @@ pub struct UiState {
     pub saved_at: Option<u64>,
     /// The research screen's cursor: a column of the tech tree and a card in it.
     pub tech: (usize, usize),
+    /// The research screen's page: the tech tree, or From newcomers once the gate stands. Opens
+    /// on the tree.
+    pub research_page: crate::research::ResearchPage,
     /// The CHOOSE A SCHOOL box over the research screen (#729): the school option `Enter` asked
     /// about. While set, `Enter` sets it as the target and `Esc` backs out.
     pub school_confirm: Option<fn_sim::research::TechId>,
@@ -283,6 +286,7 @@ impl UiState {
             can_quit: true,
             saved_at: None,
             tech: (0, 0),
+            research_page: crate::research::ResearchPage::default(),
             school_confirm: None,
             teaching_cursor: 0,
             teaching_seen: None,
@@ -302,6 +306,22 @@ impl UiState {
     pub fn switch_help_tab(&mut self) {
         self.help_tab = self.help_tab.other();
         self.scroll = 0;
+    }
+
+    /// `Tab` in the research screen: the other page, with the cursor on its target or its first
+    /// researchable card. Nothing happens before the gate, when there is no other page.
+    pub fn switch_research_page(&mut self, session: &Session) {
+        if !crate::research::has_newcomers(session) {
+            return;
+        }
+        self.research_page = self.research_page.other();
+        let view = crate::research::screen_page(session, self.research_page);
+        self.tech = crate::screens::research::initial_cursor(session, &view);
+    }
+
+    /// The research screen's cards: the page that is open.
+    pub fn research_view(&self, session: &Session) -> crate::research::ScreenView {
+        crate::research::screen_page(session, self.research_page)
     }
 
     /// The map region of the terminal, in tiles.

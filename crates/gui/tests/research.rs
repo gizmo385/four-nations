@@ -347,3 +347,25 @@ fn the_box_fits_a_small_window() {
     h.get_by_label(CONFIRM_TITLE);
     h.get_by_label("Back [Esc]");
 }
+
+/// Once the gate stands the page has tabs: a click on "From newcomers" is `Tab`, and the page of
+/// the other nations' techs and the fusions takes the place of the tiers.
+#[test]
+fn after_the_gate_the_tabs_turn_to_the_newcomers_page() {
+    let mut session = fn_tui::new_session(7, Nation::Water);
+    assert!(session.world.complete_endeavor(&session.defs));
+    let mut shell = Shell::new_game(session, SIZE, None);
+    shell.play(&fn_ui::script::parse("t").unwrap());
+    let mut app = GuiApp::with_shell(shell);
+    let mut h = harness(&mut app);
+    h.get_by_label("Your tree");
+    h.get_by_label("TIER 1");
+    h.get_by_label("From newcomers").click();
+    h.run_steps(3);
+    h.get_by_label_contains("FUSIONS");
+    h.get_by_label_contains("FIRE NATION");
+    assert!(h.query_by_label("TIER 1").is_none());
+    h.get_by_label_contains("Steelworks");
+    drop(h);
+    assert_eq!(state(&app).ui.research_page, fn_ui::research::ResearchPage::Newcomers);
+}
