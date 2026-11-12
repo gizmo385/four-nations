@@ -97,6 +97,10 @@ pub enum Modal {
     /// help, New map…, Switch nation… and Quit… ([`UiState::menu_cursor`], #655). Pauses the clock
     /// while it's open; `Resume` or `Esc` (`App::close_menu`) restores whatever it was.
     Menu,
+    /// The LOST TEACHING box (#743, `crate::teaching`): the oldest pending teaching draft, its
+    /// cursor [`UiState::teaching_cursor`]. Opens by itself once per offer and pauses the
+    /// clock; "Decide later" or `Esc` closes it and restores the pause.
+    Teaching,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -206,6 +210,11 @@ pub struct UiState {
     /// The CHOOSE A SCHOOL box over the research screen (#729): the school option `Enter` asked
     /// about. While set, `Enter` sets it as the target and `Esc` backs out.
     pub school_confirm: Option<fn_sim::research::TechId>,
+    /// The LOST TEACHING box's cursor (#743): 0 is "Decide later".
+    pub teaching_cursor: usize,
+    /// The tick of the newest teaching offer the box has opened for by itself (owner #733: once
+    /// per offer), so "Decide later" doesn't bring it straight back.
+    pub teaching_seen: Option<u64>,
     /// The Nation screen's cursor: an index into its roster (`crate::nation::roster`), in the
     /// screen's own grouped order.
     pub nation_cursor: usize,
@@ -275,6 +284,8 @@ impl UiState {
             saved_at: None,
             tech: (0, 0),
             school_confirm: None,
+            teaching_cursor: 0,
+            teaching_seen: None,
             nation_cursor: 0,
             ability_cursor: 0,
             trade_cursor: 0,

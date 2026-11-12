@@ -122,6 +122,8 @@ fn modal_surface(modal: Modal) -> Surface {
         // The Build picker is a full screen (`fn_tui::build`, #652), native since #881.
         Modal::Build => Surface::Page(PageKind::Build),
         Modal::Menu => Surface::CellsBox(BoxKind::Menu),
+        // The LOST TEACHING box (#743): the terminal's frame until it has a native painter.
+        Modal::Teaching => Surface::CellsFull,
     }
 }
 

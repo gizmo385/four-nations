@@ -128,7 +128,7 @@ pub fn draw(
             if column.len() > first_card + shown_rows { marks.down } else { "" },
         );
         let title_tone = if chosen_column { Tone::Title } else { Tone::Dim };
-        head.row(&Row::pair(format!("TIER {}", c + 1), title_tone, flags, Tone::Dim));
+        head.row(&Row::pair(column_title(&view, c), title_tone, flags, Tone::Dim));
 
         let body = Rect::new(x, inner.y + 1, width, grid_height as u16);
         for &(r, top) in &tops {

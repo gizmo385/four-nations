@@ -39,6 +39,7 @@ mod saves;
 mod scenario;
 mod school_readouts;
 mod schools;
+mod teachings;
 mod title;
 mod tool_list;
 mod traders;

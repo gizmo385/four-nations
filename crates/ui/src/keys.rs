@@ -171,6 +171,8 @@ pub enum Mode {
     /// A question that can lose progress, asked in a centred box (new map, switch nation, quit,
     /// load, save over a slot).
     Ask,
+    /// The LOST TEACHING box (#743): keep one teaching of a draft, or decide later.
+    Teaching,
     /// Leaving the embark screen: back to the title screen, out of the game, or stay.
     Exit,
     /// The title screen's menu.
@@ -201,6 +203,7 @@ impl Mode {
             Self::Tool | Self::ToolCorner => "TOOL",
             Self::Research => "RESEARCH",
             Self::ChooseSchool => "CHOOSE A SCHOOL",
+            Self::Teaching => "TEACHING",
             Self::Endeavor => "ENDEAVOR",
             Self::Nation => "NATION",
             Self::Abilities => "ABILITIES",
@@ -431,6 +434,11 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Ask], &[], "Up/Down", "choose", None);
     add(&[Mode::Ask], &[], "Enter", "answer", None);
     add(&[Mode::Ask], &[], "Esc", "cancel", None);
+
+    // The LOST TEACHING box (#743): `Esc` is "Decide later", the first row and the safe one.
+    add(&[Mode::Teaching], &[], "Up/Down", "choose", None);
+    add(&[Mode::Teaching], &[], "Enter", "answer", None);
+    add(&[Mode::Teaching], &[], "Esc", "decide later", None);
 
     // Quitting from the embark screen, which has no game to save: the same two ways out as the
     // game's Quit… box.
@@ -695,6 +703,7 @@ mod tests {
             Mode::Menu,
             Mode::MenuNations,
             Mode::Ask,
+            Mode::Teaching,
             Mode::Title,
             Mode::TitleSeed,
             Mode::TitleLoad,

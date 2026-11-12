@@ -121,7 +121,7 @@ pub use season::{Almanac, SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
-pub use teachings::{TeachingEvent, TeachingEventKind, TeachingOffer};
+pub use teachings::{TeachingCaveat, TeachingEvent, TeachingEventKind, TeachingOffer};
 pub use trade::{CaravanEvent, CaravanEventKind, Offer, OfferKind, TradeError, TradeState, Visit};
 use work::StandRule;
 pub use work::{DesignateError, FoodSource, IdleReason, Task};

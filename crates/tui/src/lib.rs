@@ -46,6 +46,7 @@ pub mod shell;
 pub mod spectate;
 pub mod studio;
 pub mod surface;
+pub mod teaching;
 pub mod title;
 pub mod traders;
 pub mod watch;

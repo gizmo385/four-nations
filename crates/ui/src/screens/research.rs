@@ -9,7 +9,7 @@
 //! the state like every other.
 
 use crate::Session;
-use crate::research::{ScreenView, TechCard, TechState, cost_text, screen_view};
+use crate::research::{ScreenView, TeachingRow, TechCard, TechState, cost_text, screen_view};
 use crate::rows::{Marks, Row, Tone, wrap};
 use fn_sim::research::TechId;
 use fn_sim::world::Command;
@@ -76,10 +76,9 @@ pub fn card_at(view: &ScreenView, at: Cursor) -> Option<&TechCard> {
 /// with none on the first tech that can be researched now, or on the first card.
 pub fn initial_cursor(session: &Session, view: &ScreenView) -> Cursor {
     let find = |want: &dyn Fn(&TechCard) -> bool| {
-        view.columns
-            .iter()
-            .enumerate()
-            .find_map(|(c, col)| col.iter().position(want).map(|r| (c, r)))
+        view.columns.iter().enumerate().find_map(|(c, col)| {
+            col.iter().position(|card| card.is_tech() && want(card)).map(|r| (c, r))
+        })
     };
     let target = session.world.research().queue().last().copied();
     target
@@ -102,8 +101,24 @@ pub fn step(view: &ScreenView, at: Cursor, dx: i32, dy: i32) -> Cursor {
 /// by the sim and nothing changes; one with unmet prereqs queues its whole chain.
 pub fn choose(session: &mut Session, at: Cursor) {
     let view = screen_view(session);
-    if let Some(card) = card_at(&view, at) {
+    if let Some(card) = card_at(&view, at).filter(|c| c.is_tech()) {
         let _ = session.apply(Command::SetResearch { tech: card.id });
+    }
+}
+
+/// Whether `Enter` at `at` reopens the LOST TEACHING box (#743): the TEACHINGS column's `!
+/// Choose a teaching` row.
+pub fn opens_draft(session: &Session, at: Cursor) -> bool {
+    let view = screen_view(session);
+    card_at(&view, at).is_some_and(|c| matches!(c.teaching, Some(TeachingRow::Choose { .. })))
+}
+
+/// A column's header: "TIER 3", or "TEACHINGS" for the column after the last tier (#743).
+pub fn column_title(view: &ScreenView, column: usize) -> String {
+    if view.teachings == Some(column) {
+        "TEACHINGS".to_owned()
+    } else {
+        format!("TIER {}", column + 1)
     }
 }
 
@@ -173,6 +188,7 @@ pub fn state_tone(state: TechState) -> Tone {
         TechState::Available => Tone::Text,
         TechState::Locked => Tone::Dim,
         TechState::Closed => Tone::Dim,
+        TechState::Lost => Tone::Dim,
     }
 }
 
@@ -184,6 +200,7 @@ pub fn state_word(state: TechState) -> &'static str {
         TechState::Available => "Available",
         TechState::Locked => "Locked",
         TechState::Closed => "Closed",
+        TechState::Lost => "Lost",
     }
 }
 
@@ -195,6 +212,7 @@ pub fn state_mark(state: TechState, marks: &Marks) -> &'static str {
         TechState::Available => marks.bullet,
         TechState::Locked => marks.locked,
         TechState::Closed => marks.closed,
+        TechState::Lost => marks.closed,
     }
 }
 
@@ -249,13 +267,52 @@ pub fn wrap_items(text: &str, width: usize, ellipsis: char) -> Vec<String> {
 /// state's mark before it, `chosen` putting the cursor mark there), the state and cost on one
 /// line ("Available - 60 pts"), then what it gives (`gives_text`), as many rows as it needs.
 pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks, width: usize) -> Vec<Row> {
+    let pointer = if chosen { marks.pointer } else { " " };
+    // The TEACHINGS column's own rows (#743): one line each, and no cost.
+    match &card.teaching {
+        Some(TeachingRow::Choose { .. }) => {
+            return vec![Row::spans(vec![
+                (pointer.to_owned(), Tone::Title),
+                ("! ".to_owned(), Tone::Warn),
+                (card.name.clone(), Tone::Strong),
+            ])];
+        }
+        Some(TeachingRow::More(_)) => {
+            return vec![Row::spans(vec![
+                (pointer.to_owned(), Tone::Title),
+                ("? ".to_owned(), Tone::Dim),
+                (card.name.clone(), Tone::Dim),
+            ])];
+        }
+        Some(TeachingRow::Lost) => {
+            let room = width.saturating_sub(INDENT).max(1);
+            let pad = " ".repeat(INDENT);
+            let mut rows = Vec::new();
+            for (i, line) in
+                wrap(&card.name, room, usize::MAX, marks.ellipsis).into_iter().enumerate()
+            {
+                rows.push(if i == 0 {
+                    Row::spans(vec![
+                        (pointer.to_owned(), Tone::Title),
+                        (format!("{} ", marks.closed), Tone::Dim),
+                        (line, Tone::Dim),
+                    ])
+                } else {
+                    Row::text(format!("{pad}{line}"), Tone::Dim)
+                });
+            }
+            rows.push(Row::text(format!("{pad}Lost"), Tone::Dim));
+            rows.push(Row::text(format!("{pad}Lost to the ruins"), Tone::Dim));
+            return rows;
+        }
+        Some(TeachingRow::Kept { .. }) | None => {}
+    }
     let tone = state_tone(card.state);
     let name_tone = match card.state {
         TechState::Available => Tone::Strong,
         other => state_tone(other),
     };
     let mark_tone = if card.state == TechState::Known { Tone::Ok } else { tone };
-    let pointer = if chosen { marks.pointer } else { " " };
     let room = width.saturating_sub(INDENT).max(1);
     let pad = " ".repeat(INDENT);
     let mut rows = Vec::new();
@@ -326,6 +383,9 @@ pub fn card_rows(card: &TechCard, chosen: bool, marks: &Marks, width: usize) -> 
 /// "Needs X"). A Queued tech can show both at once (its own deeper prereqs may still be
 /// unknown): side by side when they fit one row, else each on its own, broken after commas.
 pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usize) -> Vec<Row> {
+    if let Some(rows) = teaching_detail(session, card, marks, width) {
+        return rows;
+    }
     let def = session.defs.tech(card.id);
     let unlocks = if card.unlock.is_empty() {
         String::new()
@@ -343,8 +403,13 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usi
     {
         name.push((format!("   Target: {}", session.defs.tech(target).name), Tone::Dim));
     }
-    let mut right =
-        format!("{} {} {}", card_word(card), marks.dot, cost_text(card.cost, &card.items));
+    let cost = match card.teaching {
+        Some(TeachingRow::Kept { .. }) if card.state != TechState::Known => {
+            crate::teaching::teaching_cost(&session.defs, card.id)
+        }
+        _ => cost_text(card.cost, &card.items),
+    };
+    let mut right = format!("{} {} {cost}", card_word(card), marks.dot);
     if !card.bill.is_empty() {
         right = format!("{right}  {}", card.bill);
     }
@@ -364,12 +429,76 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usi
             }
         }
     }
+    // A kept teaching costs its scroll too (#743): "Uses up the teaching scroll read at the
+    // Meditation Pavilion", until it is learned.
+    if let Some(TeachingRow::Kept { hall: Some(hall) }) = &card.teaching {
+        let line = format!("Uses up the teaching scroll read at the {hall}");
+        for piece in wrap(&line, width.max(1), usize::MAX, marks.ellipsis) {
+            rows.push(Row::text(piece, Tone::Dim));
+        }
+    }
     for (line, tone) in school_lines(session, card) {
         for piece in wrap(&line, width.max(1), usize::MAX, marks.ellipsis) {
             rows.push(Row::text(piece, tone));
         }
     }
     rows
+}
+
+/// The detail strip for the TEACHINGS column's own rows and its lost teachings (#743); `None`
+/// for any other card.
+fn teaching_detail(
+    session: &Session,
+    card: &TechCard,
+    marks: &Marks,
+    width: usize,
+) -> Option<Vec<Row>> {
+    let (name, lines): (String, Vec<String>) = match &card.teaching {
+        Some(TeachingRow::Choose { waiting }) => {
+            let offer = session.world.teaching_offers().first()?;
+            let hall = crate::teaching::hall_name(session, offer.hall);
+            let more = match waiting {
+                1 => String::new(),
+                n => format!(" {n} drafts are waiting."),
+            };
+            (
+                card.name.clone(),
+                vec![format!(
+                    "A teaching scroll was read at the {hall}.{more} Enter to keep one teaching; \
+                     the other is lost for this game."
+                )],
+            )
+        }
+        Some(TeachingRow::More(n)) => (
+            card.name.clone(),
+            vec![format!(
+                "{n} more {} could still be found. Great ruins hold teaching scrolls.",
+                if *n == 1 { "teaching" } else { "teachings" }
+            )],
+        ),
+        Some(TeachingRow::Lost) => {
+            let def = session.defs.tech(card.id);
+            (
+                card.name.clone(),
+                vec![
+                    def.description.clone(),
+                    "Lost to the ruins: another teaching was kept from its draft.".to_owned(),
+                ],
+            )
+        }
+        Some(TeachingRow::Kept { .. }) | None => return None,
+    };
+    let right = match card.teaching {
+        Some(TeachingRow::Lost) => Some(("Lost".to_owned(), Tone::Dim)),
+        _ => None,
+    };
+    let mut rows = vec![Row { left: vec![(name, Tone::Title)], right }];
+    for line in lines {
+        for piece in wrap(&line, width.max(1), usize::MAX, marks.ellipsis) {
+            rows.push(Row::text(piece, Tone::Text));
+        }
+    }
+    Some(rows)
 }
 
 /// The detail strip's school lines (#729): what the fork is while it is open, the bill and where
@@ -444,6 +573,7 @@ mod tests {
             items: String::new(),
             bill: String::new(),
             school: None,
+            teaching: None,
         }
     }
 

@@ -173,6 +173,8 @@ pub enum TechState {
     /// A school option whose mate is learned (docs/design/horizons-phase-4.md): it can never be
     /// researched in this game.
     Closed,
+    /// A teaching lost to a draft (#743): gone for the rest of the game.
+    Lost,
 }
 
 impl TechState {
@@ -183,6 +185,7 @@ impl TechState {
             Self::Available => "Available",
             Self::Locked => "Needs prereqs",
             Self::Closed => "Closed",
+            Self::Lost => "Lost",
         }
     }
 }
@@ -415,6 +418,34 @@ pub struct TechCard {
     pub bill: String,
     /// Where it sits in its school's fork, for a school option; `None` for every other tech.
     pub school: Option<SchoolSlot>,
+    /// What it is in the TEACHINGS column (#743); `None` for every card of the tiers.
+    pub teaching: Option<TeachingRow>,
+}
+
+/// A card of the TEACHINGS column (#743, docs/design/horizons-phase-5.md, "Mockups"), after the
+/// last tier: the draft's own row, the teachings kept and lost, and how many are left to find.
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum TeachingRow {
+    /// `! Choose a teaching`: drafts are waiting (`waiting` of them), and `Enter` reopens the
+    /// LOST TEACHING box. Its card's `id` is the first teaching on offer, never researched from
+    /// here.
+    Choose { waiting: usize },
+    /// A kept teaching, with the study hall its scroll is shelved at until it is learned.
+    Kept { hall: Option<String> },
+    /// A teaching lost to a draft: `x`, "Lost to the ruins".
+    Lost,
+    /// `? 2 more to find` (owner #734: shown only once a teaching scroll has been read, a
+    /// count and never names). Its card's `id` is meaningless.
+    More(usize),
+}
+
+impl TechCard {
+    /// Whether the card stands for a tech: every card but the TEACHINGS column's Choose and
+    /// More rows.
+    pub fn is_tech(&self) -> bool {
+        !matches!(self.teaching, Some(TeachingRow::Choose { .. } | TeachingRow::More(_)))
+    }
 }
 
 /// A school option's place in its fork (docs/design/horizons-phase-4.md, "Mockups"): the
@@ -473,50 +504,117 @@ pub fn closed_reason(research: &Research, defs: &Defs, tech: TechId) -> Option<S
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ScreenView {
     pub columns: Vec<Vec<TechCard>>,
+    /// Which of `columns` is the TEACHINGS column (#743), always the last; `None` before the
+    /// first teaching scroll is read.
+    pub teachings: Option<usize>,
 }
 
 pub fn screen_view(session: &Session) -> ScreenView {
     let defs = &session.defs;
-    let nation = session.world.nation;
-    let research = session.world.research();
     let facts = session.world.facts();
     let depths = tech_depths(&defs.techs);
-    let target = research.queue().last().copied();
     let mut columns: Vec<Vec<TechCard>> = Vec::new();
     for (id, def) in session.world.tree_techs(defs) {
+        // A kept teaching is drawn in the TEACHINGS column, not at its depth.
+        if def.teaching.is_some() {
+            continue;
+        }
         let depth = depths[id.0 as usize];
         if columns.len() <= depth {
             columns.resize(depth + 1, Vec::new());
         }
-        let state = tech_state(research, &facts, defs, id, def);
-        columns[depth].push(TechCard {
-            id,
-            name: def.name.clone(),
-            cost: def.cost,
-            state,
-            // Locked never shows its own `unlock_summary`, on the card or anywhere else
-            // (`TechCard::unlock`'s own doc): nothing reachable would ever display it.
-            unlock: if state == TechState::Locked {
-                String::new()
-            } else {
-                unlock_summary(defs, nation, id, def)
-            },
-            needs: missing_needs(research, &facts, defs, def).join(", "),
-            target: target == Some(id),
-            closed: closed_reason(research, defs, id).unwrap_or_default(),
-            items: cost_items_text(defs, def),
-            bill: bill_text(research, defs, id),
-            school: def.school.map(|school| {
-                let mate = defs.school_mates(id).next();
-                SchoolSlot {
-                    question: defs.school(school).question.clone(),
-                    first: mate.is_none_or(|m| id < m),
-                    other: mate.map(|m| defs.tech(m).name.clone()).unwrap_or_default(),
-                }
-            }),
-        });
+        columns[depth].push(tech_card(session, &facts, id));
     }
-    ScreenView { columns }
+    let teachings = teachings_column(session, &facts);
+    let teachings_at = (!teachings.is_empty()).then(|| {
+        columns.push(teachings);
+        columns.len() - 1
+    });
+    ScreenView { columns, teachings: teachings_at }
+}
+
+/// The card for `id`, in a tier or the TEACHINGS column.
+fn tech_card(session: &Session, facts: &fn_sim::research::Facts<'_>, id: TechId) -> TechCard {
+    let defs = &session.defs;
+    let nation = session.world.nation;
+    let research = session.world.research();
+    let target = research.queue().last().copied();
+    let def = defs.tech(id);
+    let state = tech_state(research, facts, defs, id, def);
+    TechCard {
+        id,
+        name: def.name.clone(),
+        cost: def.cost,
+        state,
+        // Locked never shows its own `unlock_summary`, on the card or anywhere else
+        // (`TechCard::unlock`'s own doc): nothing reachable would ever display it.
+        unlock: if state == TechState::Locked {
+            String::new()
+        } else {
+            unlock_summary(defs, nation, id, def)
+        },
+        needs: missing_needs(research, facts, defs, def).join(", "),
+        target: target == Some(id),
+        closed: closed_reason(research, defs, id).unwrap_or_default(),
+        items: cost_items_text(defs, def),
+        bill: bill_text(research, defs, id),
+        school: def.school.map(|school| {
+            let mate = defs.school_mates(id).next();
+            SchoolSlot {
+                question: defs.school(school).question.clone(),
+                first: mate.is_none_or(|m| id < m),
+                other: mate.map(|m| defs.tech(m).name.clone()).unwrap_or_default(),
+            }
+        }),
+        teaching: None,
+    }
+}
+
+/// The TEACHINGS column (#743): `! Choose a teaching` while drafts wait, every kept teaching,
+/// every lost one, then `? N more to find` once a scroll has been read (owner #734). Empty
+/// before the first teaching scroll is read.
+fn teachings_column(session: &Session, facts: &fn_sim::research::Facts<'_>) -> Vec<TechCard> {
+    let (world, defs) = (&session.world, &session.defs);
+    let pseudo = |id: TechId, name: String, row: TeachingRow| TechCard {
+        id,
+        name,
+        cost: 0,
+        state: TechState::Available,
+        unlock: String::new(),
+        needs: String::new(),
+        target: false,
+        closed: String::new(),
+        items: String::new(),
+        bill: String::new(),
+        school: None,
+        teaching: Some(row),
+    };
+    let mut out = Vec::new();
+    let offers = world.teaching_offers();
+    if let Some(first) = offers.first().and_then(|o| o.techs.first()) {
+        let row = TeachingRow::Choose { waiting: offers.len() };
+        out.push(pseudo(*first, "Choose a teaching".to_owned(), row));
+    }
+    for id in world.kept_teachings() {
+        let mut card = tech_card(session, facts, id);
+        let hall = world.shelved_at(id).map(|p| crate::teaching::hall_name(session, p));
+        card.teaching = Some(TeachingRow::Kept { hall });
+        out.push(card);
+    }
+    for id in world.lost_teachings() {
+        let mut card = tech_card(session, facts, id);
+        card.state = TechState::Lost;
+        card.unlock = String::new();
+        card.needs = String::new();
+        card.target = false;
+        card.bill = String::new();
+        card.teaching = Some(TeachingRow::Lost);
+        out.push(card);
+    }
+    if let Some(n) = world.teachings_to_find(defs).filter(|&n| n > 0) {
+        out.push(pseudo(TechId(0), format!("{n} more to find"), TeachingRow::More(n)));
+    }
+    out
 }
 
 #[cfg(test)]
