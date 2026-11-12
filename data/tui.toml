@@ -700,3 +700,9 @@ fg = [196, 176, 130]
 glyph = "╪"
 ascii = "="
 fg = [200, 210, 230]
+
+# The Aqueduct (horizons phase 6, #755): a raised stone channel, an arch in stone-blue.
+[building.aqueduct]
+glyph = "∩"
+ascii = "n"
+fg = [150, 175, 200]

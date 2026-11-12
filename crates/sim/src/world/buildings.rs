@@ -139,6 +139,8 @@ pub(super) enum Kind {
     Orchard,
     Farm,
     Irrigation,
+    /// An Aqueduct tile (`aqueduct.rs`, #755).
+    Aqueduct,
     Power,
     /// A study hall: seats, and no chart (a Map Room's seats are Chart jobs instead).
     Study,
@@ -183,6 +185,7 @@ impl Kind {
             (def.orchard.is_some(), Kind::Orchard),
             (def.farm.is_some(), Kind::Farm),
             (def.irrigation.is_some(), Kind::Irrigation),
+            (def.aqueduct.is_some(), Kind::Aqueduct),
             (def.power.is_some(), Kind::Power),
             (def.seats > 0 && def.chart.is_none(), Kind::Study),
             (def.fuel.is_some(), Kind::Fuel),

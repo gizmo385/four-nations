@@ -1358,11 +1358,14 @@ impl World {
         let pos = self.units[i].pos;
         // A barrel's door is a spot to drink, and fresh (`outpost.rs`).
         let barrels = self.barrel_door_list(defs);
+        // A flowing aqueduct tile is a spot to drink too, and fresh (`aqueduct.rs`, #755).
+        let flow = self.flow(defs);
         let (any_flood, any_found) = Flood::seek(&self.map, pos, rules, |p, _| {
             if !self.rules.passable(&self.map[p]) {
                 return None;
             }
             (barrels.contains(&p)
+                || flow.beside(&self.map, p)
                 || self.map.neighbors(p, true).any(|q| self.map[q].terrain.is_water()))
             .then_some(((), ()))
         });
@@ -1374,6 +1377,7 @@ impl World {
                     return None;
                 }
                 (barrels.contains(&p)
+                    || flow.beside(&self.map, p)
                     || self.map.neighbors(p, true).any(|q| is_fresh(self.map[q].terrain)))
                 .then_some(((), ()))
             });

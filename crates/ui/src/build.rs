@@ -746,6 +746,11 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
     if let Some(h) = &def.hothouse {
         effects.push(format!("Plots within {} tiles grow through winter", h.radius));
     }
+    if let Some(a) = &def.aqueduct {
+        effects.push("Carries river water along its line".to_owned());
+        effects.push(format!("Irrigates plots within {} tiles", a.irrigation_radius));
+        effects.push("People drink beside it".to_owned());
+    }
     // A beast's home (the Stable, the Den): the nation's own beast and what it costs to keep.
     let beast = session
         .defs
@@ -893,6 +898,16 @@ mod tests {
         assert_eq!(
             house.effects,
             ["Plots within 2 tiles grow through winter", "Burns 2 wood a minute in winter"]
+        );
+        let earth = session(Nation::Earth);
+        let aqueduct = building_detail(&earth, earth.defs.building_id("aqueduct").unwrap());
+        assert_eq!(
+            aqueduct.effects,
+            [
+                "Carries river water along its line",
+                "Irrigates plots within 2 tiles",
+                "People drink beside it"
+            ]
         );
         let air = session(Nation::Air);
         let roost = building_detail(&air, air.defs.building_id("lemur_roost").unwrap());
