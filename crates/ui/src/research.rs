@@ -386,6 +386,7 @@ mod tests {
             core: true,
             requires: Requires::default(),
             school: None,
+            cost_items: Vec::new(),
         }
     }
 

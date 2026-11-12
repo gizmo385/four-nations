@@ -161,6 +161,10 @@ impl World {
             // An outpost's pantry, not a fuel bunker (`outpost.rs`).
             return self.run_restock(i, id, pos, defs);
         }
+        if self.fuel_shortfall(pos, defs).is_none() && self.bill_hall(defs) == Some(pos) {
+            // A research delivery to a bill hall (`bill.rs`).
+            return self.run_bill(i, id, pos, defs);
+        }
         let Some((item, short)) = self.fuel_shortfall(pos, defs) else {
             // The building is gone: moot. Anything in hand goes back to stores (`run_idle`).
             self.jobs.remove(idx);
@@ -226,7 +230,9 @@ impl World {
     /// Whether the `Refuel` job for the building anchored on `pos` is still worth keeping: it
     /// has a bunker or a pantry.
     pub(super) fn refuel_live(&self, pos: Pos, defs: &Defs) -> bool {
-        self.fuel_shortfall(pos, defs).is_some() || self.pantry_shortfall(pos, defs).is_some()
+        self.fuel_shortfall(pos, defs).is_some()
+            || self.pantry_shortfall(pos, defs).is_some()
+            || self.bill_live(pos, defs)
     }
 
     /// Whether a unit could usefully take the `Refuel` job for the building anchored on `pos`
@@ -237,6 +243,7 @@ impl World {
             || self
                 .pantry_shortfall(pos, defs)
                 .is_some_and(|short| short > 0 && self.any_source_for_pantry(pos, defs))
+            || self.bill_ready(pos, defs)
     }
 
     /// Whether any stockpile tile or ground stack holds `item`: the cheap check before a flood.

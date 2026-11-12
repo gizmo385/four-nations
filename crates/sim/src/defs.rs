@@ -370,7 +370,7 @@ impl Defs {
         bending: &str,
         buildings: &str,
     ) -> Result<Self, DefsError> {
-        let (research, schools, techs) =
+        let (mut research, schools, mut techs, raw_costs) =
             parse::<ResearchFile>("research.toml", research)?.resolve()?;
         let mut nations = parse::<NationFile>("nations.toml", nations)?.nation;
         for n in &mut nations {
@@ -386,6 +386,7 @@ impl Defs {
         let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?;
         let deconstruct = buildings.deconstruct()?;
         let buildings = buildings.resolve(&items, &techs, &resources, &needs)?;
+        research::resolve_cost_items(&mut research, &mut techs, raw_costs, &items, &buildings)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
         let (chi, abilities, mastery, canal) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &items, &techs)?;

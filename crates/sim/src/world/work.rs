@@ -2010,9 +2010,12 @@ impl World {
             // A readable item is used up at the hall, all of it, and never stockpiled. If the
             // hall went away on the way, plan again (no hall left: it is put down).
             if self.at_study_hall(pos) {
-                let millis = u64::from(points) * u64::from(stack.count) * MILLIS_PER_POINT;
+                // A bill short of it takes it first: no knowledge, and not read (#715).
+                let billed = self.research.pay_bill(stack.item, stack.count, defs);
+                let read = stack.count - billed;
+                let millis = u64::from(points) * u64::from(read) * MILLIS_PER_POINT;
                 self.research.add_knowledge(millis);
-                self.tallies.count_scrolls(stack.count);
+                self.tallies.count_scrolls(read);
                 self.units[i].carrying = None;
                 self.finish_job(i);
             } else {

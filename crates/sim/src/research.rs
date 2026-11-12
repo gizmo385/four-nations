@@ -12,6 +12,7 @@
 use serde::Deserialize;
 
 use crate::defs::{Defs, DefsError};
+use crate::jobs::{ItemId, Stack};
 use crate::nation::{ModifierMultipliers, Modifiers, Nation};
 use crate::world::TICKS_PER_SECOND;
 
@@ -70,7 +71,7 @@ fn sorted(ids: impl IntoIterator<Item = TechId>) -> Vec<TechId> {
 }
 
 /// Knowledge production rates. Converted to integer millis per tick by the research system.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResearchSettings {
     /// Settlement-wide trickle that bootstraps the first techs.
@@ -81,6 +82,17 @@ pub struct ResearchSettings {
     /// bootstrap a first pick without letting the passive trickle (or a seat left idle, #284)
     /// quietly bank toward several techs at once. Below the cheapest tech's cost.
     pub idle_knowledge_cap: f64,
+    /// Only a tech costing at least this many points may have `cost_items` (docs/design/
+    /// horizons-phase-4.md, "Item bills"), so the first tiers of the tree stay labour-only.
+    #[serde(default = "default_cost_items_from")]
+    pub cost_items_from: u32,
+    /// The id of the building that takes a research bill's deliveries (`study_hall`). Required
+    /// once any tech has `cost_items`; it must have seats. Resolved to `bill_hall_id` at load.
+    #[serde(default)]
+    pub bill_hall: Option<String>,
+    /// `bill_hall` as a building id, filled in once the buildings load.
+    #[serde(skip)]
+    pub bill_hall_id: Option<crate::building::BuildingId>,
     /// `passive_knowledge_per_minute` as integer millis per tick, filled in at load.
     #[serde(skip)]
     pub passive_millis_per_tick: u64,
@@ -90,6 +102,21 @@ pub struct ResearchSettings {
     /// `idle_knowledge_cap` in milli-points, filled in at load.
     #[serde(skip)]
     pub idle_knowledge_cap_millis: u64,
+}
+
+fn default_cost_items_from() -> u32 {
+    1000
+}
+
+/// Largest count one `[[tech.cost_items]]` line may ask for.
+pub const MAX_COST_ITEM_COUNT: u32 = 99;
+
+/// One `[[tech.cost_items]]` line as written: an item id and a count.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawCostItem {
+    item: String,
+    count: u32,
 }
 
 /// Knowledge is stored in milli-points so rates stay integers.
@@ -281,6 +308,10 @@ pub struct TechDef {
     /// The school this tech is one option of (`school = "..."`). Learning any other tech of the
     /// same school closes this one for the rest of the game (`Research::closed_by`).
     pub school: Option<SchoolId>,
+    /// Items haulers must bring to a study hall before the tech completes
+    /// (`[[tech.cost_items]]`, docs/design/horizons-phase-4.md, "Item bills"). Empty for most
+    /// techs. Never scaled by the difficulty preset's `research_cost`.
+    pub cost_items: Vec<Stack>,
 }
 
 impl TechDef {
@@ -330,7 +361,13 @@ struct RawTech {
     requires: Requires,
     #[serde(default)]
     school: Option<String>,
+    #[serde(default)]
+    cost_items: Vec<RawCostItem>,
 }
+
+/// Each tech's `cost_items` as written, by `TechId`, for `resolve_cost_items` once the items
+/// are known.
+pub(crate) type RawCostItems = Vec<(TechId, Vec<RawCostItem>)>;
 
 fn nation_label(n: Option<Nation>) -> &'static str {
     n.map_or("shared", Nation::as_str)
@@ -342,7 +379,7 @@ impl ResearchFile {
     /// `check_schools`.
     pub(crate) fn resolve(
         self,
-    ) -> Result<(ResearchSettings, Vec<SchoolDef>, Vec<TechDef>), DefsError> {
+    ) -> Result<(ResearchSettings, Vec<SchoolDef>, Vec<TechDef>, RawCostItems), DefsError> {
         let mut s = self.settings;
         for (what, v) in [
             ("passive_knowledge_per_minute", s.passive_knowledge_per_minute),
@@ -378,6 +415,7 @@ impl ResearchFile {
             }
         }
 
+        let mut raw_costs: RawCostItems = Vec::new();
         let mut techs: Vec<TechDef> = Vec::with_capacity(self.tech.len());
         let find = |techs: &[TechDef], id: &str| techs.iter().position(|t| t.id == id);
         for raw in self.tech {
@@ -484,6 +522,32 @@ impl ResearchFile {
                     Some(SchoolId(k as u16))
                 }
             };
+            if !raw.cost_items.is_empty() {
+                if raw.core {
+                    return Err(err("a core tech can't have `cost_items`".into()));
+                }
+                if raw.cost < s.cost_items_from {
+                    return Err(err(format!(
+                        "`cost_items` needs a cost of at least {} (cost_items_from), not {}",
+                        s.cost_items_from, raw.cost
+                    )));
+                }
+                for (k, c) in raw.cost_items.iter().enumerate() {
+                    if raw.cost_items[..k].iter().any(|o| o.item == c.item) {
+                        return Err(err(format!("cost_items: {:?} listed twice", c.item)));
+                    }
+                    if !(1..=MAX_COST_ITEM_COUNT).contains(&c.count) {
+                        return Err(err(format!(
+                            "cost_items: {} x{} must be 1 to {MAX_COST_ITEM_COUNT}",
+                            c.item, c.count
+                        )));
+                    }
+                }
+                if s.bill_hall.is_none() {
+                    return Err(err("`cost_items` needs research settings `bill_hall`".into()));
+                }
+                raw_costs.push((TechId(techs.len() as u16), raw.cost_items));
+            }
             techs.push(TechDef {
                 id: raw.id,
                 name: raw.name,
@@ -496,6 +560,7 @@ impl ResearchFile {
                 core: raw.core,
                 requires: raw.requires,
                 school,
+                cost_items: Vec::new(),
             });
         }
         for (k, sc) in schools.iter().enumerate() {
@@ -510,8 +575,45 @@ impl ResearchFile {
                 )));
             }
         }
-        Ok((s, schools, techs))
+        Ok((s, schools, techs, raw_costs))
     }
+}
+
+/// Resolves each tech's `cost_items` against the items, and `bill_hall` against the buildings
+/// (it must have seats). Runs once both are loaded.
+pub(crate) fn resolve_cost_items(
+    settings: &mut ResearchSettings,
+    techs: &mut [TechDef],
+    raw: RawCostItems,
+    items: &[crate::jobs::ItemDef],
+    buildings: &[crate::building::BuildingDef],
+) -> Result<(), DefsError> {
+    if let Some(hall) = &settings.bill_hall {
+        let Some(i) = buildings.iter().position(|b| b.id == *hall) else {
+            return Err(DefsError(format!(
+                "research settings: bill_hall: unknown building {hall:?}"
+            )));
+        };
+        if buildings[i].seats == 0 {
+            return Err(DefsError(format!(
+                "research settings: bill_hall: {hall:?} has no seats to take deliveries at"
+            )));
+        }
+        settings.bill_hall_id = Some(crate::building::BuildingId(i as u16));
+    }
+    for (tech, lines) in raw {
+        let def = &mut techs[tech.0 as usize];
+        for line in lines {
+            let Some(i) = items.iter().position(|it| it.id == line.item) else {
+                return Err(DefsError(format!(
+                    "tech {}: cost_items: unknown item {:?}",
+                    def.id, line.item
+                )));
+            };
+            def.cost_items.push(Stack { item: ItemId(i as u16), count: line.count });
+        }
+    }
+    Ok(())
 }
 
 /// Checks that no nation starts with a school tech: a fork is a choice made in play. Runs once
@@ -652,6 +754,22 @@ pub struct Research {
     /// scroll copies, `copy_points` x 1000 at a time. Kept when the last Archive comes down.
     #[serde(default)]
     scribe_millis: u64,
+    /// What has been delivered toward queued techs' `cost_items` (docs/design/
+    /// horizons-phase-4.md, "Item bills"). A bill exists once its first item arrives, and goes
+    /// when its tech completes or leaves the queue.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    bills: Vec<Bill>,
+    /// Items delivered toward a tech that left the queue, waiting for a finished bill hall to be
+    /// dropped beside (`World::tick_bills`). Empty whenever a hall stands.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    refunds: Vec<Stack>,
+}
+
+/// Items delivered so far toward one queued tech's `cost_items`, in the def's line order.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Bill {
+    pub tech: TechId,
+    pub delivered: Vec<u32>,
 }
 
 impl Research {
@@ -661,7 +779,15 @@ impl Research {
         for t in &defs.nation(nation).starting_techs {
             known[t.0 as usize] = true;
         }
-        Self { known, pool_millis: 0, queue: Vec::new(), v3_log: Vec::new(), scribe_millis: 0 }
+        Self {
+            known,
+            pool_millis: 0,
+            queue: Vec::new(),
+            v3_log: Vec::new(),
+            scribe_millis: 0,
+            bills: Vec::new(),
+            refunds: Vec::new(),
+        }
     }
 
     /// Does this state cover exactly `defs`' techs, with a queue that names only real ones? False
@@ -669,6 +795,7 @@ impl Research {
     pub(crate) fn fits(&self, defs: &Defs) -> bool {
         self.known.len() == defs.techs.len()
             && self.queue.iter().all(|t| (t.0 as usize) < defs.techs.len())
+            && self.bills.iter().all(|b| (b.tech.0 as usize) < defs.techs.len())
     }
 
     /// Rebuilds the positional state of a research state read from a save for today's tech
@@ -730,6 +857,7 @@ impl Research {
     /// target is lost (#709). The caller has checked there is an Archive.
     pub(crate) fn clear_target(&mut self, defs: &Defs) {
         self.queue.clear();
+        self.drop_stale_bills(defs);
         let cap = defs.research.idle_knowledge_cap_millis;
         let over = self.pool_millis.saturating_sub(cap);
         self.pool_millis -= over;
@@ -789,7 +917,99 @@ impl Research {
             }
         }
         self.queue = queue;
+        self.drop_stale_bills(defs);
         Ok(())
+    }
+
+    /// Moves what was delivered toward any tech no longer queued to `refunds`.
+    fn drop_stale_bills(&mut self, defs: &Defs) {
+        let queue = &self.queue;
+        let (keep, stale): (Vec<Bill>, Vec<Bill>) =
+            std::mem::take(&mut self.bills).into_iter().partition(|b| queue.contains(&b.tech));
+        self.bills = keep;
+        for bill in stale {
+            for (line, &n) in defs.tech(bill.tech).cost_items.iter().zip(&bill.delivered) {
+                if n > 0 {
+                    self.refunds.push(Stack { item: line.item, count: n });
+                }
+            }
+        }
+    }
+
+    /// The bill of a queued tech: its `cost_items` with what has been delivered of each, as
+    /// `(item, delivered, needed)`, in line order. Empty for a tech with no `cost_items`.
+    pub fn bill(&self, tech: TechId, defs: &Defs) -> Vec<(ItemId, u32, u32)> {
+        let delivered = self.bills.iter().find(|b| b.tech == tech).map(|b| &b.delivered);
+        defs.tech(tech)
+            .cost_items
+            .iter()
+            .enumerate()
+            .map(|(k, line)| {
+                let got = delivered.and_then(|d| d.get(k)).copied().unwrap_or(0);
+                (line.item, got.min(line.count), line.count)
+            })
+            .collect()
+    }
+
+    /// Whether `tech`'s bill is in: true for a tech with no `cost_items`.
+    pub fn bill_full(&self, tech: TechId, defs: &Defs) -> bool {
+        self.bill(tech, defs).iter().all(|&(_, got, need)| got >= need)
+    }
+
+    /// What queued techs still owe, front first: `(tech, item, still owed)` for each short line.
+    pub fn bills_owed<'a>(
+        &'a self,
+        defs: &'a Defs,
+    ) -> impl Iterator<Item = (TechId, ItemId, u32)> + 'a {
+        self.queue.iter().flat_map(move |&t| {
+            self.bill(t, defs)
+                .into_iter()
+                .filter(|&(_, got, need)| got < need)
+                .map(move |(item, got, need)| (t, item, need - got))
+        })
+    }
+
+    /// Puts up to `count` of `item` on the first queued bill short of it, never more than it
+    /// owes. Returns how many it took; the rest stays with the carrier.
+    pub(crate) fn pay_bill(&mut self, item: ItemId, count: u32, defs: &Defs) -> u32 {
+        let Some((tech, _, owed)) = self.bills_owed(defs).find(|&(_, i, _)| i == item) else {
+            return 0;
+        };
+        let put = count.min(owed);
+        let lines = &defs.tech(tech).cost_items;
+        let k = lines.iter().position(|l| l.item == item).expect("owed, so listed");
+        let bill = match self.bills.iter().position(|b| b.tech == tech) {
+            Some(b) => &mut self.bills[b],
+            None => {
+                self.bills.push(Bill { tech, delivered: vec![0; lines.len()] });
+                self.bills.last_mut().expect("just pushed")
+            }
+        };
+        if bill.delivered.len() < lines.len() {
+            bill.delivered.resize(lines.len(), 0);
+        }
+        bill.delivered[k] += put;
+        put
+    }
+
+    /// Whether the front tech is waiting only on its bill: the pool already covers its scaled
+    /// cost and some line is short. Study seats are then not worth claiming (#284's rule), so
+    /// scholars become hands for the hauling.
+    pub fn waiting_on_bill(&self, defs: &Defs, research_cost: f32) -> bool {
+        self.queue.first().is_some_and(|&front| {
+            self.pool_millis >= scaled_cost_millis(defs.tech(front).cost, research_cost)
+                && !self.bill_full(front, defs)
+        })
+    }
+
+    /// Items waiting to be dropped beside a bill hall, leaving none behind.
+    pub(crate) fn take_refunds(&mut self) -> Vec<Stack> {
+        std::mem::take(&mut self.refunds)
+    }
+
+    /// Whether any refund is waiting for a bill hall.
+    pub(crate) fn has_refunds(&self) -> bool {
+        !self.refunds.is_empty()
     }
 
     /// The known school mate that closes `tech`, if any: `None` for a tech outside a school, and
@@ -885,11 +1105,12 @@ impl Research {
         );
         while let Some(&front) = self.queue.first() {
             let cost = scaled_cost_millis(defs.tech(front).cost, research_cost);
-            if cost > self.pool_millis {
+            if cost > self.pool_millis || !self.bill_full(front, defs) {
                 break;
             }
             self.pool_millis -= cost;
             self.queue.remove(0);
+            self.bills.retain(|b| b.tech != front);
             self.known[front.0 as usize] = true;
             done.push(TechCompleted { tech: front, tick });
         }

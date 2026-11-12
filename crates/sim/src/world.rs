@@ -28,6 +28,7 @@ mod avatar;
 mod balloon;
 mod beast;
 mod bending;
+mod bill;
 mod build;
 mod buildings;
 mod care;
@@ -1022,6 +1023,7 @@ impl World {
         self.tick_heat();
         self.tick_fuel(defs);
         self.tick_outposts(defs);
+        self.tick_bills(defs);
         self.tick_balloons(defs);
         self.tick_scooters();
         self.tick_beasts(defs);
