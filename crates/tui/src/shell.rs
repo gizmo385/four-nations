@@ -100,6 +100,7 @@ impl Shell {
         let defs = session.defs.clone();
         let mut app = App::new(session, screen);
         app.saves = saves.clone();
+        app.legend_rows = crate::screens::legend_rows;
         let fast = app.fast;
         Self {
             mode: Mode::Game(Box::new(app)),
@@ -492,6 +493,7 @@ impl Shell {
         session.clock = session.clock.with_fast(self.fast);
         let mut app = App::new(session, self.screen);
         app.saves = self.saves.clone();
+        app.legend_rows = crate::screens::legend_rows;
         self.mode = Mode::Game(Box::new(app));
     }
 

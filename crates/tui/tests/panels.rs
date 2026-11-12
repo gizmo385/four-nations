@@ -8,7 +8,7 @@ use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::{render_app, to_text};
 use fn_tui::state::Screen;
-use fn_tui::widgets::Tone;
+use fn_tui::widgets::{Tone, ToneStyle};
 use fn_tui::{keys, new_session};
 use fn_ui::tools::ability_for_nation;
 use fn_ui::{Session, Tool};

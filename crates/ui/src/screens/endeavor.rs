@@ -4,13 +4,13 @@
 //! that the endeavor hasn't begun) with what can be done with the gate now (#643: `Enter`
 //! chooses a site once Ready, `X` withdraws one no work has started on), then every sign grouped under its heading, each with a mark
 //! once it is met, a hint while it isn't, its count and a 10-cell bar, like the selection bar's
-//! meters. What it shows is `fn_ui::endeavor::screen_view`; this module only lays it out as rows
+//! meters. What it shows is `crate::endeavor::screen_view`; this module only lays it out as rows
 //! that scroll (`screens::draw_screen`).
 
-use fn_ui::Session;
-use fn_ui::endeavor::{GroupView, SignRow, screen_view};
+use crate::Session;
+use crate::endeavor::{GroupView, SignRow, screen_view};
 
-use crate::widgets::{Marks, Row, Tone, meter, wrap};
+use crate::rows::{Marks, Row, Tone, meter, wrap};
 
 /// A sign's bar is this many cells, the same as the selection bar's meters.
 const BAR_CELLS: usize = 10;

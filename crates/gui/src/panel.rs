@@ -5,7 +5,7 @@
 //! `fn_tui::panel`'s `header`, `people_row` and `need_flags_row`.
 
 use eframe::egui::{self, Color32, RichText, Ui};
-use fn_tui::app::App;
+use fn_ui::app::App;
 use fn_ui::view::{Activity, activity_counts, beast_count, need_flags, side_view, unit_view};
 
 const WARN: Color32 = Color32::from_rgb(230, 180, 60);

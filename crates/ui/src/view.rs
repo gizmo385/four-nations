@@ -678,6 +678,28 @@ pub fn nation_view(session: &Session) -> NationView {
     }
 }
 
+/// A channelling unit's status in place of the plain task text ("Channelling Hearthflame 1.2s"):
+/// its ability and the time left, while it stands on the tile and bends (`World::bend_channels`,
+/// #278). `None` while it walks there or does anything else, which keeps the plain task (the
+/// inspector's own use, `crate::inspector`; the Nation screen's roster, `N`, #308, has its own).
+pub fn channel_text(session: &Session, unit: &Unit) -> Option<String> {
+    let defs = &session.defs;
+    session.world.bend_channels(defs).into_iter().find(|c| c.unit == unit.id).map(|c| {
+        format!("Channelling {} {:.1}s", defs.ability(c.ability).name, c.remaining_secs.max(0.0))
+    })
+}
+
+/// What the inspector says about `unit`, and the Nation screen's detail strip too (#660): the
+/// plain `unit_view`, except that while the unit channels a bend its task line names the ability
+/// and the time left (#278).
+pub fn settler_view(session: &Session, unit: &Unit) -> UnitView {
+    let mut view = unit_view(session, unit);
+    if let Some(text) = channel_text(session, unit) {
+        view.task = text;
+    }
+    view
+}
+
 #[cfg(test)]
 mod tests {
     use fn_sim::Nation;

@@ -1,14 +1,14 @@
 //! What the player is looking at: the cursor, the part of the map in view and the modal state.
 //! Nothing here touches the terminal, so the render and input tests drive it directly.
 
+use crate::alerts::Category;
+use crate::build::Placement;
+use crate::msglog::LineKey;
+use crate::saves::Slot;
+use crate::{Alerts, Session, Tool};
 use fn_sim::building::BuildingId;
 use fn_sim::world::{Unit, UnitId};
 use fn_sim::{Nation, Pos};
-use fn_ui::alerts::Category;
-use fn_ui::build::Placement;
-use fn_ui::msglog::LineKey;
-use fn_ui::saves::Slot;
-use fn_ui::{Alerts, Session, Tool};
 
 use crate::layout;
 
@@ -57,7 +57,7 @@ pub enum Screen {
     Nation,
     /// `I` (#719): every bending ability the settlement has or may yet unlock, with what each
     /// does and whether it can be used now. It moves a pointer ([`UiState::ability_cursor`]) over
-    /// `fn_ui::bend::abilities`; `Enter` picks the one under it for the Bend tool.
+    /// `crate::bend::abilities`; `Enter` picks the one under it for the Bend tool.
     Abilities,
     /// `M` (#438): the caravan camped now, its deals, its request and what is under way. It
     /// moves a pointer ([`UiState::trade_cursor`]) over the offers; `Enter` takes, `X` cancels.
@@ -117,28 +117,28 @@ pub struct UiState {
     /// `O` while the Harvest tool is active (#81, #277): the next rectangle applied is a
     /// standing order, re-queued every time its resource ripens again, instead of a one-off
     /// designation. The client has no equivalent key; it reads held Shift instead
-    /// (`fn_ui::tools::Pick::repeating`). Resets whenever the tool changes (`set_tool`), and has
+    /// (`crate::tools::Pick::repeating`). Resets whenever the tool changes (`set_tool`), and has
     /// no effect outside the Harvest tool.
     pub repeating: bool,
-    /// `O` while the Cancel tool is active (#335, `fn_ui::tools::Pick::teardown`): the next
+    /// `O` while the Cancel tool is active (#335, `crate::tools::Pick::teardown`): the next
     /// rectangle applied also withdraws a build site or a stockpile tile, which a plain cancel
     /// leaves alone so cancelling harvest jobs over a stockpiled area doesn't tear the
     /// stockpile down by accident. The same `O` key as `repeating`, just read for a different
     /// tool; the two never both apply at once. Resets whenever the tool changes (`set_tool`).
     pub teardown: bool,
-    /// The chute whose foot is being picked (#683, `fn_ui::chute`): set when the Build tool places
+    /// The chute whose foot is being picked (#683, `crate::chute`): set when the Build tool places
     /// a chute site, or by `O` on a chute in Select mode. While set, `Enter` on the map sets the
     /// foot at the cursor and `Esc` leaves it unset; changing tools drops it.
     pub linking: Option<Pos>,
     /// The building the Build tool places, kept across tool changes so `U` returns to it
-    /// (`fn_ui::tools::switch_tool`; the client keeps the same choice in its own `BuildChoice`
+    /// (`crate::tools::switch_tool`; the client keeps the same choice in its own `BuildChoice`
     /// resource, since it belongs to the frontend, not the `Session`).
     pub choice: Option<BuildingId>,
     /// The rectangle's first corner, set by the tool's first `Enter`. The rectangle runs from
     /// here to the cursor; only a tool has one, and switching tools drops it.
     pub anchor: Option<Pos>,
     /// The tool list in the panel (`/`, #664), while it is open: the row the cursor is on, an
-    /// index into `fn_ui::toolpanel::choices`. Closed by picking, by `Esc` and by opening a
+    /// index into `crate::toolpanel::choices`. Closed by picking, by `Esc` and by opening a
     /// screen.
     pub tool_list: Option<usize>,
     /// The last rectangle's result ("designate harvest: 12 done, 3 skipped"), shown in the Tool
@@ -181,7 +181,7 @@ pub struct UiState {
     pub help_tab: HelpTab,
     /// The modal dialog over the map, if one is open (#285).
     pub modal: Option<Modal>,
-    /// The Build modal's highlight: an index into `fn_ui::build::picker_rows`.
+    /// The Build modal's highlight: an index into `crate::build::picker_rows`.
     pub build_cursor: usize,
     /// The game menu's highlight: an index into the list [`Self::menu_page`] shows (#306).
     pub menu_cursor: usize,
@@ -204,13 +204,13 @@ pub struct UiState {
     /// The Nation screen's cursor: an index into its roster (`crate::nation::roster`), in the
     /// screen's own grouped order.
     pub nation_cursor: usize,
-    /// The abilities screen's pointer: an index into `fn_ui::bend::abilities`, which opens on
+    /// The abilities screen's pointer: an index into `crate::bend::abilities`, which opens on
     /// the ability the Bend tool channels now.
     pub ability_cursor: usize,
-    /// The Traders screen's pointer: a slot of the visit camped now (`fn_ui::trade`).
+    /// The Traders screen's pointer: a slot of the visit camped now (`crate::trade`).
     pub trade_cursor: usize,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
-    /// changes them ([`crate::app::App::refresh_saves`]), not on every frame.
+    /// changes them (`App::refresh_saves`), not on every frame.
     pub save_slots: Vec<Slot>,
     /// The saves screen's highlight: an index into [`Self::save_slots`].
     pub save_cursor: usize,
@@ -355,7 +355,7 @@ impl UiState {
     /// Switches to `tool`, dropping the corner, the last result and the `O` toggle (standing
     /// order on Harvest, teardown on Cancel, #277/#335; it has no key of its own while leaving
     /// the tool, so leaving the tool is the only way back to its plain behaviour). The building
-    /// choice is not a tool's own state (`fn_ui::tools::switch_tool` resolves it): it outlives
+    /// choice is not a tool's own state (`crate::tools::switch_tool` resolves it): it outlives
     /// the switch, so coming back to Build returns to it.
     pub fn set_tool(&mut self, tool: Tool) {
         self.tool = tool;
@@ -386,32 +386,32 @@ impl UiState {
         None
     }
 
-    /// The building the Build tool's ghosts would place (`fn_ui::build::valid_choice`): `None`
+    /// The building the Build tool's ghosts would place (`crate::build::valid_choice`): `None`
     /// outside the Build tool, with nothing placeable yet, or while a chute's foot is being
     /// picked (#683), when the cursor points at the foot instead. While a pair's partner is
     /// being picked (#698) it is the pair's own building in any tool, the new end that `Enter`
     /// would place, unless the cursor is on an end already.
     pub fn ghost_building(&self, session: &Session) -> Option<BuildingId> {
         if let Some(head) = self.linking {
-            return fn_ui::link::partner_ghost(session, head, self.cursor);
+            return crate::link::partner_ghost(session, head, self.cursor);
         }
         if self.tool != Tool::Build {
             return None;
         }
-        fn_ui::build::valid_choice(&fn_ui::build::picker_rows(session), self.choice)
+        crate::build::valid_choice(&crate::build::picker_rows(session), self.choice)
     }
 
-    /// The Build tool's ghosts (`fn_ui::build::ghosts`, #212): the footprint under the cursor
+    /// The Build tool's ghosts (`crate::build::ghosts`, #212): the footprint under the cursor
     /// with no corner set, or one per stamp of the rectangle being dragged. Empty outside the
     /// Build tool, or with nothing chosen yet.
     pub fn ghosts(&self, session: &Session) -> Vec<Placement> {
         // The Gate tool's one ghost (#643): the gate centred on the cursor, judged by the
         // endeavor's own placement check.
         if self.tool == Tool::Gate {
-            return fn_ui::gate::placement(session, self.cursor).into_iter().collect();
+            return crate::gate::placement(session, self.cursor).into_iter().collect();
         }
         match self.ghost_building(session) {
-            Some(b) => fn_ui::build::ghosts(session, self.anchor, self.cursor, b),
+            Some(b) => crate::build::ghosts(session, self.anchor, self.cursor, b),
             None => Vec::new(),
         }
     }
@@ -523,7 +523,7 @@ impl UiState {
     /// one after the selected. On a building's own tile (any of its footprint, not its door)
     /// with nobody visibly standing there, it cycles the occupants instead (#226, #229), the
     /// same way, so `Enter` still reaches a scholar sitting inside; the inspector lists
-    /// them in the same order (`fn_ui::build::occupant_rows`). Nothing happens with neither.
+    /// them in the same order (`crate::build::occupant_rows`). Nothing happens with neither.
     pub fn select_here(&mut self, session: &Session) {
         let world = &session.world;
         let mut here: Vec<UnitId> = world.units_at(self.cursor).map(|u| u.id).collect();

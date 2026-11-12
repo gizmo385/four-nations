@@ -20,7 +20,7 @@ use crate::color::Palette;
 use crate::map::{CellLook, Mark, Overlays, Thing, cell_look, style_cell};
 use crate::state::UiState;
 use crate::surface::{describe_ground, describe_mark};
-use crate::widgets::Tone;
+use crate::widgets::{Tone, ToneStyle};
 
 /// Where the legend lists a glyph, in the order it lists the groups.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

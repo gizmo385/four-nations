@@ -3,21 +3,19 @@
 use std::path::PathBuf;
 
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crate::research::screen_view;
+use crate::saves;
+use crate::toolpanel;
+use crate::tools::{Order, apply_order, cycle_ability, switch_tool};
+use crate::{Session, Tool};
 use fn_sim::{Nation, Pos, World};
-use fn_ui::research::screen_view;
-use fn_ui::saves;
-use fn_ui::toolpanel;
-use fn_ui::tools::{Order, apply_order, cycle_ability, switch_tool};
-use fn_ui::{Session, Tool};
 
 use crate::ask::Answer;
 use crate::input::{Action, map_key};
-use crate::keys::Step;
 use crate::menu::{MenuPage, MenuRow};
-use crate::msglog;
-use crate::research;
-use crate::saves as saves_screen;
-use crate::screens;
+use crate::screens::saves as saves_screen;
+use crate::screens::{self, abilities, build as build_screen, msglog, nation, research, traders};
+use crate::script::Step;
 use crate::state::{HelpTab, Modal, Prompt, Screen, UiState};
 
 /// What `F5`, `F9` and `F6` say when there is no save directory.
@@ -32,7 +30,7 @@ pub struct App {
     pub dirty: bool,
     /// The terminal's size, for a new map's view.
     screen: (u16, u16),
-    /// Where `F5` and `F9` keep the quicksave (`fn_ui::saves`); `None` when there is nowhere,
+    /// Where `F5` and `F9` keep the quicksave (`crate::saves`); `None` when there is nowhere,
     /// and then both keys say so. The binary sets it from the environment; tests set their own.
     pub saves: Option<PathBuf>,
     /// New map…, confirmed: `Shell` reopens embark on the next seed instead of restarting in place
@@ -43,10 +41,14 @@ pub struct App {
     /// it back rather than the menu itself toggling pause.
     menu_prev_paused: Option<bool>,
     /// `--fast` (#321): carried across New map… and Switch nation… (`Self::restart`), which otherwise build a
-    /// brand new [`Session`] (and so a plain [`fn_ui::Clock::default`]) from scratch. A host or
+    /// brand new [`Session`] (and so a plain [`crate::Clock::default`]) from scratch. A host or
     /// session setting, not the player's own clock state, so it survives a restart the way the
     /// clock's speed and pause deliberately don't (`Self::restart`'s doc comment).
     pub fast: bool,
+    /// How many rows the key help's Legend tab has (see [`screens::LegendRows`]): the frontend
+    /// that draws the legend sets it, as `fn_tui::shell::Shell` does; until then the tab has
+    /// nothing to scroll.
+    pub legend_rows: screens::LegendRows,
 }
 
 impl App {
@@ -63,6 +65,7 @@ impl App {
             reopen_embark: false,
             menu_prev_paused: None,
             fast,
+            legend_rows: screens::no_legend,
         }
     }
 
@@ -155,16 +158,16 @@ impl App {
             // pair end (any tile of it) its partner (#698).
             Action::ToggleRepeat
                 if self.ui.tool == Tool::Select
-                    && fn_ui::link::head_at(&self.session, self.ui.cursor).is_some() =>
+                    && crate::link::head_at(&self.session, self.ui.cursor).is_some() =>
             {
-                self.ui.linking = fn_ui::link::head_at(&self.session, self.ui.cursor);
+                self.ui.linking = crate::link::head_at(&self.session, self.ui.cursor);
                 self.foot_hint();
             }
             // `O` on a recipe building in an automating yard (#725, #730) turns automation on or
             // off.
             Action::ToggleRepeat if self.ui.tool == Tool::Select => {
                 if let Some(outcome) =
-                    fn_ui::recipe::toggle_automation(&mut self.session, self.ui.cursor)
+                    crate::recipe::toggle_automation(&mut self.session, self.ui.cursor)
                 {
                     self.ui.notice = outcome.unwrap_or_else(|why| why);
                 }
@@ -355,8 +358,8 @@ impl App {
             // takes the one under it once more and `X` cancels what is still owed on it.
             match action {
                 Action::Move { dy, .. } => {
-                    let view = fn_ui::trade::view(&self.session);
-                    self.ui.trade_cursor = crate::traders::step(&view, self.ui.trade_cursor, dy);
+                    let view = crate::trade::view(&self.session);
+                    self.ui.trade_cursor = traders::step(&view, self.ui.trade_cursor, dy);
                     return;
                 }
                 Action::Confirm => return self.trade(false),
@@ -434,8 +437,8 @@ impl App {
                 self.ui.nation_cursor = 0;
             }
             if screen == Screen::Abilities {
-                let rows = fn_ui::bend::abilities(&self.session);
-                self.ui.ability_cursor = crate::abilities::initial_cursor(&rows);
+                let rows = crate::bend::abilities(&self.session);
+                self.ui.ability_cursor = abilities::initial_cursor(&rows);
             }
             if screen == Screen::Traders {
                 self.ui.trade_cursor = 0;
@@ -447,15 +450,14 @@ impl App {
     /// pointer once more, or drops what is still owed on it. The screen stays open; the outcome
     /// goes to the status line under its own badge.
     fn trade(&mut self, cancel: bool) {
-        let view = fn_ui::trade::view(&self.session);
-        let Some(slot) = crate::traders::offer_at(&view, self.ui.trade_cursor).map(|o| o.slot)
-        else {
+        let view = crate::trade::view(&self.session);
+        let Some(slot) = traders::offer_at(&view, self.ui.trade_cursor).map(|o| o.slot) else {
             return;
         };
         let outcome = if cancel {
-            fn_ui::trade::cancel(&mut self.session, slot)
+            crate::trade::cancel(&mut self.session, slot)
         } else {
-            fn_ui::trade::take(&mut self.session, slot)
+            crate::trade::take(&mut self.session, slot)
         };
         self.ui.status = outcome.unwrap_or_else(|why| why);
         self.ui.status_badge = Some(" TRADE ");
@@ -476,8 +478,8 @@ impl App {
 
     /// Moves the Nation screen's pointer (#308) `dy` settlers, stopping at the roster's edges.
     fn move_nation_cursor(&mut self, dy: i32) {
-        let view = fn_ui::view::nation_view(&self.session);
-        self.ui.nation_cursor = crate::nation::step(&view, self.ui.nation_cursor, dy);
+        let view = crate::view::nation_view(&self.session);
+        self.ui.nation_cursor = nation::step(&view, self.ui.nation_cursor, dy);
     }
 
     /// How many settlers PgUp and PgDn move in the Nation screen: a page of rows (headings
@@ -489,8 +491,8 @@ impl App {
     /// `Enter` in the Nation screen: selects the settler under the pointer, puts the cursor on
     /// them and closes the screen (#308, docs/design/side-panel.md "The Nation screen").
     fn confirm_nation(&mut self) {
-        let view = fn_ui::view::nation_view(&self.session);
-        if let Some(&id) = crate::nation::roster(&view).get(self.ui.nation_cursor) {
+        let view = crate::view::nation_view(&self.session);
+        if let Some(&id) = nation::roster(&view).get(self.ui.nation_cursor) {
             self.ui.select_unit(&self.session, id);
             self.ui.screen = None;
         }
@@ -498,7 +500,7 @@ impl App {
 
     /// Moves the abilities screen's pointer (#719) `dy` abilities, stopping at the list's edges.
     fn move_ability_cursor(&mut self, dy: i32) {
-        let rows = fn_ui::bend::abilities(&self.session);
+        let rows = crate::bend::abilities(&self.session);
         let at = self.ui.ability_cursor.min(rows.len().saturating_sub(1)) as i64;
         let to = (at + i64::from(dy)).clamp(0, rows.len() as i64 - 1).max(0);
         self.ui.ability_cursor = to as usize;
@@ -513,7 +515,7 @@ impl App {
     /// tool's choice, the tool becomes active and the screen closes. On one that can't be used
     /// yet it does nothing (the detail strip says why).
     fn pick_ability(&mut self) {
-        let rows = fn_ui::bend::abilities(&self.session);
+        let rows = crate::bend::abilities(&self.session);
         let Some(row) = rows.get(self.ui.ability_cursor) else { return };
         if !row.usable() {
             return;
@@ -539,7 +541,7 @@ impl App {
         };
         let width = screens::text_size(self.ui.page()).0;
         let rows = screens::body_rows(screen, self.ui.page());
-        let total = screens::row_count(&self.session, &self.ui, screen, width);
+        let total = screens::row_count(&self.session, &self.ui, screen, width, self.legend_rows);
         let max = total.saturating_sub(rows);
         let now = self.ui.scroll.min(max) as i64;
         let to = (now + i64::from(lines)).clamp(0, max as i64) as usize;
@@ -916,11 +918,11 @@ impl App {
 
     /// `U`: opens the Build modal (#285) instead of switching tools; the tool and the choice
     /// stay as they were until `Enter` there picks one. The highlight starts on the current
-    /// choice if it can still be placed, else the first one that can (`fn_ui::build::valid_choice`,
+    /// choice if it can still be placed, else the first one that can (`crate::build::valid_choice`,
     /// as `switch_tool` used to resolve it for the plain tool key).
     fn open_build_modal(&mut self) {
-        let rows = fn_ui::build::picker_rows(&self.session);
-        let choice = fn_ui::build::valid_choice(&rows, self.ui.choice);
+        let rows = crate::build::picker_rows(&self.session);
+        let choice = crate::build::valid_choice(&rows, self.ui.choice);
         self.ui.build_cursor =
             choice.and_then(|id| rows.iter().position(|r| r.id == id)).unwrap_or(0);
         self.ui.modal = Some(Modal::Build);
@@ -940,21 +942,21 @@ impl App {
     /// and leaves the Build tool active with it; `Esc` or `U` leaves the tool and the choice as
     /// they were; any other letter jumps the highlight to the next name that starts with it.
     fn build_modal_key(&mut self, key: KeyEvent) {
-        if crate::build::closes(key) {
+        if build_screen::closes(key) {
             self.ui.modal = None;
             return;
         }
-        let rows = fn_ui::build::picker_rows(&self.session);
+        let rows = crate::build::picker_rows(&self.session);
         if rows.is_empty() {
             return;
         }
         let at = self.ui.build_cursor.min(rows.len() - 1);
         match key.code {
             KeyCode::Up | KeyCode::Char('w' | 'W') => {
-                self.ui.build_cursor = crate::build::step(&rows, at, -1);
+                self.ui.build_cursor = build_screen::step(&rows, at, -1);
             }
             KeyCode::Down | KeyCode::Char('s' | 'S') => {
-                self.ui.build_cursor = crate::build::step(&rows, at, 1);
+                self.ui.build_cursor = build_screen::step(&rows, at, 1);
             }
             KeyCode::Enter => {
                 let row = &rows[at];
@@ -965,7 +967,7 @@ impl App {
                 }
             }
             KeyCode::Char(c) if c.is_alphabetic() => {
-                self.ui.build_cursor = crate::build::jump_to_letter(&rows, at, c);
+                self.ui.build_cursor = build_screen::jump_to_letter(&rows, at, c);
             }
             _ => {}
         }
@@ -975,7 +977,7 @@ impl App {
     /// arms the Gate tool, whose ghost shows where the site would go; otherwise says why not in
     /// the status line ("Can't place The Harmony Gate: 5 of 9 signs met").
     fn start_gate(&mut self) {
-        match fn_ui::gate::place_refusal(&self.session) {
+        match crate::gate::place_refusal(&self.session) {
             None => {
                 self.ui.screen = None;
                 self.ui.set_tool(Tool::Gate);
@@ -985,17 +987,17 @@ impl App {
     }
 
     /// `R` in Select mode (#712): sets the building under the cursor to its next recipe
-    /// (`fn_ui::recipe::switch`), the outcome in the Tool section's notice.
+    /// (`crate::recipe::switch`), the outcome in the Tool section's notice.
     fn next_recipe(&mut self) {
         self.ui.notice =
-            fn_ui::recipe::switch(&mut self.session, self.ui.cursor).unwrap_or_else(|why| why);
+            crate::recipe::switch(&mut self.session, self.ui.cursor).unwrap_or_else(|why| why);
     }
 
     /// `X` in the Research screen (#712): clears the research target so the Archive's scholars
-    /// scribe (`fn_ui::research::clear_target`). The screen stays open; the outcome goes to the
+    /// scribe (`crate::research::clear_target`). The screen stays open; the outcome goes to the
     /// status line under its own badge.
     fn clear_research(&mut self) {
-        self.ui.status = fn_ui::research::clear_target(&mut self.session).unwrap_or_else(|why| why);
+        self.ui.status = crate::research::clear_target(&mut self.session).unwrap_or_else(|why| why);
         self.ui.status_badge = Some(" RESEARCH ");
     }
 
@@ -1006,10 +1008,10 @@ impl App {
     }
 
     /// `X` in the Endeavor screen (#643): withdraws the gate's site while no work on it has
-    /// started (`fn_ui::gate::withdraw`). The screen stays open; the outcome is both the status
+    /// started (`crate::gate::withdraw`). The screen stays open; the outcome is both the status
     /// line and the Tool section's notice.
     fn withdraw_gate(&mut self) {
-        let text = fn_ui::gate::withdraw(&mut self.session).unwrap_or_else(|why| why);
+        let text = crate::gate::withdraw(&mut self.session).unwrap_or_else(|why| why);
         self.gate_status(text.clone());
         self.ui.notice = text;
     }
@@ -1018,7 +1020,7 @@ impl App {
     /// tool goes back to Select (there is only one gate); refused, it stays for another try.
     /// Either way the notice says what happened.
     fn place_gate(&mut self) {
-        match fn_ui::gate::place(&mut self.session, self.ui.cursor) {
+        match crate::gate::place(&mut self.session, self.ui.cursor) {
             Ok(text) => {
                 self.ui.set_tool(Tool::Select);
                 self.gate_status(text.clone());
@@ -1066,7 +1068,7 @@ impl App {
                 // A chute site just placed asks for its foot next (#683), a pair's end for its
                 // partner (#698).
                 if self.ui.tool == Tool::Build
-                    && let Some(head) = fn_ui::link::unlinked_in(
+                    && let Some(head) = crate::link::unlinked_in(
                         &self.session,
                         corner,
                         self.ui.cursor,
@@ -1074,7 +1076,7 @@ impl App {
                     )
                 {
                     self.ui.linking = Some(head);
-                    let ask = fn_ui::link::asking(&self.session, head);
+                    let ask = crate::link::asking(&self.session, head);
                     self.ui.notice = format!("{}. {ask}", report.notice);
                 }
             }
@@ -1085,8 +1087,8 @@ impl App {
     /// the cursor: why it can't go here, or the prompt again where it can.
     fn foot_hint(&mut self) {
         if let Some(head) = self.ui.linking {
-            self.ui.notice = fn_ui::link::refusal(&self.session, head, self.ui.cursor)
-                .unwrap_or_else(|| fn_ui::link::asking(&self.session, head).to_owned());
+            self.ui.notice = crate::link::refusal(&self.session, head, self.ui.cursor)
+                .unwrap_or_else(|| crate::link::asking(&self.session, head).to_owned());
         }
     }
 
@@ -1094,7 +1096,7 @@ impl App {
     /// partner places a new site there unless an end is under the cursor) and stops picking, or
     /// says why not and keeps picking.
     fn set_foot(&mut self, head: Pos) {
-        match fn_ui::link::set(&mut self.session, head, self.ui.cursor) {
+        match crate::link::set(&mut self.session, head, self.ui.cursor) {
             Ok(text) => {
                 self.ui.linking = None;
                 self.ui.notice = text;
@@ -1107,7 +1109,7 @@ impl App {
     /// the inspector's settler; with nothing left to close (#306), it opens the game menu instead.
     fn cancel(&mut self) {
         if let Some(head) = self.ui.linking.take() {
-            self.ui.notice = fn_ui::link::left_unset(&self.session, head).to_owned();
+            self.ui.notice = crate::link::left_unset(&self.session, head).to_owned();
             return;
         }
         if self.ui.tool == Tool::Select {
@@ -1202,10 +1204,10 @@ impl App {
     /// After ticks ran: turns what the world logged into alerts (the toasts age by `dt` real
     /// seconds), deselects a unit that died and moves the cursor with a followed one.
     ///
-    /// `pub(crate)` so `crate::surface`'s scenario prelude (#481) can catch `ui.alerts` up to
+    /// `pub` so `fn_tui::surface`'s scenario prelude (#481) can catch `ui.alerts` up to
     /// the end of a prelude it ran directly against `self.session`, without `run_ticks` -- the
     /// one call every other path here already makes through it.
-    pub(crate) fn settle(&mut self, dt: f32) {
+    pub fn settle(&mut self, dt: f32) {
         self.ui.alerts.update(&self.session, dt);
         self.ui.track(&self.session);
         self.dirty = true;
@@ -1251,7 +1253,7 @@ impl App {
     }
 
     /// Runs `n` ticks whatever the clock says, as a key script's `<tick N>` does, and settles
-    /// what they logged. Public so [`crate::shell::Shell`] can run the same ticks from a script
+    /// what they logged. Public so `fn_tui::shell::Shell` can run the same ticks from a script
     /// that starts at the title screen (#280).
     pub fn run_ticks(&mut self, n: u32) {
         self.session.tick_n(n);

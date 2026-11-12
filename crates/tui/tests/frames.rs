@@ -8,13 +8,13 @@
 
 use std::collections::BTreeSet;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fn_sim::jobs::JobKind;
 use fn_sim::world::Command;
 use fn_sim::{Nation, Pos};
 use fn_tui::app::App;
 use fn_tui::color::{ColorDepth, Palette, Tint};
 use fn_tui::frame::{render, render_app, to_ansi, to_text};
+use fn_tui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_tui::state::Modal;
 use fn_tui::{keys, layout, new_session};
 use fn_ui::tools::tiles_between;

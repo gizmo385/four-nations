@@ -2,28 +2,16 @@
 //! side panel on the right (32 columns, 36 on a wide terminal, #423) and a status line under both.
 //! A full screen (`crate::page`, #652) covers the map and the side panel together: every column,
 //! every row above the status line.
+//!
+//! The sizes (and the constants) are `fn_ui::layout`'s, because the game's state needs them; this
+//! module turns them into rectangles.
 
 use ratatui::layout::Rect;
 
-/// The terminal width (inclusive) from which the side panel widens to [`PANEL_WIDTH_WIDE`]
-/// columns (#423, docs/design/side-panel-v2.md "Width").
-pub const WIDE_TERMINAL: u16 = 140;
-
-/// The side panel's width in columns below [`WIDE_TERMINAL`].
-pub const PANEL_WIDTH: u16 = 32;
-
-/// The side panel's width in columns at [`WIDE_TERMINAL`] or wider (#423).
-pub const PANEL_WIDTH_WIDE: u16 = 36;
-
-/// The side panel's width for a terminal `width` columns wide: [`PANEL_WIDTH_WIDE`] at
-/// [`WIDE_TERMINAL`] or wider, else [`PANEL_WIDTH`].
-pub fn panel_width(width: u16) -> u16 {
-    if width >= WIDE_TERMINAL { PANEL_WIDTH_WIDE } else { PANEL_WIDTH }
-}
-
-/// The smallest terminal the layout works in. Below it the frame is only a notice.
-pub const MIN_WIDTH: u16 = 80;
-pub const MIN_HEIGHT: u16 = 24;
+pub use fn_ui::layout::{
+    MIN_HEIGHT, MIN_WIDTH, PANEL_WIDTH, PANEL_WIDTH_WIDE, WIDE_TERMINAL, page_size, panel_width,
+    viewport,
+};
 
 /// The three regions of a screen of at least the minimum size, and the page a full screen
 /// covers.
@@ -52,20 +40,6 @@ pub fn regions(area: Rect) -> Option<Regions> {
         status: Rect::new(area.x, area.y + body_height, area.width, 1),
         page: Rect::new(area.x, area.y, area.width, body_height),
     })
-}
-
-/// How big a full screen's page is on a `width` x `height` terminal, as (columns, rows): 0 x 0
-/// when it's too small to draw anything.
-pub fn page_size(width: u16, height: u16) -> (i32, i32) {
-    regions(Rect::new(0, 0, width, height))
-        .map_or((0, 0), |r| (i32::from(r.page.width), i32::from(r.page.height)))
-}
-
-/// How many tiles fit across and down the map region of a `width` x `height` terminal (0 x 0 when
-/// it's too small to draw anything).
-pub fn viewport(width: u16, height: u16) -> (i32, i32) {
-    regions(Rect::new(0, 0, width, height))
-        .map_or((0, 0), |r| (i32::from(r.map.width), i32::from(r.map.height)))
 }
 
 #[cfg(test)]

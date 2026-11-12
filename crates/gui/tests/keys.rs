@@ -2,7 +2,7 @@
 
 use eframe::egui::{Event, Key, Modifiers};
 use fn_gui::keys::translate;
-use fn_tui::keyev::{KeyCode, KeyModifiers};
+use fn_ui::keyev::{KeyCode, KeyModifiers};
 
 fn key(k: Key, m: Modifiers) -> Event {
     Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: m }
