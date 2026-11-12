@@ -641,6 +641,7 @@ mod tests {
             school: None,
             cost_items: Vec::new(),
             teaching: None,
+            fusion: None,
         }
     }
 

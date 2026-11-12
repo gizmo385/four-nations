@@ -166,9 +166,11 @@ impl World {
     /// The techs this settlement's tree shows, in file order: `Defs::techs_for` less every
     /// teaching not kept (docs/design/horizons-phase-5.md: a teaching is hidden until kept, and a
     /// lost one is gone; #743's TEACHINGS column is where those show).
+    /// Fusion techs (#754) are left out until the gate stands.
     pub fn tree_techs<'d>(&self, defs: &'d Defs) -> impl Iterator<Item = (TechId, &'d TechDef)> {
         defs.techs_for(self.nation)
             .filter(|(id, t)| t.teaching.is_none() || self.teachings.kept.contains(id))
+            .filter(|(_, t)| t.visible_when(self.united()))
             .collect::<Vec<_>>()
             .into_iter()
     }

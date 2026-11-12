@@ -214,3 +214,58 @@ fn the_same_script_gives_the_same_world() {
     assert_eq!(a.2, 1, "it finished once the resident returned");
     assert_eq!(a, b);
 }
+
+/// A Fire world of six settlers: three Earth newcomers and three Fire, one of them a master.
+fn steelworks_world(defs: &Defs) -> World {
+    let spots: Vec<Pos> = (0..6).map(|x| at(x * 2, 4)).collect();
+    let mut w = World::with_map(1, field(20, 8), Nation::Fire, &spots, defs);
+    for i in 0..3 {
+        w.units[i].nation = Some(Nation::Earth);
+    }
+    make_master(&mut w, defs, 4);
+    w.refresh_roster(defs);
+    w
+}
+
+#[test]
+fn a_fusion_is_on_the_tree_and_researchable_only_once_the_gate_stands() {
+    let defs = Defs::bundled();
+    let steelworks = defs.tech_id("steelworks").unwrap();
+    let mut w = steelworks_world(&defs);
+    assert!(!w.united());
+    assert!(w.tree_techs(&defs).all(|(id, _)| id != steelworks), "hidden before the gate");
+    assert_eq!(
+        w.apply(Command::SetResearch { tech: steelworks }, &defs),
+        Err(CommandError::Research(ResearchError::GateFirst))
+    );
+    assert!(w.research().queue().is_empty());
+
+    w.endeavor = EndeavorState::Complete { tick: 0 };
+    // The fusion is every nation's, Fire's home included, once the gate stands.
+    assert!(w.tree_techs(&defs).any(|(id, _)| id == steelworks));
+    assert!(w.facts().united);
+    w.apply(Command::SetResearch { tech: steelworks }, &defs).unwrap();
+    assert_eq!(w.research().queue().last(), Some(&steelworks));
+}
+
+#[test]
+fn a_fusion_waits_for_its_residents_and_a_master_of_either_nation() {
+    let defs = Defs::bundled();
+    let steelworks = defs.tech_id("steelworks").unwrap();
+    let mut w = steelworks_world(&defs);
+    w.endeavor = EndeavorState::Complete { tick: 0 };
+    // Two Earth residents, three Fire and a Fire master: one Earth short.
+    w.units[2].nation = Some(Nation::Water);
+    w.refresh_roster(&defs);
+    let err = w.apply(Command::SetResearch { tech: steelworks }, &defs).unwrap_err();
+    let CommandError::Research(ResearchError::NotYet(c)) = err else { panic!("{err:?}") };
+    assert_eq!(c, Condition::Residents { nation: Nation::Earth, need: 3, have: 2 });
+    w.units[2].nation = Some(Nation::Earth);
+    // No master of either nation: the Fire master moves house.
+    w.units[4].nation = Some(Nation::Water);
+    w.units[5].nation = Some(Nation::Fire);
+    w.refresh_roster(&defs);
+    let err = w.apply(Command::SetResearch { tech: steelworks }, &defs).unwrap_err();
+    let CommandError::Research(ResearchError::NotYet(c)) = err else { panic!("{err:?}") };
+    assert_eq!(c.to_string(), "a Earth or Fire master");
+}

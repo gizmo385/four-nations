@@ -31,6 +31,7 @@ fn teaching(id: &str, nation: Option<Nation>, site: Option<SiteRule>) -> TechDef
         school: None,
         cost_items: Vec::new(),
         teaching: Some(TeachingDef { site }),
+        fusion: None,
     }
 }
 

@@ -982,7 +982,9 @@ impl World {
         // Built from the fields, not `self.facts()`, so `research` stays free to borrow mutably.
         self.refresh_roster(defs);
         let teaching = self.teaching_facts();
-        let facts = roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster);
+        let united = self.united();
+        let facts =
+            roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster, united);
         self.research.set_target(tech, self.nation, &facts, defs)
     }
 
@@ -991,7 +993,8 @@ impl World {
     /// tick, which can fall (`Research::tick_with` rechecks them at completion).
     pub fn facts(&self) -> research::Facts<'_> {
         let teaching = self.teaching_facts();
-        roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster)
+        let united = self.united();
+        roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster, united)
     }
 
     /// Spends the draw that once picked a unit's sprite variant (removed in #607). Every nation
@@ -1098,7 +1101,9 @@ impl World {
         // The roster is counted once, before the research tick reads it (#750).
         self.refresh_roster(defs);
         let teaching = self.teaching_facts();
-        let facts = roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster);
+        let united = self.united();
+        let facts =
+            roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster, united);
         let completed =
             self.research.tick_scribing(self.tick, defs, research_cost, scribing, Some(&facts));
         if !completed.is_empty() {

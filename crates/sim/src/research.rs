@@ -273,6 +273,9 @@ pub struct Facts<'a> {
     pub masters: [u16; 4],
     /// Residents by `Nation::index` of their own nation, the home nation included.
     pub residents: [u16; 4],
+    /// Whether the Harmony Gate stands (`World::united`): from then on a fusion tech is on the
+    /// tree (docs/design/horizons-phase-6.md, "Fusions"). The gate never falls.
+    pub united: bool,
 }
 
 /// One unmet `Requires` key, as the player reads it: `Display` is `3 scrolls read`, the
@@ -521,12 +524,39 @@ pub struct TechDef {
     /// Set for a hidden tech (`[tech.teaching]`, docs/design/horizons-phase-5.md): the tree
     /// shows it only once a draft keeps or loses it.
     pub teaching: Option<TeachingDef>,
+    /// The two nations a fusion tech joins (`fusion = ["earth", "fire"]`, in file order), `None`
+    /// for every other tech. A fusion is open to every nation once the gate stands
+    /// (`Facts::united`) and names neither `nation` nor `nations`; its `requires.residents` are
+    /// exactly these two nations (docs/design/horizons-phase-6.md, "Fusions"). Ask `is_fusion`.
+    pub fusion: Option<[Nation; 2]>,
 }
 
 impl TechDef {
+    /// Whether this is a fusion tech (`fusion` is set).
+    pub fn is_fusion(&self) -> bool {
+        self.fusion.is_some()
+    }
+
+    /// Whether the tree shows this tech, given the gate: a fusion only once it stands
+    /// (`Facts::united`). Every other tech is always shown here (a teaching has its own rule,
+    /// `World::is_hidden_teaching`).
+    pub fn visible_when(&self, united: bool) -> bool {
+        self.fusion.is_none() || united
+    }
+
+    /// Whether `prereq` may be required by a fusion tech of `pair`: a shared tech, or (with
+    /// #753) a teachable tech of either nation of the pair. The one place that rule lives.
+    fn fusion_may_require(prereq: &TechDef, _pair: [Nation; 2]) -> bool {
+        // #753 adds `|| (prereq.teachable && prereq.nation.is_some_and(|n| pair.contains(&n)))`.
+        prereq.is_shared()
+    }
+
     /// Whether `nation` sees this tech: it is shared, or it is the tech's own nation, or one of
-    /// its `nations`.
+    /// its `nations`, or it is a fusion (every nation, once the gate stands: `visible_when`).
     pub fn open_to(&self, nation: Nation) -> bool {
+        if self.fusion.is_some() {
+            return true;
+        }
         match self.nation {
             Some(n) => n == nation,
             None => self.nations.is_empty() || self.nations.contains(&nation),
@@ -535,7 +565,7 @@ impl TechDef {
 
     /// Whether every nation sees this tech: the shared civilization tier.
     pub fn is_shared(&self) -> bool {
-        self.nation.is_none() && self.nations.is_empty()
+        self.nation.is_none() && self.nations.is_empty() && self.fusion.is_none()
     }
 }
 
@@ -576,6 +606,8 @@ struct RawTech {
     cost_items: Vec<RawCostItem>,
     #[serde(default)]
     teaching: Option<TeachingDef>,
+    #[serde(default)]
+    fusion: Option<Vec<Nation>>,
 }
 
 /// Each tech's `cost_items` as written, by `TechId`, for `resolve_cost_items` once the items
@@ -584,6 +616,49 @@ pub(crate) type RawCostItems = Vec<(TechId, Vec<RawCostItem>)>;
 
 fn nation_label(n: Option<Nation>) -> &'static str {
     n.map_or("shared", Nation::as_str)
+}
+
+/// Validates a tech's `fusion = [a, b]` against the rest of the tech (docs/design/horizons-phase-6.md,
+/// "Fusions: the `fusion` field"): two distinct nations; no `nation`, `nations`, `school`,
+/// `teaching` or `core`; `requires.residents` naming exactly those two; `masters_of` naming one
+/// or both. (`teachable` joins the exclusions with #753.) The message is the tech's error,
+/// without its id.
+fn check_fusion(raw: &RawTech, pair: &[Nation]) -> Result<[Nation; 2], String> {
+    let [a, b] = pair else {
+        return Err(format!("`fusion` must list exactly two nations, not {}", pair.len()));
+    };
+    if a == b {
+        return Err(format!("`fusion` lists {} twice", a.as_str()));
+    }
+    for (what, set) in [
+        ("nation", raw.nation.is_some()),
+        ("nations", !raw.nations.is_empty()),
+        ("school", raw.school.is_some()),
+        ("teaching", raw.teaching.is_some()),
+        ("core", raw.core),
+    ] {
+        if set {
+            return Err(format!("a fusion can't be combined with `{what}`"));
+        }
+    }
+    let res = &raw.requires.residents;
+    if res.len() != 2 || !res.contains_key(a) || !res.contains_key(b) {
+        return Err(format!(
+            "a fusion's requires.residents must name exactly {} and {}",
+            a.as_str(),
+            b.as_str()
+        ));
+    }
+    let Some(of) = &raw.requires.masters_of else {
+        return Err("a fusion needs requires.masters and masters_of".into());
+    };
+    if let Some(n) = of.iter().find(|n| **n != *a && **n != *b) {
+        return Err(format!(
+            "requires.masters_of names {}, which isn't one of the fusion's nations",
+            n.as_str()
+        ));
+    }
+    Ok([*a, *b])
 }
 
 impl ResearchFile {
@@ -655,6 +730,10 @@ impl ResearchFile {
                     }
                 }
             }
+            let fusion = match &raw.fusion {
+                None => None,
+                Some(pair) => Some(check_fusion(&raw, pair).map_err(&err)?),
+            };
             if let Some(n) = raw.requires.scrolls_read
                 && !(1..=MAX_SCROLLS_REQUIRED).contains(&n)
             {
@@ -732,7 +811,18 @@ impl ResearchFile {
                 if prereqs.contains(&id) {
                     return Err(err(format!("prereq {p:?} listed twice")));
                 }
-                if !raw.nations.is_empty() && !techs[i].is_shared() {
+                if let Some(pair) = fusion {
+                    if !TechDef::fusion_may_require(&techs[i], pair) {
+                        return Err(err(format!(
+                            "a fusion can only require shared techs, and {p:?} isn't one"
+                        )));
+                    }
+                } else if techs[i].fusion.is_some() {
+                    return Err(err(format!(
+                        "{p:?} is a fusion, which no other tech can require yet"
+                    )));
+                }
+                if fusion.is_none() && !raw.nations.is_empty() && !techs[i].is_shared() {
                     return Err(err(format!(
                         "a `nations` tech can only require shared techs, and {p:?} isn't one"
                     )));
@@ -743,7 +833,7 @@ impl ResearchFile {
                     )));
                 }
                 let pn = techs[i].nation;
-                if pn.is_some() && pn != raw.nation {
+                if fusion.is_none() && pn.is_some() && pn != raw.nation {
                     return Err(err(format!(
                         "a {} tech can't require {p:?}, a {} tech",
                         nation_label(raw.nation),
@@ -840,6 +930,7 @@ impl ResearchFile {
                 school,
                 cost_items: Vec::new(),
                 teaching: raw.teaching,
+                fusion,
             });
         }
         for (k, sc) in schools.iter().enumerate() {
@@ -953,6 +1044,9 @@ pub(crate) fn resolve_starting_techs(
         if techs[i].teaching.is_some() {
             return Err(err(format!("{id:?} is a teaching, which no nation starts with")));
         }
+        if techs[i].fusion.is_some() {
+            return Err(err(format!("{id:?} is a fusion, which no nation starts with")));
+        }
         if !techs[i].open_to(nation) {
             return Err(match techs[i].nation {
                 Some(n) => err(format!("{id:?} belongs to {}", n.as_str())),
@@ -1006,6 +1100,8 @@ pub enum ResearchError {
     Lost,
     /// `Command::KeepTeaching` naming a tech that is in no pending offer.
     NotOffered,
+    /// A fusion tech before the Harmony Gate stands (docs/design/horizons-phase-6.md).
+    GateFirst,
 }
 
 impl std::fmt::Display for ResearchError {
@@ -1020,6 +1116,7 @@ impl std::fmt::Display for ResearchError {
             Self::Hidden => f.write_str("that teaching hasn't been found"),
             Self::Lost => f.write_str("that teaching was lost to the ruins"),
             Self::NotOffered => f.write_str("that teaching isn't on offer"),
+            Self::GateFirst => f.write_str("a fusion waits for the Harmony Gate"),
         }
     }
 }
@@ -1183,6 +1280,10 @@ impl Research {
         }
         if self.is_known(tech) {
             return Err(ResearchError::AlreadyKnown);
+        }
+        // A fusion is on the tree only once the gate stands.
+        if !def.visible_when(facts.united) {
+            return Err(ResearchError::GateFirst);
         }
         // No tech requires a teaching (load refuses it), so only the target itself can be one.
         if def.teaching.is_some() {
@@ -1466,6 +1567,9 @@ impl Research {
 fn scaled_cost_millis(cost: u32, research_cost: f32) -> u64 {
     (f64::from(cost) * f64::from(research_cost) * MILLIS_PER_POINT as f64).round() as u64
 }
+
+#[cfg(test)]
+mod fusion_tests;
 
 #[cfg(test)]
 mod tests {
