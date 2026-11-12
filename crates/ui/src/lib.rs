@@ -45,6 +45,7 @@ pub mod menu;
 pub mod meter;
 pub mod msglog;
 pub mod page;
+pub mod panel;
 pub mod pointer;
 pub mod recipe;
 pub mod research;

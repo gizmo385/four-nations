@@ -5,5 +5,6 @@
 //! test file, create it beside this one and add its `mod` line below; `cargo xtask ci` fails if a
 //! file here isn't listed. One file's tests: `cargo test -p fn_ui --test it FILE::`.
 
+mod panel;
 mod serde_views;
 mod short_codes;
