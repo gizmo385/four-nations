@@ -338,7 +338,12 @@ impl World {
             JobKind::Attend { pos } => free(StandRule::Tile(pos)),
             // A seat inside, like a study hall's (#227). Always reachable once the building
             // stands; a crafter waits on its inputs the way a resting harvest is waited on.
-            JobKind::Craft { pos } => free(StandRule::Entrance(pos)),
+            // Not while the building is automated (#725): the yard works it.
+            JobKind::Craft { pos } => self
+                .automated(pos, defs)
+                .is_none()
+                .then(|| free(StandRule::Entrance(pos)))
+                .flatten(),
         }
     }
 

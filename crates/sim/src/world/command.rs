@@ -87,6 +87,10 @@ pub enum Command {
     /// Drop what is still owed on slot `slot`; goods already handed over for it go back on the
     /// ground at the camp.
     CancelDeal { slot: u8 },
+    /// Put the recipe building anchored on `pos` on automation (`on`, the default inside a
+    /// yard) or give it back to a crafter (`world/automate.rs`, #725). Refused with `needs Great
+    /// Works` before the tech, and `not in a Lightning Station's yard` outside one.
+    SetAutomated { pos: Pos, on: bool },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -251,6 +255,7 @@ impl World {
             Command::CancelDeconstruct { pos } => self.cancel_deconstruct(pos)?,
             Command::SetLink { pos, to } => self.set_link(pos, to, defs)?,
             Command::SetRecipe { pos, recipe } => self.set_recipe(pos, recipe, defs)?,
+            Command::SetAutomated { pos, on } => self.set_automated(pos, on, defs)?,
             Command::TakeDeal { slot } => {
                 self.take_deal(slot, defs).map_err(CommandError::Trade)?
             }
