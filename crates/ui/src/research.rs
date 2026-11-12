@@ -809,8 +809,11 @@ mod tests {
         let research = s.world.research();
         let writing = defs.tech_id("writing").unwrap();
         let mut gated = def(None, 100, &[writing]);
-        gated.requires =
-            Requires { scrolls_read: Some(3), chapter: Some("known_on_the_road".to_owned()) };
+        gated.requires = Requires {
+            scrolls_read: Some(3),
+            chapter: Some("known_on_the_road".to_owned()),
+            ..Requires::default()
+        };
         let id = TechId(defs.techs.len() as u16);
         let needs = |facts: &Facts<'_>| missing_needs(research, facts, defs, &gated);
         let state = |facts: &Facts<'_>| tech_state(research, facts, defs, id, &gated);

@@ -64,8 +64,14 @@ impl World {
     /// Whether a study seat is worth claiming or holding: something is queued, or scribing is on
     /// (#284 left an empty queue with no use for a seat; an Archive gives it one). Not while the
     /// front tech waits only on its item bill (#718): its knowledge is banked, so scholars haul.
+    /// Nor while it waits on a fallen condition (#750): the same knowledge is banked.
     pub(super) fn study_wanted(&self, defs: &Defs) -> bool {
-        let waiting = self.research.waiting_on_bill(defs, self.knobs(defs).research_cost);
+        let research_cost = self.knobs(defs).research_cost;
+        // Facts are only built when the front tech has a condition that could be holding it.
+        let gated =
+            self.research.queue().first().is_some_and(|&t| !defs.tech(t).requires.is_empty());
+        let waiting = self.research.waiting_on_bill(defs, research_cost)
+            || (gated && self.research.waiting_on(&self.facts(), defs, research_cost).is_some());
         (!self.research.queue().is_empty() && !waiting) || self.scribing_on(defs)
     }
 

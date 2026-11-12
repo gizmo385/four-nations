@@ -4,7 +4,9 @@ use serde::Deserialize;
 
 use crate::research::TechId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, serde::Serialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Nation {
     Air,
@@ -15,6 +17,27 @@ pub enum Nation {
 
 impl Nation {
     pub const ALL: [Nation; 4] = [Nation::Air, Nation::Water, Nation::Earth, Nation::Fire];
+
+    /// This nation's position in `ALL`, for the `[T; 4]` tables indexed by nation
+    /// (`research::Facts::masters`).
+    pub fn index(self) -> usize {
+        match self {
+            Nation::Air => 0,
+            Nation::Water => 1,
+            Nation::Earth => 2,
+            Nation::Fire => 3,
+        }
+    }
+
+    /// The name as a player reads it in a sentence: `Fire`.
+    pub fn title(self) -> &'static str {
+        match self {
+            Nation::Air => "Air",
+            Nation::Water => "Water",
+            Nation::Earth => "Earth",
+            Nation::Fire => "Fire",
+        }
+    }
 
     pub fn as_str(self) -> &'static str {
         match self {

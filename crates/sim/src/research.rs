@@ -202,16 +202,24 @@ pub struct Unlocks {
 
 /// Largest `requires.scrolls_read` a tech may ask for (the smallest is 1).
 pub const MAX_SCROLLS_REQUIRED: u32 = 20;
+/// Largest `requires.population` (the smallest is 1).
+pub const MAX_POPULATION_REQUIRED: u32 = 200;
+/// Largest `requires.masters` (the smallest is 1).
+pub const MAX_MASTERS_REQUIRED: u32 = 20;
+/// Largest count in `requires.residents` (the smallest is 1).
+pub const MAX_RESIDENTS_REQUIRED: u32 = 50;
 
-/// What a tech needs beyond its prereqs before it can be queued (`requires = { ... }` on a
-/// `[[tech]]`, docs/design/horizons-phase-3.md, "Research conditions"). Every key is optional and
-/// all that are set must hold. The table is `deny_unknown_fields`, so a key that doesn't exist
-/// yet (phase 6 adds population, masters, residents) fails to load instead of being ignored.
+/// What a tech needs beyond its prereqs before it can be queued and completed (`requires = { ... }`
+/// on a `[[tech]]`, docs/design/horizons-phase-3.md, "Research conditions", and
+/// docs/design/horizons-phase-6.md, "Conditions: the rest of `requires`"). Every key is optional
+/// and all that are set must hold. The table is `deny_unknown_fields`, so a key that doesn't
+/// exist yet fails to load instead of being ignored.
 ///
-/// Each condition is checked against [`Facts`] when a target is set (`Research::set_target`), not
-/// again as research goes on, so a condition has to be one that only ever becomes true: a tally
-/// never falls and a chapter stays met. A condition that can fall again needs a recheck on every
-/// completion first.
+/// Each condition is checked against [`Facts`] when a target is set (`Research::set_target`) and
+/// again when the front tech is about to complete (`Research::tick_with`). A tally and a chapter
+/// never fall, but `population`, `masters` and `residents` can: a tech whose knowledge and bill
+/// are in then waits at the front of the queue (`Research::waiting_on`). Once a tech is learned,
+/// it stays learned.
 ///
 /// To add a key: a field here, a check in `ResearchFile::resolve` (and in `check_chapters` if it
 /// names other data), a field on `Facts` that `World::facts` fills, an arm in `Requires::unmet`
@@ -227,6 +235,22 @@ pub struct Requires {
     /// Checked against the endeavor once it loads (`Defs::with_endeavor`).
     #[serde(default)]
     pub chapter: Option<String>,
+    /// Residents on the roster: not the Avatar, not beasts, airship crew away on a voyage
+    /// included (`Facts::population`). 1 to `MAX_POPULATION_REQUIRED`. Can fall.
+    #[serde(default)]
+    pub population: Option<u32>,
+    /// Residents at `Rank::Master` by their own nation's thresholds (`Facts::masters`), 1 to
+    /// `MAX_MASTERS_REQUIRED`. Can fall when a master dies; ranks never do.
+    #[serde(default)]
+    pub masters: Option<u32>,
+    /// Narrows `masters` to residents of these nations: 1 to 4 distinct ones, and `masters` must
+    /// be set.
+    #[serde(default)]
+    pub masters_of: Option<Vec<Nation>>,
+    /// Residents of each named nation (`Facts::residents`), the home nation included: each count
+    /// 1 to `MAX_RESIDENTS_REQUIRED`. Can fall.
+    #[serde(default)]
+    pub residents: std::collections::BTreeMap<Nation, u32>,
 }
 
 /// What the world knows that `Requires` asks about: filled by `World::facts`, so `research`
@@ -242,16 +266,30 @@ pub struct Facts<'a> {
     pub kept: Vec<TechId>,
     /// Teachings lost to a draft: refused for the rest of the game.
     pub lost: Vec<TechId>,
+    /// Residents: units that are neither guests (the Avatar) nor beasts. Airship crew away on a
+    /// voyage still count. Filled once a tick (`World::refresh_roster`).
+    pub population: u16,
+    /// Residents at `Rank::Master`, by `Nation::index` of their own nation (`World::nation_of`).
+    pub masters: [u16; 4],
+    /// Residents by `Nation::index` of their own nation, the home nation included.
+    pub residents: [u16; 4],
 }
 
-/// One unmet `Requires` key, as the player reads it: `Display` is `3 scrolls read` or the
-/// chapter's name (`Known on the road`).
+/// One unmet `Requires` key, as the player reads it: `Display` is `3 scrolls read`, the
+/// chapter's name (`Known on the road`), `24 people`, `a Fire or Air master` or
+/// `3 Earth residents (2 live here)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Condition {
     /// At least this many scrolls read.
     ScrollsRead(u32),
     /// A chapter's display name.
     Chapter(String),
+    /// At least this many residents.
+    Population(u32),
+    /// At least `count` masters among residents of `of` (any nation when empty).
+    Masters { count: u32, of: Vec<Nation> },
+    /// At least `need` residents of `nation`, `have` of them living here now.
+    Residents { nation: Nation, need: u32, have: u32 },
 }
 
 impl std::fmt::Display for Condition {
@@ -260,6 +298,25 @@ impl std::fmt::Display for Condition {
             Self::ScrollsRead(1) => f.write_str("1 scroll read"),
             Self::ScrollsRead(n) => write!(f, "{n} scrolls read"),
             Self::Chapter(name) => f.write_str(name),
+            Self::Population(1) => f.write_str("1 person"),
+            Self::Population(n) => write!(f, "{n} people"),
+            Self::Masters { count, of } => {
+                let names: Vec<&str> = of.iter().map(|n| n.title()).collect();
+                let who = match names.split_last() {
+                    None => String::new(),
+                    Some((last, [])) => format!("{last} "),
+                    Some((last, rest)) => format!("{} or {last} ", rest.join(", ")),
+                };
+                match count {
+                    1 => write!(f, "a {who}master"),
+                    n => write!(f, "{n} {who}masters"),
+                }
+            }
+            Self::Residents { nation, need, have } => {
+                let noun = if *need == 1 { "resident" } else { "residents" };
+                let verb = if *have == 1 { "lives" } else { "live" };
+                write!(f, "{need} {} {noun} ({have} {verb} here)", nation.title())
+            }
         }
     }
 }
@@ -267,12 +324,18 @@ impl std::fmt::Display for Condition {
 impl Requires {
     /// Whether no key is set.
     pub fn is_empty(&self) -> bool {
-        self.scrolls_read.is_none() && self.chapter.is_none()
+        self.scrolls_read.is_none()
+            && self.chapter.is_none()
+            && self.population.is_none()
+            && self.masters.is_none()
+            && self.masters_of.is_none()
+            && self.residents.is_empty()
     }
 
-    /// The keys `facts` doesn't meet yet, in a fixed order (scrolls, then chapter). Empty once
-    /// they are all met, and always for a tech with no `requires`. A chapter reads as its name
-    /// from `defs.endeavor`, or its id if the endeavor isn't loaded.
+    /// The keys `facts` doesn't meet yet, in a fixed order (scrolls, chapter, population,
+    /// masters, then residents in nation order). Empty once they are all met, and always for a
+    /// tech with no `requires`. A chapter reads as its name from `defs.endeavor`, or its id if
+    /// the endeavor isn't loaded.
     pub fn unmet(&self, facts: &Facts<'_>, defs: &Defs) -> Vec<Condition> {
         let mut out = Vec::new();
         if let Some(n) = self.scrolls_read.filter(|&n| facts.scrolls_read < n) {
@@ -281,6 +344,26 @@ impl Requires {
         if let Some(id) = self.chapter.as_deref().filter(|id| !facts.chapters_met.contains(id)) {
             let name = defs.endeavor.chapters.iter().find(|c| c.id == id).map_or(id, |c| &c.name);
             out.push(Condition::Chapter(name.to_owned()));
+        }
+        if let Some(n) = self.population.filter(|&n| u32::from(facts.population) < n) {
+            out.push(Condition::Population(n));
+        }
+        if let Some(count) = self.masters {
+            let of = self.masters_of.as_deref().unwrap_or(&[]);
+            let have: u32 = if of.is_empty() {
+                facts.masters.iter().map(|&m| u32::from(m)).sum()
+            } else {
+                of.iter().map(|n| u32::from(facts.masters[n.index()])).sum()
+            };
+            if have < count {
+                out.push(Condition::Masters { count, of: of.to_vec() });
+            }
+        }
+        for (&nation, &need) in &self.residents {
+            let have = u32::from(facts.residents[nation.index()]);
+            if have < need {
+                out.push(Condition::Residents { nation, need, have });
+            }
         }
         out
     }
@@ -578,6 +661,46 @@ impl ResearchFile {
                 return Err(err(format!(
                     "requires.scrolls_read = {n} must be 1 to {MAX_SCROLLS_REQUIRED}"
                 )));
+            }
+            for (key, v, max) in [
+                ("population", raw.requires.population, MAX_POPULATION_REQUIRED),
+                ("masters", raw.requires.masters, MAX_MASTERS_REQUIRED),
+            ] {
+                if let Some(n) = v
+                    && !(1..=max).contains(&n)
+                {
+                    return Err(err(format!("requires.{key} = {n} must be 1 to {max}")));
+                }
+            }
+            for (&nation, &n) in &raw.requires.residents {
+                if !(1..=MAX_RESIDENTS_REQUIRED).contains(&n) {
+                    return Err(err(format!(
+                        "requires.residents.{} = {n} must be 1 to {MAX_RESIDENTS_REQUIRED}",
+                        nation.as_str()
+                    )));
+                }
+            }
+            if let Some(of) = &raw.requires.masters_of {
+                if raw.requires.masters.is_none() {
+                    return Err(err("requires.masters_of needs requires.masters".into()));
+                }
+                if of.is_empty() || of.len() > Nation::ALL.len() {
+                    return Err(err("requires.masters_of must name 1 to 4 nations".into()));
+                }
+                for (k, n) in of.iter().enumerate() {
+                    if of[..k].contains(n) {
+                        return Err(err(format!("requires.masters_of lists {} twice", n.as_str())));
+                    }
+                }
+            }
+            if raw.core
+                && (raw.requires.population.is_some()
+                    || raw.requires.masters.is_some()
+                    || !raw.requires.residents.is_empty())
+            {
+                return Err(err(
+                    "a core tech can't have `requires.population`, `masters` or `residents`".into(),
+                ));
             }
             for (field, m) in raw.unlocks.modifiers.iter() {
                 if !(m.is_finite() && m > 0.0 && m <= MAX_MULTIPLIER) {
@@ -1045,7 +1168,8 @@ impl Research {
     /// Replaces the queue with `tech` plus its unknown prereqs, in ascending `TechId` order.
     /// Knowledge already banked is kept. Refuses with `ResearchError::NotYet`, leaving the queue
     /// as it was, if any tech it would queue has a `Requires` condition `facts` doesn't meet.
-    /// Conditions are checked here only, once, because every one so far only ever becomes true.
+    /// Conditions are checked again when the front tech completes (`tick_with`), because some
+    /// can fall.
     pub fn set_target(
         &mut self,
         tech: TechId,
@@ -1258,13 +1382,47 @@ impl Research {
     /// Adds one tick of passive knowledge, then completes queued techs the pool can pay for,
     /// returning them in order (the world logs them, `World::tech_completions`). `tick` is the
     /// world tick being simulated, recorded on completions. `research_cost` is the difficulty
-    /// preset's knob, multiplying every tech's cost (1.0 is identity, #294).
+    /// preset's knob, multiplying every tech's cost (1.0 is identity, #294). Checks no `requires`
+    /// condition (it knows no facts): the world goes through `tick_with`.
     #[must_use = "the completions belong in the world's event log"]
     pub fn tick(&mut self, tick: u64, defs: &Defs, research_cost: f32) -> Vec<TechCompleted> {
-        self.tick_scribing(tick, defs, research_cost, false)
+        self.tick_scribing(tick, defs, research_cost, false, None)
     }
 
-    /// `tick`, with the passive trickle's overflow scribed when `scribing` is on (#709).
+    /// `tick`, but a tech completes only while `facts` meets its `requires` too. With the
+    /// knowledge and the bill in and a condition unmet, the front tech waits (`waiting_on`).
+    #[must_use = "the completions belong in the world's event log"]
+    pub fn tick_with(
+        &mut self,
+        tick: u64,
+        defs: &Defs,
+        research_cost: f32,
+        facts: &Facts<'_>,
+    ) -> Vec<TechCompleted> {
+        self.tick_scribing(tick, defs, research_cost, false, Some(facts))
+    }
+
+    /// The first `requires` condition `facts` doesn't meet on the front tech, once its knowledge
+    /// and its bill are in: the tech is waiting on it (`Waiting: 3 Fire residents (2 live here)`).
+    /// `None` while knowledge or the bill is still short (those come first), with an empty
+    /// queue, and once every condition holds.
+    pub fn waiting_on(
+        &self,
+        facts: &Facts<'_>,
+        defs: &Defs,
+        research_cost: f32,
+    ) -> Option<Condition> {
+        let &front = self.queue.first()?;
+        let ready = self.pool_millis >= scaled_cost_millis(defs.tech(front).cost, research_cost)
+            && self.bill_full(front, defs);
+        if !ready {
+            return None;
+        }
+        defs.tech(front).requires.unmet(facts, defs).into_iter().next()
+    }
+
+    /// `tick_with`, with the passive trickle's overflow scribed when `scribing` is on (#709).
+    /// `facts` of `None` checks no condition (`tick`).
     #[must_use = "the completions belong in the world's event log"]
     pub(crate) fn tick_scribing(
         &mut self,
@@ -1272,6 +1430,7 @@ impl Research {
         defs: &Defs,
         research_cost: f32,
         scribing: bool,
+        facts: Option<&Facts<'_>>,
     ) -> Vec<TechCompleted> {
         let mut done = Vec::new();
         self.add_toward_target(
@@ -1283,6 +1442,11 @@ impl Research {
         while let Some(&front) = self.queue.first() {
             let cost = scaled_cost_millis(defs.tech(front).cost, research_cost);
             if cost > self.pool_millis || !self.bill_full(front, defs) {
+                break;
+            }
+            // Knowledge and bill are in; a fallen condition keeps the tech at the front with its
+            // points and items, and the next tick tries again.
+            if facts.is_some_and(|f| !defs.tech(front).requires.unmet(f, defs).is_empty()) {
                 break;
             }
             self.pool_millis -= cost;
@@ -1685,8 +1849,178 @@ mod tests {
         assert!(e.0.contains("scrolls_read"), "{e}");
         let e = with_gated("requires = { chapter = \"nowhere\" }").unwrap_err();
         assert!(e.0.contains("gated") && e.0.contains("unknown chapter \"nowhere\""), "{e}");
-        let e = with_gated("requires = { population = 5 }").unwrap_err();
-        assert!(e.0.contains("population"), "an unknown key fails to load: {e}");
+        // `winters_survived` is the one key the spec lists that no tech asks for (phase 6).
+        let e = with_gated("requires = { winters_survived = 5 }").unwrap_err();
+        assert!(e.0.contains("winters_survived"), "an unknown key fails to load: {e}");
+    }
+
+    // Phase 6's keys (docs/design/horizons-phase-6.md, "Conditions: the rest of `requires`").
+
+    #[test]
+    fn the_phase_six_keys_load_and_are_range_checked() {
+        let all = "requires = { residents = { earth = 3, water = 50 }, masters = 20, \
+                   masters_of = ['earth', 'water'], population = 200 }";
+        let defs = with_gated(all).unwrap();
+        let r = &defs.tech(defs.tech_id("gated").unwrap()).requires;
+        assert_eq!((r.population, r.masters), (Some(200), Some(20)));
+        assert_eq!(r.masters_of.as_deref(), Some(&[Nation::Earth, Nation::Water][..]));
+        assert_eq!(r.residents.get(&Nation::Water), Some(&50));
+        assert!(!r.is_empty());
+        for (bad, needle) in [
+            ("population = 0", "requires.population = 0 must be 1 to 200"),
+            ("population = 201", "requires.population = 201 must be 1 to 200"),
+            ("masters = 0", "requires.masters = 0 must be 1 to 20"),
+            ("masters = 21", "requires.masters = 21 must be 1 to 20"),
+            ("residents = { fire = 0 }", "requires.residents.fire = 0 must be 1 to 50"),
+            ("residents = { fire = 51 }", "requires.residents.fire = 51 must be 1 to 50"),
+            ("residents = { mars = 3 }", "mars"),
+            ("masters_of = ['fire']", "masters_of needs requires.masters"),
+            ("masters = 1, masters_of = []", "1 to 4 nations"),
+            ("masters = 1, masters_of = ['fire', 'fire']", "lists fire twice"),
+            ("masters = 1, masters_of = ['mars']", "mars"),
+            ("population = -1", "population"),
+        ] {
+            let e = with_gated(&format!("requires = {{ {bad} }}")).unwrap_err();
+            assert!(e.0.contains(needle), "{bad}: {e}");
+        }
+        // Each key alone is fine, and a core tech may carry none of the new ones.
+        for ok in ["population = 1", "masters = 1", "residents = { air = 1 }"] {
+            with_gated(&format!("requires = {{ {ok} }}")).unwrap();
+            let e = with_gated(&format!("core = true\nrequires = {{ {ok} }}")).unwrap_err();
+            assert!(e.0.contains("a core tech can't have"), "{ok}: {e}");
+        }
+        // Phase 3's two keys stay allowed on a core tech.
+        with_gated("core = true\nrequires = { scrolls_read = 3 }").unwrap();
+    }
+
+    fn unmet(requires: &str, facts: &Facts<'_>) -> Vec<String> {
+        let defs = with_gated(requires).unwrap();
+        let r = &defs.tech(defs.tech_id("gated").unwrap()).requires;
+        r.unmet(facts, &defs).iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn the_new_conditions_read_as_the_design_words_them() {
+        let none = Facts::default();
+        assert_eq!(unmet("requires = { population = 24 }", &none), ["24 people"]);
+        assert_eq!(unmet("requires = { population = 1 }", &none), ["1 person"]);
+        let fire_air = "requires = { masters = 1, masters_of = ['fire', 'air'] }";
+        assert_eq!(unmet(fire_air, &none), ["a Fire or Air master"]);
+        assert_eq!(unmet("requires = { masters = 2 }", &none), ["2 masters"]);
+        assert_eq!(unmet("requires = { masters = 1 }", &none), ["a master"]);
+        let three = "requires = { masters = 2, masters_of = ['fire', 'air', 'water'] }";
+        assert_eq!(unmet(three, &none), ["2 Fire, Air or Water masters"]);
+        let earth3 = "requires = { residents = { earth = 3 } }";
+        let two_live = Facts { residents: [0, 0, 2, 0], ..Facts::default() };
+        assert_eq!(unmet(earth3, &two_live), ["3 Earth residents (2 live here)"]);
+        let one_lives = Facts { residents: [0, 0, 1, 0], ..Facts::default() };
+        assert_eq!(unmet(earth3, &one_lives), ["3 Earth residents (1 lives here)"]);
+        assert_eq!(unmet(earth3, &none), ["3 Earth residents (0 live here)"]);
+        // The error a queueing refusal shows.
+        let c = Condition::Masters { count: 1, of: vec![Nation::Fire, Nation::Air] };
+        assert_eq!(ResearchError::NotYet(c).to_string(), "needs a Fire or Air master");
+    }
+
+    #[test]
+    fn the_new_conditions_are_met_by_the_right_counts() {
+        let req = "requires = { population = 24, masters = 1, masters_of = ['fire', 'air'], \
+                   residents = { fire = 3, air = 3 } }";
+        let ok = Facts {
+            population: 24,
+            masters: [0, 0, 5, 1],
+            residents: [3, 0, 0, 3],
+            ..Facts::default()
+        };
+        assert!(unmet(req, &ok).is_empty());
+        // Each key fails alone, and the list is in the fixed order.
+        assert_eq!(unmet(req, &Facts { population: 23, ..ok.clone() }), ["24 people"]);
+        let earth_master = Facts { masters: [0, 0, 5, 0], ..ok.clone() };
+        assert_eq!(unmet(req, &earth_master), ["a Fire or Air master"]);
+        let few = Facts { residents: [2, 0, 0, 2], ..ok.clone() };
+        assert_eq!(
+            unmet(req, &few),
+            ["3 Air residents (2 live here)", "3 Fire residents (2 live here)"]
+        );
+        // `masters` without `masters_of` counts every nation's.
+        let any = "requires = { masters = 2 }";
+        assert!(unmet(any, &Facts { masters: [1, 0, 0, 1], ..Facts::default() }).is_empty());
+        assert!(!unmet(any, &Facts { masters: [1, 0, 0, 0], ..Facts::default() }).is_empty());
+    }
+
+    #[test]
+    fn a_refused_target_names_the_new_conditions_and_the_queue_is_left_alone() {
+        let defs = with_gated("requires = { population = 24 }").unwrap();
+        let gated = defs.tech_id("gated").unwrap();
+        let mut r = Research::new(Nation::Fire, &defs);
+        let e = r.set_target(gated, Nation::Fire, &Facts::default(), &defs).unwrap_err();
+        assert_eq!(e, ResearchError::NotYet(Condition::Population(24)));
+        assert_eq!(e.to_string(), "needs 24 people");
+        assert!(r.queue().is_empty());
+        r.set_target(gated, Nation::Fire, &Facts { population: 24, ..Facts::default() }, &defs)
+            .unwrap();
+        assert_eq!(r.queue(), [gated]);
+    }
+
+    #[test]
+    fn completion_needs_knowledge_the_bill_and_the_conditions_all_at_once() {
+        let defs = with_gated("requires = { residents = { fire = 3 } }").unwrap();
+        let gated = defs.tech_id("gated").unwrap();
+        let (three, two) = (
+            Facts { residents: [0, 0, 0, 3], ..Facts::default() },
+            Facts { residents: [0, 0, 0, 2], ..Facts::default() },
+        );
+        let mut r = Research::new(Nation::Fire, &defs);
+        r.set_target(gated, Nation::Fire, &three, &defs).unwrap();
+        // Knowledge short: not waiting on the condition yet, whatever the facts say.
+        assert_eq!(r.waiting_on(&two, &defs, 1.0), None);
+        assert!(r.tick_with(1, &defs, 1.0, &three).is_empty());
+        r.bank_for_test(10_000);
+        // Knowledge in, condition fallen: it waits at the front, keeping what it has.
+        assert!(r.tick_with(2, &defs, 1.0, &two).is_empty());
+        assert_eq!((r.queue(), r.pool_millis()), (&[gated][..], 10_000));
+        assert_eq!(
+            r.waiting_on(&two, &defs, 1.0).unwrap().to_string(),
+            "3 Fire residents (2 live here)"
+        );
+        assert_eq!(r.waiting_on(&three, &defs, 1.0), None);
+        // A newcomer: it finishes on the next tick, and stays known whatever happens after.
+        let done = r.tick_with(3, &defs, 1.0, &three);
+        assert_eq!(done.iter().map(|c| (c.tech, c.tick)).collect::<Vec<_>>(), [(gated, 3)]);
+        assert_eq!(r.pool_millis(), 0, "the cost was paid");
+        assert!(r.tick_with(4, &defs, 1.0, &Facts::default()).is_empty());
+        assert!(r.is_known(gated));
+    }
+
+    #[test]
+    fn only_the_front_tech_is_rechecked_and_a_tech_with_no_requires_never_waits() {
+        let src = tech("front", "cost = 1\nrequires = { population = 5 }")
+            + &tech("back", "cost = 1\nprereqs = ['front']\nrequires = { population = 9 }")
+            + &tech("free", "cost = 1");
+        let defs = with_techs(&src).unwrap();
+        let (front, back, free) = (
+            defs.tech_id("front").unwrap(),
+            defs.tech_id("back").unwrap(),
+            defs.tech_id("free").unwrap(),
+        );
+        let mut r = Research::new(Nation::Fire, &defs);
+        let nine = Facts { population: 9, ..Facts::default() };
+        r.set_target(back, Nation::Fire, &nine, &defs).unwrap();
+        r.bank_for_test(1_000);
+        // `front` completes at 5. `back` is checked only once it is at the front, and waits.
+        let five = Facts { population: 5, ..Facts::default() };
+        let done = r.tick_with(1, &defs, 1.0, &five);
+        assert_eq!(done.iter().map(|c| c.tech).collect::<Vec<_>>(), [front]);
+        assert_eq!(r.queue(), [back]);
+        r.bank_for_test(1_000);
+        assert_eq!(r.waiting_on(&five, &defs, 1.0), Some(Condition::Population(9)));
+        assert!(r.tick_with(2, &defs, 1.0, &five).is_empty());
+        assert_eq!(r.tick_with(3, &defs, 1.0, &nine).len(), 1);
+        // Nothing ever waits without `requires`.
+        let mut r = Research::new(Nation::Fire, &defs);
+        r.set_target(free, Nation::Fire, &Facts::default(), &defs).unwrap();
+        r.bank_for_test(1_000);
+        assert_eq!(r.waiting_on(&Facts::default(), &defs, 1.0), None);
+        assert_eq!(r.tick_with(1, &defs, 1.0, &Facts::default()).len(), 1);
     }
 
     #[test]

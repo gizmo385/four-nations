@@ -68,6 +68,7 @@ mod power;
 mod probe;
 #[cfg(test)]
 mod rail_tests;
+mod roster;
 #[cfg(test)]
 mod sand_tests;
 mod season;
@@ -119,6 +120,7 @@ pub use pair::PairStatus;
 pub use population::Arrival;
 pub use power::PowerAt;
 pub use probe::{Reach, Refusals};
+use roster::Roster;
 pub use season::{Almanac, SeasonEvent, SeasonEventKind};
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
@@ -563,6 +565,11 @@ pub struct World {
     /// (`probe.rs`, #534). Not saved: it describes the session, not the settlement.
     #[serde(skip)]
     refusals: probe::Refusals,
+    /// The population, masters and residents research conditions read (`roster.rs`, #750):
+    /// counted at the top of every tick, and when the world is made or loaded. Derived, so never
+    /// saved.
+    #[serde(skip)]
+    roster: Roster,
     /// Where the end game stands (`endeavor.rs`, #234): Dormant until every sign is met at once.
     #[serde(default)]
     endeavor: EndeavorState,
@@ -727,6 +734,7 @@ impl World {
             tallies: Tallies::default(),
             care: CareTally::default(),
             refusals: probe::Refusals::default(),
+            roster: Roster::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
             avatar: AvatarState::default(),
@@ -758,6 +766,7 @@ impl World {
         world.refresh_modifiers(defs);
         world.spawn_units(spawns, defs);
         world.next_unit = spawns.len() as u32;
+        world.refresh_roster(defs);
         world
     }
 
@@ -964,27 +973,18 @@ impl World {
     /// knowledge is kept. Reached through `Command::SetResearch`.
     fn set_research(&mut self, tech: TechId, defs: &Defs) -> Result<(), ResearchError> {
         // Built from the fields, not `self.facts()`, so `research` stays free to borrow mutably.
-        let (kept, lost) = self.teaching_facts();
-        let facts = research::Facts {
-            scrolls_read: self.tallies.scrolls_read(),
-            chapters_met: self.endeavor_log.chapters_met().collect(),
-            kept,
-            lost,
-        };
+        self.refresh_roster(defs);
+        let teaching = self.teaching_facts();
+        let facts = roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster);
         self.research.set_target(tech, self.nation, &facts, defs)
     }
 
-    /// What `Requires` conditions are checked against right now: scrolls read and the chapters
-    /// met (`research::Facts`). Only ever grows, which is why `Research::set_target` checks
-    /// conditions once at queue time.
+    /// What `Requires` conditions are checked against right now (`research::Facts`): scrolls
+    /// read and the chapters met, which only grow, and the roster counts as of the top of the
+    /// tick, which can fall (`Research::tick_with` rechecks them at completion).
     pub fn facts(&self) -> research::Facts<'_> {
-        let (kept, lost) = self.teaching_facts();
-        research::Facts {
-            scrolls_read: self.tallies.scrolls_read(),
-            chapters_met: self.endeavor_log.chapters_met().collect(),
-            kept,
-            lost,
-        }
+        let teaching = self.teaching_facts();
+        roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster)
     }
 
     /// Spends the draw that once picked a unit's sprite variant (removed in #607). Every nation
@@ -1088,7 +1088,12 @@ impl World {
         self.tick += 1;
         let research_cost = self.knobs(defs).research_cost;
         let scribing = self.scribing_on(defs);
-        let completed = self.research.tick_scribing(self.tick, defs, research_cost, scribing);
+        // The roster is counted once, before the research tick reads it (#750).
+        self.refresh_roster(defs);
+        let teaching = self.teaching_facts();
+        let facts = roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster);
+        let completed =
+            self.research.tick_scribing(self.tick, defs, research_cost, scribing, Some(&facts));
         if !completed.is_empty() {
             self.refresh_modifiers(defs);
             self.sync_seats(defs);
