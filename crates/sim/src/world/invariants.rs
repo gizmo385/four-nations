@@ -89,15 +89,22 @@ impl World {
             }
         }
         for job in &self.jobs {
-            let Some(uid) = job.claimed_by else { continue };
-            let Some(unit) = self.units.iter().find(|u| u.id == uid) else {
-                return Err(format!("job {:?} is claimed by {uid:?}, who is not alive", job.id));
-            };
-            if unit.job_task.and_then(task_job) != Some(job.id) {
-                return Err(format!(
-                    "job {:?} is claimed by {uid:?}, whose job_task is {:?}",
-                    job.id, unit.job_task
-                ));
+            if job.partner.is_some() && !job.joint {
+                return Err(format!("job {:?} has a partner but is not a joint bend", job.id));
+            }
+            for uid in job.holders() {
+                let Some(unit) = self.units.iter().find(|u| u.id == uid) else {
+                    return Err(format!(
+                        "job {:?} is claimed by {uid:?}, who is not alive",
+                        job.id
+                    ));
+                };
+                if unit.job_task.and_then(task_job) != Some(job.id) {
+                    return Err(format!(
+                        "job {:?} is claimed by {uid:?}, whose job_task is {:?}",
+                        job.id, unit.job_task
+                    ));
+                }
             }
         }
         for unit in &self.units {
@@ -109,7 +116,7 @@ impl World {
                         unit.id, unit.job_task
                     ));
                 }
-                Some(j) if j.claimed_by != Some(unit.id) => {
+                Some(j) if !j.held_by(unit.id) => {
                     return Err(format!(
                         "unit {:?} holds job {id:?}, which is claimed by {:?}",
                         unit.id, j.claimed_by

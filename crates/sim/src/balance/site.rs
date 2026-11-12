@@ -89,7 +89,7 @@ impl SiteProfile {
 /// techs it can research, so buried material counts for it.
 fn can_tunnel(nation: Nation, defs: &Defs) -> bool {
     defs.abilities.iter().any(|a| {
-        a.nation == nation
+        a.of_nation(nation)
             && matches!(&a.effect, Effect::Reshape { to: Terrain::Tunnel, .. })
             && a.unlocked_by.is_none_or(|t| defs.techs_for(nation).any(|(id, _)| id == t))
     })

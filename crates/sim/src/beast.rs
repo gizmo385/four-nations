@@ -132,7 +132,9 @@ impl BeastFile {
                     let Some(ability) = defs.ability_id(&b.ability) else {
                         return err(&format!("bend names unknown ability {:?}", b.ability));
                     };
-                    if defs.ability(ability).nation != raw.nation {
+                    if defs.ability(ability).nation != raw.nation
+                        || defs.ability(ability).is_joint()
+                    {
                         return err(&format!(
                             "bend ability {:?} belongs to another nation",
                             b.ability

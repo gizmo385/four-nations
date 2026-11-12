@@ -647,6 +647,49 @@ pub struct Job {
     pub claimed_by: Option<UnitId>,
     /// Work done so far, in work-seconds. Kept when the unit is pulled away, so the job resumes.
     pub progress: f32,
+    /// A joint bend (`AbilityDef::nations`, #759) has two slots, one per nation, each claimed
+    /// separately. `claimed_by` is the first nation's slot and `partner` the second's. A job that
+    /// isn't joint never has a `partner`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub joint: bool,
+    /// The second slot's caster, for a `joint` job.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partner: Option<UnitId>,
+}
+
+impl Job {
+    /// Whether slot `slot` (0 for `claimed_by`, 1 for `partner`) can still be taken.
+    pub fn slot_open(&self, slot: usize) -> bool {
+        match slot {
+            0 => self.claimed_by.is_none(),
+            _ => self.joint && self.partner.is_none(),
+        }
+    }
+
+    /// Whether any slot of the job can still be taken.
+    pub fn is_open(&self) -> bool {
+        self.slot_open(0) || self.slot_open(1)
+    }
+
+    /// Whether `unit` holds one of the job's slots.
+    pub fn held_by(&self, unit: UnitId) -> bool {
+        self.claimed_by == Some(unit) || (self.joint && self.partner == Some(unit))
+    }
+
+    /// Every unit holding a slot, the first slot's first.
+    pub fn holders(&self) -> impl Iterator<Item = UnitId> {
+        self.claimed_by.into_iter().chain(self.partner.filter(|_| self.joint))
+    }
+
+    /// Frees whichever slot `unit` holds, keeping the progress.
+    pub fn release(&mut self, unit: UnitId) {
+        if self.claimed_by == Some(unit) {
+            self.claimed_by = None;
+        }
+        if self.partner == Some(unit) {
+            self.partner = None;
+        }
+    }
 }
 
 #[cfg(test)]

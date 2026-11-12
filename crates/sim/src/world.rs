@@ -95,7 +95,7 @@ pub use aqueduct::AqueductFlow;
 pub use avatar::AvatarState;
 pub use balloon::{Balloon, BalloonStatus, Dock, Flight, Held};
 pub use beast::{BeastEvent, BeastEventKind};
-pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, MasteryProgress, Moved};
+pub use bending::{BendChannel, BendError, BendEvent, BendOutcome, MasteryProgress, Moved, Rain};
 use bending::{Patch, Revert};
 use build::Site;
 pub use build::{Blocker, BuildError};
@@ -546,6 +546,10 @@ pub struct World {
     /// save from before #364 loads with none.
     #[serde(default)]
     reverts: Vec<Revert>,
+    /// Rain left by Call Rain (`cloudbending`, #759), in the order it fell. A save from before
+    /// #759 loads with none; a save mid-rain keeps it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    rains: Vec<Rain>,
     /// Tiles that sprouted lately and the tick their fallow time ends. Expired entries are
     /// dropped as time passes.
     fallow: BTreeMap<Pos, u64>,
@@ -744,6 +748,7 @@ impl World {
             patches: Vec::new(),
             reverts: Vec::new(),
             fallow: BTreeMap::new(),
+            rains: Vec::new(),
             heat: BTreeMap::new(),
             auras: BTreeMap::new(),
             rides: BTreeMap::new(),
@@ -1168,6 +1173,7 @@ impl World {
         self.tick_bills(defs);
         self.tick_balloons(defs);
         self.tick_scooters();
+        self.tick_rains();
         self.tick_beasts(defs);
         // Beasts first: a hauling beast gets the long trips before the settlers see them.
         for i in 0..self.units.len() {

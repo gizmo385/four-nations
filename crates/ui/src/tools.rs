@@ -293,7 +293,10 @@ impl Tool {
 /// The nation's signature ability: its first in the data, which needs no research. `None` only
 /// if a nation has no ability defined at all, which the data tests guard against.
 pub fn ability_for_nation(defs: &Defs, nation: Nation) -> Option<AbilityId> {
-    defs.abilities.iter().position(|a| a.nation == nation).map(|i| AbilityId(i as u16))
+    defs.abilities
+        .iter()
+        .position(|a| !a.is_joint() && a.nation == nation)
+        .map(|i| AbilityId(i as u16))
 }
 
 /// Every ability this settlement can use now (its nation's, with their tech known), in data

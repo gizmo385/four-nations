@@ -160,8 +160,11 @@ impl World {
     /// channel tends it: the best `growth_boost` among channels within their own `radius` of
     /// `pos`, else 1.0, the same way `tend_rate` layers onto an orchard's resting trees. Two
     /// channels in reach of one plot don't stack, and neither does a channel with a carved canal
-    /// (`canal_rate`, #695), nor a flowing aqueduct (`aqueduct_rate`, #755): the best of them all
-    /// applies. This is the one place the best-boost rule lives; rain (#759) joins it here.
+    /// (`canal_rate`, #695), a flowing aqueduct (`aqueduct_rate`, #755) or rain (`rain_rate`,
+    /// #759): the best of them all applies.
+    ///
+    /// **The best-boost function.** Every source of irrigation is one `.max(..)` term here. A new
+    /// source adds its own term and nothing else, so the sources can never stack.
     pub(super) fn irrigation_rate(&self, pos: Pos, defs: &Defs) -> f32 {
         self.of_kind(Kind::Irrigation)
             .filter_map(|b| self.irrigation_def(b.anchor, defs).map(|d| (b.anchor, d)))
@@ -170,6 +173,37 @@ impl World {
             .fold(1.0, f32::max)
             .max(self.canal_rate(pos, defs))
             .max(self.aqueduct_rate(pos, defs))
+            .max(self.rain_rate(pos))
+    }
+
+    /// The boost the rain over the farm plot on `pos` gives it (Call Rain, #759): the best
+    /// `boost` among the rains still falling whose patch covers it, else 1.0.
+    fn rain_rate(&self, pos: Pos) -> f32 {
+        self.rains
+            .iter()
+            .filter(|r| r.until_tick > self.tick && r.center.chebyshev(pos) <= r.radius as i32)
+            .map(|r| r.boost)
+            .fold(1.0, f32::max)
+    }
+
+    /// Every farm plot (by anchor) within `radius` tiles, Chebyshev, of `center`.
+    pub(super) fn plots_within(&self, center: Pos, radius: u32) -> impl Iterator<Item = Pos> + '_ {
+        self.of_kind(Kind::Farm)
+            .filter(move |b| b.plot.is_some() && b.anchor.chebyshev(center) <= radius as i32)
+            .map(|b| b.anchor)
+    }
+
+    /// Every rain still falling, oldest first (Call Rain, #759).
+    pub fn rains(&self) -> impl Iterator<Item = &Rain> + '_ {
+        self.rains.iter().filter(|r| r.until_tick > self.tick)
+    }
+
+    /// Drops the rains that have ended.
+    pub(super) fn tick_rains(&mut self) {
+        if self.rains.iter().any(|r| r.until_tick <= self.tick) {
+            let now = self.tick;
+            self.rains.retain(|r| r.until_tick > now);
+        }
     }
 
     /// The boost a carved canal gives the farm plot on `pos` (#695): `[canal]`'s `growth_boost`

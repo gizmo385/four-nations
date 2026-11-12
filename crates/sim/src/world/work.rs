@@ -553,7 +553,14 @@ impl World {
     pub(super) fn add_job(&mut self, kind: JobKind) -> JobId {
         let id = JobId(self.next_job);
         self.next_job += 1;
-        self.jobs.push(Job { id, kind, claimed_by: None, progress: 0.0 });
+        self.jobs.push(Job {
+            id,
+            kind,
+            claimed_by: None,
+            progress: 0.0,
+            joint: false,
+            partner: None,
+        });
         self.wake_idle();
         id
     }
@@ -814,9 +821,7 @@ impl World {
     /// what it carried drops where it fell.
     pub(super) fn release(&mut self, u: &Unit) {
         for j in &mut self.jobs {
-            if j.claimed_by == Some(u.id) {
-                j.claimed_by = None;
-            }
+            j.release(u.id);
         }
         if let Some(stack) = u.carrying {
             self.place_ground(u.pos, stack);
@@ -829,7 +834,7 @@ impl World {
     fn prune_jobs(&mut self, defs: &Defs) {
         // `job_is_live` reads the world, so the queue is lifted out while it is filtered.
         let mut jobs = std::mem::take(&mut self.jobs);
-        jobs.retain(|j| j.claimed_by.is_some() || self.job_is_live(j.kind, defs));
+        jobs.retain(|j| !j.is_open() || self.job_is_live(j.kind, defs));
         self.jobs = jobs;
         // A standing order (#81) outlives its job (which disappears between harvests while the
         // resource rests), but not the resource itself: once that's gone for good there is
@@ -978,7 +983,8 @@ impl World {
     /// Lets go of a claimed job without finishing it (it became unreachable).
     pub(super) fn abandon_job(&mut self, i: usize, id: JobId, defs: &Defs) {
         if let Some(j) = self.job_index(id) {
-            self.jobs[j].claimed_by = None;
+            let unit = self.units[i].id;
+            self.jobs[j].release(unit);
         }
         self.finish_job(i);
         self.units[i].claim_retry_at = self.tick + self.retry_ticks(defs);
@@ -1741,7 +1747,7 @@ impl World {
             return false;
         }
         self.prune_jobs(defs);
-        if self.jobs.iter().all(|j| j.claimed_by.is_some()) {
+        if self.jobs.iter().all(|j| !j.is_open()) {
             return false;
         }
         if !self.any_job_in_region(i, defs) {
@@ -1768,8 +1774,13 @@ impl World {
             return false;
         };
         let idx = self.job_index(job_id).expect("an unclaimed job in the key");
+        let slot = self.claim_slot(i, self.jobs[idx].kind, defs);
         let job = &mut self.jobs[idx];
-        job.claimed_by = Some(unit_id);
+        if slot == 0 {
+            job.claimed_by = Some(unit_id);
+        } else {
+            job.partner = Some(unit_id);
+        }
         let task = match job.kind {
             JobKind::Harvest { .. } => Task::Harvest(job.id),
             JobKind::Haul { .. } => Task::Haul(job.id),
@@ -1811,7 +1822,7 @@ impl World {
         let mut open: Vec<(u8, i32, &Job)> = self
             .jobs
             .iter()
-            .filter(|j| j.claimed_by.is_none())
+            .filter(|j| self.job_open_to(j, i, defs))
             // The Avatar only ever takes a bend or a gate task (#237).
             .filter(|j| {
                 !is_avatar || matches!(j.kind, JobKind::Bend { .. } | JobKind::EndeavorTask { .. })
@@ -1869,7 +1880,8 @@ impl World {
         if self.units[i].task().is_some() {
             return None;
         }
-        let unclaimed: Vec<&Job> = self.jobs.iter().filter(|j| j.claimed_by.is_none()).collect();
+        let unclaimed: Vec<&Job> =
+            self.jobs.iter().filter(|j| self.job_open_to(j, i, defs)).collect();
         if unclaimed.is_empty() {
             return Some(IdleReason::NoWork);
         }
@@ -1936,7 +1948,7 @@ impl World {
             StandRule::Exact(pos) => in_here(pos),
             StandRule::Beside(pos) => can_stand_in((Footprint::single(pos), false)),
         };
-        self.jobs.iter().filter(|j| j.claimed_by.is_none()).any(|job| {
+        self.jobs.iter().filter(|j| self.job_open_to(j, i, defs)).any(|job| {
             let Some(gate) = self.job_gate(i, job.kind, defs) else { return false };
             can_stand_rule(gate.stand)
                 && match gate.bar {

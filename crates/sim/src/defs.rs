@@ -841,6 +841,7 @@ mod tests {
             "carve_canal",
             "regrow",
             "project",
+            "call_rain",
         ] {
             let ability = format!("abilities = [\"{id}\"]\n");
             assert!(src.contains(&ability), "{id}'s unlock moved; update this helper");

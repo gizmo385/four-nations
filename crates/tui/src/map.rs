@@ -106,6 +106,7 @@ const HIGHLIGHTS: &[(&str, Shape)] = &[
     ("carve_canal", Shape::Target),
     ("regrow", Shape::Patch),
     ("project", Shape::Target),
+    ("call_rain", Shape::Target),
 ];
 
 /// The highlight shape of ability `id`, if it has one.

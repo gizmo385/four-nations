@@ -201,7 +201,7 @@ impl RawMastery {
         // without any.
         if !abilities.is_empty() {
             for n in Nation::ALL {
-                let count = abilities.iter().filter(|a| a.nation == n).count() as u32;
+                let count = abilities.iter().filter(|a| a.of_nation(n)).count() as u32;
                 if self.master_forms > count {
                     return Err(err(format!(
                         "master_forms ({}) is more than {} has abilities ({count})",
@@ -320,6 +320,12 @@ pub enum Effect {
     /// "Regrow", `plantbending`, #740; difficulty.md, "Strain: tiring land"). The target must
     /// be open ground with strain on at least one tile in reach. No magnitude.
     Unstrain { radius: u32 },
+    /// A cloud over the fields (Call Rain, `cloudbending`, #759): on completion a `Rain` joins
+    /// `World::rains`, and every farm plot within `radius` tiles (Chebyshev) of the target grows
+    /// `growth_boost` times faster, under the best-boost rule (`World::irrigation_rate`), for
+    /// `minutes`. Casting over a patch already raining from the same target replaces that rain.
+    /// The magnitude scales `minutes`.
+    Rain { radius: u32, growth_boost: f32, minutes: f32 },
     /// Only tests can define one: a valid target is walkable ground, and completing does nothing
     /// but spend the chi.
     #[cfg(test)]
@@ -329,7 +335,12 @@ pub enum Effect {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AbilityDef {
     pub id: String,
+    /// The nation that can use it. For a joint bend (`nations`) the first of its two nations;
+    /// ask `of_nation` and `is_joint` before reading this as "the" nation.
     pub nation: Nation,
+    /// A joint bend's two nations (#759), in file order: one caster of each channels it together.
+    /// `None` for every other ability.
+    pub nations: Option<[Nation; 2]>,
     pub name: String,
     /// What the designation tool is called ("Raise stones").
     pub verb: String,
@@ -367,6 +378,20 @@ pub struct Cut<'a> {
 }
 
 impl AbilityDef {
+    /// Whether this is a joint bend: two casters of two nations channel it together (#759).
+    pub fn is_joint(&self) -> bool {
+        self.nations.is_some()
+    }
+
+    /// Whether a unit of `nation` can channel this ability: it is the ability's own nation, or
+    /// one of a joint bend's two.
+    pub fn of_nation(&self, nation: Nation) -> bool {
+        match self.nations {
+            Some(pair) => pair.contains(&nation),
+            None => self.nation == nation,
+        }
+    }
+
     /// The cut this ability makes, if its effect is a `Reshape` with a `source`: `None` for every
     /// other ability.
     pub fn cut(&self) -> Option<Cut<'_>> {
@@ -442,6 +467,11 @@ enum RawEffect {
     Unstrain {
         radius: u32,
     },
+    Rain {
+        radius: u32,
+        growth_boost: f32,
+        minutes: f32,
+    },
     #[cfg(test)]
     Probe,
 }
@@ -450,7 +480,10 @@ enum RawEffect {
 #[serde(deny_unknown_fields)]
 struct RawAbility {
     id: String,
-    nation: Nation,
+    #[serde(default)]
+    nation: Option<Nation>,
+    #[serde(default)]
+    nations: Option<Vec<Nation>>,
     name: String,
     verb: String,
     #[serde(default)]
@@ -564,10 +597,40 @@ impl BendingFile {
             if raw.rank == Some(Rank::Novice) {
                 return Err(err(format!("ability {a}: rank must be adept or master")));
             }
+            let (nation, nations) = match (raw.nation, raw.nations) {
+                (Some(n), None) => (n, None),
+                (None, Some(pair)) => {
+                    let [x, y] = pair[..] else {
+                        return Err(err(format!(
+                            "ability {a}: `nations` must list exactly two nations, not {}",
+                            pair.len()
+                        )));
+                    };
+                    if x == y {
+                        return Err(err(format!(
+                            "ability {a}: `nations` lists {} twice",
+                            x.as_str()
+                        )));
+                    }
+                    if raw.speed_modifier.is_some() {
+                        return Err(err(format!(
+                            "ability {a}: a joint bend has no speed_modifier (two casters \
+                             would have two)"
+                        )));
+                    }
+                    (x, Some([x, y]))
+                }
+                _ => {
+                    return Err(err(format!(
+                        "ability {a}: needs exactly one of `nation` and `nations`"
+                    )));
+                }
+            };
             let effect = resolve_effect(a, raw.effect, biomes, resources, harvests, items)?;
             abilities.push(AbilityDef {
                 id: raw.id,
-                nation: raw.nation,
+                nation,
+                nations,
                 name: raw.name,
                 verb: raw.verb,
                 description: raw.description,
@@ -739,6 +802,18 @@ fn resolve_effect(
             }
             Effect::Unstrain { radius }
         }
+        RawEffect::Rain { radius, growth_boost, minutes } => {
+            if !(1..=12).contains(&radius) {
+                return err("rain radius must be 1 to 12");
+            }
+            if !(growth_boost.is_finite() && growth_boost >= 1.0) {
+                return err("rain growth_boost must be at least 1.0");
+            }
+            if !positive(minutes) {
+                return err("rain minutes must be positive");
+            }
+            Effect::Rain { radius, growth_boost, minutes }
+        }
         RawEffect::Smelt { ore, metal, ratio } => {
             if ratio == 0 {
                 return err("smelt ratio must be at least 1");
@@ -776,7 +851,19 @@ fn link_unlocks(abilities: &mut [AbilityDef], techs: &[TechDef]) -> Result<(), D
             let Some(ability) = abilities.iter_mut().find(|a| a.id == *name) else {
                 return err(format!("unknown ability {name:?}"));
             };
-            if tech.nation != Some(ability.nation) {
+            if let Some(pair) = ability.nations {
+                // A joint bend (#759) comes from a fusion of its own two nations, in either order.
+                let same =
+                    tech.fusion.is_some_and(|f| f.contains(&pair[0]) && f.contains(&pair[1]));
+                if !same {
+                    return err(format!(
+                        "{name:?} is a {}-and-{} joint bend, so only a fusion of those two \
+                         nations can unlock it",
+                        pair[0].as_str(),
+                        pair[1].as_str()
+                    ));
+                }
+            } else if tech.nation != Some(ability.nation) {
                 return err(format!(
                     "{name:?} is a {} ability, so only a {} tech can unlock it",
                     ability.nation.as_str(),
@@ -795,6 +882,13 @@ fn link_unlocks(abilities: &mut [AbilityDef], techs: &[TechDef]) -> Result<(), D
             }
             ability.unlocked_by = Some(TechId(t as u16));
         }
+    }
+    // `nations` is allowed only on an ability that a fusion of the same two nations unlocks.
+    if let Some(a) = abilities.iter().find(|a| a.is_joint() && a.unlocked_by.is_none()) {
+        return Err(DefsError(format!(
+            "bending.toml: ability {}: a joint bend (`nations`) must be unlocked by a fusion tech",
+            a.id
+        )));
     }
     Ok(())
 }
