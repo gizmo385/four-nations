@@ -71,7 +71,7 @@ pub fn draw(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffer
 
 /// Draws the centred box that's open (the game menu, `crate::menu`) into `area`, the map region.
 /// The Build picker is a full screen instead (`crate::build`, #652), drawn before this is asked.
-fn draw_modal(
+pub fn draw_modal(
     session: &Session,
     ui: &UiState,
     modal: Modal,
@@ -149,7 +149,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
 /// The hint bar's badge text for `mode`: the mode's name, and in a tool "HARVEST · REPEATING"
 /// while the standing-order toggle is on (#277) or "CANCEL · TEARDOWN" while the Cancel tool's
 /// own is (#335).
-fn mode_label(ui: &UiState, mode: Mode) -> String {
+pub fn mode_label(ui: &UiState, mode: Mode) -> String {
     match ui.repeating_label() {
         Some(label) if matches!(mode, Mode::Tool | Mode::ToolCorner) => label.to_uppercase(),
         _ => keys::mode_name(mode, ui.tool),

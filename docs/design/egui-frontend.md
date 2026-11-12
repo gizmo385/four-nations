@@ -42,10 +42,10 @@ changing the TUI.
 | Module | What it does | Fate |
 |---|---|---|
 | `main.rs` | Native `eframe::run_native`; wasm `WebRunner` at the title screen, or a game from a `?seed=` query (#866), with Quit hidden | Stays |
-| `app.rs` (`GuiApp`) | Reads the clock, translates keys, paints the whole ratatui frame with `fn_gui::cells` (#872), puts `MapView` over the map region, shows the timing overlay | Becomes the frame (#876). `egui_ratatui`/`soft_ratatui` are gone (#872) |
+| `app.rs` (`GuiApp`) | Reads the clock, translates keys (F12 is the window's own: the timing overlay), hands each frame to `Frame` | Stays: shell, keys and clock only (#876) |
+| `frame.rs`, `hints.rs` | `surface` (the exhaustive native/cells match), the native layout (hint bar, side panel slot, map, banner), the box painter, the timing overlay; the hint bar from `fn_ui::keys` | New in #876. Arms flip to native as screens convert; the side panel slot gets `fn_gui::side` (#877) |
 | `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Gains click semantics, a hover tooltip and a cached overview (#878) |
 | `keys.rs` | egui `Event` to `fn_tui::keyev::KeyEvent` | Stays, retargeted to #857's frontend-neutral key type |
-| `panel.rs` | Spike sample: header, People rows, settler list, with its own strings | Replaced by the native side panel (#877) |
 | `fonts.rs` | Loads DejaVu Sans Mono from the system path | Bundles it with `include_bytes!` (#859) |
 | `color.rs` | ratatui `Color` to `Color32` | Stays (the map look and the cell painter both need it) |
 | `tests/` | Key translation, camera maths, glyph coverage, one wgpu snapshot that panics without an adapter | Snapshot moves behind a feature; the rest join the gate (#875) |
@@ -150,6 +150,20 @@ tessellation on top): a full-screen page 0.3 ms (+0.1 ms), the map's own 10 000 
 screen and has the measurement (`cell_paint_cost`, ignored). Dropping those two crates also lifted
 the egui 0.34 pin: eframe, egui and egui_kittest are on 0.37.
 
+**The native frame (#876, done)** is `fn_gui::frame`. Its `surface` match gives every state one
+of the three answers: the map (with a tool, a corner or a settler selected) is native; the game
+menu and the confirm boxes are cells-box; the title, embark, the exit prompt and every screen and
+the Build picker are cells-full, each arm flipping when its painter lands. A question asked
+over a full screen stays in that screen's cells. The native frame never draws the terminal's own
+map: before, every game frame built the 10 000 glyphs under `MapView` and threw them away.
+Measured in release at 1600 by 960 (`cell_paint_cost`, layout plus shapes, tessellation on top):
+a game frame's cells 1.5 ms (+0.8 ms) before; the side panel's slot, which is all of a native
+game frame's cells until #877, 0.06 ms (+0.03 ms); the menu box 0.015 ms (+0.008 ms). About
+2.2 ms a frame saved. Until #877 the slot is `fn_tui::panel::draw_panel` at the slot's own size
+in cells (37 columns at 300 points); `F12` shows a timing overlay (surface, map, cells, sim and
+frame ms). Under kittest the root ui keeps an 8-point margin, so a 1600-point harness is 198
+columns where a window is 200.
+
 ## Screen-by-screen order
 
 One row is roughly one agent PR (the #842 estimates). "Words" means a row-model move into
@@ -157,7 +171,7 @@ One row is roughly one agent PR (the #842 estimates). "Words" means a row-model 
 
 | # | What | Native as | Words to move first | Est |
 |---|---|---|---|---|
-| 1 | Cell painter, frame skeleton, hint bar, tool banner (#872, #876) | `fn_gui::cells`, `fn_gui::frame`, `fn_gui::hints` | none (`fn_ui::keys` already) | 2 |
+| 1 | Cell painter, frame skeleton, hint bar, tool banner (#872, #876; done) | `fn_gui::cells`, `fn_gui::frame`, `fn_gui::hints` | none (`fn_ui::keys` already) | 2 |
 | 2 | Side panel: header, Settlement glance, Alerts, Tool section (#873, #877) | `fn_gui::side` | `fn_tui::panel`'s `Data` rows and `widgets::{Row, Tone}` | 2.5 |
 | 3 | Inspector (#882) | `fn_gui::inspector` | `fn_tui::inspector::settler_view`, tile and placement rows | 1 |
 | 4 | Map mouse: click, select, one-tile apply, hover tooltip, overview cache (#878) | `mapview.rs` | none (`fn_ui::inspect::tooltip_lines`) | 1 |

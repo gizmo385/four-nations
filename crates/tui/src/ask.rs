@@ -28,6 +28,12 @@ fn size(ask: &Ask) -> (u16, u16) {
     (WIDTH, rows as u16 + 2)
 }
 
+/// The box's own rectangle when drawn over `outer` (`modal::modal_area`): what a frontend that
+/// paints only the box (`fn_gui`) copies out of the frame.
+pub fn area(ask: &Ask, outer: Rect) -> Rect {
+    modal::modal_area(outer, size(ask))
+}
+
 /// Draws the box over the map area `outer`, the answer at `at` reversed.
 pub fn draw(ask: &Ask, at: usize, palette: &Palette, outer: Rect, buf: &mut Buffer) {
     let marks = Marks::new(palette.ascii);

@@ -188,11 +188,29 @@ fn cell_paint_cost() {
         metrics.cell.y,
         !cfg!(debug_assertions)
     );
+    let mut cases: Vec<(&str, Buffer)> = Vec::new();
     for (name, keys) in
         [("build", "u"), ("research", "t"), ("nation", "n"), ("help", "?"), ("game", "")]
     {
         let mut shell = game(keys);
-        let buf = frame(&mut shell, (cols, rows));
+        cases.push((name, frame(&mut shell, (cols, rows))));
+    }
+    // What a native game frame (#876) still paints as cells: the side panel's slot (300 points,
+    // 37 columns, down to the hint bar) and, with the menu open, its box. The map's own 10 000
+    // glyphs are not in a native frame: `MapView` paints them, and the terminal's are skipped.
+    let shell = game("");
+    if let fn_tui::shell::Mode::Game(app) = &shell.mode {
+        let palette = Palette::new(shell.defs(), shell.nation(), ColorDepth::TrueColor, false);
+        let slot = Rect::new(0, 0, (300.0 / metrics.cell.x) as u16, rows - 1);
+        let mut buf = Buffer::empty(slot);
+        fn_tui::panel::draw_panel(&app.session, &app.ui, &palette, slot, &mut buf);
+        cases.push(("game, native: panel slot", buf));
+        let area = Rect::new(0, 0, fn_tui::menu::SIZE.0, fn_tui::menu::SIZE.1);
+        let mut buf = Buffer::empty(area);
+        fn_tui::menu::draw(&app.ui, &[], "Day 1", &palette, area, &mut buf);
+        cases.push(("game, native: menu box", buf));
+    }
+    for (name, buf) in cases {
         let runs = CellLayout::new(&buf);
         let (mut layout_ms, mut shapes_ms, mut tess_ms) = (0.0, 0.0, 0.0);
         const N: u32 = 200;
@@ -225,7 +243,7 @@ fn cell_paint_cost() {
         }
         let n = f64::from(N);
         println!(
-            "{name:9} {:5} glyphs {:4} bg runs: layout {:.3} ms + shapes {:.3} ms = {:.3} ms \
+            "{name:26} {:5} glyphs {:4} bg runs: layout {:.3} ms + shapes {:.3} ms = {:.3} ms \
              (egui tessellation on top: {:.3} ms)",
             runs.glyphs.len(),
             runs.backgrounds.len(),

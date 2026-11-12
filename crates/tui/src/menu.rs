@@ -29,6 +29,11 @@ pub use fn_ui::menu::*;
 /// round them.
 pub const SIZE: (u16, u16) = (40, 10);
 
+/// The menu's box when drawn over `outer` (`modal::modal_area`).
+pub fn area(outer: Rect) -> Rect {
+    modal::modal_area(outer, SIZE)
+}
+
 /// Draws the menu: the row list or the list of nations (`ui.menu_page`), the highlighted row
 /// (`ui.menu_cursor`) reversed, and the Quit… row as the host can quit or not (`ui.can_quit`,
 /// #866). `nations` is each nation's name and whether it is the one being played. `clock` is the game's

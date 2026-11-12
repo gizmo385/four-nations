@@ -1,36 +1,23 @@
-//! The window: the shell's whole frame painted as cells ([`crate::cells`]), the map widget over
-//! its map region while a game is on screen, and the egui side panel beside it.
+//! The window: the shell, the keys and the clock. What goes on screen is [`crate::frame`]'s.
 //!
 //! Like `fn_tui::run`, this is the only place that reads the clock: each frame hands the shell
 //! the keys egui collected and the real seconds since the last frame.
 
 use web_time::Instant;
 
-use eframe::egui::{self, Color32, FontFamily, FontId, Rect, vec2};
+use eframe::egui;
 use fn_sim::Nation;
 use fn_tui::color::{ColorDepth, Palette};
-use fn_tui::layout;
-use fn_tui::shell::{self, Mode, Shell};
-use fn_ui::state::BANNER_HEIGHT;
-use ratatui::buffer::Buffer;
+use fn_tui::shell::Shell;
 
-use crate::cells::{self, CellLayout, Metrics};
-use crate::mapview::MapView;
+use crate::frame::Frame;
 
 pub struct GuiApp {
     shell: Shell,
     palette: Palette,
     nation: Nation,
-    /// The shell's size in cells, as last given to [`Shell::resize`].
-    size: (u16, u16),
-    map: Option<MapView>,
+    frame: Frame,
     last_frame: Instant,
-    /// The egui side panel beside the terminal one (the converted-section sample).
-    show_panel: bool,
-    /// The last frame's timings, in milliseconds: the shell's advance, the cell render and the
-    /// whole frame.
-    timings: (f32, f32, f32),
-    first_cell: Option<f32>,
     /// The state last written onto the page (`crate::page::publish`).
     #[cfg(target_arch = "wasm32")]
     published: String,
@@ -64,7 +51,7 @@ impl GuiApp {
         shell.play(&keys);
         let mut app = Self::with_shell(shell);
         // `FN_GUI_CELL=N`: the map widget's first cell height, for screenshots of a zoom level.
-        app.first_cell = std::env::var("FN_GUI_CELL").ok().and_then(|v| v.parse().ok());
+        app.frame.first_cell = std::env::var("FN_GUI_CELL").ok().and_then(|v| v.parse().ok());
         app
     }
 
@@ -75,12 +62,8 @@ impl GuiApp {
             shell,
             palette,
             nation,
-            size: (120, 40),
-            map: None,
+            frame: Frame::default(),
             last_frame: Instant::now(),
-            show_panel: true,
-            timings: (0.0, 0.0, 0.0),
-            first_cell: None,
             #[cfg(target_arch = "wasm32")]
             published: String::new(),
         }
@@ -90,14 +73,19 @@ impl GuiApp {
         &self.shell
     }
 
+    /// The window's frame state: what it showed last, and the hint bar's text.
+    pub fn frame(&self) -> &Frame {
+        &self.frame
+    }
+
     fn step(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f64().min(0.25);
         self.last_frame = now;
         for key in ctx.input(crate::keys::frame_keys) {
-            // F12 is the window's own: it shows or hides the egui panel.
+            // F12 is the window's own: it shows or hides the dev timing overlay.
             if key.code == fn_ui::keyev::KeyCode::F(12) {
-                self.show_panel = !self.show_panel;
+                self.frame.overlay = !self.frame.overlay;
                 continue;
             }
             self.shell.key(key);
@@ -113,7 +101,7 @@ impl GuiApp {
         } else {
             self.shell.advance(dt);
         }
-        self.timings.0 = started.elapsed().as_secs_f32() * 1000.0;
+        self.frame.timings.sim = started.elapsed().as_secs_f32() * 1000.0;
         if self.shell.nation() != self.nation {
             self.nation = self.shell.nation();
             self.palette =
@@ -122,84 +110,20 @@ impl GuiApp {
     }
 }
 
+impl GuiApp {
+    /// One frame of the window into `root`: the keys and the clock, then [`Frame::show`].
+    pub fn show(&mut self, root: &mut egui::Ui) {
+        let frame_start = Instant::now();
+        let ctx = root.ctx().clone();
+        self.step(&ctx);
+        self.frame.show(root, &mut self.shell, &self.palette);
+        self.frame.timings.frame = frame_start.elapsed().as_secs_f32() * 1000.0;
+        ctx.request_repaint();
+    }
+}
+
 impl eframe::App for GuiApp {
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = &root.ctx().clone();
-        let frame_start = Instant::now();
-        self.step(ctx);
-
-        let in_game = matches!(self.shell.mode, Mode::Game(_));
-        if in_game && self.show_panel {
-            egui::Panel::right("people").default_size(260.0).show(root, |ui| {
-                if let Mode::Game(app) = &mut self.shell.mode {
-                    crate::panel::show(ui, app);
-                }
-            });
-        }
-
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::BLACK)).show(
-            root,
-            |ui| {
-                let avail = ui.available_rect_before_wrap();
-                let metrics = Metrics::new(ui.ctx());
-                let (cw, ch) = (metrics.cell.x, metrics.cell.y);
-                let (cols, rows) = metrics.grid_in(avail.size());
-                let (cols, rows) = (cols.max(layout::MIN_WIDTH), rows.max(layout::MIN_HEIGHT));
-                if self.size != (cols, rows) {
-                    self.shell.resize(cols, rows);
-                    self.size = (cols, rows);
-                }
-
-                // The whole frame, as the terminal would show it.
-                let started = Instant::now();
-                let mut buf = Buffer::empty(ratatui::layout::Rect::new(0, 0, cols, rows));
-                shell::draw(&mut self.shell, &self.palette, &mut buf);
-                let origin = avail.min;
-                cells::paint(&ui.painter_at(avail), origin, &metrics, &CellLayout::new(&buf));
-                self.timings.1 = started.elapsed().as_secs_f32() * 1000.0;
-
-                // The map widget over the map region, while the map is what's showing.
-                let Mode::Game(app) = &mut self.shell.mode else {
-                    self.map = None;
-                    return;
-                };
-                if !fn_ui::pointer::map_has_pointer(app) {
-                    return;
-                }
-                let Some(regions) = layout::regions(ratatui::layout::Rect::new(0, 0, cols, rows))
-                else {
-                    return;
-                };
-                let m = regions.map;
-                let top = if app.ui.banner() { BANNER_HEIGHT as u16 } else { 0 };
-                let rect = Rect::from_min_size(
-                    origin + vec2(f32::from(m.x) * cw, f32::from(m.y + top) * ch),
-                    vec2(f32::from(m.width) * cw, f32::from(m.height - top) * ch),
-                );
-                let first_cell = self.first_cell.take();
-                let view = self.map.get_or_insert_with(|| MapView::new(app));
-                if let Some(cell) = first_cell {
-                    view.camera.cell = cell;
-                }
-                view.show(ui, rect, app, &self.palette);
-                let note = format!(
-                    "cell {:.0}px  map {:.1} ms  cells {:.1} ms  sim {:.1} ms  frame {:.1} ms",
-                    view.camera.cell,
-                    view.last_paint_ms,
-                    self.timings.1,
-                    self.timings.0,
-                    self.timings.2
-                );
-                ui.painter().text(
-                    rect.left_bottom() + vec2(6.0, -4.0),
-                    egui::Align2::LEFT_BOTTOM,
-                    note,
-                    FontId::new(12.0, FontFamily::Monospace),
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 180),
-                );
-            },
-        );
-        self.timings.2 = frame_start.elapsed().as_secs_f32() * 1000.0;
-        ctx.request_repaint();
+        self.show(root);
     }
 }
