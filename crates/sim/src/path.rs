@@ -23,7 +23,7 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-use crate::defs::Terrain;
+use crate::defs::{BiomeId, Terrain};
 use crate::geom::Pos;
 use crate::mapgen::{Tile, TileMap};
 
@@ -84,6 +84,11 @@ pub struct MoveRules {
     /// `World::load` sets it again (`World::reindex_buildings`).
     #[serde(skip)]
     track_steps: Vec<u32>,
+    /// How fast a step onto each biome is, in thousandths, indexed by `BiomeId` (`biome_speed`,
+    /// #740: sand sailers cross desert at 2000). Empty, or 1000, is normal speed. Not saved: it
+    /// comes from the known techs (`World::refresh_biome_speeds`).
+    #[serde(skip)]
+    biome_millis: Vec<u32>,
 }
 
 impl Default for MoveRules {
@@ -109,6 +114,7 @@ impl Default for MoveRules {
             canal_cost,
             resources_block: true,
             track_steps: Vec::new(),
+            biome_millis: Vec::new(),
         }
     }
 }
@@ -137,6 +143,20 @@ impl MoveRules {
         }
         self.track_steps = steps;
         self
+    }
+
+    /// Returns these rules with each biome's step speed in thousandths (`biome_millis[i]` for
+    /// `BiomeId(i)`, each at least 1): a step onto that biome costs `1000 / millis` as much,
+    /// never under 1. All 1000 (or empty) is plain walking.
+    pub fn with_biome_speeds(mut self, millis: Vec<u32>) -> Self {
+        assert!(millis.iter().all(|&m| m >= 1), "a biome speed is at least 1 milli");
+        self.biome_millis = if millis.iter().all(|&m| m == 1000) { Vec::new() } else { millis };
+        self
+    }
+
+    /// The step speed onto `biome`, in thousandths: 1000 unless a `biome_speed` changes it.
+    fn biome_speed(&self, biome: BiomeId) -> u32 {
+        self.biome_millis.get(usize::from(biome.0)).copied().unwrap_or(1000)
     }
 
     /// Each track's step cost, indexed by track index - 1; empty if these rules ignore tracks.
@@ -178,8 +198,11 @@ impl MoveRules {
     /// between two rail tiles is an ordinary diagonal, because a track doesn't run that way.
     pub fn step_cost(&self, from: &Tile, to: &Tile, diagonal: bool) -> Option<u32> {
         let cost = self.tile_cost(to)?;
+        // A biome speed (#740) scales the ground step; a track's own step still wins if cheaper.
+        let speed = self.biome_speed(to.biome);
+        let ground = |base: u32| (base * 1000).div_ceil(speed).max(1);
         if diagonal {
-            return Some(DIAGONAL * cost);
+            return Some(ground(DIAGONAL * cost));
         }
         let track = |t: &Tile| t.building.map_or(0, |b| b.track());
         let (a, b) = (track(from), track(to));
@@ -187,9 +210,9 @@ impl MoveRules {
             && a == b
             && let Some(step) = self.track_step(a)
         {
-            return Some(step.min(STRAIGHT * cost));
+            return Some(step.min(ground(STRAIGHT * cost)));
         }
-        Some(STRAIGHT * cost)
+        Some(ground(STRAIGHT * cost))
     }
 
     /// The cheapest a straight step can cost, in `STRAIGHT` units: the heuristic's scale, so it
@@ -198,6 +221,8 @@ impl MoveRules {
     fn min_step(&self) -> u32 {
         let costs = self.terrain_cost.iter().chain([&self.tunnel_cost, &self.canal_cost]).flatten();
         let ground = costs.copied().min().unwrap_or(1) * STRAIGHT;
+        let fastest = self.biome_millis.iter().copied().max().unwrap_or(1000).max(1000);
+        let ground = (ground * 1000 / fastest).max(1);
         self.track_steps.iter().copied().fold(ground, u32::min)
     }
 }

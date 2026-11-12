@@ -71,6 +71,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         vial_upgrade: None,
         endeavor: false,
         beside: None,
+        on_biomes: Vec::new(),
         also_on: Vec::new(),
         boost_upgrade: None,
         heat_aura_upgrade: None,

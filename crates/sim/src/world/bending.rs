@@ -1116,6 +1116,19 @@ impl World {
             }
             // An ordinary build site, not the gate, whose work isn't already done (#363).
             Effect::Build { .. } => self.build_target(pos, defs),
+            // Somewhere to stand, with tired land in reach (#740).
+            Effect::Unstrain { radius } => {
+                let tile = &self.map[pos];
+                if !tile.terrain.is_walkable() {
+                    Err("needs open ground to stand on")
+                } else if tile.resource.is_some() || tile.building.is_some() {
+                    Err("something is in the way")
+                } else if self.strain.keys().any(|&s| chebyshev(pos, s) <= *radius) {
+                    Ok(())
+                } else {
+                    Err("nothing here is tired")
+                }
+            }
             #[cfg(test)]
             Effect::Probe => {
                 if self.map[pos].terrain.is_walkable() {
@@ -1322,6 +1335,11 @@ impl World {
             // are done, so there is nothing more to do here even for an unsupplied site.
             Effect::Build { work_seconds } => {
                 self.add_build_work(pos, work_seconds * magnitude, defs);
+                None
+            }
+            // The land in reach forgets its weariness (#740).
+            Effect::Unstrain { radius } => {
+                self.strain.retain(|&s, _| chebyshev(pos, s) > *radius);
                 None
             }
             #[cfg(test)]

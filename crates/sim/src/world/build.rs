@@ -101,6 +101,9 @@ pub enum Blocker {
     NearStores(u32),
     /// A landmark of this kind already stands or is designated (`BuildingDef::landmark`).
     OnlyOne,
+    /// A footprint tile isn't on one of `BuildingDef::on_biomes` (#740). Carries the first of
+    /// them, which the client names: "must stand on desert".
+    OnBiome(crate::defs::BiomeId),
 }
 
 impl std::fmt::Display for Blocker {
@@ -116,6 +119,7 @@ impl std::fmt::Display for Blocker {
             Self::Beside(word) => write!(f, "must touch {word}"),
             Self::NearStores(far) => write!(f, "must be {far} tiles from any stockpile"),
             Self::OnlyOne => f.write_str("only one"),
+            Self::OnBiome(_) => f.write_str("must stand on another biome"),
         }
     }
 }
@@ -466,9 +470,26 @@ impl World {
         foot.tiles()
             .find_map(|at| self.build_blocker_on(at, &def.also_on, defs).map(|why| (at, why)))
             .or_else(|| self.entrance_blocker(foot, def.capacity > 0, defs))
+            .or_else(|| self.biome_blocker(foot, def, defs))
             .or_else(|| self.beside_blocker(foot, def))
             .or_else(|| self.far_blocker(foot, def))
             .or_else(|| self.landmark_blocker(anchor, def, defs))
+    }
+
+    /// The first footprint tile (row-major) off every one of `def.on_biomes` (#740), with the
+    /// first of them for the refusal. `None` with no such rule, or every tile on one.
+    fn biome_blocker(
+        &self,
+        foot: Footprint,
+        def: &BuildingDef,
+        defs: &Defs,
+    ) -> Option<(Pos, Blocker)> {
+        let allowed: Vec<crate::defs::BiomeId> =
+            def.on_biomes.iter().filter_map(|n| defs.biome_id(n)).collect();
+        let first = *allowed.first()?;
+        foot.tiles()
+            .find(|&p| self.map.get(p).is_some_and(|t| !allowed.contains(&t.biome)))
+            .map(|p| (p, Blocker::OnBiome(first)))
     }
 
     /// Why `foot` fails `def`'s `beside` rule, if it has one and nothing in `foot`'s ring is one

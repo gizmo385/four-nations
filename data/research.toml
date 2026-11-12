@@ -946,6 +946,43 @@ prereqs = ["healing"]
 building = "healing_hut"
 vials_per_year = 1
 
+# --- #740 (research horizons phase 5: `sandbending`, `plantbending`, `spirit_projection`) -------
+
+[[tech]]
+id = "sandbending"
+name = "Sandbending"
+description = "Shape the desert's sand into sails, roads and blocks of stone."
+nation = "earth"
+cost = 250
+prereqs = ["earth_shaping"]
+[tech.teaching]
+site = { biomes = ["desert"], within = 40, min_tiles = 40 }
+[tech.unlocks]
+buildings = ["sandstone_works"]
+biome_speed = { desert = 2.0 }   # sand sailers: steps onto desert are twice as fast
+
+[[tech]]
+id = "plantbending"
+name = "Plantbending"
+description = "Draw the water through the roots and wake the tired soil."
+nation = "water"
+cost = 250
+prereqs = ["irrigation"]
+[tech.teaching]
+[tech.unlocks]
+abilities = ["regrow"]
+
+[[tech]]
+id = "spirit_projection"
+name = "Spirit Projection"
+description = "Leave the body behind in meditation, and see what the land hides."
+nation = "air"
+cost = 250
+prereqs = ["meditation"]
+[tech.teaching]
+[tech.unlocks]
+abilities = ["project"]
+
 # --- #737 (research horizons phase 5: lost teachings) -------------------------------------------
 
 # A teaching scroll read when every teaching is kept, lost or ruled out by its site reads for this

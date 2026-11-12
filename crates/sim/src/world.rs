@@ -65,6 +65,8 @@ mod power;
 mod probe;
 #[cfg(test)]
 mod rail_tests;
+#[cfg(test)]
+mod sand_tests;
 mod season;
 #[cfg(test)]
 mod southern_tests;
@@ -877,6 +879,26 @@ impl World {
         self.modifiers =
             research::effective_modifiers(self.nation, self.research.known_techs(), defs);
         self.refresh_heat_radii(defs);
+        self.refresh_biome_speeds(defs);
+    }
+
+    /// Gives the move rules every known tech's `biome_speed` (#740: sand sailers cross desert
+    /// twice as fast). Not saved: run on every tech completion and after a load.
+    pub(crate) fn refresh_biome_speeds(&mut self, defs: &Defs) {
+        let mut millis = vec![1000u32; defs.biomes.len()];
+        for (i, t) in defs.techs.iter().enumerate() {
+            if !self.research.is_known(research::TechId(i as u16)) {
+                continue;
+            }
+            for (b, &m) in &t.unlocks.biome_speed {
+                if let Some(id) = defs.biome_id(b) {
+                    let slot = &mut millis[usize::from(id.0)];
+                    *slot = ((f64::from(*slot) * f64::from(m)).round() as u32).max(1);
+                }
+            }
+        }
+        self.cart_rules = self.cart_rules.clone().with_biome_speeds(millis.clone());
+        self.rules = self.rules.clone().with_biome_speeds(millis);
     }
 
     /// What the settlement has done over the whole game (`tally.rs`).

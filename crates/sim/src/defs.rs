@@ -534,6 +534,20 @@ impl Defs {
             }
         }
         for t in &self.techs {
+            for (b, &m) in &t.unlocks.biome_speed {
+                if self.biome_id(b).is_none() {
+                    return Err(DefsError(format!(
+                        "tech {}: biome_speed: unknown biome {b:?}",
+                        t.id
+                    )));
+                }
+                if !(m.is_finite() && m > 0.0 && m <= 4.0) {
+                    return Err(DefsError(format!(
+                        "tech {}: biome_speed {b} = {m} must be in (0, 4]",
+                        t.id
+                    )));
+                }
+            }
             let site = t.teaching.as_ref().and_then(|x| x.site.as_ref());
             for b in site.iter().flat_map(|s| s.biomes.iter().flatten()) {
                 if self.biome_id(b).is_none() {
@@ -545,6 +559,12 @@ impl Defs {
             }
         }
         for b in &self.buildings {
+            if let Some(name) = b.on_biomes.iter().find(|n| self.biome_id(n).is_none()) {
+                return Err(DefsError(format!(
+                    "building {}: on_biomes: unknown biome {name:?}",
+                    b.id
+                )));
+            }
             for &r in b.pickers.iter().flat_map(|p| &p.resources) {
                 if self.harvest(r).is_none() {
                     return Err(DefsError(format!(
@@ -802,10 +822,20 @@ mod tests {
             "draw_water",
             "cut_ice",
             "carve_canal",
+            "regrow",
+            "project",
         ] {
             let ability = format!("abilities = [\"{id}\"]\n");
             assert!(src.contains(&ability), "{id}'s unlock moved; update this helper");
             src = src.replace(&ability, "");
+        }
+        // Tests with their own biomes have no desert (#740).
+        for line in [
+            "site = { biomes = [\"desert\"], within = 40, min_tiles = 40 }\n",
+            "biome_speed = { desert = 2.0 }   # sand sailers: steps onto desert are twice as fast\n",
+        ] {
+            assert!(src.contains(line), "{line:?} moved; update this helper");
+            src = src.replace(line, "");
         }
         src
     }
@@ -837,7 +867,8 @@ mod tests {
             let next = rest[1..].find("\n[").expect("chart is followed by another table");
             text.replace_range(start..start + 1 + next, "");
         }
-        text
+        // Tests with their own biomes have no desert (#740).
+        text.replace("on_biomes = [\"desert\"]\n", "")
     }
 
     fn with_biomes(biomes: &str) -> Result<Defs, DefsError> {
