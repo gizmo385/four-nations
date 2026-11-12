@@ -144,3 +144,24 @@ chance = 0.005
 terrains = ["land"]
 min_spacing = 20
 buried = true
+
+# --- #736 (research horizons phase 5: great ruins) ---------------------------------------------
+
+# Great ruins (#736, docs/design/horizons-phase-5.md, "Great ruins on the map"): the 2 or 3 lost
+# ruins with the most land around them, promoted after every other resource is placed. Never
+# placed by the scan (`chance = 0.0`), so nothing else on the map moves. Searched for two scrolls
+# and a teaching scroll (data/jobs.toml).
+[[resource]]
+id = "great_ruins"
+name = "Great Ruins"
+glyph = "N"
+chance = 0.0
+terrains = ["land"]
+buried = true
+[resource.promote]
+from = "lost_ruins"       # the resource whose tiles may become this one
+tiles_per = 12000         # one per this many map tiles, clamped to [min, max]
+min = 2
+max = 3
+spacing = 40              # Chebyshev, between great ruins
+size_radius = 3           # a ruin's "size" is the Land tiles in the 7x7 box around it

@@ -227,7 +227,7 @@ passable = false
 footprint = [2, 2]
 seats = 1
 [building.chart]
-finds = ["lost_ruins"]
+finds = ["lost_ruins", "great_ruins"]
 minutes = 6.0
 range = 100
 [[building.cost]]

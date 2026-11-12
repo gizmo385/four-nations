@@ -163,6 +163,12 @@ glyph = "‖"
 ascii = "n"
 fg = [200, 196, 176]
 
+# Great ruins (#736): a lost ruin with its lintel still up, warmer stone than the lost ruin's.
+[resource.great_ruins]
+glyph = "Π"
+ascii = "N"
+fg = [224, 206, 160]
+
 [item.wood]
 glyph = "≡"
 ascii = "/"
@@ -182,6 +188,12 @@ fg = [255, 212, 60]
 glyph = "§"
 ascii = "?"
 fg = [236, 220, 176]
+
+# A teaching scroll from a great ruin (#736): the scroll in gold.
+[item.teaching_scroll]
+glyph = "§"
+ascii = "?"
+fg = [240, 196, 96]
 
 # What the Archive scribes (#709): a plainer scroll than the ancient one, never read.
 [item.scroll_copy]

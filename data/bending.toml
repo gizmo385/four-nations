@@ -214,7 +214,7 @@ work = 8.0
 [ability.effect]
 kind = "reveal"
 radius = 14               # tiles, Chebyshev
-finds = ["lost_ruins"]
+finds = ["lost_ruins", "great_ruins"]
 
 # --- #143 (Air: air scooter) -------------------------------------------------------------------
 

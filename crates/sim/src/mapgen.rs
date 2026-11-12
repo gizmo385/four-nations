@@ -26,6 +26,9 @@
 //!    noise field (clumped groves), moisture, and an optional minimum spacing. Every resource has
 //!    its own streams keyed by its id, so content changes don't reshuffle other resources
 //!    (issue #225, see `add_resources`).
+//! 7. **Promotion** (`mapgen.great_ruins`, #736): a resource with `[resource.promote]` takes over
+//!    a few of another resource's tiles, picked by `pick_promoted`. It only rewrites tiles that
+//!    already hold the `from` resource, so nothing else on the map moves.
 //!
 //! All arithmetic is plain `f64` `+ - * /` and `floor` (no `powf`/`exp`/FMA), so maps are
 //! identical on every platform. See `noise` for why the noise is in-house.
@@ -36,9 +39,10 @@ mod hydrology;
 use std::collections::VecDeque;
 
 use rand::RngExt;
+use rand::seq::SliceRandom;
 
 use crate::building::TileBuilding;
-use crate::defs::{BiomeId, Defs, ResourceDef, ResourceId, Terrain};
+use crate::defs::{BiomeId, Defs, PromoteDef, ResourceDef, ResourceId, Terrain};
 use crate::geom::{Grid, Pos};
 use crate::noise::{Fbm, lerp, smoothstep};
 use crate::rng;
@@ -172,7 +176,76 @@ pub fn generate(cfg: &MapGenConfig, defs: &Defs) -> TileMap {
         }
     });
     add_resources(&mut map, cfg, defs);
+    promote_resources(&mut map, cfg.seed, defs);
     map
+}
+
+/// Promotes tiles for every resource with `[resource.promote]` (great ruins, #736): picks among
+/// the `from` resource's tiles with `pick_promoted` and rewrites only those tiles' resource. The
+/// pass's only write, so every other tile and resource stays exactly where `add_resources` put
+/// it.
+fn promote_resources(map: &mut TileMap, seed: u64, defs: &Defs) {
+    for (i, r) in defs.resources.iter().enumerate() {
+        let Some(promote) = &r.promote else { continue };
+        let from = defs.resource_id(&promote.from).expect("validated");
+        let candidates: Vec<Pos> =
+            map.iter().filter(|(_, t)| t.resource == Some(from)).map(|(p, _)| p).collect();
+        for p in pick_promoted(map, &candidates, promote, seed, &r.id) {
+            map[p].resource = Some(ResourceId(i as u16));
+        }
+    }
+}
+
+/// Picks which of `candidates` (the `from` resource's tiles, in scan order) a promotion takes
+/// (docs/design/horizons-phase-5.md, "What mapgen does"). Used by mapgen and by the old-save
+/// upgrade (`World::place_great_ruins`), which passes the still-buried tiles instead.
+///
+/// 1. Shuffle the candidates with `mapgen.<id>`, then stable-sort by size (Land tiles in the box
+///    of `size_radius` around each), largest first. The shuffle only breaks ties.
+/// 2. Take them in that order, skipping one closer than `spacing` to one already taken, until
+///    `count` are taken.
+/// 3. Fewer than `min`? Fill from the skipped ones in the same order, ignoring spacing.
+///
+/// Returns the picked tiles in pick order.
+pub fn pick_promoted(
+    map: &TileMap,
+    candidates: &[Pos],
+    promote: &PromoteDef,
+    seed: u64,
+    id: &str,
+) -> Vec<Pos> {
+    let count = promote.count(map.width() as u32, map.height() as u32);
+    let mut order: Vec<Pos> = candidates.to_vec();
+    order.shuffle(&mut rng::stream(seed, &format!("mapgen.{id}")));
+    let r = promote.size_radius as i32;
+    let size = |p: Pos| -> usize {
+        (-r..=r)
+            .flat_map(|dy| (-r..=r).map(move |dx| Pos::new(p.x + dx, p.y + dy)))
+            .filter(|&q| map.get(q).is_some_and(|t| t.terrain == Terrain::Land))
+            .count()
+    };
+    let mut sized: Vec<(usize, Pos)> = order.into_iter().map(|p| (size(p), p)).collect();
+    sized.sort_by_key(|&(s, _)| std::cmp::Reverse(s));
+    let mut taken: Vec<Pos> = Vec::new();
+    let mut skipped: Vec<Pos> = Vec::new();
+    for &(_, p) in &sized {
+        if taken.len() >= count {
+            break;
+        }
+        if taken.iter().any(|&q| p.chebyshev(q) < promote.spacing as i32) {
+            skipped.push(p);
+        } else {
+            taken.push(p);
+        }
+    }
+    let min = promote.min as usize;
+    for p in skipped {
+        if taken.len() >= min.min(count) {
+            break;
+        }
+        taken.push(p);
+    }
+    taken
 }
 
 fn quantize(v: f64) -> u8 {

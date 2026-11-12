@@ -719,9 +719,17 @@ impl World {
     /// `regrow` knob (1.0 is identity, #294) and, for a wild renewable harvest, by `1 + strain`
     /// (`harvest_strain`, #296); strain_kills may clear the resource outright instead of resting
     /// it.
+    ///
+    /// The harvest's `also` stacks (the great ruin's teaching scroll, #736) drop here, each as
+    /// its own ground stack, so every way a harvest completes drops them. The caller drops the
+    /// main yield.
     pub(super) fn work_done(&mut self, pos: Pos, h: &HarvestDef, defs: &Defs) -> u32 {
         let count = self.harvest_yield(pos, h);
         self.tallies.count_harvest(h.item, count);
+        for &extra in &h.also {
+            self.tallies.count_harvest(extra.item, extra.count);
+            self.place_ground(pos, extra);
+        }
         match h.regrow {
             Some(seconds) => match self.harvest_strain(pos, h, defs) {
                 Some(strain_mult) => {

@@ -31,7 +31,7 @@ use fn_sim::needs::DeathCause;
 use fn_sim::research::MILLIS_PER_POINT;
 use fn_sim::world::{
     Arrival, BendEvent, BendOutcome, CaravanEvent, CaravanEventKind, ChartEvent, ChartEventKind,
-    Death, Event, SeasonEvent, SeasonEventKind, StrainEvent, TICKS_PER_SECOND, UnitId,
+    Death, Event, FindEvent, SeasonEvent, SeasonEventKind, StrainEvent, TICKS_PER_SECOND, UnitId,
 };
 
 use crate::endeavor;
@@ -692,14 +692,14 @@ fn fresh_lines(session: &Session, events: &[Event]) -> Vec<Fresh> {
 }
 
 /// Where a full stockpile's line sorts among same-tick lines: after every world event
-/// (`Event::order` runs 0 to 10).
-const STOCKPILE_ORDER: u8 = 11;
+/// (`Event::order` runs 0 to 11).
+const STOCKPILE_ORDER: u8 = 12;
 /// Where the bend tip's line sorts among same-tick lines: last.
-const BEND_TIP_ORDER: u8 = 12;
+const BEND_TIP_ORDER: u8 = 13;
 /// Where the idle-research line sorts among same-tick lines: after the bend tip.
-const RESEARCH_ORDER: u8 = 13;
+const RESEARCH_ORDER: u8 = 14;
 /// Where a caravan's leaving warning sorts among same-tick lines: last.
-const TRADE_ORDER: u8 = 14;
+const TRADE_ORDER: u8 = 15;
 /// How long before a caravan leaves its warning comes (#438): two minutes.
 const TRADE_WARNING_TICKS: u64 = 2 * 60 * TICKS_PER_SECOND as u64;
 
@@ -767,6 +767,12 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
         Event::Beast(ev) => {
             let text = ev.describe();
             Line::new(Kind::Arrival, text.clone(), toast(&text)).at(ev.home)
+        }
+        // A reveal bend's find (#736): only a promoted find (great ruins) is worth a line. A
+        // glide over a lost ruin or a seismic sense over a seam already shows on the map.
+        Event::Find(ev) => {
+            let text = describe_find_event(session, ev)?;
+            Line::new(Kind::Chart, text.clone(), toast(&text)).at(ev.pos)
         }
         Event::Chart(ev) => {
             let (text, toast) = describe_chart_event(session, ev);
@@ -837,6 +843,20 @@ fn caravan_line(session: &Session, ev: &CaravanEvent) -> Line {
             Line::new(Kind::Trade, text, None)
         }
     }
+}
+
+/// "Spotted great ruins 12 tiles north" (#736, docs/design/horizons-phase-5.md, "How they are
+/// found"), measured from the settlement's anchor. `None` for a find that isn't promoted (a
+/// lost ruin, a gold seam): those have no line.
+pub fn describe_find_event(session: &Session, ev: &FindEvent) -> Option<String> {
+    let r = session.defs.resource(ev.resource);
+    r.promote.as_ref()?;
+    let from = session.world.settlement_anchor();
+    Some(format!(
+        "Spotted {} {}",
+        r.name.to_lowercase(),
+        crate::text::compass_distance(from, ev.pos)
+    ))
 }
 
 /// A finished chart (#402, #605): "Map Room charted Lost Ruins at (10, 1)", with ": out of
@@ -1804,6 +1824,7 @@ mod tests {
                 Event::Caravan(_) => Some(Kind::Trade),
                 Event::Chart(_) => Some(Kind::Chart),
                 Event::Beast(_) => Some(Kind::Arrival),
+                Event::Find(_) => None,
             };
             assert_eq!(*line, want, "{ev:?}");
         }
@@ -1863,6 +1884,24 @@ mod tests {
             caravan_line(&s, &ev).text,
             "Request met: Food for the families at Fire Fountain City"
         );
+    }
+
+    /// A reveal bend's find (#736): great ruins get "Spotted great ruins 12 tiles north", from
+    /// the settlement's anchor, and toast; a lost ruin or a gold seam gets no line.
+    #[test]
+    fn a_spotted_great_ruin_gets_a_line_and_other_finds_none() {
+        let s = Session::new(1, Nation::Air, 48, 32);
+        let great = s.defs.resource_id("great_ruins").unwrap();
+        let ruins = s.defs.resource_id("lost_ruins").unwrap();
+        let ability = s.defs.ability_id("glide").unwrap();
+        let home = s.world.settlement_anchor();
+        let pos = Pos::new(home.x, home.y - 12);
+        let find = |resource| Event::Find(FindEvent { tick: 0, pos, resource, ability });
+        let line = line_for(&s, &find(great)).expect("a great ruin has a line");
+        assert_eq!(line.kind, Kind::Chart);
+        assert_eq!(line.text, "Spotted great ruins 12 tiles north");
+        assert_eq!(line.toast.unwrap().text, "Spotted great ruins 12 tiles north");
+        assert!(line_for(&s, &find(ruins)).is_none(), "a lost ruin shows on the map alone");
     }
 
     /// A finished chart's line (#605): the building's and the resource's names from the data,

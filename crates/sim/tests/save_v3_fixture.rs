@@ -37,6 +37,7 @@ fn name(e: &Event) -> &'static str {
         Event::Chart(_) => "chart",
         Event::Caravan(_) => "caravan",
         Event::Beast(_) => "beast",
+        Event::Find(_) => "find",
     }
 }
 
