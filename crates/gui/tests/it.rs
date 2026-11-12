@@ -4,3 +4,4 @@ mod camera;
 mod glyphs;
 mod keys;
 mod snapshot;
+mod theme;

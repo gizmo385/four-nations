@@ -38,6 +38,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: pages
+      # Only the replayer. `cargo xtask web-gui` (fn_gui in the browser, #859) writes to
+      # target/replayer/gui/ but isn't run here, so the upload below doesn't carry it; #866
+      # adds that step.
       - name: Build the replayer
         run: cargo xtask web
       - uses: actions/configure-pages@v5
