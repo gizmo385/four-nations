@@ -456,6 +456,8 @@ impl World {
             if u.bed == Some(anchor)
                 || u.healing == Some(anchor)
                 || u.need_task == Some(Task::Healing(anchor))
+                || u.bath == Some(anchor)
+                || u.need_task == Some(Task::Bath(anchor))
             {
                 self.finish_need(i);
             }

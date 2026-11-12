@@ -137,6 +137,7 @@ impl World {
             };
             kind_ok(u.bed, "bed", |d| d.bed.is_some())?;
             kind_ok(u.healing, "healing", |d| d.healing.is_some())?;
+            kind_ok(u.bath, "bath", |d| d.bath.is_some())?;
             kind_ok(u.inside, "inside", |_| true)?;
         }
         Ok(())
@@ -203,6 +204,7 @@ fn task_job(task: Task) -> Option<JobId> {
         | Task::Drink
         | Task::Sleep
         | Task::Healing(_)
+        | Task::Bath(_)
         | Task::Remedy(_) => None,
     }
 }

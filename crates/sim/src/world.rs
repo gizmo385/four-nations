@@ -28,6 +28,8 @@ mod aura;
 mod automate;
 mod avatar;
 mod balloon;
+#[cfg(test)]
+mod bath_tests;
 mod beast;
 mod bending;
 mod bill;
@@ -198,6 +200,16 @@ pub struct Unit {
     /// #375): its own timer, since healing isn't one of the three needs `need_retry_at` covers.
     #[serde(default)]
     healing_retry_at: u64,
+    /// The bath (its anchor) this unit is bathing in or walking to, while its need task is
+    /// `Task::Bath` (#741). Other units treat it as claimed the same way `healing` does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bath: Option<Pos>,
+    /// Tick before which the cold can't hurt this unit: set by a bath (#741). 0 for none.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    warm_until: u64,
+    /// Tick before which this unit won't bathe again (#741's `cooldown_minutes`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    bath_ready_at: u64,
     /// Tick before which an idle unit doesn't look for a job again.
     claim_retry_at: u64,
     /// Progress toward the next step; a step happens when this reaches `BASE_TICKS_PER_STEP`.
@@ -341,6 +353,11 @@ pub enum Guest {
 /// buffers the token first, which is what makes a self-describing format like RON treat a bare
 /// value as `Some` of it instead of demanding the `Some(..)` wrapper `Option`'s own `Deserialize`
 /// requires; see the test below.
+/// For `skip_serializing_if` on a tick that is 0 until something sets it.
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
 fn deserialize_unit_nation<'de, D: serde::Deserializer<'de>>(
     de: D,
 ) -> Result<Option<Nation>, D::Error> {
@@ -1002,6 +1019,9 @@ impl World {
                 healing: None,
                 need_retry_at: [0; 3],
                 healing_retry_at: 0,
+                bath: None,
+                warm_until: 0,
+                bath_ready_at: 0,
                 claim_retry_at: 0,
                 move_progress: 0.0,
                 idle_until: 0,
@@ -1178,6 +1198,7 @@ impl World {
         let need_decay = knobs.need_decay;
         let winter_severity = knobs.winter_severity;
         let in_winter = knobs.seasons && self.season(defs).winter;
+        let stones = self.chi_stones(defs);
         let mut dead = Vec::new();
         for mut u in std::mem::take(&mut self.units) {
             if u.is_beast() {
@@ -1239,7 +1260,8 @@ impl World {
                 self.modifiers_for(&u, defs).chi_regen
             } else {
                 self.modifiers.chi_regen
-            } * aura.chi_regen;
+            } * aura.chi_regen
+                * Self::chi_stone_factor(&stones, u.pos);
             let chi_max = self.chi_max_for(&u, defs);
             u.chi = defs.chi.regen(u.chi, u.is_sleeping(), chi_regen, rest, chi_max);
             self.care.observe(&u, exposed, defs);

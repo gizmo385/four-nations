@@ -352,6 +352,12 @@ pub fn describe_task(world: &World, defs: &Defs, unit: &Unit) -> String {
         },
         Task::Drink => "Drinking".into(),
         Task::Sleep => "Sleeping".into(),
+        Task::Bath(anchor) => match world.building_at(anchor) {
+            Some(id) => {
+                format!("Bathing in the {}", defs.building(id).display_name(world.nation_of(unit)))
+            }
+            None => "Bathing".into(),
+        },
         Task::Healing(anchor) => match world.building_at(anchor) {
             Some(id) => {
                 format!("Healing in the {}", defs.building(id).display_name(world.nation_of(unit)))

@@ -311,7 +311,8 @@ impl Activity {
             Some(Task::Study(_) | Task::Chart(_)) => Self::Study,
             Some(Task::Endeavor(_) | Task::Attend(_) | Task::Rite) => Self::Gate,
             Some(Task::Eat(_) | Task::Drink) => Self::Eat,
-            Some(Task::Sleep) => Self::Sleep,
+            // A bath (#741) stands in for sleep: the unit comes out rested.
+            Some(Task::Sleep | Task::Bath(_)) => Self::Sleep,
             // Taking a remedy (issue #390) heals, like resting in a healing building: it groups
             // with Heal, not Eat, even though it runs through the same walk-then-consume code
             // Drink and Eat do.

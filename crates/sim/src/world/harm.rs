@@ -122,8 +122,13 @@ impl World {
     pub(super) fn apply_exposure(&mut self, u: &mut Unit, cold: bool, defs: &Defs) -> bool {
         let knobs = self.knobs(defs);
         let (harm_scale, kills) = (knobs.harm, knobs.harm_kills);
-        let exposed =
-            harm_scale > 0.0 && cold && u.is_sleeping() && self.bed_sleep_bonus(u, defs) <= 1.0;
+        // A bath keeps the cold off for a while (#741).
+        let warm = self.tick < u.warm_until;
+        let exposed = harm_scale > 0.0
+            && cold
+            && !warm
+            && u.is_sleeping()
+            && self.bed_sleep_bonus(u, defs) <= 1.0;
         if !exposed {
             u.exposed_alerted = false;
             return false;

@@ -1292,3 +1292,47 @@ output_count = 1
 work = 40.0
 modifier = "earthworks"
 input = []
+
+# Fire's Sun Stone (#741, `sun_stone`, docs/design/horizons-phase-5.md): in spring and summer,
+# chi returns twice as fast within 8 tiles. Two stones don't stack.
+[[building]]
+id = "sun_stone"
+name = "Sun Stone"
+verb = "Raise"
+work = 60.0
+passable = false
+[[building.cost]]
+item = "stone"
+count = 12
+[[building.cost]]
+item = "metal"
+count = 2
+[building.chi_regen]
+radius = 8
+factor = 2.0
+seasons = ["spring", "summer"]
+
+# Fire's Bathhouse (#741, `hot_springs`): built against rock over the springs. A tired settler
+# with a free bath within 30 tiles bathes for half a minute instead of sleeping, comes out with
+# full energy, and the cold can't hurt them for 20 minutes. One bath each per 20 minutes.
+[[building]]
+id = "bathhouse"
+name = "Bathhouse"
+verb = "Build"
+work = 60.0
+passable = false
+footprint = [2, 2]
+capacity = 2
+beside = ["mountain", "tunnel"]
+[[building.cost]]
+item = "stone"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 8
+[building.bath]
+seek_energy_below = 30.0
+seek_tiles = 30
+minutes = 0.5
+warm_minutes = 20.0
+cooldown_minutes = 20.0
