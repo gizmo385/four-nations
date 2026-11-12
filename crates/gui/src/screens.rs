@@ -6,4 +6,5 @@
 pub mod abilities;
 pub mod build;
 pub mod research;
+pub mod saves;
 pub mod traders;

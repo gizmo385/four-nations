@@ -13,6 +13,7 @@ mod keys;
 mod mapview;
 mod page;
 mod research;
+mod saves;
 mod semantic;
 mod side;
 #[cfg(feature = "shots")]
