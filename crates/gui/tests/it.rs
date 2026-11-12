@@ -11,3 +11,4 @@ mod side;
 #[cfg(feature = "shots")]
 mod snapshot;
 mod theme;
+mod title;

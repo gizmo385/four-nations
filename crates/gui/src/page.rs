@@ -9,11 +9,13 @@
 //! - [`publish`]: the game's state as `data-fn-*` attributes on the canvas, for a test or a
 //!   script driving the page (`web/play/check-saves.cjs`) to read, since the game is pixels:
 //!   `data-fn-mode` (`title`, `embark` or `game`), and in a game `data-fn-tick`, `data-fn-seed`
-//!   and `data-fn-status` (the status line, where saves and loads say what they did).
+//!   and `data-fn-status` (the status line, where saves and loads say what they did); on the
+//!   title screen `data-fn-page` names its step (`menu`, `nation`, `seed` or `load`).
 
 use eframe::wasm_bindgen::JsCast;
 use eframe::wasm_bindgen::prelude::Closure;
 use fn_tui::shell::{Mode, Shell};
+use fn_tui::title::Page;
 
 /// The keys [`guard_game_keys`] keeps from the browser.
 const GAME_KEYS: [&str; 3] = ["F5", "F6", "F9"];
@@ -43,7 +45,19 @@ pub fn guard_game_keys(canvas: &web_sys::HtmlCanvasElement) {
 /// Writes `shell`'s state onto the canvas element (`#the_canvas`), when it changed since `last`.
 pub fn publish(shell: &Shell, last: &mut String) {
     let state = match &shell.mode {
-        Mode::Title(_) => vec![("mode", "title".to_owned())],
+        Mode::Title(title) => vec![
+            ("mode", "title".to_owned()),
+            (
+                "page",
+                match title.page {
+                    Page::Menu => "menu",
+                    Page::Nation { .. } => "nation",
+                    Page::Seed { .. } => "seed",
+                    Page::Load => "load",
+                }
+                .to_owned(),
+            ),
+        ],
         Mode::Embark(_) => vec![("mode", "embark".to_owned())],
         Mode::Game(app) => vec![
             ("mode", "game".to_owned()),
@@ -62,7 +76,7 @@ pub fn publish(shell: &Shell, last: &mut String) {
     else {
         return;
     };
-    for name in ["tick", "seed", "status"] {
+    for name in ["page", "tick", "seed", "status"] {
         let _ = canvas.remove_attribute(&format!("data-fn-{name}"));
     }
     for (name, value) in state {
