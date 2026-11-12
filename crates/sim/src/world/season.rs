@@ -38,17 +38,26 @@ pub enum SeasonEventKind {
     WinterWarning,
     /// The first frost of winter struck this many ripe wild plants.
     Frost { count: u32 },
+    /// A celestial day is `[celestial] warning_minutes` away (`celestial_days` known, and the
+    /// day's nation has a resident; `tick_celestial`, #760).
+    CelestialWarning { day: crate::seasons::CelestialDayId },
+    /// A celestial day began: `units` residents of its nation had their chi raised.
+    CelestialRise { day: crate::seasons::CelestialDayId, units: u32 },
 }
 
 /// What the Almanac shows (`World::almanac`, docs/design/horizons-phase-1.md): ticks until
 /// things the settlement can see coming.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Almanac {
     /// Ticks to the next first frost; `None` when the preset brings no frost (seasons off, or
     /// a winter severity of 0).
     pub frost_in: Option<u64>,
     /// Ticks to the next caravan; always `None` until caravans (#437) add an arrival clock.
     pub caravan_in: Option<u64>,
+    /// Celestial days once `celestial_days` is known (#760): the running day with its time left,
+    /// then each other day whose nation has a resident, soonest first, with that nation's bender
+    /// count. Empty before.
+    pub celestial: Vec<(crate::seasons::CelestialDayId, super::celestial::Timing, u16)>,
 }
 
 impl World {
@@ -63,7 +72,11 @@ impl World {
         if !self.has_feature(crate::research::Feature::Almanac, defs) {
             return None;
         }
-        Some(Almanac { frost_in: self.frost_in(defs), caravan_in: None })
+        Some(Almanac {
+            frost_in: self.frost_in(defs),
+            caravan_in: None,
+            celestial: self.celestial_lines(defs),
+        })
     }
 
     /// Ticks until the next first frost (winter's first tick, `tick_season`), counting from the

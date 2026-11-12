@@ -111,3 +111,63 @@ walls = ["earth_wall", "ring_gate"]   # finished buildings that close a ring
 winter_growth = 0.75                  # replaces the climate band's, unscaled: the Hothouse's number
 frost = false                         # the first frost spares ripe crops inside
 cold = false                          # no unit inside is cold, so there is no exposure
+
+# Celestial days (docs/design/horizons-phase-6.md, "Celestial days", #760), read only while
+# `celestial_days` (the `star_charts` tech) is known, whatever the difficulty preset's `seasons`
+# flag: the calendar runs either way. Each nation has one day a year, in its own season.
+#
+# [celestial]:
+# - warning_minutes:  how long before a day its `CelestialWarning` alert fires.
+#
+# [[celestial_day]]:
+# - id, name:   identifies the day and what the TUI calls it.
+# - nation:     whose residents it is for (guests and beasts never are). One day per nation.
+# - season:     a [[season]] id.
+# - at_minutes: into that season when the day begins; at_minutes + minutes fits in the season.
+# - minutes:    how long it lasts, 1 to the season's length. Provisional.
+# - refill:     0 to 1. As the day begins, each such unit's chi is raised to at least this share
+#               of its meter. Provisional.
+# - chi_regen:  1 to 4. Multiplies the unit's chi regen, awake or asleep, while the day lasts.
+
+[celestial]
+warning_minutes = 2.0
+
+[[celestial_day]]
+id = "equinox_winds"
+name = "The equinox winds"
+nation = "air"
+season = "spring"
+at_minutes = 5.0
+minutes = 5.0
+refill = 1.0
+chi_regen = 2.0
+
+[[celestial_day]]
+id = "summer_solstice"
+name = "The summer solstice"
+nation = "fire"
+season = "summer"
+at_minutes = 5.0
+minutes = 5.0
+refill = 1.0
+chi_regen = 2.0
+
+[[celestial_day]]
+id = "harvest_moon"
+name = "The harvest moon"
+nation = "water"
+season = "autumn"
+at_minutes = 5.0
+minutes = 5.0
+refill = 1.0
+chi_regen = 2.0
+
+[[celestial_day]]
+id = "deep_earth_day"
+name = "The deep-earth day"
+nation = "earth"
+season = "winter"
+at_minutes = 5.0
+minutes = 5.0
+refill = 1.0
+chi_regen = 2.0

@@ -353,6 +353,7 @@ pub fn feature_name(feature: Feature) -> &'static str {
         Feature::PackUp => "Pack up (buildings come down whole, twice as fast)",
         Feature::ShoreFishing => "Fish from the shore",
         Feature::ShelteredRings => "Sheltered rings",
+        Feature::CelestialDays => "Celestial days",
     }
 }
 

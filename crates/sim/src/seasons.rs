@@ -88,6 +88,71 @@ pub struct EnclosureDef {
     pub cold: bool,
 }
 
+/// A celestial day's position in `CelestialDef::days` (`World::celestial_day`). A plain index,
+/// like a season's: it names a row of `data/seasons.toml` and is never saved beyond the transient
+/// events that carry it.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct CelestialDayId(pub u8);
+
+/// `[celestial]` and every `[[celestial_day]]` of `data/seasons.toml` (docs/design/
+/// horizons-phase-6.md, "Celestial days"). Read only while `celestial_days` is known, whatever
+/// the difficulty preset's `seasons` flag: the calendar runs either way.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CelestialDef {
+    /// How long before a day its `CelestialWarning` fires.
+    pub warning_minutes: f32,
+    /// In file order; each nation has at most one.
+    pub days: Vec<CelestialDayDef>,
+}
+
+/// One `[[celestial_day]]`: a nation's one day a year.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CelestialDayDef {
+    pub id: String,
+    pub name: String,
+    /// The residents it is for.
+    pub nation: crate::nation::Nation,
+    /// The season it falls in: an index into `SeasonsDef::seasons`.
+    pub season: usize,
+    /// Minutes into that season when it begins.
+    pub at_minutes: f32,
+    /// How long it lasts, in minutes.
+    pub minutes: f32,
+    /// Benders are topped up to this share of the meter as it begins (0 to 1).
+    pub refill: f32,
+    /// Multiplies the bender's chi regen while it lasts (1 to 4).
+    pub chi_regen: f32,
+}
+
+/// Minutes as whole ticks.
+fn minutes_to_ticks(minutes: f32) -> u64 {
+    (f64::from(minutes) * 60.0 * f64::from(crate::world::TICKS_PER_SECOND)).round() as u64
+}
+
+impl SeasonsDef {
+    /// The first tick of `day` within the year.
+    pub fn celestial_start(&self, day: &CelestialDayDef) -> u64 {
+        day.season as u64 * self.season_ticks() + minutes_to_ticks(day.at_minutes)
+    }
+
+    /// Ticks `day` lasts.
+    pub fn celestial_len(&self, day: &CelestialDayDef) -> u64 {
+        minutes_to_ticks(day.minutes).max(1)
+    }
+
+    /// Ticks in a year (four seasons).
+    pub fn year_ticks(&self) -> u64 {
+        self.season_ticks() * (self.seasons.len() as u64).max(1)
+    }
+
+    /// Ticks of `[celestial].warning_minutes`.
+    pub fn celestial_warning_ticks(&self) -> u64 {
+        minutes_to_ticks(self.celestial.warning_minutes)
+    }
+}
+
 /// Everything in `data/seasons.toml`, resolved and validated. A default (unloaded) value has one
 /// season per quarter and one climate band covering every temperature, all at the identity
 /// (1.0); nothing reads it unless a difficulty preset's `seasons` flag is on, and the bundled data
@@ -103,6 +168,8 @@ pub struct SeasonsDef {
     pub cold: ColdDef,
     /// `[enclosure]`, or `None` (#721).
     pub enclosure: Option<EnclosureDef>,
+    /// `[celestial]` and `[[celestial_day]]`; no days in data without them.
+    pub celestial: CelestialDef,
 }
 
 impl Default for SeasonsDef {
@@ -127,6 +194,7 @@ impl Default for SeasonsDef {
             }],
             cold: ColdDef { energy_decay: 1.0, hunger_decay: 1.0, sleep: 1.0 },
             enclosure: None,
+            celestial: CelestialDef::default(),
         }
     }
 }
@@ -190,6 +258,29 @@ struct SeasonsFile {
     cold: RawCold,
     #[serde(default)]
     enclosure: Option<RawEnclosure>,
+    #[serde(default)]
+    celestial: Option<RawCelestial>,
+    #[serde(default, rename = "celestial_day")]
+    celestial_days: Vec<RawCelestialDay>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCelestial {
+    warning_minutes: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawCelestialDay {
+    id: String,
+    name: String,
+    nation: crate::nation::Nation,
+    season: String,
+    at_minutes: f32,
+    minutes: f32,
+    refill: f32,
+    chi_regen: f32,
 }
 
 #[derive(Deserialize)]
@@ -252,6 +343,7 @@ impl SeasonsFile {
     fn resolve(self, buildings: &[crate::building::BuildingDef]) -> Result<SeasonsDef, DefsError> {
         let err = |msg: String| Err(DefsError(format!("seasons.toml: {msg}")));
         let c = &self.calendar;
+        let season_minutes = c.season_minutes;
         if !(c.season_minutes.is_finite() && c.season_minutes > 0.0) {
             return err("calendar.season_minutes must be a positive number".into());
         }
@@ -376,7 +468,65 @@ impl SeasonsFile {
             }
         };
 
+        let celestial = match self.celestial {
+            None if self.celestial_days.is_empty() => CelestialDef::default(),
+            None => return err("[[celestial_day]] needs a [celestial] table".into()),
+            Some(c) => {
+                if !(c.warning_minutes.is_finite() && c.warning_minutes > 0.0) {
+                    return err("celestial.warning_minutes must be a positive number".into());
+                }
+                let mut days: Vec<CelestialDayDef> = Vec::new();
+                for raw in self.celestial_days {
+                    let what = format!("celestial_day {}", raw.id);
+                    if days.iter().any(|d| d.id == raw.id) {
+                        return err(format!("{what}: duplicate id"));
+                    }
+                    if days.iter().any(|d| d.nation == raw.nation) {
+                        return err(format!("{what}: {:?} already has a day", raw.nation));
+                    }
+                    let Some(season) = seasons.iter().position(|s| s.id == raw.season) else {
+                        return err(format!("{what}: unknown season {:?}", raw.season));
+                    };
+                    if !(raw.at_minutes.is_finite() && raw.at_minutes >= 0.0) {
+                        return err(format!("{what}: at_minutes must be 0 or more"));
+                    }
+                    if !(raw.minutes.is_finite()
+                        && raw.minutes >= 1.0
+                        && raw.minutes <= season_minutes)
+                    {
+                        return err(format!(
+                            "{what}: minutes must be 1 to the season's length ({season_minutes})"
+                        ));
+                    }
+                    if raw.at_minutes + raw.minutes > season_minutes {
+                        return err(format!("{what}: at_minutes + minutes must fit in its season"));
+                    }
+                    if !(raw.refill.is_finite() && (0.0..=1.0).contains(&raw.refill)) {
+                        return err(format!("{what}: refill must be 0 to 1"));
+                    }
+                    if !(raw.chi_regen.is_finite() && (1.0..=4.0).contains(&raw.chi_regen)) {
+                        return err(format!("{what}: chi_regen must be 1 to 4"));
+                    }
+                    days.push(CelestialDayDef {
+                        id: raw.id,
+                        name: raw.name,
+                        nation: raw.nation,
+                        season,
+                        at_minutes: raw.at_minutes,
+                        minutes: raw.minutes,
+                        refill: raw.refill,
+                        chi_regen: raw.chi_regen,
+                    });
+                }
+                if days.len() > usize::from(u8::MAX) {
+                    return err("too many [[celestial_day]] entries".into());
+                }
+                CelestialDef { warning_minutes: c.warning_minutes, days }
+            }
+        };
+
         Ok(SeasonsDef {
+            celestial,
             enclosure,
             calendar: CalendarDef {
                 season_minutes: c.season_minutes,

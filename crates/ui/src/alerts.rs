@@ -1025,7 +1025,34 @@ fn describe_season_event(session: &Session, ev: &SeasonEvent) -> Option<String> 
             }
         }
         SeasonEventKind::Frost { count } => format!("First frost: {count} wild plants died back."),
+        SeasonEventKind::CelestialWarning { day } => {
+            format!("{} in {} minutes", celestial_name(defs, day), celestial_warning(defs))
+        }
+        SeasonEventKind::CelestialRise { day, units } => {
+            let d = &defs.seasons.celestial.days[day.0 as usize];
+            format!("{}. {}' chi floods back ({units})", d.name, nation_benders(d.nation))
+        }
     })
+}
+
+/// A celestial day's name (`SeasonEventKind::CelestialWarning`).
+fn celestial_name(defs: &fn_sim::Defs, day: fn_sim::seasons::CelestialDayId) -> &str {
+    &defs.seasons.celestial.days[day.0 as usize].name
+}
+
+/// The warning's lead time in whole minutes.
+fn celestial_warning(defs: &fn_sim::Defs) -> u32 {
+    defs.seasons.celestial.warning_minutes.round() as u32
+}
+
+/// `Waterbenders`, for a celestial rise's line.
+fn nation_benders(nation: fn_sim::Nation) -> &'static str {
+    match nation {
+        fn_sim::Nation::Air => "Airbenders",
+        fn_sim::Nation::Water => "Waterbenders",
+        fn_sim::Nation::Earth => "Earthbenders",
+        fn_sim::Nation::Fire => "Firebenders",
+    }
 }
 
 /// "A fruit tree at (90, 41) was picked to death" (Hard, `strain_kills`, #296): the resource's

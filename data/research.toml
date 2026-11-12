@@ -1027,3 +1027,16 @@ modifiers = { master_chi = 0.75 }   # 0.8 x 0.75 = 0.6: a master's bends cost 60
 # much knowledge instead (docs/design/horizons-phase-5.md, "The draw"; owner decision #735).
 [teachings]
 empty_scroll_knowledge = 100
+
+# --- #760 (research horizons phase 6: `star_charts`) -------------------------------------------
+
+# Celestial days (docs/design/horizons-phase-6.md, "Celestial days"): each nation's one day a year
+# refills its benders' chi and doubles its regen (`[[celestial_day]]` in data/seasons.toml).
+[[tech]]
+id = "star_charts"
+name = "Star Charts"
+description = "Chart the moon, the sun and the winds, and know the days a bender's chi runs high."
+cost = 500
+prereqs = ["calendar", "cartography"]
+[tech.unlocks]
+features = ["celestial_days"]
