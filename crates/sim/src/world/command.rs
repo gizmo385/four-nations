@@ -91,6 +91,10 @@ pub enum Command {
     /// yard) or give it back to a crafter (`world/automate.rs`, #725). Refused with `needs Great
     /// Works` before the tech, and `not in a Lightning Station's yard` outside one.
     SetAutomated { pos: Pos, on: bool },
+    /// Keep `tech` from the pending teaching draft it is in; the rest of that offer is lost for
+    /// good (`world/teachings.rs`, docs/design/horizons-phase-5.md, #737). Refused with
+    /// `NotOffered` when no pending offer holds it.
+    KeepTeaching { tech: TechId },
 }
 
 /// Why a command was refused. The world is unchanged when `apply` returns one of these.
@@ -256,6 +260,7 @@ impl World {
             Command::SetLink { pos, to } => self.set_link(pos, to, defs)?,
             Command::SetRecipe { pos, recipe } => self.set_recipe(pos, recipe, defs)?,
             Command::SetAutomated { pos, on } => self.set_automated(pos, on, defs)?,
+            Command::KeepTeaching { tech } => self.keep_teaching(tech)?,
             Command::TakeDeal { slot } => {
                 self.take_deal(slot, defs).map_err(CommandError::Trade)?
             }

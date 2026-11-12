@@ -40,7 +40,7 @@ impl World {
     fn bill_items_owed(&self, defs: &Defs) -> Vec<ItemId> {
         let mut out: Vec<ItemId> = Vec::new();
         for (_, item, _) in self.research.bills_owed(defs) {
-            if defs.item(item).knowledge.is_none() && !out.contains(&item) {
+            if !defs.item(item).is_readable() && !out.contains(&item) {
                 out.push(item);
             }
         }

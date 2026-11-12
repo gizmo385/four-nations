@@ -1867,7 +1867,7 @@ impl World {
 
     /// Is `item` one that is read at a study hall instead of stockpiled (issue #24)?
     pub(super) fn is_readable(item: ItemId, defs: &Defs) -> bool {
-        defs.item(item).knowledge.is_some()
+        defs.item(item).is_readable()
     }
 
     /// Anchors of the study halls that stand, one per hall, in `Pos` order (`Kind::Study`:
@@ -1880,6 +1880,13 @@ impl World {
     fn at_study_hall(&self, pos: Pos) -> bool {
         self.study_halls()
             .any(|h| self.footprint_at(h).unwrap_or(Footprint::single(h)).distance(pos) <= 1)
+    }
+
+    /// The anchor of a study hall `pos` is on or beside (`at_study_hall`), the first in `Pos`
+    /// order if several: where a teaching scroll read here is shelved (#737).
+    fn study_hall_at(&self, pos: Pos) -> Option<Pos> {
+        self.study_halls()
+            .find(|&h| self.footprint_at(h).unwrap_or(Footprint::single(h)).distance(pos) <= 1)
     }
 
     /// Where a unit with `item` in hand takes it: a study hall for a readable item (to stand
@@ -2066,6 +2073,20 @@ impl World {
             return;
         }
         let pos = self.units[i].pos;
+        if let Some(reveals) = defs.item(stack.item).reveals {
+            // A teaching scroll (#737): read at the hall, each one opens a draft. It adds no
+            // knowledge and doesn't count toward the scrolls sign.
+            if let Some(hall) = self.study_hall_at(pos) {
+                for _ in 0..stack.count {
+                    self.read_teaching_scroll(hall, reveals, defs);
+                }
+                self.units[i].carrying = None;
+                self.finish_job(i);
+            } else {
+                self.units[i].route = None;
+            }
+            return;
+        }
         if let Some(points) = defs.item(stack.item).knowledge {
             // A readable item is used up at the hall, all of it, and never stockpiled. If the
             // hall went away on the way, plan again (no hall left: it is put down).

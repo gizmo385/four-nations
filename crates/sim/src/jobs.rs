@@ -32,6 +32,18 @@ pub struct ItemDef {
     /// `None` for an ordinary item. Validated at load: not itself, no chains (the target can't
     /// itself stand in for something), and at most one item may stand in for a given target.
     pub stands_for: Option<ItemId>,
+    /// Teachings reading this item offers (a teaching scroll's draft, docs/design/
+    /// horizons-phase-5.md, "Searching one", #737). Like `knowledge`, it makes the item
+    /// readable: carried to a study hall and used up there. At most one of the two; 1 to 4.
+    pub reveals: Option<u32>,
+}
+
+impl ItemDef {
+    /// Whether the item is read at a study hall (`knowledge` or `reveals`): never stockpiled,
+    /// carried straight to the nearest hall and used up there.
+    pub fn is_readable(&self) -> bool {
+        self.knowledge.is_some() || self.reveals.is_some()
+    }
 }
 
 /// A number of one kind of item.
@@ -165,6 +177,8 @@ struct RawItem {
     knowledge: Option<u32>,
     #[serde(default)]
     stands_for: Option<String>,
+    #[serde(default)]
+    reveals: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -312,6 +326,13 @@ impl JobsFile {
         if let Some(i) = self.item.iter().find(|i| i.knowledge == Some(0)) {
             return err(format!("item {}: knowledge must be at least 1", i.id));
         }
+        if let Some(i) = self.item.iter().find(|i| i.knowledge.is_some() && i.reveals.is_some()) {
+            return err(format!("item {}: has both knowledge and reveals; at most one", i.id));
+        }
+        if let Some(i) = self.item.iter().find(|i| i.reveals.is_some_and(|n| !(1..=4).contains(&n)))
+        {
+            return err(format!("item {}: reveals must be 1 to 4", i.id));
+        }
         // `stands_for` only ever names a non-food item (brick for stone), so it's resolved
         // against the raw list before it's consumed below.
         let raw_stands_for: Vec<Option<String>> =
@@ -325,6 +346,7 @@ impl JobsFile {
                 food: None,
                 knowledge: i.knowledge,
                 stands_for: None,
+                reveals: i.reveals,
             })
             .collect();
         items.extend(foods.iter().enumerate().map(|(n, f)| ItemDef {
@@ -333,6 +355,7 @@ impl JobsFile {
             food: Some(n),
             knowledge: None,
             stands_for: None,
+            reveals: None,
         }));
         for (idx, target) in raw_stands_for.iter().enumerate() {
             let Some(target_id) = target else { continue };

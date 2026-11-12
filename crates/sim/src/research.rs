@@ -102,6 +102,44 @@ pub struct ResearchSettings {
     /// `idle_knowledge_cap` in milli-points, filled in at load.
     #[serde(skip)]
     pub idle_knowledge_cap_millis: u64,
+    /// What a teaching scroll reads for when nothing is left to offer (`[teachings]
+    /// empty_scroll_knowledge`, docs/design/horizons-phase-5.md, owner #735), in points. Filled
+    /// in at load from the file's top-level `[teachings]` table; 0 without one.
+    #[serde(skip)]
+    pub empty_scroll_knowledge: u32,
+}
+
+/// `[teachings]` in research.toml (docs/design/horizons-phase-5.md, "The draw").
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawTeachings {
+    empty_scroll_knowledge: u32,
+}
+
+/// `[tech.teaching]`: a hidden tech, offered only by a teaching scroll's draft
+/// (docs/design/horizons-phase-5.md, "Hidden, kept, lost"). Never core, never a starting tech,
+/// never a prereq.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TeachingDef {
+    /// The draft skips this teaching while the rule fails (`World::site_holds`).
+    #[serde(default)]
+    pub site: Option<SiteRule>,
+}
+
+/// A teaching's `site` rule: at least `min_tiles` tiles within `within` (Chebyshev) of the
+/// settlement's anchor whose terrain is in `terrains` and biome in `biomes`. An omitted list
+/// matches anything; at least one is given. Names are checked once biomes load
+/// (`Defs::validate`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SiteRule {
+    #[serde(default)]
+    pub terrains: Option<Vec<crate::defs::Terrain>>,
+    #[serde(default)]
+    pub biomes: Option<Vec<String>>,
+    pub within: u32,
+    pub min_tiles: u32,
 }
 
 fn default_cost_items_from() -> u32 {
@@ -194,6 +232,11 @@ pub struct Facts<'a> {
     pub scrolls_read: u32,
     /// Ids of the chapters met so far; a chapter stays met.
     pub chapters_met: Vec<&'a str>,
+    /// Teachings kept from a draft (docs/design/horizons-phase-5.md, #737): the only teachings
+    /// `set_target` takes. A teaching in neither list is hidden.
+    pub kept: Vec<TechId>,
+    /// Teachings lost to a draft: refused for the rest of the game.
+    pub lost: Vec<TechId>,
 }
 
 /// One unmet `Requires` key, as the player reads it: `Display` is `3 scrolls read` or the
@@ -377,6 +420,9 @@ pub struct TechDef {
     /// (`[[tech.cost_items]]`, docs/design/horizons-phase-4.md, "Item bills"). Empty for most
     /// techs. Never scaled by the difficulty preset's `research_cost`.
     pub cost_items: Vec<Stack>,
+    /// Set for a hidden tech (`[tech.teaching]`, docs/design/horizons-phase-5.md): the tree
+    /// shows it only once a draft keeps or loses it.
+    pub teaching: Option<TeachingDef>,
 }
 
 impl TechDef {
@@ -403,6 +449,8 @@ pub(crate) struct ResearchFile {
     school: Vec<SchoolDef>,
     #[serde(default)]
     tech: Vec<RawTech>,
+    #[serde(default)]
+    teachings: Option<RawTeachings>,
 }
 
 #[derive(Deserialize)]
@@ -428,6 +476,8 @@ struct RawTech {
     school: Option<String>,
     #[serde(default)]
     cost_items: Vec<RawCostItem>,
+    #[serde(default)]
+    teaching: Option<TeachingDef>,
 }
 
 /// Each tech's `cost_items` as written, by `TechId`, for `resolve_cost_items` once the items
@@ -461,6 +511,7 @@ impl ResearchFile {
         s.study_millis_per_tick = millis_per_tick(s.study_knowledge_per_minute);
         s.idle_knowledge_cap_millis =
             (s.idle_knowledge_cap * MILLIS_PER_POINT as f64).round() as u64;
+        s.empty_scroll_knowledge = self.teachings.map_or(0, |t| t.empty_scroll_knowledge);
         if self.tech.len() > usize::from(u16::MAX) {
             return Err(DefsError(format!("too many techs: {}", self.tech.len())));
         }
@@ -566,6 +617,11 @@ impl ResearchFile {
                         "{p:?} is a school tech, which no other tech can require"
                     )));
                 }
+                if techs[i].teaching.is_some() {
+                    return Err(err(format!(
+                        "{p:?} is a teaching, which no other tech can require"
+                    )));
+                }
                 prereqs.push(id);
             }
             let school = match &raw.school {
@@ -587,6 +643,25 @@ impl ResearchFile {
                     Some(SchoolId(k as u16))
                 }
             };
+            if let Some(t) = &raw.teaching {
+                if raw.core {
+                    return Err(err("a teaching can't be `core`".into()));
+                }
+                if raw.school.is_some() {
+                    return Err(err("a teaching can't be a school option".into()));
+                }
+                if let Some(site) = &t.site {
+                    if site.terrains.is_none() && site.biomes.is_none() {
+                        return Err(err("teaching.site needs terrains or biomes".into()));
+                    }
+                    if !(1..=100).contains(&site.within) {
+                        return Err(err("teaching.site.within must be 1 to 100".into()));
+                    }
+                    if site.min_tiles == 0 {
+                        return Err(err("teaching.site.min_tiles must be at least 1".into()));
+                    }
+                }
+            }
             if !raw.cost_items.is_empty() {
                 if raw.core {
                     return Err(err("a core tech can't have `cost_items`".into()));
@@ -626,6 +701,7 @@ impl ResearchFile {
                 requires: raw.requires,
                 school,
                 cost_items: Vec::new(),
+                teaching: raw.teaching,
             });
         }
         for (k, sc) in schools.iter().enumerate() {
@@ -736,6 +812,9 @@ pub(crate) fn resolve_starting_techs(
         if out.contains(&tech) {
             return Err(err(format!("{id:?} listed twice")));
         }
+        if techs[i].teaching.is_some() {
+            return Err(err(format!("{id:?} is a teaching, which no nation starts with")));
+        }
         if !techs[i].open_to(nation) {
             return Err(match techs[i].nation {
                 Some(n) => err(format!("{id:?} belongs to {}", n.as_str())),
@@ -783,6 +862,12 @@ pub enum ResearchError {
     Closed {
         chosen: TechId,
     },
+    /// A teaching no draft has offered and kept yet (docs/design/horizons-phase-5.md).
+    Hidden,
+    /// A teaching lost to a draft: gone for the rest of the game.
+    Lost,
+    /// `Command::KeepTeaching` naming a tech that is in no pending offer.
+    NotOffered,
 }
 
 impl std::fmt::Display for ResearchError {
@@ -794,6 +879,9 @@ impl std::fmt::Display for ResearchError {
             Self::NotYet(c) => write!(f, "needs {c}"),
             Self::NeedsArchive => f.write_str("needs an Archive"),
             Self::Closed { .. } => f.write_str("the other path of this school was chosen"),
+            Self::Hidden => f.write_str("that teaching hasn't been found"),
+            Self::Lost => f.write_str("that teaching was lost to the ruins"),
+            Self::NotOffered => f.write_str("that teaching isn't on offer"),
         }
     }
 }
@@ -956,6 +1044,15 @@ impl Research {
         }
         if self.is_known(tech) {
             return Err(ResearchError::AlreadyKnown);
+        }
+        // No tech requires a teaching (load refuses it), so only the target itself can be one.
+        if def.teaching.is_some() {
+            if facts.lost.contains(&tech) {
+                return Err(ResearchError::Lost);
+            }
+            if !facts.kept.contains(&tech) {
+                return Err(ResearchError::Hidden);
+            }
         }
         // No tech requires a school tech (load refuses it), so only the target itself can be
         // closed.
@@ -1596,7 +1693,8 @@ mod tests {
         let refused = r.set_target(gated, Nation::Fire, &scrolls, &defs).unwrap_err();
         assert_eq!(refused.to_string(), "needs Known on the road");
         assert_eq!(r.queue(), queue);
-        let near = Facts { scrolls_read: 2, chapters_met: vec!["known_on_the_road"] };
+        let near =
+            Facts { scrolls_read: 2, chapters_met: vec!["known_on_the_road"], ..Facts::default() };
         let refused = r.set_target(gated, Nation::Fire, &near, &defs).unwrap_err();
         assert_eq!(refused.to_string(), "needs 3 scrolls read");
     }
@@ -1606,7 +1704,8 @@ mod tests {
         let defs = with_gated(BOTH).unwrap();
         let gated = defs.tech_id("gated").unwrap();
         let mut r = Research::new(Nation::Fire, &defs);
-        let met = Facts { scrolls_read: 3, chapters_met: vec!["known_on_the_road"] };
+        let met =
+            Facts { scrolls_read: 3, chapters_met: vec!["known_on_the_road"], ..Facts::default() };
         r.set_target(gated, Nation::Fire, &met, &defs).unwrap();
         assert_eq!(r.queue(), [gated]);
         // More than enough counts too.

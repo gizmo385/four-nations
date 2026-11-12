@@ -1523,7 +1523,7 @@ fn resolve_archive(
     let Some(copy) = items.iter().position(|i| i.id == a.copy_item) else {
         return err(&format!("copy_item names unknown item {:?}", a.copy_item));
     };
-    if items[copy].knowledge.is_some() {
+    if items[copy].is_readable() {
         return err("copy_item must not be readable, or copies would be read back as knowledge");
     }
     if !(1..=8).contains(&a.seats) {

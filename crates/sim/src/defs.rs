@@ -533,6 +533,17 @@ impl Defs {
                 }
             }
         }
+        for t in &self.techs {
+            let site = t.teaching.as_ref().and_then(|x| x.site.as_ref());
+            for b in site.iter().flat_map(|s| s.biomes.iter().flatten()) {
+                if self.biome_id(b).is_none() {
+                    return Err(DefsError(format!(
+                        "tech {}: teaching.site: unknown biome {b:?}",
+                        t.id
+                    )));
+                }
+            }
+        }
         for b in &self.buildings {
             for &r in b.pickers.iter().flat_map(|p| &p.resources) {
                 if self.harvest(r).is_none() {
@@ -951,6 +962,79 @@ mod tests {
         assert!(with_resource("beside=['coast','land']").is_ok());
         assert!(with_resource("beside=['beach']").unwrap_err().0.contains("beach"));
         assert!(with_resource("chanse=0.1").unwrap_err().0.contains("chanse"));
+    }
+
+    fn with_files(resources: &str, research: &str, jobs: &str) -> Result<Defs, DefsError> {
+        Defs::from_toml(BIOMES, resources, NATIONS, research, NEEDS, jobs, BENDING, BUILDINGS)
+    }
+
+    const RESOURCES: &str = include_str!("../../../data/resources.toml");
+
+    /// `[resource.promote]` (#736): needs chance 0, a buried `from`, and sane numbers.
+    #[test]
+    fn promote_is_validated() {
+        assert!(with_files(RESOURCES, RESEARCH, JOBS).is_ok());
+        let bad = |from: &str, to: &str| {
+            assert!(RESOURCES.contains(from), "{from}");
+            with_files(&RESOURCES.replacen(from, to, 1), RESEARCH, JOBS).unwrap_err().0
+        };
+        let promote = "[resource.promote]\nfrom = \"lost_ruins\"";
+        assert!(bad(promote, "[resource.promote]\nfrom = \"oak_tree\"").contains("buried"));
+        assert!(bad(promote, "[resource.promote]\nfrom = \"nope\"").contains("nope"));
+        assert!(bad("min = 2\nmax = 3", "min = 4\nmax = 3").contains("min <= max"));
+        assert!(bad("spacing = 40 ", "spacing = 400 ").contains("spacing"));
+        assert!(bad("size_radius = 3 ", "size_radius = 9 ").contains("size_radius"));
+        let great = "glyph = \"N\"\nchance = 0.0";
+        assert!(bad(great, "glyph = \"N\"\nchance = 0.1").contains("chance = 0.0"));
+    }
+
+    /// A test teaching appended to research.toml (#737).
+    fn with_teaching(block: &str) -> Result<Defs, DefsError> {
+        let research = format!(
+            "{RESEARCH}\n[[tech]]\nid = \"t_x\"\nname = \"X\"\ndescription = \"\"\ncost = 250\n{block}\n"
+        );
+        with_files(RESOURCES, &research, JOBS)
+    }
+
+    #[test]
+    fn teachings_are_validated() {
+        assert!(with_teaching("[tech.teaching]").is_ok());
+        let site = "[tech.teaching]\nsite = { biomes = [\"desert\"], within = 40, min_tiles = 40 }";
+        assert!(with_teaching(site).is_ok());
+        let err = |b: &str| with_teaching(b).unwrap_err().0;
+        assert!(err("core = true\n[tech.teaching]").contains("core"));
+        assert!(
+            err("[tech.teaching]\nsite = { within = 4, min_tiles = 1 }")
+                .contains("terrains or biomes")
+        );
+        assert!(
+            err("[tech.teaching]\nsite = { biomes = [\"desert\"], within = 0, min_tiles = 1 }")
+                .contains("within")
+        );
+        assert!(
+            err("[tech.teaching]\nsite = { biomes = [\"desert\"], within = 4, min_tiles = 0 }")
+                .contains("min_tiles")
+        );
+        assert!(
+            err("[tech.teaching]\nsite = { biomes = [\"dune\"], within = 4, min_tiles = 1 }")
+                .contains("dune")
+        );
+        // Never a prereq.
+        let research = format!(
+            "{RESEARCH}\n[[tech]]\nid = \"t_x\"\nname = \"X\"\ndescription = \"\"\ncost = 250\n[tech.teaching]\n\n[[tech]]\nid = \"t_y\"\nname = \"Y\"\ndescription = \"\"\ncost = 250\nprereqs = [\"t_x\"]\n"
+        );
+        let e = with_files(RESOURCES, &research, JOBS).unwrap_err().0;
+        assert!(e.contains("teaching"), "{e}");
+    }
+
+    #[test]
+    fn reveals_is_validated() {
+        let item = "name = \"Teaching Scroll\"\nreveals = 2";
+        assert!(JOBS.contains(item));
+        let jobs = |to: &str| with_files(RESOURCES, RESEARCH, &JOBS.replacen(item, to, 1));
+        assert!(jobs("name = \"Teaching Scroll\"\nreveals = 5").unwrap_err().0.contains("1 to 4"));
+        let both = "name = \"Teaching Scroll\"\nreveals = 2\nknowledge = 4";
+        assert!(jobs(both).unwrap_err().0.contains("at most one"));
     }
 
     #[test]
