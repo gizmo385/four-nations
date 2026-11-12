@@ -499,8 +499,16 @@ decisions: the milestones are 24, 32, then every 8 more without end (#929; drop 
 multiplies its give, get and knowledge counts and its `times` by `united_scale`; the per-visit food
 cap is a rule for the road before the gate and doesn't apply to scaled lots. Once the gate stands
 the Endeavor screen is the United City view: the people by nation and the next milestone. A draw
-reward is paid in one place (`World::grant_reward`, which knows whose caravan it was), so #761 can
-bring a newcomer of the caravan's own nation there (owner decision #747).
+reward is paid in one place (`World::grant_reward`, which knows whose caravan it was).
+
+**As built (#761).** In the United City a request's draw is steered (owner decision #747):
+`World::add_steered_draw` adds the draw as usual and also marks what fit under the bank as the
+caravan's nation's, in a first-in-first-out list (`World::steered_draw`, saved with
+`serde(default)`). An arrival takes the nation at the front and spends one newcomer's worth of the
+list, so a half-newcomer grant of Fire and another of Water, back to back, make one Fire
+newcomer and leave nothing steered. Draw nobody steered (the passive meter, a Tea House) is still drawn by
+weight, which `data/needs.toml` now sets to own 0.1 and each other nation 0.3 (provisional, #752).
+Steering uses no RNG. There is no migration screen.
 
 The **Spirit Portal** (endgame.md, concept B) is the real sequel. It needs spirit AI and a new
 resource, so it's a separate design issue when the owner wants it (question 4). It isn't filed

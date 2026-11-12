@@ -170,3 +170,126 @@ fn two_runs_from_one_seed_give_the_same_arrival_ticks() {
     assert_eq!(ticks(&a), ticks(&b));
     assert_eq!(a.draw(), b.draw());
 }
+
+// --- Steered draw (#761) ---
+
+/// A world with beds and food to spare, so only draw decides when a newcomer joins.
+fn roomy(seed: u64, defs: &Defs) -> World {
+    let mut w = world(seed, defs);
+    for x in [3, 4, 5, 6, 7, 8] {
+        place(&mut w, defs, at(x, 2), "bed");
+    }
+    stock(&mut w, defs, at(0, 0), "fish", defs.needs.growth.food_per_newcomer * 20);
+    w
+}
+
+fn newcomer_nations(w: &World) -> Vec<Nation> {
+    w.units.iter().filter(|u| u.is_settler()).skip(1).map(|u| w.nation_of(u)).collect()
+}
+
+#[test]
+fn steered_draw_brings_a_newcomer_of_that_nation_in_order() {
+    let defs = Defs::bundled();
+    let mut w = roomy(1, &defs);
+    w.add_steered_draw(Nation::Fire, 1000, &defs);
+    w.add_steered_draw(Nation::Air, 1000, &defs);
+    assert_eq!(w.steered_draw(), [(Nation::Fire, 1000), (Nation::Air, 1000)]);
+    assert_eq!(w.draw(), 2000);
+    run(&mut w, &defs, 5 * 60 * u64::from(TICKS_PER_SECOND));
+    assert_eq!(newcomer_nations(&w), [Nation::Fire, Nation::Air], "in the order granted");
+    assert!(w.steered_draw().is_empty(), "all of it spent");
+}
+
+#[test]
+fn grants_of_one_nation_join_and_an_arrival_spends_from_the_front() {
+    let defs = Defs::bundled();
+    let mut w = roomy(1, &defs);
+    w.add_steered_draw(Nation::Water, 500, &defs);
+    w.add_steered_draw(Nation::Water, 250, &defs);
+    w.add_steered_draw(Nation::Fire, 250, &defs);
+    w.add_steered_draw(Nation::Air, 250, &defs);
+    assert_eq!(
+        w.steered_draw(),
+        [(Nation::Water, 750), (Nation::Fire, 250), (Nation::Air, 250)],
+        "two grants of one caravan in a row are one run"
+    );
+    // The arrival is Water's and spends 1000 from the front: Water's 750 and Fire's 250.
+    w.tick = 0;
+    w.tick_draw(&defs);
+    assert_eq!(newcomer_nations(&w), [Nation::Water]);
+    assert_eq!(w.steered_draw(), [(Nation::Air, 250)]);
+    assert_eq!(w.draw(), 250);
+}
+
+#[test]
+fn steered_draw_never_passes_the_bank() {
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    w.add_steered_draw(Nation::Fire, 1500, &defs);
+    w.add_steered_draw(Nation::Air, 1500, &defs);
+    assert_eq!(w.draw(), 2000, "bank is 2.0");
+    assert_eq!(w.steered_draw(), [(Nation::Fire, 1500), (Nation::Air, 500)]);
+    // A grant with the bank full steers nothing.
+    w.add_steered_draw(Nation::Water, 1000, &defs);
+    assert_eq!(w.steered_draw(), [(Nation::Fire, 1500), (Nation::Air, 500)]);
+    // Plain draw is unsteered.
+    let mut w = world(1, &defs);
+    w.add_draw(1000, &defs);
+    assert!(w.steered_draw().is_empty());
+}
+
+#[test]
+fn a_steer_waits_until_someone_can_join() {
+    let defs = Defs::bundled();
+    // No bed, so nobody joins: the steer waits.
+    let mut w = world(1, &defs);
+    w.add_steered_draw(Nation::Fire, 1000, &defs);
+    run(&mut w, &defs, 60 * u64::from(TICKS_PER_SECOND));
+    assert_eq!(w.arrivals().count(), 0);
+    assert_eq!(w.steered_draw(), [(Nation::Fire, 1000)]);
+}
+
+#[test]
+fn a_steered_arrival_leaves_the_weighted_stream_alone() {
+    let defs = Defs::bundled();
+    let mut steered = roomy(3, &defs);
+    steered.endeavor = EndeavorState::Complete { tick: 0 };
+    steered.add_steered_draw(Nation::Air, 1000, &defs);
+    let rng_before = steered.newcomer_rng.clone();
+    run(&mut steered, &defs, 60 * u64::from(TICKS_PER_SECOND));
+    assert_eq!(newcomer_nations(&steered), [Nation::Air]);
+    assert_eq!(steered.newcomer_rng, rng_before);
+
+    // The same grant as plain draw is drawn by weight, which does use the stream.
+    let mut plain = roomy(3, &defs);
+    plain.endeavor = EndeavorState::Complete { tick: 0 };
+    plain.add_draw(1000, &defs);
+    run(&mut plain, &defs, 60 * u64::from(TICKS_PER_SECOND));
+    assert_eq!(plain.arrivals().count(), 1);
+    assert_ne!(plain.newcomer_rng, rng_before);
+}
+
+#[test]
+fn steered_draw_is_deterministic_and_survives_a_save() {
+    let defs = Defs::bundled();
+    let setup = || {
+        let mut w = roomy(5, &defs);
+        w.endeavor = EndeavorState::Complete { tick: 0 };
+        w.add_steered_draw(Nation::Fire, 1000, &defs);
+        w.add_steered_draw(Nation::Water, 1000, &defs);
+        w
+    };
+    let (mut a, mut b) = (setup(), setup());
+    // Saved after the first arrival, with the second still queued, then resumed.
+    run(&mut a, &defs, 100);
+    assert_eq!(a.steered_draw(), [(Nation::Water, 1000)]);
+    let mut c = World::load(&a.save(&defs).unwrap(), &defs).unwrap();
+    assert_eq!(c.steered_draw(), a.steered_draw());
+    run(&mut b, &defs, 5000);
+    run(&mut a, &defs, 4900);
+    run(&mut c, &defs, 4900);
+    assert_eq!(newcomer_nations(&b), [Nation::Fire, Nation::Water]);
+    assert_eq!(newcomer_nations(&a), newcomer_nations(&b));
+    assert_eq!(newcomer_nations(&c), newcomer_nations(&b));
+    assert_eq!(a.save(&defs).unwrap(), c.save(&defs).unwrap());
+}

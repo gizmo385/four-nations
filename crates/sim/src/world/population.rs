@@ -26,6 +26,9 @@
 //! can bend that nation's signature ability (`World::unit_can_bend`), both already per-unit from
 //! #239; this module only has to decide which nation to draw and hand it to `Unit::nation`.
 //!
+//! A newcomer that a caravan's request paid for is not drawn at all: see "Steered draw" in
+//! `world/draw.rs` (#761).
+//!
 //! **"Nearest the settlement"** is `World::start()` (where the player chose to embark, #289)
 //! when the world has one; a world made by `World::new` or a save from before #289 has none, so
 //! this falls back to the mean position of its living units instead (there is always at least
@@ -207,9 +210,19 @@ impl World {
     /// nothing, and returns `false`, if the settlement has no walkable tile at all; `true`
     /// otherwise, so `tick_draw` only spends `newcomer_food` (#294) when someone actually
     /// joined.
+    #[cfg(test)]
     pub(super) fn spawn_newcomer(&mut self, defs: &Defs) -> bool {
+        self.spawn_newcomer_of(None, defs)
+    }
+
+    /// `spawn_newcomer`, of `nation` when a United City caravan's request steered this arrival
+    /// (#761), else of a nation drawn by weight. A steered arrival leaves `newcomer_rng` alone.
+    pub(super) fn spawn_newcomer_of(&mut self, nation: Option<Nation>, defs: &Defs) -> bool {
         let Some(pos) = self.nearest_edge_tile(self.settlement_anchor()) else { return false };
-        let drawn = self.newcomer_nation(defs);
+        let drawn = match nation {
+            Some(n) => n,
+            None => self.newcomer_nation(defs),
+        };
         let nation = defs.nation(drawn);
         let name = self.draw_newcomer_name(nation);
         self.discard_legacy_variant_draw();

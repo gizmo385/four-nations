@@ -637,6 +637,12 @@ pub struct World {
     /// What `draw` has gained short of its next milli-unit (`world/draw.rs`).
     #[serde(default)]
     draw_carry: u32,
+    /// Draw a United City caravan's request granted, and whose newcomers it is for (#761): a
+    /// first-in-first-out list of `(nation, milli-units)`. Their sum never passes `draw`, and
+    /// each arrival spends `DRAW_ONE` of it from the front (`world/draw.rs`). A save from before
+    /// it loads none, so every arrival is drawn by weight as before.
+    #[serde(default)]
+    steered: Vec<(Nation, u32)>,
     /// The tick of the last newcomer, for `[growth.draw].min_gap_minutes`.
     #[serde(default)]
     last_arrival: Option<u64>,
@@ -751,6 +757,7 @@ impl World {
             trade: TradeState::new(seed),
             draw: 0,
             draw_carry: 0,
+            steered: Vec::new(),
             last_arrival: None,
             orchard_rng: orchard::new_rng(seed),
             sprout_rng: rng::stream(seed, "bending.sprout"),

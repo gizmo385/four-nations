@@ -15,6 +15,14 @@
 //! for caravan requests, #437) lifts draw past 1.0, up to `bank`; `min_gap_minutes` then spaces
 //! the arrivals it buys.
 //!
+//! **Steered draw (#761).** In the United City a caravan's request pays its draw as a steer
+//! (`World::add_steered_draw`): the milli-units are marked as the caravan's nation's, in a
+//! first-in-first-out list (`World::steered_draw`) that stays within `draw`. Each arrival spends
+//! one newcomer's worth from the front, and the nation at the front is the newcomer's, in place
+//! of the weighted draw (`World::spawn_newcomer_of`). An arrival with nothing steered is
+//! drawn by weight as before, so the weights only decide the draw nobody steered. Nothing here
+//! uses an RNG, so it is deterministic as the rest of draw is.
+//!
 //! **Integer arithmetic.** Draw is held in milli-units (1000 is one newcomer) with a remainder
 //! (`draw_carry`, in milli-units times `arrival_ticks`), so the meter is exact and the same on
 //! every platform: each step adds `multiplier_milli x ticks` to the remainder and moves every
@@ -88,8 +96,54 @@ impl World {
     /// `[growth.draw].bank` (#435; a caravan request's reward, #437). Arrivals still keep
     /// `min_gap_minutes` apart, so a large grant brings newcomers one at a time.
     pub fn add_draw(&mut self, amount: u32, defs: &Defs) {
+        self.grant_draw(amount, None, defs);
+    }
+
+    /// `add_draw` for a United City caravan's request (#761, owner decision #747): the draw
+    /// that fits under the bank is also marked as `nation`'s, so the newcomer it buys is of
+    /// `nation`. Draw the bank cuts off is lost and steers nothing.
+    pub fn add_steered_draw(&mut self, nation: Nation, amount: u32, defs: &Defs) {
+        self.grant_draw(amount, Some(nation), defs);
+    }
+
+    fn grant_draw(&mut self, amount: u32, steer: Option<Nation>, defs: &Defs) {
         let bank = milli(defs.needs.growth.draw.bank);
-        self.draw = self.draw.saturating_add(amount).min(bank.max(self.draw));
+        let before = self.draw;
+        self.draw = before.saturating_add(amount).min(bank.max(before));
+        let added = self.draw - before;
+        if let Some(nation) = steer
+            && added > 0
+        {
+            // A grant from the same caravan twice in a row is one stretch.
+            match self.steered.last_mut() {
+                Some((n, m)) if *n == nation => *m += added,
+                _ => self.steered.push((nation, added)),
+            }
+        }
+    }
+
+    /// Whose newcomers the draw held now is for, in the order they will arrive: each entry is a
+    /// nation and the milli-units of draw steered to it (#761). Draw beyond their sum is
+    /// unsteered and is drawn by weight (`[growth]`'s `own_weight` and `other_weight`).
+    pub fn steered_draw(&self) -> &[(Nation, u32)] {
+        &self.steered
+    }
+
+    /// Spends one newcomer's `DRAW_ONE` from the front of `steered`; returns the nation it was
+    /// for, if the draw spent was steered at all.
+    fn spend_steered(&mut self) -> Option<Nation> {
+        let (nation, _) = *self.steered.first()?;
+        let mut left = DRAW_ONE;
+        while left > 0 {
+            let Some((_, m)) = self.steered.first_mut() else { break };
+            let take = left.min(*m);
+            *m -= take;
+            left -= take;
+            if *m == 0 {
+                self.steered.remove(0);
+            }
+        }
+        Some(nation)
     }
 
     /// The draw multiplier right now and what makes it up, met terms and missing ones alike.
@@ -180,7 +234,11 @@ impl World {
         if self.last_arrival.is_some_and(|t| self.tick < t + gap) {
             return;
         }
-        if self.spawn_newcomer(defs) {
+        // Steered draw (#761) names the nation of the arrival it pays for; it is only spent when
+        // someone actually joins.
+        let steer = self.steered.first().map(|&(n, _)| n);
+        if self.spawn_newcomer_of(steer, defs) {
+            self.spend_steered();
             self.draw -= DRAW_ONE;
             self.last_arrival = Some(self.tick);
             let newcomer_food = self.knobs(defs).newcomer_food;
