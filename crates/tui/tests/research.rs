@@ -236,8 +236,9 @@ fn the_cursor_stays_in_sight_on_every_card_and_every_size() {
                 for (r, card) in col.iter().enumerate() {
                     a.ui.tech = (c, r);
                     let frame = text(&mut a, size);
-                    // The details line shows the full name even when the card cuts it.
-                    let detail = frame.lines().rev().nth(4);
+                    // The details line, right under the rule, shows the full name even when the
+                    // card cuts it (and even when a long description makes the strip taller).
+                    let detail = frame.lines().skip_while(|l| !l.starts_with('├')).nth(1);
                     assert!(
                         detail.is_some_and(|l| l.contains(card.name.as_str())),
                         "{nation:?} {size:?} {}\n{frame}",
