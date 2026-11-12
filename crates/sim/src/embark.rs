@@ -1298,6 +1298,37 @@ mod tests {
         assert!(seen > 0, "some seed has great ruins within 90 tiles");
     }
 
+    /// horizons-phase-5.md, "Measuring it", reach (#745): on all 32 panel seeds a great ruin is
+    /// on the settlement's landmass within 90 tiles. `supply` counts 23 of 32, because its
+    /// snapshot treats every tree and rock as a wall; with those cleared, as a settlement clears
+    /// them, 62 of the 64 great ruins join the start's region (two far ones are across
+    /// water). So the doc's risk "Great ruins on another landmass" is rare on Small.
+    #[test]
+    fn every_great_ruin_shares_the_settlements_landmass() {
+        let defs = Defs::bundled();
+        let great = defs.resource_id("great_ruins").unwrap();
+        let mut off = 0;
+        for seed in 1..=32u64 {
+            let cfg = Survey::config(seed, defs.embark.map_size("small").unwrap());
+            let survey = Survey::new(&cfg, &defs);
+            let start = survey.default_site(&defs);
+            let mut bare = survey.surface.clone();
+            let tiles: Vec<Pos> = bare.iter().map(|(p, _)| p).collect();
+            for p in tiles {
+                bare[p].resource = None;
+            }
+            let regions =
+                crate::regions::Regions::compute(&bare, &crate::path::MoveRules::default());
+            let ruins: Vec<Pos> =
+                survey.buried.iter().filter(|&(_, &r)| r == great).map(|(&p, _)| p).collect();
+            let joined = |p: Pos| bare.neighbors(p, true).any(|n| regions.connected(n, start));
+            off += ruins.iter().filter(|&&p| !joined(p)).count();
+            let near = ruins.iter().any(|&p| joined(p) && p.chebyshev(start) <= 90);
+            assert!(near, "seed {seed}: no great ruin on foot within 90 ({ruins:?})");
+        }
+        assert!(off <= 2, "{off} great ruins on another landmass");
+    }
+
     #[test]
     fn supply_counts_a_buried_seam_only_within_its_bore_limit() {
         // A one-row map: open ground at x=0..=1, then a chain of empty mountain tiles, then a

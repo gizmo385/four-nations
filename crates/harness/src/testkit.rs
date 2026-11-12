@@ -69,6 +69,7 @@ pub fn record(nation: Nation, seed: u64) -> RunRecord {
         flags: Vec::new(),
         stage_minutes: Vec::new(),
         school_tallies: Vec::new(),
+        teachings: Default::default(),
     }
 }
 

@@ -506,6 +506,7 @@ impl Economy {
         recover_scrolls(world, defs, anchor);
         let plan = self.research_plan(world.nation, defs, |t| world.research().is_known(t));
         let plan = self.hold_school(world, defs, plan);
+        let plan = hold_missing_bills(world, defs, plan);
         keep_teachings(world, defs, self.research);
         queue_next_known_tech(world, defs, plan.into_iter());
         if !self.beds_only {
@@ -534,6 +535,7 @@ impl Economy {
             schools::sun_fire(world, defs, anchor, pacing::campfire_target(world, defs));
         }
         schools::southern_camp(world, defs, anchor);
+        schools::nomad_move(world, defs);
         if self.farms {
             self.sow_plots(world, defs, "farm_plot");
         }
@@ -893,6 +895,22 @@ fn keep_teachings(world: &mut World, defs: &Defs, order: ResearchOrder) {
 /// Queues the first tech in `plan` the nation doesn't already know, once nothing is queued.
 /// Skips a tech belonging to another nation's branch, with no `if nation == ..`: `SetResearch`'s
 /// own refusal tells it to move on (harmless here since neither caller ever includes one).
+/// The plan with every tech whose bill names an item missing from stores altogether moved to the
+/// back, in order (#745): queued, a bill that can't fill holds every other tech up behind it.
+/// On the branch-first order a nation's school (its scrolls) came up before Cartography, the
+/// Map Room that finds the ruins scrolls come from, so research stopped for good at the end of
+/// the branch, about minute 90 to 150. `hold_school` does this for a school style's own pick.
+fn hold_missing_bills(world: &World, defs: &Defs, plan: Vec<TechId>) -> Vec<TechId> {
+    let missing = |t: TechId| {
+        defs.tech(t)
+            .cost_items
+            .iter()
+            .any(|s| !have_enough(world, &[CostItem { item: s.item, count: 1 }]))
+    };
+    let (held, ready): (Vec<TechId>, Vec<TechId>) = plan.into_iter().partition(|&t| missing(t));
+    ready.into_iter().chain(held).collect()
+}
+
 fn queue_next_known_tech(world: &mut World, defs: &Defs, plan: impl Iterator<Item = TechId>) {
     if !world.research().queue().is_empty() {
         return;
@@ -1791,5 +1809,64 @@ mod tests {
         assert!(world.command_log().is_empty());
         Player::Economy(Economy::new(6)).step(&mut world, &defs);
         assert!(!world.command_log().is_empty());
+    }
+
+    /// #892: each spring the Nomad Way packs up the building farthest from the anchor (5 or
+    /// more tiles off), once a spring, and leaves near ones alone.
+    #[test]
+    fn nomad_way_packs_up_the_farthest_building_once_a_spring() {
+        use crate::defs::{BiomeId, Terrain};
+        use crate::geom::{Footprint, Grid};
+        use crate::mapgen::Tile;
+        use crate::world::{SeasonEvent, SeasonEventKind};
+        let defs = Defs::bundled();
+        let map = Grid::from_fn(40, 20, |_| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: Terrain::Land,
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        let mut w = World::with_map(5, map, Nation::Air, &[Pos::new(3, 3)], &defs);
+        let hall = defs.building_id("study_hall").unwrap();
+        let (fw, fh) = defs.building(hall).footprint;
+        let (near, far) = (Pos::new(6, 6), Pos::new(30, 10));
+        w.put_building(Footprint::new(near, fw, fh), hall, &defs);
+        w.put_building(Footprint::new(far, fw, fh), hall, &defs);
+        w.apply(Command::DesignateStockpile { pos: Pos::new(2, 8) }, &defs).unwrap();
+        w.insert_event_for_test(SeasonEvent {
+            tick: 0,
+            kind: SeasonEventKind::Changed { season: 0 },
+        });
+        let packing = |w: &World| -> Vec<Pos> {
+            w.command_log()
+                .iter()
+                .filter_map(|r| match r.command {
+                    Command::Deconstruct { pos } => Some(pos),
+                    _ => None,
+                })
+                .collect()
+        };
+        schools::nomad_move(&mut w, &defs);
+        assert!(packing(&w).is_empty(), "nothing moves before the Nomad Way is known");
+        w.grant_tech(defs.tech_id("nomad_way").unwrap());
+        schools::nomad_move(&mut w, &defs);
+        assert_eq!(packing(&w), vec![far]);
+        schools::nomad_move(&mut w, &defs);
+        assert_eq!(packing(&w), vec![far], "once a spring");
+    }
+
+    /// #745: a tech whose bill names an item with none in stores (a school's scrolls) goes to
+    /// the back of the plan, so it can't hold the rest of the tree up behind it.
+    #[test]
+    fn a_bill_with_nothing_in_stores_waits_at_the_back() {
+        let (world, defs) = world(Nation::Air);
+        let temple = defs.tech_id("high_temple").unwrap();
+        let carto = defs.tech_id("cartography").unwrap();
+        assert!(!defs.tech(temple).cost_items.is_empty());
+        assert_eq!(hold_missing_bills(&world, &defs, vec![temple, carto]), vec![carto, temple]);
+        assert_eq!(hold_missing_bills(&world, &defs, vec![carto, temple]), vec![carto, temple]);
     }
 }

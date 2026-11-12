@@ -150,6 +150,78 @@ pub struct RunRecord {
     /// What each school did (`SCHOOL_TALLIES`'s order): absent from an older record.
     #[serde(default)]
     pub school_tallies: Vec<(String, u32)>,
+    /// The lost teachings (docs/design/horizons-phase-5.md, "Measuring it", #745): absent from
+    /// an older record.
+    #[serde(default)]
+    pub teachings: TeachingRecord,
+}
+
+/// What a run did with phase 5's great ruins and teaching drafts (#745), read off the world's
+/// event log at the end of the run.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeachingRecord {
+    /// The minute each great ruin was found, earliest first: spotted by a reveal bend, charted
+    /// by a Map Room, or (at the latest) searched. `great_ruins_found_by.M`.
+    pub great_ruins_found: Vec<f32>,
+    /// The minute each draft was offered, earliest first. `first_offer_minute`.
+    pub offers: Vec<f32>,
+    /// Each teaching kept, with the minute. `teachings_kept_by.M`.
+    pub kept: Vec<(String, f32)>,
+    /// Teaching scrolls read with nothing left to offer. `empty_scrolls`.
+    pub empty_scrolls: u32,
+}
+
+/// [`TeachingRecord`] for a finished run.
+fn teaching_record(world: &World, defs: &Defs) -> TeachingRecord {
+    use std::collections::BTreeMap;
+
+    use crate::geom::Pos;
+    use crate::world::{ChartEventKind, TeachingEventKind};
+
+    let mut out = TeachingRecord::default();
+    let Some(great) = defs.resource_id("great_ruins") else { return out };
+    // Every great ruin the run could have found: still on the map, or searched.
+    let mut found: BTreeMap<Pos, Option<u64>> = world
+        .map
+        .iter()
+        .filter(|(_, t)| t.resource == Some(great))
+        .map(|(p, _)| (p, None))
+        .collect();
+    let earliest = |found: &mut BTreeMap<Pos, Option<u64>>, pos: Pos, tick: u64| {
+        if let Some(at) = found.get_mut(&pos) {
+            *at = Some(at.map_or(tick, |t| t.min(tick)));
+        }
+    };
+    for event in world.events() {
+        if let Event::Teaching(e) = event {
+            match &e.kind {
+                TeachingEventKind::Searched { at, resource } if *resource == great => {
+                    found.insert(*at, Some(e.tick));
+                }
+                TeachingEventKind::Offered { .. } => out.offers.push(ticks_to_minutes(e.tick)),
+                TeachingEventKind::Kept { kept, .. } => {
+                    out.kept.push((defs.tech(*kept).id.clone(), ticks_to_minutes(e.tick)));
+                }
+                TeachingEventKind::Empty { .. } => out.empty_scrolls += 1,
+                _ => {}
+            }
+        }
+    }
+    for event in world.events() {
+        match event {
+            Event::Find(e) if e.resource == great => earliest(&mut found, e.pos, e.tick),
+            Event::Chart(e) => {
+                if let ChartEventKind::Found { pos, .. } = e.kind {
+                    earliest(&mut found, pos, e.tick);
+                }
+            }
+            _ => {}
+        }
+    }
+    // A ruin on the map with no find logged was in sight from the start.
+    out.great_ruins_found = found.values().map(|t| t.map_or(0.0, ticks_to_minutes)).collect();
+    out.great_ruins_found.sort_by(f32::total_cmp);
+    out
 }
 
 /// The per-school tallies a run reports (docs/design/horizons-phase-4.md, "Measuring it"), one per
@@ -463,6 +535,7 @@ fn run_world_observed(
             })
             .collect(),
         school_tallies: school_tallies(&world, defs, warmed, studying),
+        teachings: teaching_record(&world, defs),
     };
     (record, world)
 }

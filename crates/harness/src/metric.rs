@@ -20,6 +20,10 @@
 //! | `care.close_calls_per_10ph` | close calls per 10 person-hours |
 //! | `care.depleted_per_ph` | person-minutes with a need at 0, per person-hour |
 //! | `care.suffering` | the share of person-minutes with a severe flag |
+//! | `great_ruins_found_by.M` | great ruins found (spotted, charted or searched) by minute `M` (#745) |
+//! | `teachings_kept_by.M` | teachings kept from drafts by minute `M` (#745) |
+//! | `first_offer_minute` | the minute of the first teaching draft (#745) |
+//! | `empty_scrolls` | teaching scrolls read with nothing left to offer (#745) |
 
 use fn_sim::Defs;
 use fn_sim::balance::RunRecord;
@@ -54,6 +58,14 @@ pub enum Metric {
     SchoolMinute,
     /// One of `fn_sim::balance::SCHOOL_TALLIES` at the run's end (#731).
     Tally(String),
+    /// Great ruins found by minute `M` (#745).
+    GreatRuinsFoundBy(u32),
+    /// Teachings kept by minute `M` (#745).
+    TeachingsKeptBy(u32),
+    /// The minute of the first teaching draft (#745).
+    FirstOfferMinute,
+    /// Teaching scrolls read with nothing to offer (#745).
+    EmptyScrolls,
 }
 
 impl Metric {
@@ -107,6 +119,10 @@ impl Metric {
                 }
                 Metric::Tally(t.to_owned())
             }
+            ("great_ruins_found_by", Some(m)) => Metric::GreatRuinsFoundBy(number(m)?),
+            ("teachings_kept_by", Some(m)) => Metric::TeachingsKeptBy(number(m)?),
+            ("first_offer_minute", None) => Metric::FirstOfferMinute,
+            ("empty_scrolls", None) => Metric::EmptyScrolls,
             _ => return Err(format!("unknown metric {name:?}")),
         };
         Ok(metric)
@@ -135,6 +151,10 @@ impl Metric {
             Metric::StageMinute(n) => format!("stage_minute.{n}"),
             Metric::SchoolMinute => "school_minute".to_owned(),
             Metric::Tally(t) => format!("tally.{t}"),
+            Metric::GreatRuinsFoundBy(m) => format!("great_ruins_found_by.{m}"),
+            Metric::TeachingsKeptBy(m) => format!("teachings_kept_by.{m}"),
+            Metric::FirstOfferMinute => "first_offer_minute".to_owned(),
+            Metric::EmptyScrolls => "empty_scrolls".to_owned(),
         }
     }
 
@@ -146,7 +166,9 @@ impl Metric {
             | Metric::WoodAt(m)
             | Metric::FoodAt(m)
             | Metric::HerbsAt(m)
-            | Metric::CopiesBy(m) => Some(*m as f32),
+            | Metric::CopiesBy(m)
+            | Metric::GreatRuinsFoundBy(m)
+            | Metric::TeachingsKeptBy(m) => Some(*m as f32),
             _ => None,
         }
     }
@@ -231,6 +253,18 @@ impl Metric {
                 let (_, n) = rec.school_tallies.iter().find(|(id, _)| id == t)?;
                 Some(f64::from(*n))
             }
+            Metric::GreatRuinsFoundBy(m) => {
+                let t = &rec.teachings.great_ruins_found;
+                Some(t.iter().filter(|&&at| at <= *m as f32).count() as f64)
+            }
+            Metric::TeachingsKeptBy(m) => {
+                let t = &rec.teachings.kept;
+                Some(t.iter().filter(|(_, at)| *at <= *m as f32).count() as f64)
+            }
+            Metric::FirstOfferMinute => {
+                Some(rec.teachings.offers.first().map_or(f64::INFINITY, |&m| f64::from(m)))
+            }
+            Metric::EmptyScrolls => Some(f64::from(rec.teachings.empty_scrolls)),
         }
     }
 
@@ -244,13 +278,16 @@ impl Metric {
             | Metric::ReadyMinute
             | Metric::FirstDeath
             | Metric::StageMinute(_)
-            | Metric::SchoolMinute => bar.at_most.map_or(end, |m| m as f32).min(end),
+            | Metric::SchoolMinute
+            | Metric::FirstOfferMinute => bar.at_most.map_or(end, |m| m as f32).min(end),
             Metric::DeathsBy(m)
             | Metric::PopAt(m)
             | Metric::WoodAt(m)
             | Metric::FoodAt(m)
             | Metric::HerbsAt(m)
-            | Metric::CopiesBy(m) => (*m as f32).min(end),
+            | Metric::CopiesBy(m)
+            | Metric::GreatRuinsFoundBy(m)
+            | Metric::TeachingsKeptBy(m) => (*m as f32).min(end),
             Metric::FoodPerHeadWinter(year) => rec
                 .seasons
                 .iter()

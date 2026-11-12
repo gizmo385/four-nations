@@ -341,3 +341,23 @@ fn an_autopsy_names_the_water_and_food_it_never_had() {
     // Asked again, there is nothing new to report.
     assert!(probe.autopsies(&world, &defs).is_empty());
 }
+
+/// #745: with every tech known but the teachings (none kept), nothing is left to set, so the
+/// probe doesn't call research idle. A teaching can only be set once kept from a draft.
+#[test]
+fn unkept_teachings_leave_research_with_nothing_waiting() {
+    let defs = Defs::bundled();
+    let rows = ["........", "........", "........"];
+    let mut world = World::with_map(1, arena(&defs, &rows), Nation::Air, &[Pos::new(3, 1)], &defs);
+    let mut probe = Probe::new(&world, &defs, &bare_site());
+    let air: Vec<_> = defs.techs_for(Nation::Air).collect();
+    let teachings = air.iter().filter(|(_, t)| t.teaching.is_some()).count();
+    assert!(teachings > 0);
+    for (id, t) in air {
+        // Skip each school's second option, which the first closes.
+        if t.teaching.is_none() && world.research().closed_by(id, &defs).is_none() {
+            world.grant_tech(id);
+        }
+    }
+    assert!(!probe.sample(&world, &defs).research_waiting);
+}
