@@ -21,6 +21,7 @@ pub const DAY_SECS: u64 = 300;
 
 /// A point in game time, ready to be worded.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GameTime {
     /// Which stretch it falls in: a season of a year, or a day.
     pub period: Period,
@@ -31,6 +32,7 @@ pub struct GameTime {
 /// The stretch of game time a [`GameTime`] falls in. Two points share a log heading exactly when
 /// their periods are equal.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Period {
     Season { name: String, year: u64 },
     Day(u64),

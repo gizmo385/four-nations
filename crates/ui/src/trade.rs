@@ -18,6 +18,7 @@ use crate::time::left_text;
 
 /// The screen's contents.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum TradersView {
     /// A caravan is camped.
     Camp(CampView),
@@ -28,6 +29,7 @@ pub enum TradersView {
 
 /// The caravan camped now.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CampView {
     /// "Fire Nation traders".
     pub name: String,
@@ -42,6 +44,7 @@ pub struct CampView {
 
 /// One slot of the visit.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct OfferRow {
     /// The visit's slot number, what `Command::TakeDeal` takes.
     pub slot: u8,

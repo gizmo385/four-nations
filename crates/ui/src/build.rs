@@ -25,6 +25,7 @@ use crate::session::Session;
 
 /// One line of the building picker.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PickerRow {
     pub id: BuildingId,
     /// The nation's name for it (`BuildingDef::display_name`).
@@ -144,13 +145,17 @@ pub fn anchor_for(cursor: Pos, footprint: (u8, u8)) -> Pos {
 
 /// Where a building would go for the cursor, and what is in the way on each of its tiles.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Placement {
+    #[cfg_attr(feature = "serde", serde(serialize_with = "crate::ser::footprint"))]
     pub footprint: Footprint,
     /// Every footprint tile, row-major, with what blocks it (`World::build_blocker`, plus
     /// `Blocker::Entrance` for a tile that would bury another building's door, #230).
+    #[cfg_attr(feature = "serde", serde(serialize_with = "crate::ser::blocked_tiles"))]
     pub tiles: Vec<(Pos, Option<Blocker>)>,
     /// Why designating it would be refused, if it would: the tech it still needs, else the
     /// first blocked tile (`World::check_build`).
+    #[cfg_attr(feature = "serde", serde(serialize_with = "crate::ser::refusal"))]
     pub refused: Option<BuildError>,
     /// The footprint's own door (`Footprint::entrance`) and whether it's free to use, if the
     /// building can be entered (`BuildingDef::capacity` above 0, #226). `None` for one that
@@ -350,6 +355,7 @@ pub fn describe_build_error(session: &Session, e: BuildError) -> String {
 
 /// What the tooltip says about a construction site.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SiteReport {
     pub name: String,
     /// "Materials: 3/5 Wood".
@@ -389,6 +395,7 @@ pub fn built_name(session: &Session, pos: Pos) -> Option<String> {
 /// One line of a building's occupants list (`docs/design/buildings.md`, "Units inside
 /// buildings", #226, #229): the unit and the row that selects it.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct OccupantRow {
     pub id: UnitId,
     pub name: String,
@@ -435,6 +442,7 @@ pub fn occupant_rows(session: &Session, pos: Pos) -> Vec<OccupantRow> {
 /// the tech it still needs if it's locked. Pure text: the frontend draws it (and looks up its
 /// glyph, which lives in the frontend's own glyph table, not here).
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BuildingDetail {
     pub name: String,
     /// One entry per item costed, with what stores hold of it; empty for a free building. A
@@ -458,6 +466,7 @@ pub struct BuildingDetail {
 
 /// One item of a building's cost against what stores hold (#658).
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CostLine {
     /// "5 Wood" or "10 Stone (or brick)".
     pub text: String,

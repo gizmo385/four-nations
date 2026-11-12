@@ -23,6 +23,7 @@ pub const READY_LINE: &str = "Ready";
 
 /// The Endeavor screen (`G`).
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ScreenView {
     pub name: String,
     pub description: String,
@@ -46,6 +47,7 @@ pub struct ScreenView {
 
 /// The Endeavor screen's CHAPTER section (#439, docs/design/pacing.md section 3).
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ChapterView {
     /// "Known on the road".
     pub name: String,
@@ -60,6 +62,7 @@ pub struct ChapterView {
 
 /// One heading of the screen and its signs.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct GroupView {
     pub heading: String,
     pub signs: Vec<SignRow>,
@@ -67,6 +70,7 @@ pub struct GroupView {
 
 /// One sign's row: a check if met, the name, a hint if not, `value/target` and a bar.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SignRow {
     pub id: String,
     pub name: String,
@@ -90,6 +94,7 @@ pub struct SignRow {
 /// One marked surface scroll or uncovered ruin, for the scrolls sign's own row
 /// (`found_scrolls`): where it is and why it isn't read yet.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FoundScroll {
     /// "Ancient Scroll", or "Lost Ruins (2)" when one harvest yields more than one.
     pub name: String,
@@ -103,6 +108,7 @@ pub struct FoundScroll {
 
 /// The side panel's Endeavor section.
 #[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct EndeavorStatus {
     pub name: String,
     /// "7/10".
