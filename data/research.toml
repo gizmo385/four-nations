@@ -893,6 +893,32 @@ count = 8
 building = "lightning_station"
 automate = { rate = 1.0, radius = 4 }    # radius from the footprint, unscaled
 
+# --- #738 (research horizons phase 5: `pai_sho`, `crystal_growing`) ----------------------------
+
+# Teachings (docs/design/horizons-phase-5.md): hidden until a teaching scroll's draft offers and
+# keeps one. 250 points plus the scroll, which stays shelved at the hall it was read at.
+[[tech]]
+id = "pai_sho"
+name = "Pai Sho"
+description = "Learn the old game, and the White Lotus learns of you."
+cost = 250
+requires = { chapter = "known_on_the_road" }
+[tech.teaching]
+[tech.unlocks]
+buildings = ["pai_sho_table"]
+
+[[tech]]
+id = "crystal_growing"
+name = "Crystal Growing"
+description = "Coax glowing crystals from the walls of the tunnels."
+nation = "earth"
+cost = 250
+prereqs = ["tunneling"]
+[tech.teaching]
+site = { terrains = ["mountain"], within = 30, min_tiles = 20 }
+[tech.unlocks]
+buildings = ["crystal_grotto"]
+
 # --- #737 (research horizons phase 5: lost teachings) -------------------------------------------
 
 # A teaching scroll read when every teaching is kept, lost or ruled out by its site reads for this

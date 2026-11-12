@@ -158,7 +158,8 @@ fn chapter<'d>(
 
 /// Names of the settlement's own techs it doesn't know yet, in data order.
 fn missing_techs<'d>(world: &World, defs: &'d Defs) -> Vec<&'d str> {
-    defs.techs_for(world.nation)
+    world
+        .tree_techs(defs)
         .filter(|(id, t)| t.nation == Some(world.nation) && !world.research().is_known(*id))
         .map(|(_, t)| t.name.as_str())
         .collect()
@@ -762,7 +763,13 @@ mod tests {
         // A new Earth game knows none of its branch yet.
         let s = session(Nation::Earth);
         let left = missing_techs(&s.world, &s.defs);
-        let branch = s.defs.techs.iter().filter(|t| t.nation == Some(Nation::Earth)).count();
+        // Hidden teachings (#738 on) aren't on the tree, so they aren't left either.
+        let branch = s
+            .defs
+            .techs
+            .iter()
+            .filter(|t| t.nation == Some(Nation::Earth) && t.teaching.is_none())
+            .count();
         assert_eq!(left.len(), branch);
     }
 

@@ -466,7 +466,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
     let depths = tech_depths(&defs.techs);
     let target = research.queue().last().copied();
     let mut columns: Vec<Vec<TechCard>> = Vec::new();
-    for (id, def) in defs.techs_for(nation) {
+    for (id, def) in session.world.tree_techs(defs) {
         let depth = depths[id.0 as usize];
         if columns.len() <= depth {
             columns.resize(depth + 1, Vec::new());
@@ -730,7 +730,7 @@ mod tests {
         // The shared tier and Fire's own branch both show.
         assert!(names.contains(&"Fire Making".to_owned()), "{names:?}");
         let cards: usize = view.columns.iter().map(Vec::len).sum();
-        assert_eq!(cards, s.defs.techs_for(Nation::Fire).count());
+        assert_eq!(cards, s.world.tree_techs(&s.defs).count());
     }
 
     /// A Locked card's `unlock` is empty: nothing reachable ever shows it (the grid names what

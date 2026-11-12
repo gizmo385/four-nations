@@ -399,6 +399,17 @@ pub struct TeaHouseDef {
     pub draw: f32,
 }
 
+/// The Pai Sho Table's effects (`[building.pai_sho]`, docs/design/horizons-phase-5.md,
+/// "`pai_sho`", #738): while one stands, White Lotus traders join the caravan that makes camp in
+/// winter with `lotus_deals` more deals, and every request pays `request_reward` times over.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PaiShoDef {
+    /// Deals drawn from every other caravan's list on each winter visit (`trade.lotus`).
+    pub lotus_deals: u32,
+    /// Every caravan request's reward is multiplied by this.
+    pub request_reward: f32,
+}
+
 /// A one-way drop for goods (`[building.chute]`, the Chute, docs/design/horizons-phase-1.md,
 /// `world/chute.rs`): its foot (`Building::link`) is within `reach` of it and at least `drop`
 /// lower.
@@ -668,6 +679,8 @@ pub struct BuildingDef {
     /// What an open Tea House gives a caravan visit and draw (`TeaHouseDef`), or `None`. Only on a
     /// building with a `fuel` bunker that burns, which is what opens and closes it.
     pub tea_house: Option<TeaHouseDef>,
+    /// White Lotus deals and doubled requests while it stands (`PaiShoDef`), or `None`.
+    pub pai_sho: Option<PaiShoDef>,
     /// A one-way drop for goods (`ChuteDef`), or `None`.
     pub chute: Option<ChuteDef>,
     /// A two-way link to a partner of the same id (`PairDef`), or `None`.
@@ -981,6 +994,13 @@ struct RawHothouse {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawPaiSho {
+    lotus_deals: u32,
+    request_reward: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawTeaHouse {
     #[serde(default)]
     extra_deals: u32,
@@ -1068,6 +1088,8 @@ struct RawBuilding {
     pickers: Option<RawPickers>,
     hothouse: Option<RawHothouse>,
     tea_house: Option<RawTeaHouse>,
+    #[serde(default)]
+    pai_sho: Option<RawPaiSho>,
     chute: Option<RawChute>,
     pair: Option<RawPair>,
     outpost: Option<RawOutpost>,
@@ -1370,6 +1392,24 @@ impl BuildingsFile {
             if b.landmark && b.endeavor {
                 return err(format!("building {}: the endeavor's gate can't be a landmark", b.id));
             }
+            let pai_sho = match &b.pai_sho {
+                None => None,
+                Some(p) => {
+                    if !(1..=8).contains(&p.lotus_deals) {
+                        return err(format!(
+                            "building {}: pai_sho lotus_deals must be 1 to 8",
+                            b.id
+                        ));
+                    }
+                    if !(p.request_reward.is_finite() && (1.0..=4.0).contains(&p.request_reward)) {
+                        return err(format!(
+                            "building {}: pai_sho request_reward must be 1 to 4",
+                            b.id
+                        ));
+                    }
+                    Some(PaiShoDef { lotus_deals: p.lotus_deals, request_reward: p.request_reward })
+                }
+            };
             let tea_house = match &b.tea_house {
                 None => None,
                 Some(t) => Some(resolve_tea_house(&b.id, t, fuel.as_ref())?),
@@ -1478,6 +1518,7 @@ impl BuildingsFile {
                 pickers,
                 hothouse,
                 tea_house,
+                pai_sho,
                 chute,
                 pair,
                 outpost,

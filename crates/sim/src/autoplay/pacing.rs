@@ -411,12 +411,12 @@ fn next_take(world: &World, defs: &Defs) -> Option<u8> {
     let mut best: Option<((u8, u32), u8)> = None;
     for (slot, offer) in visit.offers.iter().enumerate() {
         let (give, times, tier) = match offer.kind {
-            OfferKind::Deal(d) => {
-                let deal = &caravan.deals[usize::from(d)];
+            OfferKind::Request(r) => (&caravan.requests[usize::from(r)].give, 1, 1),
+            kind => {
+                let Some(deal) = kind.deal(caravan, defs) else { continue };
                 let feeds = deal.get.iter().any(|&(i, _)| feeds_missing_sign(world, defs, i));
                 (&deal.give, deal.times, if feeds { 0 } else { 2 })
             }
-            OfferKind::Request(r) => (&caravan.requests[usize::from(r)].give, 1, 1),
         };
         if offer.taken >= times || !stock.can_pay(give, tier) {
             continue;

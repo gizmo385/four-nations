@@ -147,7 +147,7 @@ fn only_the_shared_tier_and_the_players_own_branch_show() {
         run(&mut a, "t");
         let frame = text(&mut a, WIDE);
         let defs = &a.session.defs;
-        let own: Vec<_> = defs.techs_for(nation).map(|(_, d)| d.name.clone()).collect();
+        let own: Vec<_> = a.session.world.tree_techs(defs).map(|(_, d)| d.name.clone()).collect();
         for def in &defs.techs {
             // Names are cut to the card; their first twelve letters are enough to tell them apart.
             let head: String = def.name.chars().take(12).collect();

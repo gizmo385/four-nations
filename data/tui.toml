@@ -201,6 +201,12 @@ glyph = "¶"
 ascii = "s"
 fg = [214, 206, 182]
 
+# A glow crystal from the Crystal Grotto (#738).
+[item.glow_crystal]
+glyph = "◇"
+ascii = "*"
+fg = [120, 230, 170]
+
 # --- Fire production (#124) ---
 [item.metal]
 glyph = "▬"
@@ -332,6 +338,12 @@ glyph = "Ψ"
 ascii = "P"
 fg = [150, 200, 120]
 
+# The Pai Sho Table (#738): a lotus tile, the White Lotus's sign.
+[building.pai_sho_table]
+glyph = "✿"
+ascii = "L"
+fg = [236, 232, 220]
+
 # --- Earth Kingdom ---
 [building.earth_wall]
 glyph = "▓"
@@ -372,6 +384,12 @@ fg = [140, 128, 100]
 glyph = "◈"
 ascii = "D"
 fg = [210, 180, 90]
+
+# The Crystal Grotto (#738): a green glow in the tunnel wall.
+[building.crystal_grotto]
+glyph = "◇"
+ascii = "Y"
+fg = [120, 230, 170]
 
 # --- Air Nomads ---
 [building.orchard]

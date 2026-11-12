@@ -2860,8 +2860,7 @@ pub mod referee {
             let research = world.research();
             if research.queue().is_empty() {
                 if self.research_idle.is_none() {
-                    let tree_done =
-                        defs.techs_for(world.nation).all(|(id, _)| research.is_known(id));
+                    let tree_done = world.tree_techs(defs).all(|(id, _)| research.is_known(id));
                     self.research_idle = Some(ResearchIdle { from_turn: turn, tree_done });
                 }
             } else {

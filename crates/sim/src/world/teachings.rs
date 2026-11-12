@@ -18,7 +18,7 @@ use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::research::{MILLIS_PER_POINT, SiteRule};
+use crate::research::{MILLIS_PER_POINT, SiteRule, TechDef};
 
 /// The settlement's phase-5 state. Keyed by id, never by position (tech-stack.md, "Saves").
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -146,6 +146,16 @@ impl World {
         defs.tech(tech).teaching.is_some()
             && !self.teachings.kept.contains(&tech)
             && !self.teachings.lost.contains(&tech)
+    }
+
+    /// The techs this settlement's tree shows, in file order: `Defs::techs_for` less every
+    /// teaching not kept (docs/design/horizons-phase-5.md: a teaching is hidden until kept, and a
+    /// lost one is gone; #743's TEACHINGS column is where those show).
+    pub fn tree_techs<'d>(&self, defs: &'d Defs) -> impl Iterator<Item = (TechId, &'d TechDef)> {
+        defs.techs_for(self.nation)
+            .filter(|(id, t)| t.teaching.is_none() || self.teachings.kept.contains(id))
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// Teachings a new draft may offer (docs/design/horizons-phase-5.md, "Who is eligible"), in
