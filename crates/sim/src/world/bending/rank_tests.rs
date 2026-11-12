@@ -253,6 +253,50 @@ fn a_master_pays_the_discounted_chi() {
     assert!(w.units[0].chi < 0.1, "{}", w.units[0].chi);
 }
 
+/// The `master_chi` modifier (`guru_teachings`, #742) cheapens a master's discount: 0.8 x 0.75
+/// is 60% of the ability's chi.
+#[test]
+fn a_master_chi_modifier_cheapens_a_masters_bends() {
+    let mut defs = probe_rank_defs();
+    let mut guru = defs.techs[0].clone();
+    guru.id = "guru_test".into();
+    guru.name = "Guru Test".into();
+    guru.nation = None;
+    guru.unlocks = crate::research::Unlocks {
+        modifiers: toml::from_str("master_chi = 0.75").unwrap(),
+        ..Default::default()
+    };
+    defs.techs.push(guru);
+    let guru = crate::research::TechId(defs.techs.len() as u16 - 1);
+    let mut w = World::with_map(1, arena(9, 5), Nation::Earth, &[at(1, 1)], &defs);
+    assert_eq!(w.modifiers().master_chi, 1.0, "1.0 unless a tech changes it");
+    w.research.grant(guru);
+    w.refresh_modifiers(&defs);
+    assert_eq!(w.modifiers().master_chi, 0.75);
+    let breakdown = w.modifier_breakdown(&w.units[0], "master_chi", &defs);
+    assert_eq!(breakdown.last(), Some(&("Guru Test", 0.75)), "the source is named");
+    give(&mut w, &defs, 0, 8, 3);
+    let probe_a = id(&defs, "probe_a");
+    let spawn = w.units[0].pos;
+    w.units[0].chi = 6.1; // Below the plain master's 8, above 6 (10 x 0.8 x 0.75).
+    w.apply(Command::Bend { ability: probe_a, pos: spawn }, &defs).unwrap();
+    run_until(&mut w, &defs, 200, |w| w.bend_events().next().is_some());
+    assert_eq!(w.bend_events().next().unwrap().outcome, BendOutcome::Done);
+    assert!(w.units[0].chi < 0.2, "{}", w.units[0].chi);
+}
+
+#[test]
+fn guru_teachings_is_airs_master_chi_teaching() {
+    let defs = Defs::bundled();
+    let t = defs.tech(defs.tech_id("guru_teachings").unwrap());
+    assert!(t.teaching.is_some());
+    assert_eq!(t.nation, Some(Nation::Air));
+    assert_eq!(t.unlocks.modifiers.master_chi, Some(0.75));
+    for n in Nation::ALL {
+        assert_eq!(defs.nation(n).modifiers.master_chi, 1.0, "nations.toml doesn't change");
+    }
+}
+
 /// A save from before `bends_by` existed loads with none, and `rank_credited` defaults to
 /// Novice: `Unit::forms` is 0 even for a unit whose `bends` alone would already be a master.
 #[test]

@@ -28,13 +28,17 @@ impl Nation {
 
 /// Declares `Modifiers` and `ModifierMultipliers` from one field list, so a new modifier (e.g.
 /// `study`) can't be added to one and forgotten in the other.
+///
+/// Fields after the `;` default to 1.0 when a table leaves them out (`data/nations.toml`, the
+/// Avatar's modifiers, an older save), so a modifier only a tech changes needs no new rows.
 macro_rules! modifiers {
-    ($($field:ident),* $(,)?) => {
+    ($($field:ident),* ; $($dfield:ident),* $(,)?) => {
         /// Multipliers on a 1.0 baseline. See `data/nations.toml` for what each one covers.
         #[derive(Debug, Clone, Copy, PartialEq, Deserialize, serde::Serialize)]
         #[serde(deny_unknown_fields)]
         pub struct Modifiers {
             $(pub $field: f32,)*
+            $(#[serde(default = "one")] pub $dfield: f32,)*
         }
 
         /// Per-modifier multipliers a tech applies on top of a nation's `Modifiers`, e.g.
@@ -44,17 +48,20 @@ macro_rules! modifiers {
         #[serde(deny_unknown_fields)]
         pub struct ModifierMultipliers {
             $(#[serde(default)] pub $field: Option<f32>,)*
+            $(#[serde(default)] pub $dfield: Option<f32>,)*
         }
 
         impl Modifiers {
             /// Every modifier name, in field order.
-            pub const NAMES: &'static [&'static str] = &[$(stringify!($field)),*];
+            pub const NAMES: &'static [&'static str] =
+                &[$(stringify!($field),)* $(stringify!($dfield),)*];
 
             /// The modifier called `name`, for data that refers to one by name (e.g. a harvest's
             /// `modifier` in `data/jobs.toml`). `None` if there is no such modifier.
             pub fn get(&self, name: &str) -> Option<f32> {
                 match name {
                     $(stringify!($field) => Some(self.$field),)*
+                    $(stringify!($dfield) => Some(self.$dfield),)*
                     _ => None,
                 }
             }
@@ -64,13 +71,14 @@ macro_rules! modifiers {
             /// Multiplies each modifier `m` sets, leaving the others alone.
             pub fn apply(&mut self, m: &ModifierMultipliers) {
                 $(if let Some(f) = m.$field { self.$field *= f; })*
+                $(if let Some(f) = m.$dfield { self.$dfield *= f; })*
             }
         }
 
         impl ModifierMultipliers {
             /// The multipliers that are set, as `(field name, multiplier)`, in field order.
             pub fn iter(&self) -> impl Iterator<Item = (&'static str, f32)> {
-                [$((stringify!($field), self.$field)),*]
+                [$((stringify!($field), self.$field),)* $((stringify!($dfield), self.$dfield),)*]
                     .into_iter()
                     .filter_map(|(name, m)| m.map(|m| (name, m)))
             }
@@ -87,7 +95,14 @@ modifiers! {
     power_generation,
     construction,
     study,
-    chi_regen,
+    chi_regen;
+    // Multiplies `[mastery] master_chi`, a master's share of a bend's chi (`guru_teachings`,
+    // #742): 0.75 makes the 80% discount 60%.
+    master_chi,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Clone, Deserialize)]
