@@ -11,7 +11,8 @@
 //!   is native ([`crate::side`], inspector included).
 //! - [`Surface::Page`]: a full screen as egui widgets in the page frame ([`crate::page`]): the
 //!   whole window above the hint bar, the side panel and the map hidden. Build (#881), Research
-//!   (#884), Abilities and Traders (#886) and Saves (#885) so far.
+//!   (#884), Abilities and Traders (#886), Saves (#885), the Nation roster and Endeavor (#887) so
+//!   far.
 //! - [`Surface::Title`] and [`Surface::Embark`]: the title's steps and the embark screen, as
 //!   egui widgets of their own ([`crate::title`], [`crate::embark`]) with the hint bar below.
 //! - [`Surface::CellsFull`]: the whole terminal frame, at the window's size in cells.
@@ -76,6 +77,10 @@ pub enum PageKind {
     Traders,
     /// The save slots and the name field (`fn_gui::screens::saves`).
     Saves,
+    /// The Nation roster (`fn_gui::screens::nation`).
+    Nation,
+    /// The Endeavor screen (`fn_gui::screens::endeavor`).
+    Endeavor,
 }
 
 /// What the shell shows now, as far as the window is concerned. A box over it is [`modal`]'s.
@@ -117,7 +122,9 @@ fn screen_surface(screen: Screen) -> Surface {
         Screen::Abilities => Surface::Page(PageKind::Abilities),
         Screen::Traders => Surface::Page(PageKind::Traders),
         Screen::Saves => Surface::Page(PageKind::Saves),
-        Screen::Log | Screen::Help | Screen::Endeavor | Screen::Nation => Surface::CellsFull,
+        Screen::Nation => Surface::Page(PageKind::Nation),
+        Screen::Endeavor => Surface::Page(PageKind::Endeavor),
+        Screen::Log | Screen::Help => Surface::CellsFull,
     }
 }
 
@@ -328,6 +335,8 @@ impl Frame {
                 PageKind::Abilities => screens::abilities::show(ui, app, palette, metrics),
                 PageKind::Traders => screens::traders::show(ui, app, palette, metrics),
                 PageKind::Saves => screens::saves::show(ui, app, palette, metrics),
+                PageKind::Nation => screens::nation::show(ui, app, palette, metrics),
+                PageKind::Endeavor => screens::endeavor::show(ui, app, palette, metrics),
             };
             self.keys.extend(clicks);
         });

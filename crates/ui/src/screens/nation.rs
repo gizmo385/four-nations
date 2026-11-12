@@ -68,11 +68,12 @@ pub fn ordered_needs(unit: &UnitView) -> impl Iterator<Item = &NeedView> {
 
 /// The roster's column widths, shared by its header and every row so they line up.
 pub struct Columns {
-    name: usize,
+    /// The widest name, at least the header's.
+    pub name: usize,
     /// Whatever the other columns leave.
-    doing: usize,
+    pub doing: usize,
     /// `None` when the page is too narrow for it: it is dropped before any meter.
-    bending: Option<usize>,
+    pub bending: Option<usize>,
 }
 
 impl Columns {
