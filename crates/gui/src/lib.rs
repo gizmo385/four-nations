@@ -20,3 +20,11 @@ pub mod fonts;
 pub mod keys;
 pub mod mapview;
 pub mod panel;
+pub mod theme;
+
+/// What a new window or page sets up once: the bundled fonts ([`fonts`]) and the dark theme
+/// ([`theme`]). Both entry points (`main.rs`, native and web) call it.
+pub fn setup(ctx: &eframe::egui::Context) {
+    fonts::install(ctx);
+    theme::install(ctx);
+}

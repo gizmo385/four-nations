@@ -1,6 +1,6 @@
 //! Glyph coverage of egui's bundled fonts (the map widget draws in them) for every glyph
 //! `data/tui.toml` names: printed for the findings, and failing on any the monospace family
-//! can't draw at all.
+//! can't draw at all (#859: with the bundled fallback, none).
 
 use eframe::egui::{self, FontFamily, FontId};
 
@@ -26,30 +26,33 @@ fn missing(ctx: &egui::Context) -> Vec<char> {
     glyphs().into_iter().filter(|&c| !ctx.fonts_mut(|f| f.has_glyph(&font, c))).collect()
 }
 
-fn context(extra: Option<Vec<u8>>) -> egui::Context {
+fn context(defs: egui::FontDefinitions) -> egui::Context {
     let ctx = egui::Context::default();
-    ctx.set_fonts(fn_gui::fonts::definitions(extra));
+    ctx.set_fonts(defs);
     let _ = ctx.run_ui(Default::default(), |_| {});
     ctx
 }
 
-/// egui's own fonts miss exactly the ten symbols `fn_gui::fonts` names: a change in either the
-/// data or egui shows here.
+/// egui's own fonts alone miss some of the symbols (ten at #842, eleven with `♅`): the reason
+/// `fn_gui::fonts` bundles a fallback. The list is printed, not pinned, so a new glyph in the
+/// data doesn't break this; the next test is the one that has to pass.
 #[test]
-fn egui_alone_misses_ten_symbols() {
+fn egui_alone_misses_some_symbols() {
     let all = glyphs();
     assert!(all.len() > 20, "found the glyphs: {all:?}");
-    let gone = missing(&context(None));
+    let gone = missing(&context(fn_gui::fonts::egui_definitions()));
     println!("{} glyphs in data/tui.toml; egui's fonts alone miss {gone:?}", all.len());
-    assert_eq!(gone, ['✤', '✢', '✣', 'Ϟ', '⌂', '♆', '✦', 'ɱ', '☼', '✶']);
+    assert!(gone.contains(&'✤'), "egui's fonts are expected to miss ✤: {gone:?}");
 }
 
-/// With DejaVu Sans Mono as the fallback every glyph draws (skipped where it isn't installed).
+/// With the bundled fallback font (compiled in on every platform, the browser included) every
+/// glyph draws.
 #[test]
-fn with_the_fallback_font_every_glyph_draws() {
-    let Some(bytes) = fn_gui::fonts::fallback_bytes() else {
-        println!("no fallback font at {}; skipped", fn_gui::fonts::SYSTEM_FALLBACK);
-        return;
-    };
-    assert_eq!(missing(&context(Some(bytes))), Vec::<char>::new());
+fn with_the_bundled_font_every_glyph_draws() {
+    assert_eq!(missing(&context(fn_gui::fonts::definitions())), Vec::<char>::new());
+    // And through the entry points' own setup.
+    let ctx = egui::Context::default();
+    fn_gui::setup(&ctx);
+    let _ = ctx.run_ui(Default::default(), |_| {});
+    assert_eq!(missing(&ctx), Vec::<char>::new());
 }

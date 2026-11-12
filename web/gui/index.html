@@ -3,12 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Four Nations: egui (spike)</title>
-<!-- #843's check of fn_gui (#842's egui window) in the browser. Build:
-     cargo build -p fn_gui --profile web --target wasm32-unknown-unknown
-     wasm-bindgen --target web --no-typescript --out-dir target/replayer/gui \
-       target/wasm32-unknown-unknown/web/fn_gui.wasm
-     then copy this file next to it and serve target/replayer/ (cargo xtask web --serve).
+<title>Four Nations: egui</title>
+<!-- fn_gui (the egui game) in the browser (#843, #859). `cargo xtask web-gui` builds the wasm,
+     binds it with the wasm-bindgen CLI (at Cargo.lock's version) into target/replayer/gui/ and
+     copies this file next to it; add `--serve` to serve it at http://127.0.0.1:8595/gui/.
      The query picks the game: ?seed=7&nation=2&size=0. -->
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #121212; }

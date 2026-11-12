@@ -6,6 +6,10 @@
 //! listed in `runs/index.json`, the same shape #596's published index takes, so the page's run
 //! picker lists them. The command prints a `?run=` link for each.
 //!
+//! `cargo xtask web-gui` (#859) is the same for fn_gui, the egui game, into `target/replayer/gui/`
+//! through the wasm-bindgen CLI. `web` does not build it, and `pages.yml` runs only `web`, so
+//! the game is not published (that is #866).
+//!
 //! The server is a few lines of std on purpose: it serves files from one folder to the local
 //! machine, nothing else, and needs no tool beyond cargo.
 
@@ -81,6 +85,143 @@ pub fn build() -> Result<PathBuf> {
     let wasm = root.join(format!("target/{}/web/fn_web.wasm", crate::WASM_TARGET));
     copy(&wasm, &out.join("fn_web.wasm"))?;
     Ok(out)
+}
+
+const GUI_HELP: &str = "\
+usage: cargo xtask web-gui [--fast] [--serve] [--port N]
+
+Builds fn_gui (the egui game) for the browser into target/replayer/gui/: the wasm built for
+wasm32-unknown-unknown, bound with the wasm-bindgen CLI, next to web/gui/index.html. Needs the CLI
+at exactly the version Cargo.lock pins for the wasm-bindgen crate; `cargo install wasm-bindgen-cli
+--version VERSION --locked` installs it. `cargo xtask web` does not build or publish this.
+  --fast     the `ci` profile (unoptimised, quick to build, a large wasm) instead of `web`
+  --serve    then serve target/replayer/ on http://127.0.0.1:PORT/ (the game is at /gui/)
+  --port N   the port for --serve (default 8595)";
+
+/// `cargo xtask web-gui` (#859).
+pub fn run_gui(args: &[&str]) -> Result {
+    let mut fast = false;
+    let mut serve = false;
+    let mut port: u16 = 8595;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i] {
+            "--help" | "-h" => {
+                println!("{GUI_HELP}");
+                return Ok(());
+            }
+            "--fast" => fast = true,
+            "--serve" => serve = true,
+            "--port" => {
+                i += 1;
+                let v = args.get(i).ok_or("--port wants a number")?;
+                port = v.parse().map_err(|_| format!("--port wants a number, got {v:?}"))?;
+            }
+            a => return Err(format!("unknown option {a}\n\n{GUI_HELP}")),
+        }
+        i += 1;
+    }
+    let out = build_gui(fast)?;
+    println!("fn_gui for the browser built into {}", out.display());
+    if serve {
+        let base = format!("http://127.0.0.1:{port}/gui/");
+        println!("serving it at {base}");
+        serve_dir(out.parent().expect("gui/ has a parent"), port)
+    } else {
+        Ok(())
+    }
+}
+
+/// Builds fn_gui's wasm and binds it into `target/replayer/gui/`; that folder.
+pub fn build_gui(fast: bool) -> Result<PathBuf> {
+    let root = root();
+    // Checked first: a missing or mismatched CLI should not cost a wasm build to find out.
+    let want = locked_wasm_bindgen_version(
+        &fs::read_to_string(root.join("Cargo.lock")).map_err(|e| format!("Cargo.lock: {e}"))?,
+    )?;
+    check_wasm_bindgen_cli(&want)?;
+    let profile = if fast { "ci" } else { "web" };
+    let mut env = Vec::new();
+    // As `cargo xtask check --fast` does: our own crates optimised a little, dependencies not.
+    if fast && std::env::var_os("CARGO_PROFILE_CI_OPT_LEVEL").is_none() {
+        env.push(("CARGO_PROFILE_CI_OPT_LEVEL", "1"));
+    }
+    cargo_env(
+        &[
+            "build",
+            "--profile",
+            profile,
+            "--target",
+            crate::WASM_TARGET,
+            "-p",
+            "fn_gui",
+            "--bin",
+            "fn_gui",
+        ],
+        &env,
+    )?;
+    let wasm = root.join(format!("target/{}/{profile}/fn_gui.wasm", crate::WASM_TARGET));
+    let out = root.join("target/replayer/gui");
+    if out.exists() {
+        fs::remove_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    }
+    fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    println!("$ wasm-bindgen --target web --no-typescript --out-dir {}", out.display());
+    let status = std::process::Command::new("wasm-bindgen")
+        .args(["--target", "web", "--no-typescript", "--out-dir"])
+        .arg(&out)
+        .arg(&wasm)
+        .status()
+        .map_err(|e| format!("wasm-bindgen: {e}"))?;
+    if !status.success() {
+        return Err("wasm-bindgen failed".into());
+    }
+    copy(&root.join("web/gui/index.html"), &out.join("index.html"))?;
+    for name in ["fn_gui.js", "fn_gui_bg.wasm", "index.html"] {
+        if !out.join(name).is_file() {
+            return Err(format!("{} should hold {name} and doesn't", out.display()));
+        }
+    }
+    Ok(out)
+}
+
+/// The version of the `wasm-bindgen` crate in a `Cargo.lock`'s text.
+fn locked_wasm_bindgen_version(lock: &str) -> Result<String> {
+    let mut lines = lock.lines();
+    while let Some(line) = lines.next() {
+        if line == r#"name = "wasm-bindgen""#
+            && let Some(v) = lines.next().and_then(|l| l.strip_prefix(r#"version = ""#))
+        {
+            return Ok(v.trim_end_matches('"').to_owned());
+        }
+    }
+    Err("Cargo.lock has no wasm-bindgen package".into())
+}
+
+/// The version in `wasm-bindgen --version`'s output (`wasm-bindgen 0.2.129`).
+fn cli_version(output: &str) -> Option<&str> {
+    output.trim().strip_prefix("wasm-bindgen ")?.split_whitespace().next()
+}
+
+/// Fails with the command that fixes it unless the `wasm-bindgen` CLI is on the path at exactly
+/// `want`: the CLI and the crate must match, or the glue it writes doesn't fit the wasm.
+fn check_wasm_bindgen_cli(want: &str) -> Result {
+    let install = format!("cargo install wasm-bindgen-cli --version {want} --locked");
+    let out =
+        std::process::Command::new("wasm-bindgen").arg("--version").output().map_err(|e| {
+            format!("the wasm-bindgen CLI isn't usable ({e}); install it with `{install}`")
+        })?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    match cli_version(&text) {
+        Some(have) if have == want => Ok(()),
+        Some(have) => Err(format!(
+            "the wasm-bindgen CLI is {have} but Cargo.lock pins the crate at {want}; \
+             install the matching one with `{install}`"
+        )),
+        None => Err(format!(
+            "couldn't read `wasm-bindgen --version` (got {text:?}); install it with `{install}`"
+        )),
+    }
 }
 
 fn copy(from: &Path, to: &Path) -> Result {
@@ -182,7 +323,13 @@ fn respond(dir: &Path, mut stream: TcpStream) -> std::io::Result<()> {
     let path = request.split_whitespace().nth(1).unwrap_or("/");
     let path = path.split(['?', '#']).next().unwrap_or("/");
     let rel = path.trim_start_matches('/');
-    let rel = if rel.is_empty() { "index.html" } else { rel };
+    // A folder's address (`/`, `/gui/`) is its index page.
+    let rel = if rel.is_empty() || rel.ends_with('/') {
+        format!("{rel}index.html")
+    } else {
+        rel.to_owned()
+    };
+    let rel = rel.as_str();
     let file = dir.join(rel);
     // Only files under `dir`: no `..` and no absolute paths.
     let safe = !rel.split('/').any(|part| part == ".." || part.is_empty());
@@ -219,6 +366,24 @@ fn content_type(file: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_locked_wasm_bindgen_version_is_read_from_cargo_lock() {
+        let lock = "[[package]]\nname = \"wasm-bindgen-futures\"\nversion = \"0.4.1\"\n\n\
+                    [[package]]\nname = \"wasm-bindgen\"\nversion = \"0.2.129\"\n";
+        assert_eq!(locked_wasm_bindgen_version(lock).unwrap(), "0.2.129");
+        assert!(locked_wasm_bindgen_version("[[package]]\nname = \"serde\"\n").is_err());
+        // The real lock file has one.
+        let real = fs::read_to_string(root().join("Cargo.lock")).unwrap();
+        assert!(locked_wasm_bindgen_version(&real).unwrap().starts_with("0.2."));
+    }
+
+    #[test]
+    fn the_cli_version_is_read_from_its_banner() {
+        assert_eq!(cli_version("wasm-bindgen 0.2.129\n"), Some("0.2.129"));
+        assert_eq!(cli_version("wasm-bindgen 0.2.129 (abc123)"), Some("0.2.129"));
+        assert_eq!(cli_version("something else"), None);
+    }
 
     #[test]
     fn an_attempts_log_is_named_after_its_campaign_and_attempt() {

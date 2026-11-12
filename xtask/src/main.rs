@@ -55,6 +55,11 @@
 //!                               builds the web replayer (#595: web/ plus fn_web.wasm) into
 //!                               target/replayer/, and with --serve serves it on localhost; each LOG
 //!                               is listed in its run picker. See `cargo xtask web --help`.
+//!     cargo xtask web-gui [--fast] [--serve] [--port N]
+//!                               builds fn_gui for the browser (#859) and binds it with the
+//!                               wasm-bindgen CLI (at Cargo.lock's version) into
+//!                               target/replayer/gui/; CI runs it so a wasm break in fn_gui
+//!                               fails there. See `cargo xtask web-gui --help`.
 //!
 //! `root()` finds the repo root at runtime with `git rev-parse --show-toplevel`, so an `xtask`
 //! binary built from one worktree's `target/` still works when run from another (a shared
@@ -139,6 +144,7 @@ fn dispatch(args: &[&str]) -> Result {
         Some("agent-eval") => agent_eval::run(&args[1..]),
         Some("agent-compare") => agent_compare::run(&args[1..]),
         Some("web") => web::run(&args[1..]),
+        Some("web-gui") => web::run_gui(&args[1..]),
         _ => Err(help()),
     }
 }

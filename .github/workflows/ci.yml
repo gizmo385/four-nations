@@ -20,7 +20,7 @@ jobs:
   # fmt, clippy and tests for the whole workspace. The single required status check.
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       # Optimize our own crates (dependencies stay at opt-level 0 via profile.ci.package."*").
       # The long simulation tests run about 7x faster, cutting this job from ~10 to ~4 minutes,
@@ -86,6 +86,22 @@ jobs:
           tool: cargo-nextest
       - if: steps.scope.outputs.scope != 'docs'
         run: cargo xtask ci
+      # fn_gui (the egui game, #859) is outside the gate above, so its browser build gets its own
+      # step: a wasm32 break in it, or in the font and theme setup, fails the job. `xtask web-gui`
+      # needs the wasm-bindgen CLI at exactly the version Cargo.lock pins for the crate; the
+      # prebuilt release binary installs in seconds, so there is nothing to cache.
+      - id: wbg
+        if: steps.scope.outputs.scope != 'docs'
+        run: |
+          version="$(awk '$0 == "name = \"wasm-bindgen\"" { getline; gsub(/[^0-9.]/, "", $3); print $3 }' Cargo.lock)"
+          echo "wasm-bindgen $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - if: steps.scope.outputs.scope != 'docs'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wbg.outputs.version }}
+      - if: steps.scope.outputs.scope != 'docs'
+        run: cargo xtask web-gui --fast
       # A change to documents only: the tests that read docs/. The job, and so the required
       # check, still reports.
       - if: steps.scope.outputs.scope == 'docs'

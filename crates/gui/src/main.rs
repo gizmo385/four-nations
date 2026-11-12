@@ -52,7 +52,10 @@ mod web {
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(|_cc| Ok(Box::new(fn_gui::app::GuiApp::with_shell(shell)))),
+                Box::new(|cc| {
+                    fn_gui::setup(&cc.egui_ctx);
+                    Ok(Box::new(fn_gui::app::GuiApp::with_shell(shell)))
+                }),
             )
             .await;
         if let Err(e) = result {
@@ -77,7 +80,7 @@ fn main() -> eframe::Result {
         "Four Nations",
         options,
         Box::new(move |cc| {
-            fn_gui::fonts::install(&cc.egui_ctx);
+            fn_gui::setup(&cc.egui_ctx);
             Ok(Box::new(fn_gui::app::GuiApp::new(saves, seed_hint)))
         }),
     )
