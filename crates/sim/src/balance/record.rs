@@ -549,14 +549,14 @@ fn paid_in(world: &World, defs: &Defs) -> Vec<(String, u32)> {
     let mut paid: std::collections::BTreeMap<String, u32> = Default::default();
     for e in world.caravan_events() {
         let give = match &e.kind {
-            CaravanEventKind::DealDone { nation, deal } => {
-                let Some(c) = defs.trade.caravans.iter().find(|c| c.nation == *nation) else {
+            CaravanEventKind::DealDone { nation, deal, united } => {
+                let Some(c) = defs.trade.caravan(*nation, *united) else {
                     continue;
                 };
                 &c.deals[usize::from(*deal)].give
             }
-            CaravanEventKind::RequestDone { nation, request } => {
-                let Some(c) = defs.trade.caravans.iter().find(|c| c.nation == *nation) else {
+            CaravanEventKind::RequestDone { nation, request, united } => {
+                let Some(c) = defs.trade.caravan(*nation, *united) else {
                     continue;
                 };
                 &c.requests[usize::from(*request)].give

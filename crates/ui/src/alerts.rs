@@ -832,7 +832,7 @@ fn caravan_name(session: &Session, nation: fn_sim::Nation) -> String {
 /// traders: 2 metal" and "Request met: Food for the families at Fire Fountain City".
 fn caravan_line(session: &Session, ev: &CaravanEvent) -> Line {
     let defs = &session.defs;
-    let caravan = |n| defs.trade.caravans.iter().find(|c| c.nation == n);
+    let caravan = |n, united| defs.trade.caravan(n, united);
     match &ev.kind {
         CaravanEventKind::Arrived { nation, camp } => {
             let text = format!("{} made camp", caravan_name(session, *nation));
@@ -846,27 +846,28 @@ fn caravan_line(session: &Session, ev: &CaravanEvent) -> Line {
             let text = format!("{} left", caravan_name(session, *nation));
             Line::new(Kind::Trade, text.clone(), toast_of(&text))
         }
-        CaravanEventKind::DealDone { nation, deal } => {
+        CaravanEventKind::DealDone { nation, deal, united } => {
             let name = caravan_name(session, *nation);
-            let got = caravan(*nation).and_then(|c| c.deals.get(usize::from(*deal))).map(|d| {
-                let mut parts: Vec<String> = d
-                    .get
-                    .iter()
-                    .map(|&(i, n)| format!("{n} {}", defs.item(i).name.to_lowercase()))
-                    .collect();
-                if d.knowledge > 0 {
-                    parts.push(format!("{} knowledge", d.knowledge));
-                }
-                parts.join(", ")
-            });
+            let got =
+                caravan(*nation, *united).and_then(|c| c.deals.get(usize::from(*deal))).map(|d| {
+                    let mut parts: Vec<String> = d
+                        .get
+                        .iter()
+                        .map(|&(i, n)| format!("{n} {}", defs.item(i).name.to_lowercase()))
+                        .collect();
+                    if d.knowledge > 0 {
+                        parts.push(format!("{} knowledge", d.knowledge));
+                    }
+                    parts.join(", ")
+                });
             let text = match got {
                 Some(got) if !got.is_empty() => format!("Deal done with the {name}: {got}"),
                 _ => format!("Deal done with the {name}"),
             };
             Line::new(Kind::Trade, text, None)
         }
-        CaravanEventKind::RequestDone { nation, request } => {
-            let req = caravan(*nation).and_then(|c| c.requests.get(usize::from(*request)));
+        CaravanEventKind::RequestDone { nation, request, united } => {
+            let req = caravan(*nation, *united).and_then(|c| c.requests.get(usize::from(*request)));
             let text = match req {
                 Some(r) => format!("Request met: {}", r.name),
                 None => "Request met".to_owned(),
@@ -1986,14 +1987,18 @@ mod tests {
         let deal = s.defs.trade.caravans[fire].deals.iter().position(|d| d.knowledge == 0);
         let ev = CaravanEvent {
             tick: 0,
-            kind: CaravanEventKind::DealDone { nation: Nation::Fire, deal: deal.unwrap() as u8 },
+            kind: CaravanEventKind::DealDone {
+                nation: Nation::Fire,
+                deal: deal.unwrap() as u8,
+                united: false,
+            },
         };
         let line = caravan_line(&s, &ev);
         assert!(line.text.starts_with("Deal done with the Fire Nation traders: "), "{}", line.text);
         assert!(line.toast.is_none(), "log only");
         let ev = CaravanEvent {
             tick: 0,
-            kind: CaravanEventKind::RequestDone { nation: Nation::Fire, request: 0 },
+            kind: CaravanEventKind::RequestDone { nation: Nation::Fire, request: 0, united: false },
         };
         assert_eq!(
             caravan_line(&s, &ev).text,

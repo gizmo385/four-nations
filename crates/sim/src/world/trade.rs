@@ -7,6 +7,12 @@
 //!   RNG in who comes. It camps on the first free 2x2 spot whose anchor is `camp_distance` path
 //!   tiles from the settlement anchor, searched in row-major order. With none, the visit is
 //!   skipped (`CaravanEventKind::Skipped`) and the turn still passes.
+//! - **The United City** (#442, docs/design/pacing.md section 4). Once the Harmony Gate stands
+//!   (`World::united`), the turn order includes the settlement's own nation (kin visiting), the
+//!   visit's deals are the scaled ones (`TradeDef::united`: counts and `times` times
+//!   `united_scale`) and its request is drawn from the nation's `united` list. A visit fixes
+//!   which world it is in when it arrives (`Visit::united`), so a gate finished mid-visit
+//!   changes the next caravan, not this one.
 //! - **Offers.** A visit offers `deals_per_visit` of the caravan's deals, drawn from
 //!   `rng::stream(seed, "trade.deals")`, then one of its requests. They are the visit's slots,
 //!   deals first.
@@ -124,6 +130,10 @@ pub struct Visit {
     pub leaves: u64,
     /// The camp's top-left tile; it covers 2x2 from there.
     pub camp: Pos,
+    /// Whether it came to the United City (#442): its deals are the scaled ones and its requests
+    /// the `united` list (`TradeDef::caravan`).
+    #[serde(default)]
+    pub united: bool,
     /// What it offers, deals first, then the request.
     pub offers: Vec<Offer>,
 }
@@ -142,16 +152,18 @@ pub enum OfferKind {
 
 impl OfferKind {
     /// The deal this slot is (`Deal` from the visiting `caravan`'s list, `Lotus` from its own
-    /// nation's), or `None` for a request.
-    pub fn deal<'d>(self, caravan: &'d CaravanDef, defs: &'d Defs) -> Option<&'d DealDef> {
+    /// nation's, in the United City's set when `united`), or `None` for a request.
+    pub fn deal<'d>(
+        self,
+        caravan: &'d CaravanDef,
+        defs: &'d Defs,
+        united: bool,
+    ) -> Option<&'d DealDef> {
         match self {
             Self::Deal(d) => caravan.deals.get(usize::from(d)),
-            Self::Lotus { nation, deal } => defs
-                .trade
-                .caravans
-                .iter()
-                .find(|c| c.nation == nation)
-                .and_then(|c| c.deals.get(usize::from(deal))),
+            Self::Lotus { nation, deal } => {
+                defs.trade.caravan(nation, united).and_then(|c| c.deals.get(usize::from(deal)))
+            }
             Self::Request(_) => None,
         }
     }
@@ -188,10 +200,22 @@ pub enum CaravanEventKind {
     Arrived { nation: Nation, camp: Pos },
     /// Its turn came, but there was no free spot to camp.
     Skipped { nation: Nation },
-    /// One of its deals completed once (`deal` indexes `CaravanDef::deals`).
-    DealDone { nation: Nation, deal: u8 },
-    /// Its request was met (`request` indexes `CaravanDef::requests`).
-    RequestDone { nation: Nation, request: u8 },
+    /// One of its deals completed once (`deal` indexes `CaravanDef::deals`, of the United City's
+    /// caravan when `united`, #442).
+    DealDone {
+        nation: Nation,
+        deal: u8,
+        #[serde(default)]
+        united: bool,
+    },
+    /// Its request was met (`request` indexes `CaravanDef::requests`, of the United City's
+    /// caravan when `united`, whose `requests` are its `united` list).
+    RequestDone {
+        nation: Nation,
+        request: u8,
+        #[serde(default)]
+        united: bool,
+    },
     /// Packed up and left.
     Left { nation: Nation },
 }
@@ -229,7 +253,7 @@ impl World {
     /// The data of the caravan camped right now.
     pub fn caravan_def<'d>(&self, defs: &'d Defs) -> Option<&'d CaravanDef> {
         let v = self.trade.visit.as_ref()?;
-        defs.trade.caravans.iter().find(|c| c.nation == v.nation)
+        defs.trade.caravan(v.nation, v.united)
     }
 
     /// When the next caravan is due and whose turn it is, for the Traders screen (#438): the
@@ -248,7 +272,7 @@ impl World {
         let from = (self.tick + 1).max(opened);
         let base = from - from % interval + offset;
         let at = if base >= from { base } else { base + interval };
-        let visitors: Vec<Nation> = s.visitors(self.nation).collect();
+        let visitors: Vec<Nation> = s.visitors(self.nation, self.united()).collect();
         let nation = *visitors.get(self.trade.turns as usize % visitors.len().max(1))?;
         Some((at, nation))
     }
@@ -259,7 +283,7 @@ impl World {
         let offer = self.trade.visit.as_ref()?.offers.get(usize::from(slot))?;
         let give = match offer.kind {
             OfferKind::Request(r) => &caravan.requests.get(usize::from(r))?.give,
-            kind => &kind.deal(caravan, defs)?.give,
+            kind => &kind.deal(caravan, defs, self.trade.visit.as_ref()?.united)?.give,
         };
         let owed = offer.taken - offer.done;
         Some(give.iter().map(|g| (g, (g.count * owed).saturating_sub(offer.held_of(g)))).collect())
@@ -288,7 +312,7 @@ impl World {
         let offer = visit.offers.get_mut(usize::from(slot)).ok_or(TradeError::NoSuchOffer)?;
         let most = match offer.kind {
             OfferKind::Request(_) => 1,
-            kind => kind.deal(caravan, defs).map_or(0, |d| d.times),
+            kind => kind.deal(caravan, defs, visit.united).map_or(0, |d| d.times),
         };
         if offer.taken >= most {
             return Err(TradeError::AllTaken);
@@ -365,7 +389,8 @@ impl World {
     /// The next nation's turn: it camps and offers its deals, or is skipped.
     fn caravan_arrives(&mut self, stay: u64, defs: &Defs) {
         let s = defs.trade.schedule.as_ref().expect("checked by tick_trade");
-        let visitors: Vec<Nation> = s.visitors(self.nation).collect();
+        let united = self.united();
+        let visitors: Vec<Nation> = s.visitors(self.nation, united).collect();
         if visitors.is_empty() || self.trade.visit.is_some() {
             return;
         }
@@ -378,7 +403,7 @@ impl World {
             });
             return;
         };
-        let caravan = defs.trade.caravans.iter().find(|c| c.nation == nation).expect("validated");
+        let caravan = defs.trade.caravan(nation, united).expect("validated");
         // A partial shuffle: the first `deals_per_visit` of the deals, drawn without repeats,
         // then listed in data order.
         let mut deals: Vec<u8> = (0..caravan.deals.len() as u8).collect();
@@ -402,10 +427,16 @@ impl World {
         let offer = |kind| Offer { kind, taken: 0, done: 0, held: Vec::new() };
         let mut offers: Vec<Offer> = deals.into_iter().map(|d| offer(OfferKind::Deal(d))).collect();
         // White Lotus deals (#738), on their own stream, after everything drawn above.
-        offers.extend(self.lotus_deals(nation, defs).into_iter().map(offer));
+        offers.extend(self.lotus_deals(nation, united, defs).into_iter().map(offer));
         offers.push(offer(OfferKind::Request(request)));
-        self.trade.visit =
-            Some(Visit { nation, arrived: self.tick, leaves: self.tick + stay, camp, offers });
+        self.trade.visit = Some(Visit {
+            nation,
+            arrived: self.tick,
+            leaves: self.tick + stay,
+            camp,
+            united,
+            offers,
+        });
         self.log_event(CaravanEvent {
             tick: self.tick,
             kind: CaravanEventKind::Arrived { nation, camp },
@@ -448,11 +479,11 @@ impl World {
         let Some(caravan) = self.caravan_def(defs) else { return };
         loop {
             let v = self.trade.visit.as_mut().expect("caravan_def found it");
-            let (nation, camp) = (v.nation, v.camp);
+            let (nation, camp, united) = (v.nation, v.camp, v.united);
             let offer = &mut v.offers[usize::from(slot)];
             let give = match offer.kind {
                 OfferKind::Request(r) => &caravan.requests[usize::from(r)].give,
-                kind => &kind.deal(caravan, defs).expect("a slot names a real deal").give,
+                kind => &kind.deal(caravan, defs, united).expect("a slot names a real deal").give,
             };
             if offer.done >= offer.taken || give.iter().any(|g| offer.held_of(g) < g.count) {
                 return;
@@ -472,7 +503,7 @@ impl World {
             let tick = self.tick;
             match kind {
                 OfferKind::Deal(_) | OfferKind::Lotus { .. } => {
-                    let deal = kind.deal(caravan, defs).expect("a slot names a real deal");
+                    let deal = kind.deal(caravan, defs, united).expect("a slot names a real deal");
                     // A Lotus deal is logged as its own nation's, whose list names it.
                     let (nation, d) = match kind {
                         OfferKind::Lotus { nation, deal } => (nation, deal),
@@ -490,25 +521,32 @@ impl World {
                     }
                     self.log_event(CaravanEvent {
                         tick,
-                        kind: CaravanEventKind::DealDone { nation, deal: d },
+                        kind: CaravanEventKind::DealDone { nation, deal: d, united },
                     });
                 }
                 OfferKind::Request(r) => {
                     // A Pai Sho Table multiplies every request's reward (#738).
                     let times = self.pai_sho(defs).map_or(1.0, |p| p.request_reward);
-                    let scaled = |n: u32| (n as f32 * times).round() as u32;
-                    match caravan.requests[usize::from(r)].reward {
-                        Reward::Knowledge(k) => {
-                            self.research.add_knowledge(u64::from(scaled(k)) * 1000)
-                        }
-                        Reward::Draw(milli) => self.add_draw(scaled(milli), defs),
-                    }
+                    let reward = caravan.requests[usize::from(r)].reward;
+                    self.grant_reward(nation, reward, times, defs);
                     self.log_event(CaravanEvent {
                         tick,
-                        kind: CaravanEventKind::RequestDone { nation, request: r },
+                        kind: CaravanEventKind::RequestDone { nation, request: r, united },
                     });
                 }
             }
+        }
+    }
+
+    /// Pays a met request's `reward` (times `times`, a Pai Sho Table's) from the caravan of
+    /// `from`. The one place a request's reward lands: owner decision #747 makes a `Draw` in the
+    /// United City bring a newcomer of `from`'s own nation (#761), which needs only this to know
+    /// whose caravan it was.
+    fn grant_reward(&mut self, _from: Nation, reward: Reward, times: f32, defs: &Defs) {
+        let scaled = |n: u32| (n as f32 * times).round() as u32;
+        match reward {
+            Reward::Knowledge(k) => self.research.add_knowledge(u64::from(scaled(k)) * 1000),
+            Reward::Draw(milli) => self.add_draw(scaled(milli), defs),
         }
     }
 
@@ -597,9 +635,9 @@ impl World {
 
     /// The White Lotus deals a caravan of `visitor` brings now (#738): none unless a Pai Sho
     /// Table stands and it is winter; else `lotus_deals` of every other caravan's deals (not
-    /// `visitor`'s, not the settlement's own nation's), drawn without repeats from
-    /// `trade.lotus` and listed in pool order.
-    fn lotus_deals(&mut self, visitor: Nation, defs: &Defs) -> Vec<OfferKind> {
+    /// `visitor`'s, not the settlement's own nation's unless `united`, #442, when its own
+    /// kin visit too), drawn without repeats from `trade.lotus` and listed in pool order.
+    fn lotus_deals(&mut self, visitor: Nation, united: bool, defs: &Defs) -> Vec<OfferKind> {
         let Some(table) = self.pai_sho(defs) else { return Vec::new() };
         if !self.season(defs).winter {
             return Vec::new();
@@ -607,9 +645,9 @@ impl World {
         let home = self.nation;
         let mut pool: Vec<(usize, OfferKind)> = defs
             .trade
-            .caravans
+            .caravans_for(united)
             .iter()
-            .filter(|c| c.nation != visitor && c.nation != home)
+            .filter(|c| c.nation != visitor && (united || c.nation != home))
             .flat_map(|c| {
                 (0..c.deals.len() as u8).map(|deal| OfferKind::Lotus { nation: c.nation, deal })
             })

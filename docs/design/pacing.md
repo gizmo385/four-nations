@@ -492,6 +492,16 @@ count.
 - The population milestones already planned by endgame.md (the next milestone shown on the
   Endeavor screen) carry on, at 24 and 32 by default, each with a toast.
 
+**As built (#442).** `data/trade.toml` has `united_scale` and a `[[caravan.united]]` request list
+per nation; `data/endeavor.toml` has `[[milestone]]` entries and a `[milestone_repeat]`. Owner
+decisions: the milestones are 24, 32, then every 8 more without end (#929; drop the repeat for
+"24 and 32 only"), and reaching one is a toast and an event, nothing else (#930). A scaled deal
+multiplies its give, get and knowledge counts and its `times` by `united_scale`; the per-visit food
+cap is a rule for the road before the gate and doesn't apply to scaled lots. Once the gate stands
+the Endeavor screen is the United City view: the people by nation and the next milestone. A draw
+reward is paid in one place (`World::grant_reward`, which knows whose caravan it was), so #761 can
+bring a newcomer of the caravan's own nation there (owner decision #747).
+
 The **Spirit Portal** (endgame.md, concept B) is the real sequel. It needs spirit AI and a new
 resource, so it's a separate design issue when the owner wants it (question 4). It isn't filed
 here.

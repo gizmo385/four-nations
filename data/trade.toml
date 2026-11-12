@@ -13,8 +13,13 @@
 #                     settlement anchor. The camp is the first free 2x2 spot in that band,
 #                     searched in row-major order; with none, the visit is skipped.
 # - deals_per_visit:  how many of the caravan's deals each visit offers, drawn at random.
-# - order:            whose turn it is, in turn. The settlement's own nation is skipped. Every
-#                     nation named needs a [[caravan]].
+# - order:            whose turn it is, in turn. The settlement's own nation is skipped until the
+#                     Harmony Gate stands. Every nation named needs a [[caravan]].
+# - united_scale:     optional, default 1.5, in [1, 4]. In the United City (the gate stands, #442)
+#                     caravans come from every nation in `order`, the settlement's own included,
+#                     and each deal's counts (give, get, knowledge) and `times` are multiplied by
+#                     this, rounded, `times` at most 10. The food-per-visit cap below is for the
+#                     road before the gate and doesn't apply to the scaled lots.
 #
 # [[caravan]]: one nation's traders.
 # - nation, name.
@@ -31,6 +36,10 @@
 # - reward:    { knowledge = N } research points, or { draw = X } of a newcomer (up to
 #              data/needs.toml's growth.draw.bank). { chart = 1 } is refused until a caravan's
 #              chart has a system.
+# [[caravan.united]]: the United City's requests (#442), shaped like [[caravan.request]]; at least
+#              one a nation. Once the gate stands a visit's request is drawn from these instead:
+#              bigger gifts, each a `draw` reward. (Owner decision #747: a draw reward brings a
+#              newcomer of the caravan's own nation here; #761 builds that.)
 
 [caravans]
 opens = "known_on_the_road"
@@ -40,6 +49,7 @@ stay_minutes = 9.0
 camp_distance = [8, 14]
 deals_per_visit = 3
 order = ["earth", "fire", "water", "air"]
+united_scale = 1.5
 
 # --- Earth: stone, ore and tools ---
 [[caravan]]
@@ -90,6 +100,21 @@ name = "Copies for the library at Ba Sing Se"
 give = [{ item = "scroll_copy", count = 3 }]
 reward = { draw = 0.5 }
 
+[[caravan.united]]
+name = "Stone for Omashu's walls"
+give = [{ item = "stone", count = 150 }]
+reward = { draw = 1.0 }
+
+[[caravan.united]]
+name = "Food for the refugees of Ba Sing Se"
+give = [{ item = "food", count = 120 }]
+reward = { draw = 1.0 }
+
+[[caravan.united]]
+name = "Wares for the markets of the Lower Ring"
+give = [{ item = "wares", count = 30 }]
+reward = { draw = 1.0 }
+
 # --- Fire: metal and bricks ---
 [[caravan]]
 nation = "fire"
@@ -137,6 +162,16 @@ name = "Food for the families at Fire Fountain City"
 give = [{ item = "food", count = 40 }]
 reward = { draw = 0.5 }
 
+[[caravan.united]]
+name = "Bricks for the rebuilding of Fire Fountain City"
+give = [{ item = "brick", count = 40 }]
+reward = { draw = 1.0 }
+
+[[caravan.united]]
+name = "Food for the harbour at Caldera City"
+give = [{ item = "food", count = 120 }]
+reward = { draw = 1.0 }
+
 # --- Water: fish and healing herbs ---
 [[caravan]]
 nation = "water"
@@ -177,6 +212,16 @@ times = 2
 name = "Timber for the boats of the Southern Water Tribe"
 give = [{ item = "wood", count = 50 }]
 reward = { draw = 0.5 }
+
+[[caravan.united]]
+name = "Timber for the fleet of the Northern Water Tribe"
+give = [{ item = "wood", count = 150 }]
+reward = { draw = 1.0 }
+
+[[caravan.united]]
+name = "Wares for the markets of Chameleon Bay"
+give = [{ item = "wares", count = 30 }]
+reward = { draw = 1.0 }
 
 # --- Air: knowledge ---
 [[caravan]]
@@ -228,4 +273,14 @@ reward = { draw = 0.25 }
 [[caravan.request]]
 name = "Crystals for the halls of the Northern Air Temple"
 give = [{ item = "glow_crystal", count = 3 }]
+reward = { draw = 1.0 }
+
+[[caravan.united]]
+name = "Wares for the pilgrims of the Southern Air Temple"
+give = [{ item = "wares", count = 30 }]
+reward = { draw = 1.0 }
+
+[[caravan.united]]
+name = "Copies for the library of the Northern Air Temple"
+give = [{ item = "scroll_copy", count = 8 }]
 reward = { draw = 1.0 }

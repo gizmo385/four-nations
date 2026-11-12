@@ -9,7 +9,10 @@
 //!
 //! Loaded strictly, like `endeavor.rs`: unknown keys are rejected, items resolve at load
 //! (`"food"` means any food item, as the food sign counts them), and every count is
-//! range-checked. A reward whose system doesn't exist yet (`chart`) is refused at load, the way
+//! range-checked. Once the Harmony Gate stands (#442, docs/design/pacing.md section 4) the United
+//! City's caravans come from all four nations, own included, with every deal's counts and
+//! `times` scaled by `[caravans].united_scale` and requests drawn from the nation's `united`
+//! list instead: [`TradeDef::united`] holds those caravans, scaled once at load. A reward whose system doesn't exist yet (`chart`) is refused at load, the way
 //! the endeavor refuses a sign kind it can't count.
 
 use serde::Deserialize;
@@ -33,6 +36,22 @@ pub struct TradeDef {
     pub schedule: Option<Schedule>,
     /// One per visiting nation, in file order.
     pub caravans: Vec<CaravanDef>,
+    /// The same nations' caravans in the United City (#442): each deal scaled by
+    /// `united_scale`, the requests the nation's `united` list. Same order as `caravans`, so a
+    /// deal index means the same deal in both.
+    pub united: Vec<CaravanDef>,
+}
+
+impl TradeDef {
+    /// `nation`'s caravan: the United City's (`united`) or the usual one.
+    pub fn caravan(&self, nation: Nation, united: bool) -> Option<&CaravanDef> {
+        self.caravans_for(united).iter().find(|c| c.nation == nation)
+    }
+
+    /// Every caravan of the usual set or of the United City's.
+    pub fn caravans_for(&self, united: bool) -> &[CaravanDef] {
+        if united { &self.united } else { &self.caravans }
+    }
 }
 
 /// `[caravans]`: when caravans come and where they camp.
@@ -47,14 +66,18 @@ pub struct Schedule {
     /// The camp's anchor is this many path tiles from the settlement anchor, inclusive.
     pub camp_distance: (u32, u32),
     pub deals_per_visit: u32,
-    /// Whose turn it is, in order; the settlement's own nation is skipped.
+    /// Whose turn it is, in order; the settlement's own nation is skipped until it is the
+    /// United City.
     pub order: Vec<Nation>,
+    /// What the United City's deals scale by (#442): counts and `times`, rounded.
+    pub united_scale: f32,
 }
 
 impl Schedule {
-    /// The nations that visit `home`, in turn.
-    pub fn visitors(&self, home: Nation) -> impl Iterator<Item = Nation> + '_ {
-        self.order.iter().copied().filter(move |&n| n != home)
+    /// The nations that visit `home`, in turn. In the United City (`united`, #442) all of
+    /// `order`, `home` included: kin visiting.
+    pub fn visitors(&self, home: Nation, united: bool) -> impl Iterator<Item = Nation> + '_ {
+        self.order.iter().copied().filter(move |&n| united || n != home)
     }
 }
 
@@ -65,7 +88,12 @@ pub struct CaravanDef {
     /// "Fire Nation traders".
     pub name: String,
     pub deals: Vec<DealDef>,
+    /// The gift it asks for before the gate stands; one is offered each visit.
     pub requests: Vec<RequestDef>,
+    /// The bigger gifts it asks for in the United City (#442). In [`TradeDef::united`]'s copy
+    /// of the caravan these are also `requests`, so every reader of `requests` is right in
+    /// either world.
+    pub united: Vec<RequestDef>,
 }
 
 /// One side of goods: `count` of any of `items` (one item, or every food for `"food"`).
@@ -131,6 +159,12 @@ struct RawSchedule {
     camp_distance: [u32; 2],
     deals_per_visit: u32,
     order: Vec<Nation>,
+    #[serde(default = "default_united_scale")]
+    united_scale: f32,
+}
+
+fn default_united_scale() -> f32 {
+    1.5
 }
 
 #[derive(Deserialize)]
@@ -142,6 +176,8 @@ struct RawCaravan {
     deal: Vec<RawDeal>,
     #[serde(default)]
     request: Vec<RawRequest>,
+    #[serde(default)]
+    united: Vec<RawRequest>,
 }
 
 #[derive(Deserialize)]
@@ -221,6 +257,9 @@ impl TradeFile {
                 "caravans.camp_distance must be [near, far] with near <= far <= 64".into()
             ));
         }
+        if !(s.united_scale.is_finite() && (1.0..=4.0).contains(&s.united_scale)) {
+            return Err(err("caravans.united_scale must be in [1, 4]".into()));
+        }
         if !(1..=8).contains(&s.deals_per_visit) {
             return Err(err("caravans.deals_per_visit must be in 1..=8".into()));
         }
@@ -257,8 +296,10 @@ impl TradeFile {
             camp_distance: (near, far),
             deals_per_visit: s.deals_per_visit,
             order: s.order,
+            united_scale: s.united_scale,
         };
-        Ok(TradeDef { schedule: Some(schedule), caravans })
+        let united = caravans.iter().map(|c| c.scaled(schedule.united_scale)).collect();
+        Ok(TradeDef { schedule: Some(schedule), caravans, united })
     }
 }
 
@@ -360,39 +401,84 @@ impl RawCaravan {
             }
             deals.push(DealDef { give, get, knowledge: d.knowledge, times: d.times });
         }
-        let mut requests = Vec::with_capacity(self.request.len());
-        for r in self.request {
-            let at = |m: String| format!("request {:?}: {m}", r.name);
-            if r.name.trim().is_empty() {
-                return Err("request name must not be empty".into());
-            }
-            let reward = match (r.reward.knowledge, r.reward.draw, r.reward.chart) {
-                (Some(k), None, None) if (1..=10_000).contains(&k) => Reward::Knowledge(k),
-                (None, Some(d), None) if d.is_finite() && d > 0.0 && d <= draw_bank => {
-                    Reward::Draw((d * 1000.0).round() as u32)
-                }
-                (None, None, Some(_)) => {
-                    // #402's reveal is a Map Room's, measured from the room; a caravan's chart
-                    // needs its own origin first.
-                    return Err(at("chart rewards aren't supported yet".into()));
-                }
-                (None, None, None) => return Err(at("needs a reward".into())),
-                (Some(_), None, None) => return Err(at("knowledge must be in 1..=10000".into())),
-                (None, Some(_), None) => {
-                    return Err(at(format!("draw must be in (0, {draw_bank}] (growth.draw.bank)")));
-                }
-                _ => return Err(at("one reward only".into())),
-            };
-            let give = resolve_goods(r.give, items).map_err(at)?;
-            if matches!(reward, Reward::Knowledge(_)) && takes_copies(&give) {
-                return Err(at("takes scroll copies and pays knowledge, a loop".into()));
-            }
-            requests.push(RequestDef { name: r.name.clone(), give, reward });
-        }
+        let requests = resolve_requests(self.request, items, draw_bank, takes_copies, "request")?;
         if requests.is_empty() {
             return Err("needs at least one [[caravan.request]]".into());
         }
-        Ok(CaravanDef { nation: self.nation, name: self.name, deals, requests })
+        let united =
+            resolve_requests(self.united, items, draw_bank, takes_copies, "united request")?;
+        if united.is_empty() {
+            return Err("needs at least one [[caravan.united]] request".into());
+        }
+        Ok(CaravanDef { nation: self.nation, name: self.name, deals, requests, united })
+    }
+}
+
+/// One caravan's requests (`[[caravan.request]]`, or the United City's `[[caravan.united]]`):
+/// each reward in range and a system that exists. `what` names the list in an error.
+fn resolve_requests(
+    raw: Vec<RawRequest>,
+    items: &[ItemDef],
+    draw_bank: f32,
+    takes_copies: impl Fn(&[Goods]) -> bool,
+    what: &str,
+) -> Result<Vec<RequestDef>, String> {
+    let mut requests = Vec::with_capacity(raw.len());
+    for r in raw {
+        let at = |m: String| format!("{what} {:?}: {m}", r.name);
+        if r.name.trim().is_empty() {
+            return Err(format!("{what} name must not be empty"));
+        }
+        let reward = match (r.reward.knowledge, r.reward.draw, r.reward.chart) {
+            (Some(k), None, None) if (1..=10_000).contains(&k) => Reward::Knowledge(k),
+            (None, Some(d), None) if d.is_finite() && d > 0.0 && d <= draw_bank => {
+                Reward::Draw((d * 1000.0).round() as u32)
+            }
+            (None, None, Some(_)) => {
+                // #402's reveal is a Map Room's, measured from the room; a caravan's chart
+                // needs its own origin first.
+                return Err(at("chart rewards aren't supported yet".into()));
+            }
+            (None, None, None) => return Err(at("needs a reward".into())),
+            (Some(_), None, None) => return Err(at("knowledge must be in 1..=10000".into())),
+            (None, Some(_), None) => {
+                return Err(at(format!("draw must be in (0, {draw_bank}] (growth.draw.bank)")));
+            }
+            _ => return Err(at("one reward only".into())),
+        };
+        let give = resolve_goods(r.give, items).map_err(at)?;
+        if matches!(reward, Reward::Knowledge(_)) && takes_copies(&give) {
+            return Err(at("takes scroll copies and pays knowledge, a loop".into()));
+        }
+        requests.push(RequestDef { name: r.name.clone(), give, reward });
+    }
+    Ok(requests)
+}
+
+impl CaravanDef {
+    /// This caravan in the United City (#442): every deal's counts (what it takes, what it
+    /// leaves, its knowledge) and `times` multiplied by `scale` and rounded, never below 1, at
+    /// most `MAX_COUNT` a side and 10 times; the requests become the `united` list. The
+    /// per-visit food cap is a rule for the usual road and doesn't apply to scaled lots.
+    fn scaled(&self, scale: f32) -> CaravanDef {
+        let by = |n: u32, most: u32| ((n as f32 * scale).round() as u32).clamp(1, most);
+        let goods = |g: &Goods| Goods { count: by(g.count, MAX_COUNT), ..g.clone() };
+        let deals = self
+            .deals
+            .iter()
+            .map(|d| DealDef {
+                give: d.give.iter().map(goods).collect(),
+                get: d.get.iter().map(|&(i, n)| (i, by(n, MAX_COUNT))).collect(),
+                knowledge: if d.knowledge == 0 { 0 } else { by(d.knowledge, 10_000) },
+                times: by(d.times, 10),
+            })
+            .collect();
+        CaravanDef {
+            deals,
+            requests: self.united.clone(),
+            united: self.united.clone(),
+            ..self.clone()
+        }
     }
 }
 

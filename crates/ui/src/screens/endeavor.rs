@@ -8,7 +8,7 @@
 //! that scroll (`screens::draw_screen`).
 
 use crate::Session;
-use crate::endeavor::{GroupView, SignRow, screen_view};
+use crate::endeavor::{GroupView, SignRow, UnitedView, screen_view};
 
 use crate::rows::{Marks, Row, Tone, meter, wrap};
 
@@ -61,6 +61,35 @@ fn group_rows(group: &GroupView, name_width: usize, width: usize, marks: &Marks)
     rows
 }
 
+/// The United City's rows (#442), under the stage line: the people by nation, then the next
+/// population milestone with a bar toward it, or that there are no more.
+pub fn united_rows(u: &UnitedView, marks: &Marks) -> Vec<Row> {
+    let mut rows = vec![Row::default(), Row::text("PEOPLE", Tone::Title)];
+    let name_width = u.by_nation.iter().map(|(n, _)| n.chars().count()).max().unwrap_or(0);
+    for (name, count) in &u.by_nation {
+        rows.push(Row::spans(vec![
+            (format!("  {name:<name_width$} "), Tone::Text),
+            (format!("{count:>3}"), Tone::Dim),
+        ]));
+    }
+    rows.push(Row::default());
+    rows.push(Row::text("NEXT MILESTONE", Tone::Title));
+    match u.next {
+        Some(next) => {
+            let [full, empty, flag] = meter(u.frac, BAR_CELLS, Tone::Accent, false, marks);
+            rows.push(Row::spans(vec![
+                ("  ".to_owned(), Tone::Dim),
+                full,
+                empty,
+                flag,
+                (format!(" {}/{next} people", u.population), Tone::Text),
+            ]));
+        }
+        None => rows.push(Row::text("  Every milestone is reached", Tone::Dim)),
+    }
+    rows
+}
+
 /// The screen's text, `width` columns wide: the name and count, the description if the data has
 /// one, a blank line, the stage tracker, then every group with a blank line before it.
 pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
@@ -81,6 +110,14 @@ pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
                 .into_iter()
                 .map(|l| Row::text(l, Tone::Dim)),
         );
+    }
+    // The United City (#442): the gate stands, so its stage and then who lives there and the next
+    // milestone take the place of the chapter and the signs.
+    if let Some(u) = &v.united {
+        rows.push(Row::default());
+        rows.push(Row::text(v.stage.clone(), Tone::Strong));
+        rows.extend(united_rows(u, marks));
+        return rows;
     }
     // The chapter (#439), at the top: its signs and what it brings until it's met, then one line
     // with its name.

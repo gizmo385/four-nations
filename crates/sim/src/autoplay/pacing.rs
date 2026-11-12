@@ -413,7 +413,7 @@ fn next_take(world: &World, defs: &Defs) -> Option<u8> {
         let (give, times, tier) = match offer.kind {
             OfferKind::Request(r) => (&caravan.requests[usize::from(r)].give, 1, 1),
             kind => {
-                let Some(deal) = kind.deal(caravan, defs) else { continue };
+                let Some(deal) = kind.deal(caravan, defs, visit.united) else { continue };
                 let feeds = deal.get.iter().any(|&(i, _)| feeds_missing_sign(world, defs, i));
                 (&deal.give, deal.times, if feeds { 0 } else { 2 })
             }

@@ -210,6 +210,11 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                     false,
                     Sense::hover(),
                 );
+                if let Some(u) = &view.united {
+                    for row in united_rows(u, &marks) {
+                        page::text_row(ui, &look, &row, false, Sense::hover());
+                    }
+                }
                 if let Some(action) = action {
                     let text = RichText::new(action.hint()).font(look.font.clone());
                     let button = Button::new(text).fill(look.panel);

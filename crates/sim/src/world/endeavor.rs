@@ -77,6 +77,9 @@ pub enum EndeavorEventKind {
     /// A settler's death broke the Harmony Rite: its progress reset to nothing (`world/gate.rs`,
     /// #238).
     RiteBroken,
+    /// The United City's population reached this milestone (`data/endeavor.toml`'s
+    /// `[[milestone]]`, #442): once each, in order, after the gate stands.
+    PopulationMilestone(u32),
     /// The last stage finished: the gate stands and the endeavor is `Complete` (`world/gate.rs`,
     /// #236, #238).
     Complete,
@@ -115,6 +118,10 @@ pub(super) struct EndeavorLog {
     /// Each chapter met so far (#439), by id, with the tick it was met on.
     #[serde(default)]
     chapters: BTreeMap<String, u64>,
+    /// The highest United City population milestone that has fired (#442), 0 for none: the next
+    /// one is the first above it, so each fires once whatever the data says later.
+    #[serde(default)]
+    milestone: u32,
     /// A v1 to v3 save's endeavor events (#605): merged into `World::events` on load, never
     /// written.
     #[serde(default, skip_serializing, rename = "events")]
@@ -197,6 +204,23 @@ impl World {
         SignProgress { id: &sign.id, value, target, met: target > 0 && value >= target }
     }
 
+    /// Whether the Harmony Gate stands: the settlement is the United City (#240, #442).
+    pub fn united(&self) -> bool {
+        matches!(self.endeavor, EndeavorState::Complete { .. })
+    }
+
+    /// The settlement's own people: every living unit but the Avatar and the beasts. What the
+    /// United City's milestones count (#442).
+    pub fn settlers(&self) -> usize {
+        self.units.iter().filter(|u| u.is_settler()).count()
+    }
+
+    /// The next population milestone of the United City (#442): the first in the data above the
+    /// last one that fired. `None` when the data has no more. Meaningful once [`united`](Self::united).
+    pub fn next_milestone(&self, defs: &Defs) -> Option<u32> {
+        defs.endeavor.milestones.next_after(self.endeavor_log.milestone)
+    }
+
     /// The id of every finished building, once per building however many tiles it covers. Walks
     /// the building records (`World::buildings`, #604), never the map: this runs once a second
     /// for as long as the `BedsForAll` and `EveryBuilding` signs below are unmet
@@ -238,6 +262,7 @@ impl World {
             return;
         }
         self.tick_chapters(defs);
+        self.tick_milestones(defs);
         if defs.endeavor.signs.is_empty() || self.endeavor != EndeavorState::Dormant {
             return;
         }
@@ -252,6 +277,22 @@ impl World {
         if progress.iter().all(|p| p.met) {
             self.endeavor = EndeavorState::Ready { tick };
             self.log_event(EndeavorEvent { tick, kind: EndeavorEventKind::Ready });
+        }
+    }
+
+    /// Fires each population milestone the United City has reached and not fired yet (#442): an
+    /// event each, in order, so a settlement already past one when the gate stands still hears
+    /// of it. Nothing else happens (owner decision #930).
+    fn tick_milestones(&mut self, defs: &Defs) {
+        if !self.united() {
+            return;
+        }
+        let population = self.settlers() as u32;
+        while let Some(next) = self.next_milestone(defs)
+            && population >= next
+        {
+            self.endeavor_log.milestone = next;
+            self.endeavor_event(EndeavorEventKind::PopulationMilestone(next));
         }
     }
 

@@ -769,3 +769,126 @@ fn the_chapter_survives_a_save() {
     let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
     assert_eq!(loaded.chapter_met("known_on_the_road"), w.chapter_met("known_on_the_road"));
 }
+
+// --- The United City's population milestones (#442) ---
+
+/// Grows `w` to `n` settlers by cloning its first unit under fresh ids.
+fn grow_to(w: &mut World, n: usize) {
+    while w.settlers() < n {
+        let mut unit = w.units[0].clone();
+        unit.id = UnitId(w.next_unit);
+        w.next_unit += 1;
+        w.units.push(unit);
+    }
+}
+
+fn milestones_fired(w: &World) -> Vec<u32> {
+    w.endeavor_events()
+        .filter_map(|e| match e.kind {
+            EndeavorEventKind::PopulationMilestone(n) => Some(n),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_bundled_milestones_are_24_32_and_every_8_after() {
+    let m = Defs::bundled().endeavor.milestones;
+    assert_eq!(m.list.iter().map(|m| m.population).collect::<Vec<_>>(), [24, 32]);
+    assert_eq!(m.repeat.as_ref().map(|r| r.every), Some(8));
+    let next: Vec<Option<u32>> = [0, 23, 24, 31, 32, 39, 40, 100].map(|p| m.next_after(p)).to_vec();
+    assert_eq!(
+        next,
+        [Some(24), Some(24), Some(32), Some(32), Some(40), Some(40), Some(48), Some(104)]
+    );
+    assert_eq!(m.toast(24).as_deref(), Some("The United City passes 24 souls."));
+    assert_eq!(m.toast(48).as_deref(), Some("The United City passes 48 souls."));
+    assert_eq!(m.toast(30), None, "not a milestone");
+    assert_eq!([24, 32, 40, 48].map(|n| m.previous(n)), [0, 24, 32, 40]);
+}
+
+#[test]
+fn the_repeat_is_optional_and_the_milestones_are_checked() {
+    let load = |tail: &str| {
+        let src = include_str!("../../../../../data/endeavor.toml");
+        let cut = src.find("# The United City's population milestones").unwrap();
+        let end = src.find("[[sign]]\nid = \"chapter_population\"").unwrap();
+        let src = format!("{}{tail}\n{}", &src[..cut], &src[end..]);
+        Defs::bundled().with_endeavor(&src).map(|d| d.endeavor.milestones)
+    };
+    let m = load("[[milestone]]\npopulation = 24\ntoast = \"A\"\n").unwrap();
+    assert_eq!((m.next_after(0), m.next_after(24)), (Some(24), None), "no repeat: 24 only");
+    let rel = "[milestone_repeat]\nevery = 5\ntoast = \"B {population}\"\n";
+    let m = load(&format!("[[milestone]]\npopulation = 24\ntoast = \"A\"\n{rel}")).unwrap();
+    assert_eq!((m.next_after(24), m.toast(29).as_deref()), (Some(29), Some("B 29")));
+    let none = load("").unwrap();
+    assert_eq!(none.next_after(0), None);
+    let e = |t: &str| load(t).expect_err("rejected").0;
+    assert!(e(rel).contains("at least one [[milestone]]"));
+    assert!(
+        e("[[milestone]]\npopulation = 24\ntoast = \"A\"\n[[milestone]]\npopulation = 24\ntoast = \"B\"\n")
+            .contains("increase")
+    );
+    assert!(e("[[milestone]]\npopulation = 0\ntoast = \"A\"\n").contains("population"));
+    assert!(e("[[milestone]]\npopulation = 3\ntoast = \" \"\n").contains("toast"));
+    let zero = "[[milestone]]\npopulation = 3\ntoast = \"A\"\n[milestone_repeat]\nevery = 0\ntoast = \"B\"\n";
+    assert!(e(zero).contains("every"));
+}
+
+#[test]
+fn a_milestone_fires_once_in_order_and_only_in_the_united_city() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, 3, &defs);
+    grow_to(&mut w, 26);
+    w.tick_milestones(&defs);
+    assert!(milestones_fired(&w).is_empty(), "the gate doesn't stand yet");
+
+    w.endeavor = EndeavorState::Complete { tick: 0 };
+    assert_eq!(w.next_milestone(&defs), Some(24));
+    w.tick_milestones(&defs);
+    w.tick_milestones(&defs);
+    assert_eq!(milestones_fired(&w), [24], "once, though 26 stays above it");
+    assert_eq!(w.next_milestone(&defs), Some(32));
+
+    // Dropping below and coming back doesn't fire it again.
+    w.units.truncate(10);
+    w.tick_milestones(&defs);
+    grow_to(&mut w, 25);
+    w.tick_milestones(&defs);
+    assert_eq!(milestones_fired(&w), [24]);
+
+    // A jump past two at once fires both, in order; the repeat then carries on without end.
+    grow_to(&mut w, 41);
+    w.tick_milestones(&defs);
+    assert_eq!(milestones_fired(&w), [24, 32, 40]);
+    assert_eq!(w.next_milestone(&defs), Some(48));
+    grow_to(&mut w, 48);
+    w.tick_milestones(&defs);
+    assert_eq!(milestones_fired(&w), [24, 32, 40, 48]);
+}
+
+#[test]
+fn a_fired_milestone_survives_a_save_and_the_event_is_the_toast() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, 3, &defs);
+    grow_to(&mut w, 25);
+    w.endeavor = EndeavorState::Complete { tick: 0 };
+    w.tick_milestones(&defs);
+    let loaded = World::load(&w.save(&defs).unwrap(), &defs).unwrap();
+    assert_eq!(loaded.next_milestone(&defs), Some(32), "24 doesn't fire again");
+    assert_eq!(milestones_fired(&loaded), [24]);
+}
+
+#[test]
+fn the_avatar_does_not_count_toward_a_milestone() {
+    let defs = Defs::bundled();
+    let mut w = world(Nation::Earth, 3, &defs);
+    grow_to(&mut w, 23);
+    w.endeavor = EndeavorState::Complete { tick: 0 };
+    let mut guest = w.units[0].clone();
+    guest.guest = Some(Guest::Avatar);
+    w.units.push(guest);
+    assert_eq!((w.population(), w.settlers()), (24, 23));
+    w.tick_milestones(&defs);
+    assert!(milestones_fired(&w).is_empty());
+}

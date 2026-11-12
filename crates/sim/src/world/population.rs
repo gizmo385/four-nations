@@ -161,7 +161,7 @@ impl World {
     /// between the settlement's own nation (`[growth].own_weight`) and each of the other three
     /// (`other_weight`), from `newcomer_rng` (see the module doc, #240).
     fn newcomer_nation(&mut self, defs: &Defs) -> Nation {
-        if !matches!(self.endeavor, EndeavorState::Complete { .. }) {
+        if !self.united() {
             return self.nation;
         }
         let growth = defs.needs.growth;

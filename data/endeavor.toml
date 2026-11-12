@@ -112,6 +112,27 @@ name = "Known on the road"
 hint = "Traders come once the road knows you"
 signs = ["chapter_population", "chapter_kinds", "chapter_food"]
 
+# The United City's population milestones (#442, docs/design/pacing.md section 4): once the gate
+# stands, the Endeavor screen shows the next one, and reaching one raises a toast and an event
+# and nothing else (owner decision #930). Each fires once.
+# [[milestone]], in increasing order of population:
+# - population: the living settlers (the Avatar never counts) that reach it.
+# - toast:      the toast and log line.
+# [milestone_repeat]: optional; after the last listed milestone, one more every `every` people,
+#               without end (owner decision #929: 24, 32, then every 8 more). Drop the section
+#               for "the listed ones only". `{population}` in its toast is the milestone's.
+[[milestone]]
+population = 24
+toast = "The United City passes 24 souls."
+
+[[milestone]]
+population = 32
+toast = "The United City passes 32 souls."
+
+[milestone_repeat]
+every = 8
+toast = "The United City passes {population} souls."
+
 [[sign]]
 id = "chapter_population"
 chapter = true
