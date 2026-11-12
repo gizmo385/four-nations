@@ -102,3 +102,12 @@ outlook_points = 0
 energy_decay = 1.5
 hunger_decay = 1.25
 sleep = 0.5
+
+# Earth's sheltered rings (docs/design/horizons-phase-4.md, `agrarian_ring`, #721), read only
+# while `sheltered_rings` is known: a closed ring of these finished buildings shelters the tiles
+# inside. Mountains and water never close a ring (#716).
+[enclosure]
+walls = ["earth_wall", "ring_gate"]   # finished buildings that close a ring
+winter_growth = 0.75                  # replaces the climate band's, unscaled: the Hothouse's number
+frost = false                         # the first frost spares ripe crops inside
+cold = false                          # no unit inside is cold, so there is no exposure

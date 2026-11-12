@@ -22,6 +22,15 @@ use super::*;
 use crate::building::PowerDef;
 use crate::geom::Footprint;
 
+/// A run of power-carrying track (`World::rail_runs`, #722).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RailRun {
+    /// Its tiles, first found first.
+    pub tiles: Vec<Pos>,
+    /// Consumers within this many tiles of any of them are powered while it's live.
+    pub reach: u32,
+}
+
 /// Which source powers a tile, and at what boost: for a client's cursor panel (#429).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PowerAt {
@@ -32,30 +41,100 @@ pub struct PowerAt {
 
 impl World {
     /// The `PowerDef` of the building on `pos`, if it is a power source.
+    /// A known `boost` upgrade (#722) replaces the def's boost.
     fn power_def(&self, pos: Pos, defs: &Defs) -> Option<PowerDef> {
-        defs.building(self.building_at(pos)?).power
+        let def = defs.building(self.building_at(pos)?);
+        let mut power = def.power?;
+        if let Some((tech, boost, millis)) = def.boost_upgrade
+            && self.research.is_known(tech)
+        {
+            power.boost = boost;
+            power.boost_millis = millis;
+        }
+        Some(power)
     }
 
     /// Every finished power source that reaches any tile of `footprint`, with its def, best
     /// `boost` first. Two sources in reach of one consumer don't stack; this is what both
     /// `power_at` and `power_boost`/`power_boost_millis` pick the best of.
     fn sources_reaching(&self, footprint: Footprint, defs: &Defs) -> Vec<(Pos, PowerDef)> {
-        let power_generation = self.modifiers.power_generation;
         let mut reaching: Vec<(Pos, PowerDef)> = self
             .of_kind(Kind::Power)
             .filter_map(|b| {
                 let source = b.anchor;
                 let def = self.power_def(source, defs)?;
-                let reach = def.radius_for(power_generation);
-                let source_footprint = self.footprint_at(source)?;
-                footprint
-                    .tiles()
-                    .any(|p| source_footprint.distance(p) <= reach as i32)
-                    .then_some((source, def))
+                self.source_reaches(source, &def, &footprint).then_some((source, def))
             })
             .collect();
+        // A live rail run beside the consumer powers it as its best source would (#722).
+        for run in self.rail_runs(defs) {
+            let near = run
+                .tiles
+                .iter()
+                .any(|&t| footprint.tiles().any(|p| p.chebyshev(t) <= run.reach as i32));
+            if near && let Some(best) = self.run_source(&run.tiles, defs) {
+                reaching.push(best);
+            }
+        }
         reaching.sort_by(|a, b| b.1.boost.partial_cmp(&a.1.boost).unwrap());
         reaching
+    }
+
+    /// Whether the source anchored on `source` reaches any tile of `footprint`.
+    fn source_reaches(&self, source: Pos, def: &PowerDef, footprint: &Footprint) -> bool {
+        let reach = def.radius_for(self.modifiers.power_generation);
+        self.footprint_at(source)
+            .is_some_and(|f| footprint.tiles().any(|p| f.distance(p) <= reach as i32))
+    }
+
+    /// The best source reaching any tile of a run, if the run is live.
+    fn run_source(&self, tiles: &[Pos], defs: &Defs) -> Option<(Pos, PowerDef)> {
+        self.of_kind(Kind::Power)
+            .filter_map(|b| {
+                let def = self.power_def(b.anchor, defs)?;
+                tiles
+                    .iter()
+                    .any(|&t| self.source_reaches(b.anchor, &def, &Footprint::single(t)))
+                    .then_some((b.anchor, def))
+            })
+            .max_by(|a, b| a.1.boost.partial_cmp(&b.1.boost).unwrap().then(b.0.cmp(&a.0)))
+    }
+
+    /// Every run of a power-carrying track (#722): the 4-connected finished tiles of one track
+    /// building with `power_reach`, in the order of their first tile's anchor.
+    pub fn rail_runs(&self, defs: &Defs) -> Vec<RailRun> {
+        if !self.has_kind(Kind::PowerRail) {
+            return Vec::new();
+        }
+        let carries = |p: Pos| -> Option<(crate::building::BuildingId, u32)> {
+            let id = self.building_at(p)?;
+            Some((id, defs.building(id).track?.power_reach?))
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        let mut runs = Vec::new();
+        let starts: Vec<Pos> = self.of_kind(Kind::PowerRail).map(|b| b.anchor).collect();
+        for p in starts {
+            if seen.contains(&p) {
+                continue;
+            }
+            let Some((id, reach)) = carries(p) else { continue };
+            let mut tiles = vec![p];
+            seen.insert(p);
+            let mut i = 0;
+            while i < tiles.len() {
+                let q = tiles[i];
+                i += 1;
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let n = Pos::new(q.x + dx, q.y + dy);
+                    if !seen.contains(&n) && carries(n).is_some_and(|(o, _)| o == id) {
+                        seen.insert(n);
+                        tiles.push(n);
+                    }
+                }
+            }
+            runs.push(RailRun { tiles, reach });
+        }
+        runs
     }
 
     /// Which source powers a consumer whose footprint is `footprint`, and at what boost: the best

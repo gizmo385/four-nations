@@ -162,6 +162,8 @@ pub(super) enum Kind {
     Aura,
     /// A building a tech's `shelter` upgrade can make keep the cold off (#727, `season.rs`).
     Shelter,
+    /// A track that carries power along its run (`power.rs`, #722).
+    PowerRail,
 }
 
 impl Kind {
@@ -185,6 +187,7 @@ impl Kind {
             (def.archive.is_some(), Kind::Archive),
             (def.aura.is_some(), Kind::Aura),
             (def.shelter_upgrade.is_some(), Kind::Shelter),
+            (def.track.is_some_and(|t| t.power_reach.is_some()), Kind::PowerRail),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -385,6 +388,7 @@ impl World {
             self.map[p].building = Some(tile);
         }
         self.map_changed();
+        self.walls_changed(id, defs);
         key
     }
 
@@ -447,6 +451,9 @@ impl World {
         }
         let record = self.buildings.take(key, defs);
         self.map_changed();
+        if let Some(r) = &record {
+            self.walls_changed(r.id, defs);
+        }
         // The halls it reached lose its seats (`sync_seats`, #709).
         if record.as_ref().is_some_and(|r| defs.building(r.id).archive.is_some()) {
             self.sync_seats(defs);

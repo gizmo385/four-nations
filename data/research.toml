@@ -810,3 +810,42 @@ free = true
 [[tech.unlocks.upgrades]]
 building = "waystation"
 shelter = 6
+
+# Earth's "Which city?": a ring of walls that keeps winter out (#721), or rail that carries
+# power through the mountain (#722).
+[[school]]
+id = "earth_city"
+nation = "earth"
+question = "Which city?"
+
+[[tech]]
+id = "agrarian_ring"
+name = "Agrarian Ring"
+description = "Ring the fields in stone, and winter stays outside the walls."
+nation = "earth"
+cost = 1000
+prereqs = ["metalbending"]
+school = "earth_city"
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["ring_gate"]
+features = ["sheltered_rings"]
+
+[[tech]]
+id = "metal_city"
+name = "Metal City"
+description = "Lay rails of bent metal that carry goods and power through the mountain."
+nation = "earth"
+cost = 1000
+prereqs = ["metalbending"]
+school = "earth_city"
+[[tech.cost_items]]
+item = "metal"
+count = 8
+[tech.unlocks]
+buildings = ["metal_rail"]
+[[tech.unlocks.upgrades]]
+building = "hot_spring_mill"     # power.md's Earth source (#448)
+boost = 1.5                       # from 1.2: the other nations' first sources

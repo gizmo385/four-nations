@@ -156,6 +156,6 @@ fn a_waystation_keeps_the_cold_off_within_six_tiles_once_known() {
     assert!(w.is_cold(pos, &defs), "the camp alone doesn't heat");
     grant(&mut w, &defs, "southern_ways");
     // The footprint's edge is x = 2: 6 tiles out is x = 8, 7 is x = 9.
-    assert!(!w.is_cold(at(8, 2), &defs) && w.is_sheltered(at(8, 2), &defs));
+    assert!(!w.is_cold(at(8, 2), &defs) && w.camp_shelters(at(8, 2), &defs));
     assert!(w.is_cold(pos, &defs), "7 tiles out is past it");
 }

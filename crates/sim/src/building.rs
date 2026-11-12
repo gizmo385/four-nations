@@ -200,6 +200,9 @@ pub struct TrackDef {
     /// This track's index among the track buildings, from 1 in file order: what its tiles carry
     /// (`TileBuilding::track`), and one more than its place in `MoveRules`' track steps.
     pub index: u8,
+    /// Consumers within this many tiles of a live run of this track are powered (#722, Metal
+    /// Rail); `None` for a track that carries no power.
+    pub power_reach: Option<u32>,
 }
 
 impl TrackDef {
@@ -682,6 +685,12 @@ pub struct BuildingDef {
     /// `World::check_build` refuses the placement. `None` means no such rule. Earth's Mine Shaft
     /// and Deep Mine need `["mountain", "tunnel"]`, the rock they work from inside.
     pub beside: Option<Vec<Terrain>>,
+    /// Terrains the footprint may stand on as well as buildable land (`also_on`, #722): Metal
+    /// Rail in a tunnel. Empty for most.
+    pub also_on: Vec<Terrain>,
+    /// The tech that raises this power source's `boost`, with the new boost and its millis
+    /// (`boost` upgrade, `metal_city`, #722), or `None`.
+    pub boost_upgrade: Option<(TechId, f32, u32)>,
     /// An aura over units and halls nearby (`AuraDef`), or `None`.
     pub aura: Option<AuraDef>,
     /// At most one per settlement, counting sites, and it can't be taken down (`landmark =
@@ -777,6 +786,8 @@ struct RawHeat {
 #[serde(deny_unknown_fields)]
 struct RawTrack {
     speed: f32,
+    #[serde(default)]
+    power_reach: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -1054,6 +1065,10 @@ struct RawBuilding {
     /// these, or the placement is refused. Absent means no such rule.
     #[serde(default)]
     beside: Option<Vec<Terrain>>,
+    /// `also_on = ["tunnel"]` (#722): terrains the footprint may stand on as well as buildable
+    /// land. Only on a passable 1x1 building, so it can never seal a tunnel.
+    #[serde(default)]
+    also_on: Vec<Terrain>,
     aura: Option<RawAura>,
     #[serde(default)]
     landmark: bool,
@@ -1217,6 +1232,17 @@ impl BuildingsFile {
                 if !b.passable {
                     return err(format!("building {}: a track must be passable", b.id));
                 }
+            }
+            if !b.also_on.is_empty() && (!b.passable || b.footprint != [1, 1]) {
+                return err(format!(
+                    "building {}: also_on is only allowed on a passable 1x1 building",
+                    b.id
+                ));
+            }
+            if let Some(reach) = b.track.as_ref().and_then(|t| t.power_reach)
+                && !(1..=4).contains(&reach)
+            {
+                return err(format!("building {}: track power_reach must be 1 to 4", b.id));
             }
             if let Some(beside) = &b.beside
                 && beside.is_empty()
@@ -1389,7 +1415,7 @@ impl BuildingsFile {
                     let Ok(index) = u8::try_from(tracks + 1) else {
                         return err(format!("building {}: at most 255 tracks", b.id));
                     };
-                    Some(TrackDef { speed: d.speed, index })
+                    Some(TrackDef { speed: d.speed, index, power_reach: d.power_reach })
                 }
             };
             for (nation, name) in &b.names {
@@ -1445,6 +1471,8 @@ impl BuildingsFile {
                 shelter_upgrade: None,
                 endeavor: b.endeavor,
                 beside: b.beside,
+                also_on: b.also_on,
+                boost_upgrade: None,
                 aura,
                 landmark: b.landmark,
             });
@@ -1923,11 +1951,15 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
             let Some(b) = buildings.iter_mut().find(|b| b.id == *name) else {
                 return err(format!("unknown building {name:?}"));
             };
-            let named =
-                [up.seats.is_some(), up.recipe.is_some(), up.free.is_some(), up.shelter.is_some()];
-            if named.iter().filter(|&&n| n).count() != 1 {
+            let named = [up.seats, up.recipe.as_ref().map(|_| 0), up.free.map(|_| 0), up.shelter]
+                .iter()
+                .filter(|n| n.is_some())
+                .count()
+                + usize::from(up.boost.is_some());
+            if named != 1 {
                 return err(format!(
-                    "{name:?} must name exactly one property: seats, recipe, free or shelter"
+                    "{name:?} must name exactly one property: seats, recipe, free, shelter or \
+                     boost"
                 ));
             }
             if let Some(n) = tech.nation {
@@ -1968,6 +2000,20 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                     return taken(other, "free");
                 }
                 b.free_upgrade = Some(TechId(t as u16));
+            }
+            if let Some(boost) = up.boost {
+                if b.power.is_none() {
+                    return err(format!(
+                        "{name:?} is no power source; boost needs [building.power]"
+                    ));
+                }
+                if !(boost.is_finite() && (1.0..=4.0).contains(&boost)) {
+                    return err(format!("boost = {boost} must be 1.0 to 4"));
+                }
+                if let Some((other, ..)) = b.boost_upgrade {
+                    return taken(other, "boost");
+                }
+                b.boost_upgrade = Some((TechId(t as u16), boost, (boost * 1000.0).round() as u32));
             }
             if let Some(radius) = up.shelter {
                 if !(1..=12).contains(&radius) {
@@ -2152,7 +2198,11 @@ mod tests {
         let road_track = road.track.expect("the road is a track");
         assert_eq!((road_track.step_cost(), road_track.index), (8, 2), "1.25x is a step of 8");
         assert_eq!(road.unlocked_by, defs.tech_id("paving"));
-        assert_eq!(defs.cart_rules(crate::MoveRules::default()).track_steps(), [5, 8]);
+        assert_eq!(
+            defs.cart_rules(crate::MoveRules::default()).track_steps(),
+            [5, 8, 4],
+            "metal rail (#722) steps 4"
+        );
 
         let one = |extra: &str, passable: bool| {
             format!(

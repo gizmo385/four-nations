@@ -73,6 +73,21 @@ pub struct ColdDef {
     pub sleep: f32,
 }
 
+/// `[enclosure]` of `data/seasons.toml` (docs/design/horizons-phase-4.md, `agrarian_ring`,
+/// #721): what a closed ring of walls does for the tiles inside it, read only while
+/// `sheltered_rings` is known (`World::is_sheltered`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnclosureDef {
+    /// Finished buildings that close a ring: the bounds of the flood.
+    pub walls: Vec<crate::building::BuildingId>,
+    /// The winter growth inside, unscaled: `max(band, winter_growth)`.
+    pub winter_growth: f32,
+    /// Whether the first frost still hits ripe crops inside.
+    pub frost: bool,
+    /// Whether a unit inside can still be cold.
+    pub cold: bool,
+}
+
 /// Everything in `data/seasons.toml`, resolved and validated. A default (unloaded) value has one
 /// season per quarter and one climate band covering every temperature, all at the identity
 /// (1.0); nothing reads it unless a difficulty preset's `seasons` flag is on, and the bundled data
@@ -86,6 +101,8 @@ pub struct SeasonsDef {
     /// In file order, ascending `max_temperature`.
     pub climates: Vec<ClimateDef>,
     pub cold: ColdDef,
+    /// `[enclosure]`, or `None` (#721).
+    pub enclosure: Option<EnclosureDef>,
 }
 
 impl Default for SeasonsDef {
@@ -109,6 +126,7 @@ impl Default for SeasonsDef {
                 outlook_points: 0,
             }],
             cold: ColdDef { energy_decay: 1.0, hunger_decay: 1.0, sleep: 1.0 },
+            enclosure: None,
         }
     }
 }
@@ -170,6 +188,17 @@ struct SeasonsFile {
     #[serde(rename = "climate")]
     climates: Vec<RawClimate>,
     cold: RawCold,
+    #[serde(default)]
+    enclosure: Option<RawEnclosure>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEnclosure {
+    walls: Vec<String>,
+    winter_growth: f32,
+    frost: bool,
+    cold: bool,
 }
 
 #[derive(Deserialize)]
@@ -220,7 +249,7 @@ fn in_zero_to_four(v: f32) -> bool {
 }
 
 impl SeasonsFile {
-    fn resolve(self) -> Result<SeasonsDef, DefsError> {
+    fn resolve(self, buildings: &[crate::building::BuildingDef]) -> Result<SeasonsDef, DefsError> {
         let err = |msg: String| Err(DefsError(format!("seasons.toml: {msg}")));
         let c = &self.calendar;
         if !(c.season_minutes.is_finite() && c.season_minutes > 0.0) {
@@ -319,7 +348,36 @@ impl SeasonsFile {
             }
         }
 
+        let enclosure = match self.enclosure {
+            None => None,
+            Some(e) => {
+                if e.walls.is_empty() {
+                    return err("enclosure.walls must name at least one building".into());
+                }
+                let mut walls = Vec::with_capacity(e.walls.len());
+                for name in &e.walls {
+                    let Some(i) = buildings.iter().position(|b| b.id == *name) else {
+                        return err(format!("enclosure.walls: unknown building {name:?}"));
+                    };
+                    if buildings[i].footprint != (1, 1) {
+                        return err(format!("enclosure.walls: {name:?} must be 1x1"));
+                    }
+                    walls.push(crate::building::BuildingId(i as u16));
+                }
+                if !in_zero_to_four(e.winter_growth) {
+                    return err("enclosure.winter_growth must be in [0, 4]".into());
+                }
+                Some(EnclosureDef {
+                    walls,
+                    winter_growth: e.winter_growth,
+                    frost: e.frost,
+                    cold: e.cold,
+                })
+            }
+        };
+
         Ok(SeasonsDef {
+            enclosure,
             calendar: CalendarDef {
                 season_minutes: c.season_minutes,
                 winter_warning_minutes: c.winter_warning_minutes,
@@ -346,7 +404,7 @@ impl crate::defs::Defs {
     pub fn with_seasons(mut self, seasons: &str) -> Result<Self, DefsError> {
         self.seasons = toml::from_str::<SeasonsFile>(seasons)
             .map_err(|e| DefsError(format!("seasons.toml: {e}")))?
-            .resolve()?;
+            .resolve(&self.buildings)?;
         Ok(self)
     }
 }
