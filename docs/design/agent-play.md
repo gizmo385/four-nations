@@ -182,6 +182,7 @@ resulting `observe`. No game time passes. A step is one of:
 | `keys {script}` | The script as written, in `--keys` syntax, without `<tick>` |
 | `gate {x,y}` (#643) | `g`, `Enter` (the Endeavor screen arms the Gate tool), a cursor walk to the tile that centres the gate's footprint on top-left tile `(x,y)`, `Enter`. Fails to plan, with the reason, while the endeavor isn't Ready |
 | `cancel_gate` (#643) | `g`, `x` (withdraws the site), `Esc`. Fails to plan when there's no site or work on it has started |
+| `keep_teaching {tech}` (#744) | With the LOST TEACHING box open, the arrows to the teaching's `Keep` row and `Enter`; otherwise `t`, arrow navigation to the TEACHINGS column's `! Choose a teaching`, `Enter`, then the same. Fails to plan when no pending draft offers the teaching, or it is in a later draft than the oldest |
 
 The planner reads `UiState` (the cursor, open screen and tool) to plan keys. If the plan can't
 be made (an unknown tech, a building the modal doesn't offer, a tile off the map, an `ability`

@@ -34,6 +34,8 @@ pub enum Choice {
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct KeepRow {
     pub tech: TechId,
+    /// "Guru Teachings".
+    pub name: String,
     /// "Keep Guru Teachings".
     pub label: String,
     /// "250 pts + scroll".
@@ -103,7 +105,7 @@ pub fn teaching_cost(defs: &Defs, tech: TechId) -> String {
 
 /// The box for the oldest pending offer, or `None` with none pending.
 pub fn draft(session: &Session) -> Option<Draft> {
-    let (world, defs) = (&session.world, &session.defs);
+    let world = &session.world;
     let offers = world.teaching_offers();
     let offer = offers.first()?;
     let title = if offers.len() > 1 {
@@ -117,21 +119,63 @@ pub fn draft(session: &Session) -> Option<Draft> {
     } else {
         "Keep it now, or decide later.".to_owned()
     };
-    let keeps = offer
-        .techs
+    let keeps = offer.techs.iter().map(|&tech| keep_row(session, tech)).collect();
+    Some(Draft { title, lines: vec![read, keep], keeps })
+}
+
+/// The `Keep …` row for `tech`.
+fn keep_row(session: &Session, tech: TechId) -> KeepRow {
+    let (world, defs) = (&session.world, &session.defs);
+    let def = defs.tech(tech);
+    KeepRow {
+        tech,
+        name: def.name.clone(),
+        label: format!("Keep {}", def.name),
+        cost: teaching_cost(defs, tech),
+        unlock: format!("Unlocks {}", unlock_summary(defs, world.nation, tech, def)),
+        reason: world.teaching_caveat(tech, defs).map(|c| describe_caveat(defs, &c)),
+    }
+}
+
+/// One pending draft, for the agent's `screen {"research"}` (#744): the hall its scroll was
+/// read at and each teaching's `Keep` row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct Offer {
+    pub hall: String,
+    pub keeps: Vec<KeepRow>,
+}
+
+/// Everything about the lost teachings a player can find on screen (#744): the drafts
+/// waiting (oldest first), the teachings kept and lost by name, and how many are left to find.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct Summary {
+    pub offers: Vec<Offer>,
+    pub kept: Vec<String>,
+    pub lost: Vec<String>,
+    pub more_to_find: usize,
+}
+
+/// [`Summary`], or `None` before the first teaching scroll is read (owner #734).
+pub fn summary(session: &Session) -> Option<Summary> {
+    let (world, defs) = (&session.world, &session.defs);
+    let more_to_find = world.teachings_to_find(defs)?;
+    let name = |t: TechId| defs.tech(t).name.clone();
+    let offers = world
+        .teaching_offers()
         .iter()
-        .map(|&tech| {
-            let def = defs.tech(tech);
-            KeepRow {
-                tech,
-                label: format!("Keep {}", def.name),
-                cost: teaching_cost(defs, tech),
-                unlock: format!("Unlocks {}", unlock_summary(defs, world.nation, tech, def)),
-                reason: world.teaching_caveat(tech, defs).map(|c| describe_caveat(defs, &c)),
-            }
+        .map(|o| Offer {
+            hall: hall_name(session, o.hall),
+            keeps: o.techs.iter().map(|&t| keep_row(session, t)).collect(),
         })
         .collect();
-    Some(Draft { title, lines: vec![read, keep], keeps })
+    Some(Summary {
+        offers,
+        kept: world.kept_teachings().map(name).collect(),
+        lost: world.lost_teachings().map(name).collect(),
+        more_to_find,
+    })
 }
 
 /// Takes `choice`: keeps a teaching (`Command::KeepTeaching`), or does nothing for "Decide

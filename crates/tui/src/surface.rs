@@ -885,13 +885,17 @@ impl Host {
     }
 
     fn research_screen(&self) -> ResearchScreenView {
-        let v = fn_ui::research::screen_view(&self.app().session);
+        let session = &self.app().session;
+        let v = fn_ui::research::screen_view(session);
         ResearchScreenView {
+            teachings: teachings_view(session),
             columns: v
                 .columns
                 .into_iter()
                 .map(|col| {
                     col.into_iter()
+                        // The TEACHINGS column's Choose and More rows are `teachings` below.
+                        .filter(fn_ui::research::TechCard::is_tech)
                         .map(|c| TechCardView {
                             // `crate::research::card_word`, not `TechState::label`: every
                             // card's own row carries the short word ("Locked", or "Target" for
@@ -1046,6 +1050,7 @@ impl Host {
                             | ActionStep::Build { .. }
                             | ActionStep::Gate { .. }
                             | ActionStep::CancelGate
+                            | ActionStep::KeepTeaching { .. }
                     ) {
                         let notice = self.app().ui.notice.clone();
                         if !notice.is_empty() {
@@ -1104,6 +1109,7 @@ impl Host {
             ActionStep::Keys { script } => self.plan_keys(script),
             ActionStep::Gate { x, y } => self.plan_gate(Pos::new(*x, *y)),
             ActionStep::CancelGate => self.plan_cancel_gate(),
+            ActionStep::KeepTeaching { tech } => self.plan_keep_teaching(tech),
         }
     }
 
@@ -1317,7 +1323,9 @@ impl Host {
             .columns
             .iter()
             .enumerate()
-            .find_map(|(c, col)| col.iter().position(|card| card.name == tech).map(|r| (c, r)))
+            .find_map(|(c, col)| {
+                col.iter().position(|card| card.is_tech() && card.name == tech).map(|r| (c, r))
+            })
             .ok_or_else(|| format!("no such tech {tech:?}"))?;
         let card = &view.columns[target.0][target.1];
         if !card.closed.is_empty() {
@@ -1329,6 +1337,45 @@ impl Host {
         keys.extend(research_nav_keys(&view, start, target));
         keys.push(enter_key());
         keys.push(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        Ok(keys)
+    }
+
+    /// `keep_teaching {tech}` (#744): see [`ActionStep::KeepTeaching`].
+    fn plan_keep_teaching(&self, tech: &str) -> Result<Vec<KeyEvent>, String> {
+        let app = self.app();
+        let session = &app.session;
+        let offers = fn_ui::teaching::summary(session).map(|v| v.offers).unwrap_or_default();
+        let (index, row) = offers
+            .iter()
+            .enumerate()
+            .find_map(|(i, o)| o.keeps.iter().position(|k| k.name == tech).map(|r| (i, r)))
+            .ok_or_else(|| format!("keep_teaching: no draft offers {tech:?}"))?;
+        if index > 0 {
+            let first: Vec<String> = offers[0].keeps.iter().map(|k| k.name.clone()).collect();
+            return Err(format!(
+                "keep_teaching: {tech} is in a later draft; answer the first one first ({})",
+                first.join(" or ")
+            ));
+        }
+        // The box's rows: "Decide later", then one per teaching.
+        let want = row + 1;
+        let mut keys = Vec::new();
+        let from = if app.ui.modal == Some(Modal::Teaching) {
+            app.ui.teaching_cursor
+        } else {
+            let view = fn_ui::research::screen_view(session);
+            let column = view.teachings.ok_or("keep_teaching: the TEACHINGS column is empty")?;
+            keys.extend(self.close_overlay_keys());
+            keys.push(char_key('t'));
+            let start = crate::research::initial_cursor(session, &view);
+            keys.extend(research_nav_keys(&view, start, (column, 0)));
+            keys.push(enter_key());
+            0
+        };
+        let (code, n) =
+            if want >= from { (KeyCode::Down, want - from) } else { (KeyCode::Up, from - want) };
+        keys.extend(std::iter::repeat_n(KeyEvent::new(code, KeyModifiers::NONE), n));
+        keys.push(enter_key());
         Ok(keys)
     }
 
@@ -1630,6 +1677,13 @@ pub enum ActionStep {
     /// `{}` (#643): withdraw the gate's site before work on it starts (`G`, `X`, `Esc`). Refused
     /// when there is no site or work has started.
     CancelGate,
+    /// `{tech}` (#744): keep that teaching from the oldest pending draft, the LOST TEACHING
+    /// box's own way (#743). With the box open, the arrows to its `Keep` row and `Enter`;
+    /// otherwise `T`, the arrows to the TEACHINGS column's `! Choose a teaching`, `Enter` to
+    /// open the box, then the same. The rest of the draft is lost. Refused when no draft
+    /// offers it, or when it is in a later draft than the one the box shows
+    /// (`screen {"research"}`'s `teachings.offers`, oldest first).
+    KeepTeaching { tech: String },
 }
 
 /// A tile, for [`ActionStep::Designate`] and [`ActionStep::Build`]'s `from` and `to`.
@@ -1821,6 +1875,7 @@ fn step_label(step: &ActionStep) -> String {
         ActionStep::Keys { script } => format!("keys {script}"),
         ActionStep::Gate { x, y } => format!("place gate at ({x},{y})"),
         ActionStep::CancelGate => "withdraw gate site".to_owned(),
+        ActionStep::KeepTeaching { tech } => format!("keep teaching {tech}"),
     }
 }
 
@@ -2141,6 +2196,70 @@ pub struct NationScreenView {
 #[derive(Clone, Debug, Serialize)]
 pub struct ResearchScreenView {
     pub columns: Vec<Vec<TechCardView>>,
+    /// The lost teachings (#744): drafts waiting, kept and lost teachings, and how many are
+    /// left to find. Left out until the first teaching scroll is read, as the screen's own
+    /// TEACHINGS column is (owner #734).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teachings: Option<TeachingsView>,
+}
+
+/// `screen {"research"}`'s `teachings` (#744).
+#[derive(Clone, Debug, Serialize)]
+pub struct TeachingsView {
+    /// Drafts waiting for a pick, oldest first: the LOST TEACHING box shows the first, and
+    /// `keep_teaching` answers only from it.
+    pub offers: Vec<TeachingOfferView>,
+    /// Teachings kept, by name: ordinary techs from then on, in the TEACHINGS column.
+    pub kept: Vec<String>,
+    /// Teachings lost for the rest of the game, by name.
+    pub lost: Vec<String>,
+    /// Teachings no draft has offered yet that one still could (`? 2 more to find`).
+    pub more_to_find: usize,
+}
+
+/// One pending draft: where its scroll was read, and each teaching as the box's `Keep` row.
+#[derive(Clone, Debug, Serialize)]
+pub struct TeachingOfferView {
+    pub hall: String,
+    pub teachings: Vec<TeachingChoiceView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TeachingChoiceView {
+    pub name: String,
+    pub cost: String,
+    pub unlock: String,
+    /// The sim's reason it might not pay yet ("Needs: Known on the road", "No master yet.").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// [`TeachingsView`] for `session`, or `None` before any teaching scroll is read
+/// (`fn_ui::teaching::summary`).
+fn teachings_view(session: &Session) -> Option<TeachingsView> {
+    let v = fn_ui::teaching::summary(session)?;
+    Some(TeachingsView {
+        offers: v
+            .offers
+            .into_iter()
+            .map(|o| TeachingOfferView {
+                hall: o.hall,
+                teachings: o
+                    .keeps
+                    .into_iter()
+                    .map(|k| TeachingChoiceView {
+                        name: k.name,
+                        cost: k.cost,
+                        unlock: k.unlock,
+                        reason: k.reason,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        kept: v.kept,
+        lost: v.lost,
+        more_to_find: v.more_to_find,
+    })
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -4910,5 +5029,110 @@ mod tests {
         assert!(text.contains("\"type\":\"score\"") && text.contains("\"attempt\":2"));
         assert!(!text.contains("champion"));
         assert_eq!(serde_json::from_str::<LogLine>(&text).unwrap(), *lines.last().unwrap());
+    }
+
+    /// Stands a study hall on open land near the settlers and turns `n` open tiles near it into
+    /// great ruins, each designated for a search; then runs the game until `n` drafts wait.
+    fn read_teaching_scrolls(h: &mut Host, n: usize) {
+        use fn_sim::geom::Footprint;
+        let app = h.app_mut();
+        let home = app.session.world.units[0].pos;
+        let open = |app: &App, p: Pos| {
+            app.session.world.map.get(p).is_some_and(|t| {
+                t.terrain == Terrain::Land && t.building.is_none() && t.resource.is_none()
+            })
+        };
+        let foot = (2..20)
+            .flat_map(|r: i32| (-r..=r).flat_map(move |d| [(d, -r), (d, r), (-r, d), (r, d)]))
+            .map(|(dx, dy)| Footprint::new(Pos::new(home.x + dx, home.y + dy), 2, 2))
+            .find(|f| f.tiles().chain(f.ring()).all(|p| open(app, p)))
+            .expect("room for a study hall");
+        app.session.world.units.retain(|u| !foot.contains(u.pos));
+        let hall = app.session.defs.building_id("study_hall").unwrap();
+        app.session.world.put_building(foot, hall, &app.session.defs);
+        let great = app.session.defs.resource_id("great_ruins").unwrap();
+        let spots: Vec<Pos> = (3..14)
+            .flat_map(|r| {
+                [
+                    Pos::new(foot.anchor.x - r, foot.anchor.y),
+                    Pos::new(foot.anchor.x, foot.anchor.y - r),
+                ]
+            })
+            .filter(|&p| open(app, p))
+            .take(n)
+            .collect();
+        for &pos in &spots {
+            app.session.world.map[pos].resource = Some(great);
+        }
+        app.session.world.map_changed();
+        for &pos in &spots {
+            app.session.apply(Command::DesignateHarvest { pos }).unwrap();
+        }
+        for _ in 0..120 {
+            if app.session.world.teaching_offers().len() >= n {
+                return;
+            }
+            app.run_ticks(500);
+        }
+        panic!("the scrolls were never read");
+    }
+
+    fn teachings(h: &Host) -> TeachingsView {
+        match h.screen("research").unwrap() {
+            ScreenView::Research(v) => v.teachings.expect("a teaching scroll was read"),
+            _ => unreachable!(),
+        }
+    }
+
+    /// `keep_teaching` (#744) plays drafts through the LOST TEACHING box: from the box when it
+    /// is open, through the research screen's TEACHINGS column when it isn't, and refuses a
+    /// teaching no draft offers or one in a later draft. `screen {"research"}` lists the
+    /// drafts, then the kept and lost teachings.
+    #[test]
+    fn act_keep_teaching_plays_a_draft_through_the_box() {
+        let mut h = host(Nation::Air);
+        let before = h.screen("research").unwrap();
+        assert!(matches!(before, ScreenView::Research(ref v) if v.teachings.is_none()));
+        read_teaching_scrolls(&mut h, 2);
+        assert_eq!(h.app().ui.modal, Some(Modal::Teaching), "the first draft opened the box");
+        let view = teachings(&h);
+        assert_eq!(view.offers.len(), 2);
+        assert_eq!(view.offers[0].hall, "Meditation Pavilion");
+        assert!(view.offers.iter().all(|o| o.teachings.len() == 2));
+        assert!(view.offers[0].teachings.iter().all(|t| t.cost == "250 pts + scroll"));
+        let first: Vec<String> = view.offers[0].teachings.iter().map(|t| t.name.clone()).collect();
+        let second: Vec<String> = view.offers[1].teachings.iter().map(|t| t.name.clone()).collect();
+
+        // Not on offer, or in the later draft: refused, nothing pressed.
+        let r = h.act(&[ActionStep::KeepTeaching { tech: "Not A Teaching".into() }], None);
+        assert!(r.error.unwrap().reason.contains("no draft offers"));
+        assert!(r.keys.is_empty());
+        let r = h.act(&[ActionStep::KeepTeaching { tech: second[0].clone() }], None);
+        assert!(r.error.unwrap().reason.contains("later draft"));
+        assert!(r.keys.is_empty());
+
+        // The box closed: through the TEACHINGS column.
+        h.act(&[ActionStep::Keys { script: "<esc>".into() }], None);
+        assert_eq!(h.app().ui.modal, None);
+        let r = h.act(&[ActionStep::KeepTeaching { tech: first[1].clone() }], None);
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert_eq!(r.keys.first().map(String::as_str), Some("t"));
+        assert_eq!(r.notices[0].notice, format!("Kept {}", first[1]));
+        // The next draft follows in the box: kept from there with the arrows alone.
+        assert_eq!(h.app().ui.modal, Some(Modal::Teaching));
+        let r = h.act(&[ActionStep::KeepTeaching { tech: second[0].clone() }], None);
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert_eq!(r.keys, ["<down>", "<enter>"]);
+        assert_eq!(h.app().ui.modal, None);
+
+        let view = teachings(&h);
+        assert!(view.offers.is_empty());
+        let mut kept = view.kept.clone();
+        kept.sort();
+        let mut want = vec![first[1].clone(), second[0].clone()];
+        want.sort();
+        assert_eq!(kept, want);
+        assert_eq!(view.lost.len(), 2);
+        assert!(view.lost.contains(&first[0]) && view.lost.contains(&second[1]));
     }
 }

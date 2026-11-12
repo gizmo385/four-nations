@@ -1277,6 +1277,27 @@ mod tests {
         }
     }
 
+    /// `balance supply --resources great_ruins --radii 40,90` (#744): the promoted great ruins
+    /// are counted like any buried find, two or three a map, and inside 90 tiles on some seeds.
+    #[test]
+    fn supply_reports_the_great_ruins() {
+        let defs = Defs::bundled();
+        let great = defs.resource_id("great_ruins").unwrap();
+        let harvest = defs.harvest(great).unwrap();
+        let mut seen = 0;
+        for seed in 1..=8u64 {
+            let cfg = Survey::config(seed, defs.embark.map_size("small").unwrap());
+            let survey = Survey::new(&cfg, &defs);
+            let start = survey.default_site(&defs);
+            let report = survey.supply(start, &[great], &[40, 90], 2, &defs);
+            let (near, far) = (&report[0].deposits[0], &report[1].deposits[0]);
+            assert!(near.count <= far.count && far.count <= 3, "seed {seed}: {near:?} {far:?}");
+            assert_eq!(far.worth, far.count * harvest.count, "seed {seed}");
+            seen += far.count;
+        }
+        assert!(seen > 0, "some seed has great ruins within 90 tiles");
+    }
+
     #[test]
     fn supply_counts_a_buried_seam_only_within_its_bore_limit() {
         // A one-row map: open ground at x=0..=1, then a chain of empty mountain tiles, then a

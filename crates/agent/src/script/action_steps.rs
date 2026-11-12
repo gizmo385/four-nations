@@ -86,6 +86,14 @@ const ACTION_STEP_DOCS: &[ActionStepDoc] = &[
                  no site or work has started.",
         example: "act([#{step: \"cancel_gate\"}])",
     },
+    ActionStepDoc {
+        step: "keep_teaching",
+        fields: "{tech}: keeps that teaching from the oldest pending draft (screen(\"research\")'s \
+                 teachings.offers, oldest first) through the LOST TEACHING box; the rest of \
+                 the draft is lost for the game. Refused when no draft offers it, or when it is \
+                 in a later draft than the first.",
+        example: "act([#{step: \"keep_teaching\", tech: \"Guru Teachings\"}], \"keep the chakras\")",
+    },
 ];
 
 /// `sdk_reference`'s own action-step half: `ACTION_STEP_DOCS` as `#{step, fields, example}`
@@ -115,6 +123,7 @@ mod tests {
             ActionStep::Keys { .. } => "keys",
             ActionStep::Gate { .. } => "gate",
             ActionStep::CancelGate => "cancel_gate",
+            ActionStep::KeepTeaching { .. } => "keep_teaching",
         }
     }
 
@@ -141,6 +150,7 @@ mod tests {
             ActionStep::Keys { script: "h".into() },
             ActionStep::Gate { x: 0, y: 0 },
             ActionStep::CancelGate,
+            ActionStep::KeepTeaching { tech: "Guru Teachings".into() },
         ]
     }
 
