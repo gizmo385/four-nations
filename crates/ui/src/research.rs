@@ -211,6 +211,11 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
             .map(|b| defs.building(b).display_name(nation).to_owned()),
     );
     parts.extend(def.unlocks.upgrades.iter().filter_map(|u| {
+        if let (Some(item), Some(target)) = (&u.item, &u.stands_for) {
+            // "Ice pays for stone" (#726).
+            let name = |id: &str| defs.item_id(id).map(|i| defs.item(i).name.clone());
+            return Some(format!("{} pays for {}", name(item)?, name(target)?.to_lowercase()));
+        }
         let b = defs.building(defs.building_id(&u.building)?);
         if let Some(id) = &u.recipe {
             let alt = b.alt_recipes.iter().find(|a| a.id == *id)?;
@@ -219,6 +224,14 @@ pub fn unlock_summary(defs: &Defs, nation: Nation, id: TechId, def: &TechDef) ->
                 b.display_name(nation),
                 defs.item(alt.recipe.output.item).name
             ));
+        }
+        let plural = || format!("{}s", b.display_name(nation));
+        if u.free == Some(true) {
+            // "Waystations cost only work" (#727).
+            return Some(format!("{} cost only work", plural()));
+        }
+        if let Some(r) = u.shelter {
+            return Some(format!("{} keep crews within {r} tiles warm", plural()));
         }
         Some(format!("{} +{} seats", b.display_name(nation), u.seats?))
     }));
@@ -258,6 +271,7 @@ pub fn feature_name(feature: Feature) -> &'static str {
         Feature::Almanac => "Almanac",
         Feature::StandingSow => "Standing sow order",
         Feature::PackUp => "Pack up (buildings come down whole, twice as fast)",
+        Feature::ShoreFishing => "Fish from the shore",
     }
 }
 

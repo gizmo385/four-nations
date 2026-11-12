@@ -48,6 +48,7 @@ use crate::endeavor::{StageDef, TaskDef, TaskWho};
 use crate::jobs::{ItemId, JobKind, Stack};
 
 use super::build::{Blocker, Site};
+use super::stand::StandIns;
 use super::work::route_from;
 use super::*;
 
@@ -159,18 +160,20 @@ enum Next {
 }
 
 /// How many of `item`, or of a stand-in for it (brick for stone, issue #371), are in `list`.
-fn count_of(list: &[Stack], item: ItemId, defs: &Defs) -> u32 {
-    list.iter()
-        .filter(|s| s.item == item || defs.stands_for(s.item) == Some(item))
-        .map(|s| s.count)
-        .sum()
+fn count_of(list: &[Stack], item: ItemId, st: &StandIns, defs: &Defs) -> u32 {
+    list.iter().filter(|s| st.pays(s.item, item, defs)).map(|s| s.count).sum()
 }
 
 /// The first cost entry not yet fully delivered, and how many are still short. The item named is
 /// the cost's own (a stand-in pays it just as well, `World::nearest_source_for`).
-fn shortfall(cost: &[CostItem], delivered: &[Stack], defs: &Defs) -> Option<(ItemId, u32)> {
+fn shortfall(
+    cost: &[CostItem],
+    delivered: &[Stack],
+    st: &StandIns,
+    defs: &Defs,
+) -> Option<(ItemId, u32)> {
     cost.iter().find_map(|c| {
-        let have = count_of(delivered, c.item, defs);
+        let have = count_of(delivered, c.item, st, defs);
         (have < c.count).then_some((c.item, c.count - have))
     })
 }
@@ -183,13 +186,13 @@ fn take_into(
     delivered: &mut Vec<Stack>,
     item: ItemId,
     count: u32,
+    st: &StandIns,
     defs: &Defs,
 ) -> u32 {
-    let Some(c) = cost.iter().find(|c| c.item == item || defs.stands_for(item) == Some(c.item))
-    else {
+    let Some(c) = cost.iter().find(|c| st.pays(item, c.item, defs)) else {
         return 0;
     };
-    let n = c.count.saturating_sub(count_of(delivered, c.item, defs)).min(count);
+    let n = c.count.saturating_sub(count_of(delivered, c.item, st, defs)).min(count);
     if n > 0 {
         match delivered.iter_mut().find(|s| s.item == item) {
             Some(s) => s.count += n,
@@ -351,10 +354,11 @@ impl World {
 impl World {
     /// What the construct job does next: the stage's cost, then its work, then each task's cost.
     fn gate_next(&self, defs: &Defs) -> Next {
+        let st = self.stand_ins(defs);
         let (Some(g), Some((_, stage))) = (self.gate(), self.gate_stage(defs)) else {
             return Next::Done;
         };
-        if let Some((item, n)) = shortfall(&stage.cost, &g.delivered, defs) {
+        if let Some((item, n)) = shortfall(&stage.cost, &g.delivered, &st, defs) {
             return Next::Fetch(item, n);
         }
         if g.progress < stage.work {
@@ -363,7 +367,7 @@ impl World {
         g.tasks
             .iter()
             .filter(|t| !t.done)
-            .filter_map(|t| shortfall(&task_def(stage, t)?.cost, &t.delivered, defs))
+            .filter_map(|t| shortfall(&task_def(stage, t)?.cost, &t.delivered, &st, defs))
             .map(|(item, n)| Next::Fetch(item, n))
             .next()
             .unwrap_or(Next::Done)
@@ -373,13 +377,14 @@ impl World {
     /// stand-in, issue #371). Anything left over (the stage moved on mid-trip) drops beside the
     /// site.
     fn deliver_to_gate(&mut self, stack: Stack, defs: &Defs) {
+        let st = self.stand_ins(defs);
         let Some((_, stage)) = self.gate_stage(defs) else { return };
         let g = self.gate_mut().expect("has a stage");
         let mut left = stack.count;
-        left -= take_into(&stage.cost, &mut g.delivered, stack.item, left, defs);
+        left -= take_into(&stage.cost, &mut g.delivered, stack.item, left, &st, defs);
         for t in g.tasks.iter_mut().filter(|t| !t.done) {
             if let Some(def) = stage.tasks.iter().find(|d| d.id == t.id) {
-                left -= take_into(&def.cost, &mut t.delivered, stack.item, left, defs);
+                left -= take_into(&def.cost, &mut t.delivered, stack.item, left, &st, defs);
             }
         }
         if left > 0 {
@@ -392,6 +397,7 @@ impl World {
     /// a construct job exists while there is hauling or work left, and starts the next stage, or
     /// finishes the gate, once the current one is done.
     fn gate_progressed(&mut self, defs: &Defs) {
+        let st = self.stand_ins(defs);
         loop {
             let (Some(g), Some((n, stage))) = (self.gate(), self.gate_stage(defs)) else { return };
             let anchor = g.anchor;
@@ -400,8 +406,8 @@ impl World {
                 // Attend jobs (if they aren't already) and leave it to `tick_rite` (#238).
                 return self.open_rite(anchor);
             }
-            let built =
-                g.progress >= stage.work && shortfall(&stage.cost, &g.delivered, defs).is_none();
+            let built = g.progress >= stage.work
+                && shortfall(&stage.cost, &g.delivered, &st, defs).is_none();
             let ready: Vec<u8> = g
                 .tasks
                 .iter()
@@ -410,7 +416,7 @@ impl World {
                     built
                         && !t.done
                         && task_def(stage, t)
-                            .is_some_and(|d| shortfall(&d.cost, &t.delivered, defs).is_none())
+                            .is_some_and(|d| shortfall(&d.cost, &t.delivered, &st, defs).is_none())
                 })
                 .map(|(k, _)| k as u8)
                 .filter(|&k| !self.jobs.iter().any(|j| j.kind == JobKind::EndeavorTask { task: k }))

@@ -251,6 +251,9 @@ pub enum Feature {
     /// Taking a building down returns `[deconstruct] packed_refund` in `packed_work`, and haul
     /// beasts take build-site deliveries (`nomad_way`, #728).
     PackUp,
+    /// A Fish order on any `[shore_fishing]` water tile with a walkable neighbour
+    /// (`southern_ways`, #727).
+    ShoreFishing,
 }
 
 /// One `[[tech.unlocks.upgrades]]` entry: a building and exactly one property to raise: `seats`
@@ -259,14 +262,32 @@ pub enum Feature {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Upgrade {
-    /// An id from `data/buildings.toml`.
+    /// An id from `data/buildings.toml`. Empty for an item upgrade (`item`); exactly one of the
+    /// two is given.
+    #[serde(default)]
     pub building: String,
+    /// An id from `data/jobs.toml`'s items, for an upgrade to an item (docs/design/
+    /// horizons-phase-4.md, "New upgrade properties"). Its one property is `stands_for`.
+    #[serde(default)]
+    pub item: Option<String>,
+    /// On an item upgrade: the item it pays for one for one once the tech is known, as brick
+    /// pays for stone (`northern_city`: ice for stone). Resolved into `Defs::item_upgrades`.
+    #[serde(default)]
+    pub stands_for: Option<String>,
     /// Added to the building's own `seats`: 1 to 8.
     #[serde(default)]
     pub seats: Option<u32>,
     /// The id of an alt recipe on the building that this tech unlocks.
     #[serde(default)]
     pub recipe: Option<String>,
+    /// `true`: sites of the building placed once the tech is known have no bill, only work
+    /// (`southern_ways`'s Waystation, #727). Only `true` is accepted.
+    #[serde(default)]
+    pub free: Option<bool>,
+    /// No tile within this many tiles (Chebyshev from the footprint, unscaled) of a finished one
+    /// is cold once the tech is known: 1 to 12 (`southern_ways`'s Waystation, #727).
+    #[serde(default)]
+    pub shelter: Option<u32>,
 }
 
 /// A school: one permanent fork in a nation's tree (`[[school]]` in `data/research.toml`,

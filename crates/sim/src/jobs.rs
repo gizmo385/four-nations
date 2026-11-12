@@ -7,7 +7,7 @@
 use serde::Deserialize;
 
 use crate::bending::AbilityId;
-use crate::defs::{DefsError, ResourceDef, ResourceId};
+use crate::defs::{DefsError, ResourceDef, ResourceId, Terrain};
 use crate::geom::Pos;
 use crate::nation::Modifiers;
 use crate::needs::{FoodDef, NeedsSettings};
@@ -202,12 +202,43 @@ struct RawClear {
     risk: f32,
 }
 
+/// What `JobsFile::resolve` hands `Defs`.
+pub(crate) type JobsResolved =
+    (JobSettings, Vec<ItemDef>, Vec<HarvestDef>, Option<ShoreFishingDef>);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct JobsFile {
     settings: JobSettings,
     item: Vec<RawItem>,
     harvest: Vec<RawHarvest>,
+    #[serde(default)]
+    shore_fishing: Option<RawShoreFishing>,
+}
+
+/// `[shore_fishing]` (docs/design/horizons-phase-4.md, `southern_ways`, #727): fishing from any
+/// listed water tile, read only while the `shore_fishing` feature is known.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawShoreFishing {
+    item: String,
+    count: u32,
+    work: f32,
+    modifier: Option<String>,
+    terrains: Vec<Terrain>,
+    #[serde(default)]
+    frost_hardy: bool,
+}
+
+/// Shore fishing (#727): a Fish order on any of `terrains` with a walkable neighbour, not only on
+/// a fish spot, once `shore_fishing` is known (`World::harvest_at`). It never depletes and never
+/// rests.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShoreFishingDef {
+    /// The harvest it works as: `regrow` is `None` but nothing is used up, and `resource` is
+    /// `ResourceId(u16::MAX)`, since no resource stands on the tile.
+    pub harvest: HarvestDef,
+    pub terrains: Vec<Terrain>,
 }
 
 impl JobsFile {
@@ -218,7 +249,7 @@ impl JobsFile {
         foods: &[FoodDef],
         needs: &NeedsSettings,
         techs: &[TechDef],
-    ) -> Result<(JobSettings, Vec<ItemDef>, Vec<HarvestDef>), DefsError> {
+    ) -> Result<JobsResolved, DefsError> {
         let err = |msg: String| Err(DefsError(format!("jobs.toml: {msg}")));
         let s = self.settings;
         for (what, v) in [
@@ -414,7 +445,47 @@ impl JobsFile {
             });
         }
         link_unlocks(&mut harvests, resources, techs)?;
-        Ok((s, items, harvests))
+        let shore = match self.shore_fishing {
+            None => None,
+            Some(r) => {
+                let e = |msg: &str| Err(DefsError(format!("jobs.toml: shore_fishing: {msg}")));
+                let Some(item) = items.iter().position(|i| i.id == r.item) else {
+                    return e(&format!("unknown item {:?}", r.item));
+                };
+                if r.count == 0 || !(r.work.is_finite() && r.work > 0.0) {
+                    return e("count and work must be positive");
+                }
+                if let Some(m) = &r.modifier
+                    && !Modifiers::NAMES.contains(&m.as_str())
+                {
+                    return e(&format!("unknown modifier {m:?}"));
+                }
+                if r.terrains.is_empty() || r.terrains.iter().any(|t| !t.is_water()) {
+                    return e("terrains must list water and only water");
+                }
+                Some(ShoreFishingDef {
+                    harvest: HarvestDef {
+                        resource: ResourceId(u16::MAX),
+                        verb: "Fish".into(),
+                        noun: "shore tile".into(),
+                        noun_many: "shore tiles".into(),
+                        item: ItemId(item as u16),
+                        count: r.count,
+                        work: r.work,
+                        modifier: r.modifier,
+                        regrow: None,
+                        tunnel_count: None,
+                        unlocked_by: None,
+                        frost_hardy: r.frost_hardy,
+                        strain: 0.0,
+                        risk: 0.0,
+                        clear: None,
+                    },
+                    terrains: r.terrains,
+                })
+            }
+        };
+        Ok((s, items, harvests, shore))
     }
 }
 
@@ -766,4 +837,64 @@ mod tests {
         let err = load_jobs(&bad_risk).unwrap_err();
         assert!(err.0.contains("clear.risk"), "{err}");
     }
+}
+
+/// A tech's upgrade to an item (`[[tech.unlocks.upgrades]]` with `item = ...`, docs/design/
+/// horizons-phase-4.md, "New upgrade properties"): once `tech` is known, `item` pays for
+/// `stands_for` one for one, as brick pays for stone (`World::stands_for`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemUpgrade {
+    pub tech: crate::research::TechId,
+    pub item: ItemId,
+    pub stands_for: ItemId,
+}
+
+/// Checks each item upgrade: the item exists and has no `stands_for` of its own, it names
+/// exactly one property (`stands_for`), that names another item which isn't itself a stand-in,
+/// and each item is upgraded by at most one tech.
+pub(crate) fn resolve_item_upgrades(
+    techs: &[crate::research::TechDef],
+    items: &[ItemDef],
+) -> Result<Vec<ItemUpgrade>, DefsError> {
+    let mut out: Vec<ItemUpgrade> = Vec::new();
+    for (t, tech) in techs.iter().enumerate() {
+        let err =
+            |msg: String| Err(DefsError(format!("tech {}: unlocks.upgrades: {msg}", tech.id)));
+        for up in &tech.unlocks.upgrades {
+            let Some(name) = &up.item else { continue };
+            let Some(i) = items.iter().position(|it| it.id == *name) else {
+                return err(format!("unknown item {name:?}"));
+            };
+            if up.seats.is_some() || up.recipe.is_some() {
+                return err(format!("item {name:?} can only take `stands_for`"));
+            }
+            let Some(target) = &up.stands_for else {
+                return err(format!("item {name:?} must name one property: stands_for"));
+            };
+            if items[i].stands_for.is_some() {
+                return err(format!("item {name:?} already stands for something"));
+            }
+            let Some(k) = items.iter().position(|it| it.id == *target) else {
+                return err(format!("stands_for names unknown item {target:?}"));
+            };
+            if k == i {
+                return err(format!("item {name:?} can't stand for itself"));
+            }
+            if items[k].stands_for.is_some() {
+                return err(format!("{target:?} itself stands for something"));
+            }
+            if let Some(o) = out.iter().find(|o| o.item.0 as usize == i) {
+                return err(format!(
+                    "item {name:?} is already upgraded by {:?}; a property has one tech",
+                    techs[o.tech.0 as usize].id
+                ));
+            }
+            out.push(ItemUpgrade {
+                tech: crate::research::TechId(t as u16),
+                item: ItemId(i as u16),
+                stands_for: ItemId(k as u16),
+            });
+        }
+    }
+    Ok(out)
 }

@@ -90,6 +90,10 @@ pub struct Building {
     /// A Balloon Dock's hold and balloon (`BuildingDef::balloon`, `balloon.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) dock: Option<super::balloon::Dock>,
+    /// Raised from a site with no bill (`free` upgrade, #727): taking it down drops none of its
+    /// cost, since none was paid.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) free: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -156,6 +160,8 @@ pub(super) enum Kind {
     Archive,
     /// A building with an aura (`aura.rs`).
     Aura,
+    /// A building a tech's `shelter` upgrade can make keep the cold off (#727, `season.rs`).
+    Shelter,
 }
 
 impl Kind {
@@ -178,6 +184,7 @@ impl Kind {
             (def.tea_house.is_some(), Kind::Tea),
             (def.archive.is_some(), Kind::Archive),
             (def.aura.is_some(), Kind::Aura),
+            (def.shelter_upgrade.is_some(), Kind::Shelter),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))
@@ -370,6 +377,7 @@ impl World {
             sent: Vec::new(),
             crossings: 0,
             dock: def.balloon.map(|_| super::balloon::Dock::default()),
+            free: false,
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -605,6 +613,7 @@ impl World {
                     sent: Vec::new(),
                     crossings: 0,
                     dock: None,
+                    free: false,
                 },
             );
         }

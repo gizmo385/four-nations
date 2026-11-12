@@ -112,7 +112,8 @@ impl World {
         self.jobs.remove(idx);
         let key = self.map[pos].building.expect("anchored above").key();
         let record = self.remove_building(key, defs).expect("anchored above");
-        for cost in &def.cost {
+        // A building raised with no bill (#727) gives none back.
+        for cost in def.cost.iter().filter(|_| !record.free) {
             let count = crate::building::DeconstructDef::share_of(cost.count, refund);
             if count > 0 {
                 self.place_ground(pos, Stack { item: cost.item, count });

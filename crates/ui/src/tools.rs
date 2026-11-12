@@ -672,8 +672,7 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
         // What the tile holds, before the command changes it.
         let harvest = (tool == Tool::Harvest)
             .then(|| {
-                let resource = session.world.map.get(pos)?.resource?;
-                let h = session.defs.harvest(resource)?;
+                let h = session.world.harvest_at(pos, &session.defs)?;
                 Some((h.noun.clone(), h.noun_many.clone(), format!("to {}", h.verb.to_lowercase())))
             })
             .flatten();

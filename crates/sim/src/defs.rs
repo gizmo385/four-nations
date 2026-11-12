@@ -153,8 +153,12 @@ pub struct Defs {
     /// Everything that can be carried and stockpiled: the materials in data/jobs.toml, then
     /// every food. Indexed by `ItemId`.
     pub items: Vec<ItemDef>,
+    /// Techs' upgrades to items (`stands_for`, `northern_city`), in tech order.
+    pub item_upgrades: Vec<crate::jobs::ItemUpgrade>,
     /// What working each harvestable resource yields (data/jobs.toml).
     pub harvests: Vec<HarvestDef>,
+    /// `[shore_fishing]` in `data/jobs.toml` (#727): read only while `shore_fishing` is known.
+    pub shore_fishing: Option<crate::jobs::ShoreFishingDef>,
     pub jobs: JobSettings,
     /// Constructible structures, in file order; indexed by `BuildingId` (data/buildings.toml).
     pub buildings: Vec<BuildingDef>,
@@ -381,12 +385,13 @@ impl Defs {
         let resources = parse::<ResourceFile>("resources.toml", resources)?.resource;
         let resource_ids: Vec<&str> = resources.iter().map(|r| r.id.as_str()).collect();
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
-        let (jobs, items, harvests) =
+        let (jobs, items, harvests, shore_fishing) =
             parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
         let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?;
         let deconstruct = buildings.deconstruct()?;
         let buildings = buildings.resolve(&items, &techs, &resources, &needs)?;
         research::resolve_cost_items(&mut research, &mut techs, raw_costs, &items, &buildings)?;
+        let item_upgrades = crate::jobs::resolve_item_upgrades(&techs, &items)?;
         let biomes = parse::<BiomeFile>("biomes.toml", biomes)?.biome;
         let (chi, abilities, mastery, canal) = parse::<BendingFile>("bending.toml", bending)?
             .resolve(&biomes, &resources, &harvests, &items, &techs)?;
@@ -404,7 +409,9 @@ impl Defs {
             needs,
             foods,
             items,
+            item_upgrades,
             harvests,
+            shore_fishing,
             jobs,
             buildings,
             deconstruct,

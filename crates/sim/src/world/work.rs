@@ -384,14 +384,41 @@ impl World {
     /// Checks that `pos` has a resource the nation knows how to work, for either designate
     /// command.
     fn harvestable<'d>(&self, pos: Pos, defs: &'d Defs) -> Result<&'d HarvestDef, DesignateError> {
-        let tile = self.map.get(pos).ok_or(DesignateError::OutOfBounds)?;
-        let Some(h) = tile.resource.and_then(|r| defs.harvest(r)) else {
+        self.map.get(pos).ok_or(DesignateError::OutOfBounds)?;
+        let Some(h) = self.harvest_at(pos, defs) else {
             return Err(DesignateError::NothingToHarvest);
         };
         if let Some(t) = h.unlocked_by.filter(|&t| !self.research.is_known(t)) {
             return Err(DesignateError::NotResearched(t));
         }
         Ok(h)
+    }
+
+    /// What working `pos` is: its resource's harvest, or, with no resource on it, shore fishing
+    /// (`[shore_fishing]`, #727) once `shore_fishing` is known and the tile is one of its water
+    /// terrains with a walkable neighbour. `None` off the map or with nothing to work.
+    pub fn harvest_at<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d HarvestDef> {
+        let tile = self.map.get(pos)?;
+        if let Some(r) = tile.resource {
+            return defs.harvest(r);
+        }
+        self.shore_harvest(pos, defs)
+    }
+
+    /// Shore fishing on `pos` (`harvest_at`), ignoring any resource there.
+    fn shore_harvest<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d HarvestDef> {
+        let shore = defs.shore_fishing.as_ref()?;
+        let tile = self.map.get(pos)?;
+        if tile.resource.is_some() || !shore.terrains.contains(&tile.terrain) {
+            return None;
+        }
+        if !self.has_feature(crate::research::Feature::ShoreFishing, defs) {
+            return None;
+        }
+        let beside = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+            .into_iter()
+            .any(|(dx, dy)| self.walkable(Pos::new(pos.x + dx, pos.y + dy)));
+        beside.then_some(&shore.harvest)
     }
 
     /// Designates the resource on `pos` for harvesting (chop, quarry, gather, mine).
@@ -597,7 +624,7 @@ impl World {
     /// The harvest for the resource on `pos`, if it can be worked right now: it has a harvest
     /// entry, the nation knows how, and it isn't resting after the last time.
     pub(super) fn ripe_harvest<'d>(&self, pos: Pos, defs: &'d Defs) -> Option<&'d HarvestDef> {
-        let h = defs.harvest(self.map.get(pos)?.resource?)?;
+        let h = self.harvest_at(pos, defs)?;
         (self.can_work(h) && !self.resting.contains_key(&pos)).then_some(h)
     }
 
@@ -788,12 +815,18 @@ impl World {
         let mut jobs = std::mem::take(&mut self.jobs);
         jobs.retain(|j| j.claimed_by.is_some() || self.job_is_live(j.kind, defs));
         self.jobs = jobs;
-        let map = &self.map;
         // A standing order (#81) outlives its job (which disappears between harvests while the
         // resource rests), but not the resource itself: once that's gone for good there is
         // nothing left to re-queue for.
-        self.standing_harvest
-            .retain(|&pos| map[pos].resource.is_some_and(|r| defs.harvest(r).is_some()));
+        let gone: Vec<Pos> = self
+            .standing_harvest
+            .iter()
+            .copied()
+            .filter(|&pos| self.harvest_at(pos, defs).is_none())
+            .collect();
+        for pos in gone {
+            self.standing_harvest.remove(&pos);
+        }
     }
 
     /// The cheapest reachable tile to stand on to work something covering `foot`: one of its
@@ -1888,7 +1921,7 @@ impl World {
     fn run_harvest(&mut self, i: usize, id: JobId, defs: &Defs) {
         let Some(idx) = self.job_index(id) else { return self.finish_job(i) };
         let JobKind::Harvest { pos } = self.jobs[idx].kind else { return self.finish_job(i) };
-        let Some(h) = self.map[pos].resource.and_then(|r| defs.harvest(r)) else {
+        let Some(h) = self.harvest_at(pos, defs) else {
             // The resource is gone, so the job is moot.
             self.jobs.remove(idx);
             return self.finish_job(i);
@@ -1907,6 +1940,16 @@ impl World {
             return;
         }
         self.jobs.remove(idx);
+        if self.map[pos].resource.is_none() {
+            // Shore fishing (#727): nothing is used up or rests, so a standing order queues
+            // the next catch at once.
+            self.tallies.count_harvest(h.item, h.count);
+            self.place_ground(pos, Stack { item: h.item, count: h.count });
+            if self.standing_harvest.contains(&pos) {
+                self.add_job(JobKind::Harvest { pos });
+            }
+            return self.finish_job(i);
+        }
         let count = self.work_done(pos, h, defs);
         self.place_ground(pos, Stack { item: h.item, count });
         self.maybe_injure(i, pos, h, defs);

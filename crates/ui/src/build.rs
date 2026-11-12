@@ -55,33 +55,40 @@ impl PickerRow {
     }
 }
 
-/// The item that stands in for `item` in a cost, if the current nation could ever make it
-/// (issue #371: "N Stone (or brick)" only shows for a nation that can make brick).
-fn stand_in_for_nation(session: &Session, item: ItemId) -> Option<ItemId> {
-    let stand_in = session.defs.stand_in_for(item)?;
-    session.defs.nation_can_make(session.world.nation, stand_in).then_some(stand_in)
+/// The items that stand in for `item` in a cost for this settlement: the static one if the
+/// current nation could ever make it (issue #371: "N Stone (or brick)" only shows for a nation
+/// that can make brick), then any a known tech added (#726: ice, with Northern City).
+fn stand_ins_for_nation(session: &Session, item: ItemId) -> Vec<ItemId> {
+    let defs = &session.defs;
+    let fixed = defs.stand_in_for(item);
+    session
+        .world
+        .stand_ins(defs)
+        .for_target(item, defs)
+        .into_iter()
+        .filter(|&s| Some(s) != fixed || defs.nation_can_make(session.world.nation, s))
+        .collect()
 }
 
-/// How much of `item` is in stores, plus its stand-in's if the nation can make one (issue #371):
-/// what a cost's "in stores" figure should count.
+/// How much of `item` is in stores, plus its stand-ins' (issue #371): what a cost's "in stores"
+/// figure should count.
 fn stored_with_stand_in(session: &Session, item: ItemId) -> u32 {
     let mut total = session.world.stored_total(item);
-    if let Some(stand_in) = stand_in_for_nation(session, item) {
+    for stand_in in stand_ins_for_nation(session, item) {
         total += session.world.stored_total(stand_in);
     }
     total
 }
 
-/// One cost entry's item name, with its stand-in named too where one applies: "Stone" or
-/// "Stone (or brick)".
+/// One cost entry's item name, with its stand-ins named too where any apply: "Stone",
+/// "Stone (or brick)" or "Stone (or ice)".
 fn cost_item_text(session: &Session, item: ItemId) -> String {
     let name = &session.defs.item(item).name;
-    match stand_in_for_nation(session, item) {
-        Some(stand_in) => {
-            format!("{name} (or {})", session.defs.item(stand_in).name.to_lowercase())
-        }
-        None => name.clone(),
-    }
+    let others: Vec<String> = stand_ins_for_nation(session, item)
+        .into_iter()
+        .map(|s| session.defs.item(s).name.to_lowercase())
+        .collect();
+    if others.is_empty() { name.clone() } else { format!("{name} (or {})", others.join(", ")) }
 }
 
 /// A footprint as the Build screen's size column writes it: "1x1", "2x2".
@@ -355,7 +362,7 @@ pub struct SiteReport {
 pub fn site_report(session: &Session, pos: Pos) -> Option<SiteReport> {
     let (id, delivered, progress) = session.world.build_site(pos)?;
     let def = session.defs.building(id);
-    let materials = if def.cost.is_empty() {
+    let materials = if def.cost.is_empty() || session.world.site_is_free(pos) {
         "Materials: none needed".to_owned()
     } else {
         let parts: Vec<String> = def
