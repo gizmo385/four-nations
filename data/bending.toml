@@ -404,3 +404,35 @@ kind = "reshape"
 from = ["land", "coast"]
 to = "canal"
 source = ["river", "lake", "canal"]
+
+# --- #740 (research horizons phase 5: Regrow and Project) --------------------------------------
+
+# Water, from the `plantbending` teaching: the land in a 3x3 patch forgets its weariness. The
+# target needs strain on at least one tile in reach ("nothing here is tired").
+[[ability]]
+id = "regrow"
+nation = "water"
+name = "Regrow"
+verb = "Regrow"
+description = "Move the water in the roots, and the land forgets its weariness."
+chi = 40.0
+work = 10.0
+speed_modifier = "water_work"
+[ability.effect]
+kind = "unstrain"
+radius = 1
+
+# Air, from the `spirit_projection` teaching: a long meditation that reveals every buried kind
+# within 20 tiles. A test keeps `finds` listing every `buried = true` resource.
+[[ability]]
+id = "project"
+nation = "air"
+name = "Project"
+verb = "Project"
+description = "Meditate, and send the spirit out to see what lies buried."
+chi = 60.0
+work = 30.0
+[ability.effect]
+kind = "reveal"
+radius = 20
+finds = ["gold_seam", "lost_ruins", "great_ruins"]

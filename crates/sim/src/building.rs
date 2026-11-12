@@ -729,6 +729,10 @@ pub struct BuildingDef {
     /// `World::check_build` refuses the placement. `None` means no such rule. Earth's Mine Shaft
     /// and Deep Mine need `["mountain", "tunnel"]`, the rock they work from inside.
     pub beside: Option<Vec<Terrain>>,
+    /// Biome ids every footprint tile must be one of (`on_biomes`, #740: the Sandstone Works
+    /// stands on desert), or `World::check_build` refuses it with `Blocker::OnBiome`. Empty
+    /// means no such rule. Names are checked against `biomes.toml` once the defs load.
+    pub on_biomes: Vec<String>,
     /// Terrains the footprint may stand on as well as buildable land (`also_on`, #722): Metal
     /// Rail in a tunnel. Empty for most.
     pub also_on: Vec<Terrain>,
@@ -1136,6 +1140,8 @@ struct RawBuilding {
     /// these, or the placement is refused. Absent means no such rule.
     #[serde(default)]
     beside: Option<Vec<Terrain>>,
+    #[serde(default)]
+    on_biomes: Vec<String>,
     /// `also_on = ["tunnel"]` (#722): terrains the footprint may stand on as well as buildable
     /// land. Only on a passable 1x1 building, so it can never seal a tunnel.
     #[serde(default)]
@@ -1570,6 +1576,7 @@ impl BuildingsFile {
                 vial_upgrade: None,
                 endeavor: b.endeavor,
                 beside: b.beside,
+                on_biomes: b.on_biomes,
                 also_on: b.also_on,
                 boost_upgrade: None,
                 heat_aura_upgrade: None,

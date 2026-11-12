@@ -193,6 +193,11 @@ pub struct Unlocks {
     /// unlocked by at most one tech, and systems ask `World::has_feature`, never a tech id.
     #[serde(default)]
     pub features: Vec<Feature>,
+    /// Biome id to step-speed multiplier, each in (0, 4] (`biome_speed`, #740, `sandbending`'s
+    /// sand sailers: `desert = 2.0`). Applied through `MoveRules`, so routes plan with it. Two
+    /// techs naming one biome multiply.
+    #[serde(default)]
+    pub biome_speed: std::collections::BTreeMap<String, f32>,
 }
 
 /// Largest `requires.scrolls_read` a tech may ask for (the smallest is 1).

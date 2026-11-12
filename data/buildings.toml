@@ -1267,3 +1267,28 @@ work = 120.0
 modifier = "earthworks"
 input = []
 stock_limit = 12
+
+# Earth's Sandstone Works (#740, `sandbending`, docs/design/horizons-phase-5.md): a source recipe
+# like the Mine Shaft, where a crafter packs desert sand into stone by labour, not chi. Every
+# footprint tile must be desert (`on_biomes`).
+[[building]]
+id = "sandstone_works"
+name = "Sandstone Works"
+verb = "Build"
+work = 40.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+on_biomes = ["desert"]
+[[building.cost]]
+item = "wood"
+count = 8
+[[building.cost]]
+item = "tool"
+count = 1
+[building.recipe]
+output = "stone"
+output_count = 1
+work = 40.0
+modifier = "earthworks"
+input = []

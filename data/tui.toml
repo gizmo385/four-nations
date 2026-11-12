@@ -397,6 +397,12 @@ glyph = "◇"
 ascii = "Y"
 fg = [120, 230, 170]
 
+# Earth's Sandstone Works (#740).
+[building.sandstone_works]
+glyph = "▤"
+ascii = "D"
+fg = [220, 190, 120]
+
 # --- Air Nomads ---
 [building.orchard]
 glyph = "♣"

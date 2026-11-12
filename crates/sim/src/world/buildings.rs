@@ -596,6 +596,7 @@ impl World {
             }
         }
         self.cart_rules = self.cart_rules.clone().with_tracks(defs.track_steps());
+        self.refresh_biome_speeds(defs);
     }
 
     /// Turns a v1 or v2 body (read into the `v2_*` shims, `save/v2.rs`) into records: one per

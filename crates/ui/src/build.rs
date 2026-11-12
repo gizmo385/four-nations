@@ -260,6 +260,11 @@ pub(crate) fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> Stri
         Blocker::Beside(_) => why.to_string(),
         // "must be 20 tiles from any stockpile" (the Waystation, `OutpostDef::far_from_stores`).
         Blocker::NearStores(_) => why.to_string(),
+        // "must stand on desert" (#740, the Sandstone Works).
+        Blocker::OnBiome(b) => match session.defs.biomes.get(usize::from(b.0)) {
+            Some(biome) => format!("must stand on {}", biome.name.to_lowercase()),
+            None => why.to_string(),
+        },
         // "only one": a landmark, such as the High Temple (#723).
         Blocker::OnlyOne => why.to_string(),
     }
@@ -832,6 +837,15 @@ mod tests {
     use super::*;
     use fn_sim::world::Command;
     use fn_sim::{Nation, Terrain};
+
+    /// The Sandstone Works' refusal names the biome (#740).
+    #[test]
+    fn an_on_biomes_refusal_names_the_biome() {
+        let s = session(Nation::Earth);
+        let desert = s.defs.biome_id("desert").unwrap();
+        let text = describe_blocker(&s, Pos::new(0, 0), Blocker::OnBiome(desert));
+        assert_eq!(text, "must stand on desert");
+    }
 
     fn session(nation: Nation) -> Session {
         Session::new(7, nation, 64, 64)

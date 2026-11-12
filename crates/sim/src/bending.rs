@@ -316,6 +316,10 @@ pub enum Effect {
     /// finishes as soon as both are complete, through `run_build`'s own check, with no special
     /// case here for an unsupplied site.
     Build { work_seconds: f32 },
+    /// Clears the strain from every tile within `radius` (Chebyshev) of the target (Water's
+    /// "Regrow", `plantbending`, #740; difficulty.md, "Strain: tiring land"). The target must
+    /// be open ground with strain on at least one tile in reach. No magnitude.
+    Unstrain { radius: u32 },
     /// Only tests can define one: a valid target is walkable ground, and completing does nothing
     /// but spend the chi.
     #[cfg(test)]
@@ -434,6 +438,9 @@ enum RawEffect {
     },
     Build {
         work_seconds: f32,
+    },
+    Unstrain {
+        radius: u32,
     },
     #[cfg(test)]
     Probe,
@@ -725,6 +732,12 @@ fn resolve_effect(
                 finds.push(ResourceId(i as u16));
             }
             Effect::Reveal { radius, finds }
+        }
+        RawEffect::Unstrain { radius } => {
+            if !(1..=3).contains(&radius) {
+                return err("unstrain radius must be 1 to 3");
+            }
+            Effect::Unstrain { radius }
         }
         RawEffect::Smelt { ore, metal, ratio } => {
             if ratio == 0 {
