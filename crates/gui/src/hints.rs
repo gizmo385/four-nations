@@ -148,6 +148,20 @@ pub fn title_bar(mode: Mode, palette: &Palette, cols: u16) -> Bar {
     }
 }
 
+/// The bar for the embark screen (#883): the zoom's name (`EMBARK`, `SETTLE?`) as the badge and
+/// its keys, or `notice` (a refused site) in their place, as `fn_tui::embark`'s status line does.
+pub fn embark_bar(mode: Mode, notice: &str, palette: &Palette, cols: u16) -> Bar {
+    let mut bar = title_bar(mode, palette, cols);
+    if !notice.is_empty() {
+        bar.message = Some(notice.to_owned());
+        bar.items.clear();
+    }
+    if mode == Mode::Settle {
+        bar.badge_bg = to_egui(palette.token(palette.theme.warn), Color32::GRAY);
+    }
+    bar
+}
+
 /// Draws `bar` into `ui`, which is the bottom panel's one row.
 pub fn show(ui: &mut Ui, bar: &Bar, font: &FontId) {
     ui.spacing_mut().item_spacing.x = 0.0;

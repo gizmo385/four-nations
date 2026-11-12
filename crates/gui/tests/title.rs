@@ -125,8 +125,7 @@ fn clicks_and_keys_reach_the_same_embark() {
     h.run_steps(2);
     drop(h);
     assert_eq!(embarked(&app), embarked(&by_keys));
-    // Embark is still the cell-painted screen.
-    assert_eq!(app.frame().surface, Some(Surface::CellsFull));
+    assert_eq!(app.frame().surface, Some(Surface::Embark));
 }
 
 /// Back is `Esc` on every step, so a click steps back as the key does.

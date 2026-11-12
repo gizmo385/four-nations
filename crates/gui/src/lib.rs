@@ -15,8 +15,10 @@
 //!   every click a key press.
 //! - **Pages** ([`page`], [`screens`]): the full screens as egui widgets in one frame, over the
 //!   whole window above the hint bar. Build (#881) is the first.
+//! - **Embark** ([`embark`]) is native: the survey on square tiles and the site report as a side
+//!   panel (`fn_ui::embark`'s rows); a click on the map is the arrow keys to that block.
 //! - **Cells** ([`cells`]) paint a ratatui buffer as egui shapes: the unconverted screens,
-//!   embark, and boxes.
+//!   and boxes.
 //!
 //! Nothing here reads the clock but [`app`]'s frame time.
 
@@ -25,6 +27,7 @@ pub mod browser_saves;
 pub mod camera;
 pub mod cells;
 pub mod color;
+pub mod embark;
 pub mod fonts;
 pub mod frame;
 pub mod hints;

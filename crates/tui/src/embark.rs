@@ -9,11 +9,10 @@
 
 use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use fn_sim::defs::{BiomeId, Terrain};
-use fn_sim::embark::{
-    GroupCount, Level, MapSizeDef, Outlook, SiteProblem, SiteReport, Survey, SurveyMode,
-};
+use fn_sim::embark::{MapSizeDef, SiteReport, Survey, SurveyMode};
 use fn_sim::mapgen::{Tile, TileMap};
 use fn_sim::{Defs, Nation, Pos};
+use fn_ui::embark::{Site, report_rows};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -21,9 +20,7 @@ use ratatui::style::{Modifier, Style};
 use crate::color::{Palette, mix, to_u8};
 use crate::glyphs::{EmbarkGlyphDef, Rgb8};
 use crate::layout;
-use crate::widgets::{
-    BarBody, Marks, Painter, Row, TitleAt, Tone, draw_frame, draw_hint_bar, wrap,
-};
+use crate::widgets::{BarBody, Marks, Painter, Row, TitleAt, Tone, draw_frame, draw_hint_bar};
 use fn_ui::keys;
 
 /// How far a plain move goes, in cells (one cell is `N` tiles at 1:N); Shift moves this many
@@ -263,8 +260,7 @@ impl EmbarkScreen {
     fn ask_or_refuse(&mut self, defs: &Defs) {
         match self.survey.report(self.cursor, self.mode, self.difficulty(), defs).problem {
             Some(problem) => {
-                self.status =
-                    format!("Can't settle: {}.", problem_text(problem, self.tile_terrain()));
+                self.status = fn_ui::embark::refusal(problem, self.tile_terrain());
             }
             None => self.prompt = true,
         }
@@ -342,18 +338,7 @@ fn block_count(len: i32, n: i32) -> i32 {
     (len + n - 1) / n
 }
 
-/// Why `problem` refuses a site, in words; `terrain` (the tile itself) picks the clearer wording
-/// for `NotLand`. `pub(crate)` for `--start X,Y`'s own error (`crate::shell::Shell::for_args`).
-pub(crate) fn problem_text(problem: SiteProblem, terrain: Terrain) -> String {
-    match problem {
-        SiteProblem::NotLand if terrain == Terrain::Mountain => "a mountain".to_owned(),
-        SiteProblem::NotLand if terrain.is_water() => "open water".to_owned(),
-        SiteProblem::NotLand => "not open ground".to_owned(),
-        SiteProblem::NearEdge => "too close to the map's edge".to_owned(),
-        SiteProblem::TooSmall => "the landmass is too small to live on".to_owned(),
-        SiteProblem::NoRoom => "not enough open room for the settlers".to_owned(),
-    }
-}
+pub(crate) use fn_ui::embark::problem_text;
 
 // -------------------------------------------------------------------------------------------
 // Block classification (docs/design/embark.md, "What a cell shows")
@@ -517,6 +502,158 @@ fn corner_at(bx: i32, by: i32, min: Pos, max: Pos, marks: &Marks) -> Option<char
     }
 }
 
+/// What one block of the map shows, before any frontend draws it: the glyph and colours of the
+/// block's look (or the box's corner mark), and whether it lies in the site box or under the
+/// cursor. The terminal turns it into a styled cell ([`draw_map`]); the window into a tile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockCell {
+    pub glyph: char,
+    pub fg: Rgb8,
+    /// The block's own background, before the site box tints it.
+    pub bg: Rgb8,
+    /// A corner mark of the site box (bold, in the box's tint).
+    pub corner: bool,
+    /// Inside the site box (the report's radius), corners excluded.
+    pub in_box: bool,
+    /// The block the cursor is on.
+    pub cursor: bool,
+}
+
+/// The map's blocks at the screen's current zoom, and the site box over them: what [`draw_map`]
+/// and the window's embark map both draw from (docs/design/embark.md, "What a cell shows").
+pub struct MapFrame<'a> {
+    screen: &'a EmbarkScreen,
+    defs: &'a Defs,
+    palette: &'a Palette,
+    marks: Marks,
+    /// Tiles to a block.
+    pub scale: i32,
+    pub overview: bool,
+    /// The map's size in blocks.
+    pub blocks: (i32, i32),
+    cursor_block: Pos,
+    box_min: Pos,
+    box_max: Pos,
+    /// The colour of the site box: the accent, or `bad` for a refused site.
+    pub tint: Rgb8,
+}
+
+impl MapFrame<'_> {
+    /// The block `(bx, by)`, or `None` off the map.
+    pub fn cell(&self, bx: i32, by: i32) -> Option<BlockCell> {
+        let (bw, bh) = self.blocks;
+        if bx < 0 || by < 0 || bx >= bw || by >= bh {
+            return None;
+        }
+        let (defs, palette, screen) = (self.defs, self.palette, self.screen);
+        let map = screen.survey.map();
+        let (glyph, fg, bg) = if self.scale == 1 {
+            site_look(map.get(Pos::new(bx, by)), defs, palette)
+        } else {
+            block_look(
+                classify_block(map, bx, by, self.scale, self.overview, &screen.glyphs),
+                defs,
+                palette,
+            )
+        };
+        let corner = corner_at(bx, by, self.box_min, self.box_max, &self.marks);
+        let in_box = (self.box_min.x..=self.box_max.x).contains(&bx)
+            && (self.box_min.y..=self.box_max.y).contains(&by);
+        Some(BlockCell {
+            glyph: corner.unwrap_or(glyph),
+            fg: if corner.is_some() { self.tint } else { fg },
+            bg,
+            corner: corner.is_some(),
+            in_box: in_box && corner.is_none(),
+            cursor: bx == self.cursor_block.x && by == self.cursor_block.y,
+        })
+    }
+
+    /// The block `tile` lies in.
+    pub fn block_of(&self, tile: Pos) -> Pos {
+        Pos::new(tile.x.div_euclid(self.scale), tile.y.div_euclid(self.scale))
+    }
+
+    /// The background of an in-box block: its own, mixed toward the box's tint.
+    pub fn boxed(&self, bg: Rgb8) -> Rgb8 {
+        mix(bg, self.tint, 0.45)
+    }
+}
+
+impl EmbarkScreen {
+    /// The map's blocks at the current zoom, for a frontend to draw. `refused` (the report has a
+    /// problem) turns the site box to the warning colour.
+    pub fn map_frame<'a>(
+        &'a self,
+        defs: &'a Defs,
+        palette: &'a Palette,
+        refused: bool,
+    ) -> MapFrame<'a> {
+        let n = self.scale();
+        let (mw, mh) = self.map_size();
+        let radius = defs.embark.report_radius;
+        MapFrame {
+            screen: self,
+            defs,
+            palette,
+            marks: Marks::new(palette.ascii),
+            scale: n,
+            overview: self.is_overview(),
+            blocks: (block_count(mw, n), block_count(mh, n)),
+            cursor_block: Pos::new(self.cursor.x.div_euclid(n), self.cursor.y.div_euclid(n)),
+            box_min: Pos::new(
+                (self.cursor.x - radius).div_euclid(n),
+                (self.cursor.y - radius).div_euclid(n),
+            ),
+            box_max: Pos::new(
+                (self.cursor.x + radius).div_euclid(n),
+                (self.cursor.y + radius).div_euclid(n),
+            ),
+            tint: to_u8(if refused { palette.theme.bad } else { palette.theme.accent }),
+        }
+    }
+
+    /// What the report panel needs to know of the screen (`fn_ui::embark::report_rows`).
+    pub fn site(&self) -> Site<'_> {
+        Site {
+            seed: self.seed,
+            nation: self.nation,
+            difficulty: self.difficulty(),
+            mode: self.mode,
+            size_name: &self.size.name,
+            scale: self.scale(),
+            overview: self.is_overview(),
+            cursor: self.cursor,
+            terrain: self.tile_terrain(),
+        }
+    }
+
+    /// The report for the site under the cursor.
+    pub fn report(&self, defs: &Defs) -> SiteReport {
+        self.survey.report(self.cursor, self.mode, self.difficulty(), defs)
+    }
+
+    /// Tiles to a block at the current zoom (1 at the closest).
+    pub fn block_scale(&self) -> i32 {
+        self.scale()
+    }
+
+    /// Whether the settle question (`y`/`n`) is open.
+    pub fn asking(&self) -> bool {
+        self.prompt
+    }
+
+    /// Whether the key help shows instead of the map.
+    pub fn helping(&self) -> bool {
+        self.help
+    }
+
+    /// Whether `Enter` goes on zooming in, and does not settle: not at the closest zoom.
+    pub fn can_zoom_in(&self) -> bool {
+        self.zoom + 1 < self.ladder.len()
+    }
+}
+
 fn draw_map(
     screen: &EmbarkScreen,
     defs: &Defs,
@@ -525,64 +662,34 @@ fn draw_map(
     area: Rect,
     buf: &mut Buffer,
 ) {
-    let n = screen.scale();
-    let overview = screen.is_overview();
-    let map = screen.survey.map();
-    let (mw, mh) = (map.width(), map.height());
-    let (bw, bh) = (block_count(mw, n), block_count(mh, n));
-    let (offx, offy) = if overview {
+    let frame = screen.map_frame(defs, palette, report.problem.is_some());
+    let (bw, bh) = frame.blocks;
+    let (offx, offy) = if frame.overview {
         ((i32::from(area.width) - bw).max(0) / 2, (i32::from(area.height) - bh).max(0) / 2)
     } else {
         (0, 0)
     };
-    let view = if overview { Pos::new(0, 0) } else { screen.view };
-    let radius = defs.embark.report_radius;
-    let cursor_block = Pos::new(screen.cursor.x.div_euclid(n), screen.cursor.y.div_euclid(n));
-    let box_min = Pos::new(
-        (screen.cursor.x - radius).div_euclid(n),
-        (screen.cursor.y - radius).div_euclid(n),
-    );
-    let box_max = Pos::new(
-        (screen.cursor.x + radius).div_euclid(n),
-        (screen.cursor.y + radius).div_euclid(n),
-    );
-    let refused = report.problem.is_some();
-    let marks = Marks::new(palette.ascii);
-    let tint = to_u8(if refused { palette.theme.bad } else { palette.theme.accent });
+    let view = if frame.overview { Pos::new(0, 0) } else { screen.view };
 
     for row in 0..area.height {
         for col in 0..area.width {
             let bx = view.x + i32::from(col) - offx;
             let by = view.y + i32::from(row) - offy;
-            if bx < 0 || by < 0 || bx >= bw || by >= bh {
-                continue;
-            }
-            let (glyph0, fg0, bg0) = if n == 1 {
-                site_look(map.get(Pos::new(bx, by)), defs, palette)
-            } else {
-                block_look(classify_block(map, bx, by, n, overview, &screen.glyphs), defs, palette)
-            };
-            let corner = corner_at(bx, by, box_min, box_max, &marks);
-            let (glyph, fg) = match corner {
-                Some(ch) => (ch, tint),
-                None => (glyph0, fg0),
-            };
-            let mut style = Style::new().fg(palette.color(fg)).bg(palette.color(bg0));
-            let in_box =
-                (box_min.x..=box_max.x).contains(&bx) && (box_min.y..=box_max.y).contains(&by);
-            if corner.is_some() {
+            let Some(cell) = frame.cell(bx, by) else { continue };
+            let mut style = Style::new().fg(palette.color(cell.fg)).bg(palette.color(cell.bg));
+            if cell.corner {
                 style = style.add_modifier(Modifier::BOLD);
-            } else if in_box {
+            } else if cell.in_box {
                 style = if palette.mono() {
                     style.add_modifier(Modifier::REVERSED | Modifier::DIM)
                 } else {
-                    style.bg(palette.color(mix(bg0, tint, 0.45)))
+                    style.bg(palette.color(frame.boxed(cell.bg)))
                 };
             }
             let out = &mut buf[(area.x + col, area.y + row)];
-            out.set_char(glyph);
+            out.set_char(cell.glyph);
             out.set_style(style);
-            if bx == cursor_block.x && by == cursor_block.y {
+            if cell.cursor {
                 out.modifier |= Modifier::REVERSED;
             }
         }
@@ -598,21 +705,20 @@ fn draw_help(palette: &Palette, area: Rect, buf: &mut Buffer) {
         width,
         height,
     );
-    draw_frame(buf, outer, palette, " EMBARK KEYS ", TitleAt::Centre, "");
+    draw_frame(
+        buf,
+        outer,
+        palette,
+        &format!(" {} ", fn_ui::embark::HELP_TITLE),
+        TitleAt::Centre,
+        "",
+    );
     if outer.height < 3 {
         return;
     }
     let inner = Rect::new(outer.x + 2, outer.y + 1, outer.width - 4, outer.height - 2);
     let mut p = Painter::new(buf, inner, palette);
-    for (keys, what) in [
-        ("Arrows/WASD", "move (Shift: 10 cells)"),
-        ("Enter, +", "zoom in; at the closest zoom, settle"),
-        ("-", "zoom out"),
-        ("Esc", "zoom out, or back at the overview"),
-        ("E", "settle at the cursor"),
-        ("R", "a new random seed"),
-        ("Q", "quit"),
-    ] {
+    for (keys, what) in fn_ui::embark::HELP {
         p.row(&Row::pair(keys, Tone::Title, what, Tone::Text));
     }
 }
@@ -648,79 +754,8 @@ fn draw_status(screen: &EmbarkScreen, palette: &Palette, area: Rect, buf: &mut B
     );
 }
 
-fn land_label(kind: fn_sim::embark::LandKind, defs: &Defs) -> String {
-    use fn_sim::embark::LandKind;
-    match kind {
-        LandKind::Biome(id) => defs.biome(id).name.clone(),
-        LandKind::Mountain => "Mountain".to_owned(),
-        LandKind::Water => "Sea".to_owned(),
-    }
-}
-
-/// The climate band's name and effects, lower case (`docs/design/difficulty.md`, "Embark"): for
-/// example `cool: cold, frost`, or `warm: mild` for a band with neither. The effects list is
-/// `fn_ui::view::climate_effects`'s own, which the Season section shares (#299).
-fn climate_word(climate: &fn_sim::seasons::ClimateDef) -> String {
-    format!("{}: {}", climate.name.to_lowercase(), fn_ui::view::climate_effects(climate))
-}
-
-fn level_word(level: Level) -> &'static str {
-    match level {
-        Level::None => "none",
-        Level::Scarce => "scarce",
-        Level::Some => "some",
-        Level::Plenty => "plenty",
-    }
-}
-
-fn water_kind_word(t: Terrain) -> &'static str {
-    match t {
-        Terrain::Water => "sea",
-        Terrain::Lake => "lake",
-        Terrain::River => "river",
-        Terrain::Ford => "ford",
-        _ => "water",
-    }
-}
-
-fn water_text(report: &SiteReport, mode: SurveyMode, defs: &Defs) -> String {
-    match report.water {
-        None => "none within reach".to_owned(),
-        Some((terrain, steps)) => match mode {
-            SurveyMode::Rough => {
-                if steps <= defs.embark.outlook.water_far {
-                    "near".to_owned()
-                } else {
-                    "far".to_owned()
-                }
-            }
-            SurveyMode::Exact => format!("{}, {steps} steps", water_kind_word(terrain)),
-        },
-    }
-}
-
-/// `n` with a thousands separator ("4,563"), as the mockup shows room-to-roam counts.
-fn thousands(n: u32) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out.chars().rev().collect()
-}
-
-fn group_row(g: &GroupCount) -> Row {
-    let left = match g.count {
-        Some(c) => format!("{:<8}{c:>3}", g.name),
-        None => format!("{:<8}", g.name),
-    };
-    let right = if g.hidden { "?".to_owned() } else { level_word(g.level).to_owned() };
-    Row::pair(left, Tone::Text, right, Tone::Text)
-}
-
+/// The "CHOOSE A SITE" panel: the frame, and the rows `fn_ui::embark` builds from the report
+/// (the window paints the same rows).
 fn draw_panel(
     screen: &EmbarkScreen,
     defs: &Defs,
@@ -730,7 +765,7 @@ fn draw_panel(
     buf: &mut Buffer,
 ) {
     let marks = Marks::new(palette.ascii);
-    let title = format!(" {0} CHOOSE A SITE {0} ", marks.seal);
+    let title = format!(" {} ", fn_ui::embark::title(&marks));
     draw_frame(buf, area, palette, &title, TitleAt::Centre, "");
     let inner = Rect::new(
         area.x + 2,
@@ -739,133 +774,15 @@ fn draw_panel(
         area.height.saturating_sub(2),
     );
     let mut p = Painter::new(buf, inner, palette);
-
-    let seed_text = format!("Seed {}", screen.seed);
-    let nation_name = defs.nation(screen.nation).name.clone();
-    if seed_text.chars().count() + 1 + nation_name.chars().count() <= usize::from(inner.width) {
-        p.row(&Row::pair(seed_text, Tone::Dim, nation_name, Tone::Text));
-    } else {
-        // A random seed runs to 20 digits. Sharing the row would cut the seed, and the seed is
-        // what a player copies to replay a map, so the nation gets its own row instead.
-        p.row(&Row::text(seed_text, Tone::Dim));
-        p.row(&Row::text(nation_name, Tone::Text));
-    }
-    // A line under the seed (#298, docs/design/difficulty.md "Embark"): the chosen preset, and
-    // the size/survey mode already shown on the seed step.
-    let preset_name = screen
-        .difficulty()
-        .and_then(|id| defs.difficulty.preset(id))
-        .map_or("Normal", |p| p.name.as_str());
-    let survey_name = match screen.mode() {
-        SurveyMode::Exact => "Exact",
-        SurveyMode::Rough => "Rough",
-    };
-    p.row(&Row::pair(
-        preset_name.to_owned(),
-        Tone::Dim,
-        format!("{} · {survey_name}", screen.size().name),
-        Tone::Text,
-    ));
-    let zoom_label = if screen.is_overview() {
-        "overview"
-    } else if screen.scale() == 1 {
-        "site"
-    } else {
-        "region"
-    };
-    p.row(&Row::pair(
-        format!("Zoom 1:{} {zoom_label}", screen.scale()),
-        Tone::Dim,
-        format!("({}, {})", screen.cursor.x, screen.cursor.y),
-        Tone::Text,
-    ));
-    p.blank();
-
-    if let Some(problem) = report.problem {
-        p.row(&Row::text(format!("{} OUTLOOK", marks.bullet), Tone::Title));
-        let cross = if palette.ascii { "x" } else { "✗" };
-        // Wrapped like the outlook reasons below: the reason is the whole point of this line,
-        // and the longer ones ("the landmass is too small to live on") don't fit one row.
-        let refusal =
-            format!("{cross} Can't settle: {}.", problem_text(problem, screen.tile_terrain()));
-        for line in wrap(&refusal, usize::from(inner.width), 3, marks.ellipsis) {
-            p.row(&Row::text(line, Tone::Bad));
-        }
-        return;
-    }
-
-    p.row(&Row::pair(
-        format!("{} LAND", marks.bullet),
-        Tone::Title,
-        if report.mainland { "mainland" } else { "island" },
-        Tone::Text,
-    ));
-    let biomes: Vec<_> = report.biomes.iter().take(4).collect();
-    for pair in biomes.chunks(2) {
-        let text = pair
-            .iter()
-            .map(|&&(k, pct)| format!("{} {pct}%", land_label(k, defs)))
-            .collect::<Vec<_>>()
-            .join("  ");
-        p.row(&Row::text(text, Tone::Text));
-    }
-    // The start tile's climate band (#297, docs/design/difficulty.md "Embark"), only when the
-    // chosen preset has seasons on: Sandbox, or no preset, never shows it. Packed left like the
-    // biome rows above it: the value is short, so a right-aligned pair left it stranded at the
-    // panel's far edge.
-    let seasons_on =
-        screen.difficulty().and_then(|id| defs.difficulty.preset(id)).is_some_and(|k| k.seasons);
-    if seasons_on {
-        p.row(&Row::text(format!("Winter  {}", climate_word(&report.climate)), Tone::Text));
-    }
-    p.row(&Row::pair(
-        "Room to roam",
-        Tone::Text,
-        format!("{} tiles", thousands(report.room)),
-        Tone::Text,
-    ));
-    if !screen.is_overview() {
-        p.row(&Row::pair("Water", Tone::Text, water_text(report, screen.mode, defs), Tone::Text));
-    }
-
-    if screen.is_overview() {
-        return;
-    }
-    p.blank();
-
-    let radius = defs.embark.report_radius;
-    let side = radius * 2 + 1;
-    p.row(&Row::pair(
-        format!("{} WITHIN {radius} TILES", marks.bullet),
-        Tone::Title,
-        format!("{side}x{side}"),
-        Tone::Text,
-    ));
-    for g in &report.groups {
-        p.row(&group_row(g));
-    }
-
-    p.blank();
-    let outlook_word = match report.outlook {
-        Outlook::Easy => "Easy",
-        Outlook::Fair => "Fair",
-        Outlook::Hard => "Hard",
-    };
-    let outlook_text = if report.rough {
-        format!("{outlook_word} (rough guess)")
-    } else {
-        outlook_word.to_owned()
-    };
-    p.row(&Row::pair(format!("{} OUTLOOK", marks.bullet), Tone::Title, outlook_text, Tone::Text));
-    let reasons = format!("{}.", report.reasons.join("; "));
-    for line in wrap(&reasons, usize::from(inner.width), 2, marks.ellipsis) {
-        p.row(&Row::text(line, Tone::Text));
+    for row in report_rows(&screen.site(), report, defs, &marks, usize::from(inner.width)) {
+        p.row(&row);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fn_sim::embark::SiteProblem;
 
     fn defs() -> Defs {
         Defs::bundled()
