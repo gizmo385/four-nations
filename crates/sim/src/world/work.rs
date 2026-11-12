@@ -1504,7 +1504,9 @@ impl World {
                 }
                 let forage = match source {
                     FoodSource::Forage(p) => {
-                        let h = self.map[p].resource.and_then(|r| defs.harvest(r)).unwrap();
+                        // `harvest_at`, not the tile's resource: a shore tile forages fish with
+                        // no resource on it (Southern Ways, #727).
+                        let h = self.harvest_at(p, defs).expect("food_item found it");
                         h.work / self.work_rate(i, h, defs)
                     }
                     _ => 0.0,
@@ -1605,7 +1607,7 @@ impl World {
             }
             FoodSource::Pantry(a) => self.take_from_pantry(a, item),
             FoodSource::Forage(p) => {
-                let h = defs.harvest(self.map[p].resource.expect("checked")).expect("checked");
+                let h = self.harvest_at(p, defs).expect("checked");
                 let count = self.work_done(p, h, defs);
                 if count > 1 {
                     self.place_ground(p, Stack { item, count: count - 1 });
@@ -1712,6 +1714,10 @@ impl World {
             .jobs
             .iter()
             .filter(|j| j.claimed_by.is_none())
+            // The Avatar only ever takes a bend or a gate task (#237).
+            .filter(|j| {
+                !is_avatar || matches!(j.kind, JobKind::Bend { .. } | JobKind::EndeavorTask { .. })
+            })
             .map(|j| (priority(j.kind), near(j.kind), j))
             .collect();
         open.sort_by_key(|&(p, d, _)| (p, d));
