@@ -74,6 +74,10 @@ pub struct Shell {
     /// Set when the title screen's Replays was chosen, until the loop takes it
     /// ([`Self::take_replays`]) and opens the run browser on its own terminal.
     replays_wanted: bool,
+    /// Whether the host can end the program (#866): `false` in the browser. A process-wide host
+    /// setting like `fast`: [`Self::with_quit`] sets it, and the title screen, embark's `Q` and
+    /// every game that appears after follow it.
+    can_quit: bool,
 }
 
 impl Shell {
@@ -93,6 +97,7 @@ impl Shell {
             fast: false,
             runs: None,
             replays_wanted: false,
+            can_quit: true,
         }
     }
 
@@ -115,6 +120,7 @@ impl Shell {
             fast,
             runs: None,
             replays_wanted: false,
+            can_quit: true,
         }
     }
 
@@ -144,6 +150,7 @@ impl Shell {
             fast: false,
             runs: None,
             replays_wanted: false,
+            can_quit: true,
         }
     }
 
@@ -309,6 +316,7 @@ impl Shell {
         // place (docs/design/embark.md, "In the game"). Collected here, outside the match,
         // so it can call `Self::open_embark` once the match's borrow of `self.mode` is done.
         let mut reopen: Option<(u64, Nation, fn_sim::embark::MapSizeDef, Option<String>)> = None;
+        let mut to_title = false;
         match &mut self.mode {
             Mode::Title(title) => {
                 let outcome = title.key(key, &self.defs, self.saves.as_deref());
@@ -318,9 +326,14 @@ impl Shell {
                 let outcome = screen.key(key, &self.defs);
                 if screen.quit {
                     // `Q` in embark asks the same back-to-title question a game's Quit… does
-                    // (docs/design/embark.md, "Flow and keys").
+                    // (docs/design/embark.md, "Flow and keys"). With nothing to quit to there
+                    // is only one answer, so it goes back to the title screen without asking.
                     screen.quit = false;
-                    self.exit_prompt = true;
+                    if self.can_quit {
+                        self.exit_prompt = true;
+                    } else {
+                        to_title = true;
+                    }
                 }
                 self.apply_embark(outcome);
             }
@@ -355,6 +368,9 @@ impl Shell {
                 }
             }
         }
+        if to_title {
+            self.go_to_title();
+        }
         if let Some((seed, nation, size, difficulty)) = reopen {
             self.open_embark(seed, nation, size, fn_sim::embark::SurveyMode::Exact, difficulty);
         }
@@ -370,6 +386,7 @@ impl Shell {
     fn title_screen(&self) -> TitleScreen {
         TitleScreen::new(self.saves.as_deref(), self.seed_hint)
             .with_replays(self.runs.as_deref().is_some_and(crate::browser::has_runs))
+            .with_quit(self.can_quit)
     }
 
     /// Sets the agent runs folder (#841), the Replays item's target, and shows or hides the
@@ -492,10 +509,24 @@ impl Shell {
         self.defs = session.defs.clone();
         let mut session = session;
         session.clock = session.clock.with_fast(self.fast);
-        let mut app = App::new(session, self.screen);
+        let mut app = App::new(session, self.screen).with_can_quit(self.can_quit);
         app.saves = self.saves.clone();
         app.legend_rows = crate::screens::legend_rows;
         self.mode = Mode::Game(Box::new(app));
+    }
+
+    /// Sets whether the host can end the program (#866); it can by default. Off in the browser:
+    /// the title screen has no Quit, embark's `Q` goes back to the title screen, and in a game
+    /// `Ctrl+C` does nothing, the menu's Quit… row is "Title screen…" and its box has no "Quit the
+    /// game" answer. Applied to what is on screen now and to everything that appears after.
+    pub fn with_quit(mut self, can_quit: bool) -> Self {
+        self.can_quit = can_quit;
+        match &mut self.mode {
+            Mode::Title(title) => title.set_quit(can_quit),
+            Mode::Game(app) => app.ui.can_quit = can_quit,
+            Mode::Embark(_) => {}
+        }
+        self
     }
 
     /// Sets `--fast` (#321): a process-wide host setting applied to the game in front of us now

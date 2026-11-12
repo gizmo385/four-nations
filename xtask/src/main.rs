@@ -60,7 +60,7 @@
 //!     cargo xtask web-gui [--fast] [--serve] [--port N]
 //!                               builds fn_gui for the browser (#859) and binds it with the
 //!                               wasm-bindgen CLI (at Cargo.lock's version) into
-//!                               target/replayer/gui/; CI runs it so a wasm break in fn_gui
+//!                               target/replayer/play/; CI runs it so a wasm break in fn_gui
 //!                               fails there. See `cargo xtask web-gui --help`.
 //!
 //! `root()` finds the repo root at runtime with `git rev-parse --show-toplevel`, so an `xtask`

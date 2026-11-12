@@ -91,7 +91,7 @@ fn draw_modal(
                 .iter()
                 .map(|&n| (session.defs.nation(n).name.clone(), n == session.world.nation))
                 .collect();
-            crate::menu::draw(ui.menu_page, ui.menu_cursor, &nations, &clock, palette, area, buf)
+            crate::menu::draw(ui, &nations, &clock, palette, area, buf)
         }
     }
 }

@@ -396,6 +396,19 @@ uploaded. A log replays only against the game data it was made with, so the host
 logs made on recent builds of `main`; an older one is refused with the build it came from, and
 `cargo xtask web --serve` from a checkout of that build plays it.
 
+**The hosted game (#866).** The same workflow publishes the game itself, `fn_gui` built for the
+browser, at `https://gizmo385.github.io/four-nations/play/`; the replayer's page links to it
+("Play the game"). It opens at the title screen and plays as the desktop app does with no
+arguments (new game, embark, settle, play, the game menu, saves in the browser's
+`localStorage`), minus what a tab can't do: the title screen has no Quit or Replays, `Ctrl+C`
+does nothing, and the game menu's Quit… row is "Title screen…" with no "Quit the game" answer.
+`cargo xtask web-gui` builds it (the `web` profile, or `--fast` for a quick unoptimised
+build) into `target/replayer/play/`, next to `xtask web`'s files, so one folder is uploaded;
+`--serve` serves it at `http://127.0.0.1:8595/play/`. A query with a `seed`
+(`?seed=7&nation=2&size=0`) starts that game at once instead, for the page's scripts
+(`web/play/check-play.cjs`, `web/play/check-saves.cjs`; Playwright, run by hand, not in CI).
+See `docs/design/egui-frontend.md`.
+
 ## Racing
 
 **`data/races.toml`**, read by `fn_agent` (the sim never reads it, as with `tui.toml`):

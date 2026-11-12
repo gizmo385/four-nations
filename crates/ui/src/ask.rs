@@ -116,7 +116,15 @@ pub fn describe(
 pub fn current(session: &Session, ui: &UiState) -> Option<Ask> {
     let prompt = ui.prompt.as_ref()?;
     let since = ui.saved_at.map(|at| session.world.tick.saturating_sub(at));
-    Some(describe(prompt, session, ui.ask_can_save, since))
+    let mut ask = describe(prompt, session, ui.ask_can_save, since);
+    if !ui.can_quit {
+        // Nowhere to quit to (#866): the Quit box is only the way back to the title screen.
+        ask.answers.retain(|(answer, _)| *answer != Answer::Exit);
+        if *prompt == Prompt::Quit {
+            ask.title = "TITLE SCREEN";
+        }
+    }
+    Some(ask)
 }
 
 #[cfg(test)]
@@ -199,6 +207,20 @@ mod tests {
             let exits = ask.answers.iter().any(|(a, _)| *a == Answer::Exit);
             assert_eq!(exits, prompt == Prompt::Quit, "{prompt:?}");
         }
+    }
+
+    #[test]
+    fn a_host_that_cannot_quit_gets_no_quit_answer() {
+        let session = session();
+        let mut ui = UiState::new(&session, (120, 40));
+        ui.prompt = Some(Prompt::Quit);
+        let labels = |ui: &UiState| -> Vec<String> {
+            current(&session, ui).unwrap().answers.into_iter().map(|(_, l)| l).collect()
+        };
+        assert!(labels(&ui).contains(&"Quit the game".to_owned()));
+        ui.can_quit = false;
+        assert_eq!(labels(&ui), ["Keep playing", "Go to the title screen without saving"]);
+        assert_eq!(current(&session, &ui).unwrap().title, "TITLE SCREEN");
     }
 
     #[test]

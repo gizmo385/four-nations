@@ -7,7 +7,7 @@
 //!   go to the game alone. `Ctrl`/`Cmd`/`Alt` with them, and any focus elsewhere on the page,
 //!   still reach the browser, so a hard reload (`Ctrl+Shift+R`) works.
 //! - [`publish`]: the game's state as `data-fn-*` attributes on the canvas, for a test or a
-//!   script driving the page (`web/gui/saves.spec.mjs`) to read, since the game is pixels:
+//!   script driving the page (`web/play/check-saves.cjs`) to read, since the game is pixels:
 //!   `data-fn-mode` (`title`, `embark` or `game`), and in a game `data-fn-tick`, `data-fn-seed`
 //!   and `data-fn-status` (the status line, where saves and loads say what they did).
 

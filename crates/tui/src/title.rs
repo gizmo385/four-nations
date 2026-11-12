@@ -139,6 +139,9 @@ pub struct TitleScreen {
     /// Whether the agent runs folder holds anything to replay (#841): `Shell` decides, since
     /// only it knows the folder. Off by default, and always off on wasm32 (no run browser there).
     pub replays: bool,
+    /// Whether the menu has a Quit row (#866): on by default, off in the browser, where there
+    /// is nothing to quit to. `Shell` sets it (`Shell::with_quit`).
+    pub quit: bool,
     /// The seed a fresh New Game offers until the player types over it: bumped each time a new
     /// title screen starts (`Shell`'s own job, since only it may read the wall clock), so
     /// starting over and over doesn't always suggest the same seed.
@@ -157,6 +160,7 @@ impl TitleScreen {
             load_cursor: 0,
             status: String::new(),
             replays: false,
+            quit: true,
             seed_hint,
         }
     }
@@ -174,6 +178,19 @@ impl TitleScreen {
         self
     }
 
+    /// Shows or hides the Quit item (#866), keeping the cursor on the row it was on.
+    pub fn set_quit(&mut self, quit: bool) {
+        let on = self.items().get(self.cursor).copied();
+        self.quit = quit;
+        self.cursor = on.and_then(|i| self.items().iter().position(|&x| x == i)).unwrap_or(0);
+    }
+
+    /// [`Self::set_quit`], for building one.
+    pub fn with_quit(mut self, quit: bool) -> Self {
+        self.set_quit(quit);
+        self
+    }
+
     /// The menu rows that show right now: `Continue` only with somewhere to continue.
     pub fn items(&self) -> Vec<MenuItem> {
         let mut items = vec![MenuItem::NewGame];
@@ -184,7 +201,9 @@ impl TitleScreen {
         if self.replays {
             items.push(MenuItem::Replays);
         }
-        items.push(MenuItem::Quit);
+        if self.quit {
+            items.push(MenuItem::Quit);
+        }
         items
     }
 
@@ -693,6 +712,17 @@ mod tests {
             [MenuItem::NewGame, MenuItem::Load, MenuItem::Quit],
             "no save directory: nothing to continue"
         );
+    }
+
+    #[test]
+    fn quit_is_hidden_when_the_host_cannot_quit() {
+        let mut screen = TitleScreen::new(None, 1);
+        screen.cursor = screen.items().len() - 1;
+        screen.set_quit(false);
+        assert_eq!(screen.items(), [MenuItem::NewGame, MenuItem::Load]);
+        assert!(screen.cursor < screen.items().len(), "the cursor stays on a row");
+        let screen = TitleScreen::new(None, 1).with_replays(true).with_quit(false);
+        assert_eq!(screen.items(), [MenuItem::NewGame, MenuItem::Load, MenuItem::Replays]);
     }
 
     #[test]

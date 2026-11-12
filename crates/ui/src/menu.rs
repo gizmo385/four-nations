@@ -58,6 +58,15 @@ impl MenuRow {
         }
     }
 
+    /// [`Self::label`] for a host that may not be able to quit (`UiState::can_quit`, #866): with
+    /// nowhere to quit to, the Quit… row is the way back to the title screen and says so.
+    pub fn label_for(self, can_quit: bool) -> &'static str {
+        match self {
+            Self::Quit if !can_quit => "Title screen…",
+            row => row.label(),
+        }
+    }
+
     /// Whether a blank line sits above this row: the three that end the game as it is are set
     /// apart from the rest.
     pub fn gap_before(self) -> bool {
@@ -114,6 +123,9 @@ mod tests {
             assert!(row.label().ends_with('…'), "{row:?}");
         }
         assert!(MenuRow::Quit.label().ends_with('…'));
+        assert_eq!(MenuRow::Quit.label_for(true), "Quit…");
+        assert_eq!(MenuRow::Quit.label_for(false), "Title screen…");
+        assert_eq!(MenuRow::Save.label_for(false), "Save…");
     }
 
     #[test]

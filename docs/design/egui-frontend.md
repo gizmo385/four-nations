@@ -41,7 +41,7 @@ changing the TUI.
 
 | Module | What it does | Fate |
 |---|---|---|
-| `main.rs` | Native `eframe::run_native`; wasm `WebRunner` starting at embark from a query string | Web entry goes to the title screen (#866) |
+| `main.rs` | Native `eframe::run_native`; wasm `WebRunner` at the title screen, or a game from a `?seed=` query (#866), with Quit hidden | Stays |
 | `app.rs` (`GuiApp`) | Reads the clock, translates keys, paints the whole ratatui frame with `fn_gui::cells` (#872), puts `MapView` over the map region, shows the timing overlay | Becomes the frame (#876). `egui_ratatui`/`soft_ratatui` are gone (#872) |
 | `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Gains click semantics, a hover tooltip and a cached overview (#878) |
 | `keys.rs` | egui `Event` to `fn_tui::keyev::KeyEvent` | Stays, retargeted to #857's frontend-neutral key type |
@@ -309,7 +309,8 @@ download-size and GPU frame-time measurement), #860 (a save store behind an inte
 with `localStorage`, deflated and base64'd, not IndexedDB: the store is synchronous, a small-map
 save is about 190 KB stored against a 5 MiB quota, and `fn_gui::browser_saves` documents the
 numbers) and #866 (Pages at `/play/`, title screen first, Quit and Replays
-hidden, Playwright). This doc adds one dependency: **#866 should also be blocked by #872**. The
+hidden, Playwright; done: `docs/design/agent-play.md`, "The hosted replayer", has the URL and the
+build; `Shell::with_quit(false)` is how Quit goes, and Replays never shows with no runs folder). This doc adds one dependency: **#866 should also be blocked by #872**. The
 public page shouldn't ship the CPU-rasterised terminal path the spike measured at 6 ms of a
 14 ms browser frame. The title screen is cells until #880, which is fine once cells are cheap.
 

@@ -1,6 +1,6 @@
 //! Browser saves (#860) against an in-memory stand-in for `localStorage`: the slot value, the
 //! compression, the quota error and the list, through the same `fn_ui::saves` functions the
-//! game calls. `localStorage` itself is checked in a real browser (`web/gui/saves.spec.mjs`).
+//! game calls. `localStorage` itself is checked in a real browser (`web/play/check-saves.cjs`).
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;

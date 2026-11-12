@@ -29,6 +29,8 @@ header, footer {
 footer { border-width: 1px 0 0; }
 h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 600; }
 .muted { color: var(--muted); font-size: 12px; }
+header .play { margin-left: auto; color: var(--accent); text-decoration: none; }
+header .play:hover { text-decoration: underline; }
 select, button, .file {
   font: inherit; color: var(--fg); background: #262626; border: 1px solid var(--line);
   border-radius: 4px; padding: 3px 8px; cursor: pointer;

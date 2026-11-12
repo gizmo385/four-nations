@@ -20,6 +20,7 @@ use ratatui::style::{Modifier, Style};
 use crate::color::Palette;
 use crate::modal;
 use crate::widgets::{Marks, Painter, Row, Tone};
+use fn_ui::state::UiState;
 
 // The rows, pages and cursor stepping are `fn_ui`'s (#857); this module draws them.
 pub use fn_ui::menu::*;
@@ -28,19 +29,20 @@ pub use fn_ui::menu::*;
 /// round them.
 pub const SIZE: (u16, u16) = (40, 10);
 
-/// Draws the menu: the row list or the list of nations (`page`), the highlighted row reversed.
-/// `nations` is each nation's name and whether it is the one being played. `clock` is the game's
+/// Draws the menu: the row list or the list of nations (`ui.menu_page`), the highlighted row
+/// (`ui.menu_cursor`) reversed, and the Quit… row as the host can quit or not (`ui.can_quit`,
+/// #866). `nations` is each nation's name and whether it is the one being played. `clock` is the game's
 /// one clock (#654, `fn_ui::time::clock_text`), the same words as the side panel's, on the bottom
 /// edge.
 pub fn draw(
-    page: MenuPage,
-    at: usize,
+    ui: &UiState,
     nations: &[(String, bool)],
     clock: &str,
     palette: &Palette,
     outer: Rect,
     buf: &mut Buffer,
 ) {
+    let (page, at, can_quit) = (ui.menu_page, ui.menu_cursor, ui.can_quit);
     let marks = Marks::new(palette.ascii);
     let name = match page {
         MenuPage::Rows => "MENU",
@@ -55,7 +57,7 @@ pub fn draw(
     match page {
         MenuPage::Rows => {
             for (i, row) in MenuRow::ALL.iter().enumerate() {
-                rows.push((row.gap_before(), i, row.label().to_owned(), None));
+                rows.push((row.gap_before(), i, row.label_for(can_quit).to_owned(), None));
             }
         }
         MenuPage::Nations => {

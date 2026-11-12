@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Four Nations</title>
+<!-- The game in the browser (#843, #859, #866): fn_gui, published at /play/ on the Pages site.
+     `cargo xtask web-gui` builds the wasm,
+     binds it with the wasm-bindgen CLI (at Cargo.lock's version) into target/replayer/play/ and
+     copies this file next to it; add `--serve` to serve it at http://127.0.0.1:8595/play/.
+     No query: the title screen, as the desktop app opens. A query with a seed starts that game
+     at once (?seed=7&nation=2&size=0), for the scripts. F5 quicksaves, F9 quickloads and F6 opens
+     the saves screen; saves live in the browser's localStorage (#860), so they survive a reload
+     (`node web/play/check-saves.cjs` and `node web/play/check-play.cjs` check it in headless
+     Chromium). -->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #121212; }
+  #the_canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="the_canvas"></canvas>
+<script type="module">
+  import init from './fn_gui.js';
+  const t0 = performance.now();
+  init().then(() => { window.fnGuiStarted = performance.now() - t0; });
+</script>
+</body>
+</html>
