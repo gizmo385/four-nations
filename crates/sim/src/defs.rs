@@ -1281,6 +1281,19 @@ mod tests {
         assert!(
             err(&format!("{pair}[building.glide]\nseconds = 2.0\n")).contains("seconds_per_tile")
         );
+        assert!(!glide.loads, "a glide leaves loads behind");
+        // A lift is a glide that carries them (#756).
+        let lifted =
+            with(&format!("{pair}[building.lift]\nseconds = 4.0\nseconds_per_tile = 0.25\n"))
+                .unwrap();
+        let lift = lifted.building(lifted.building_id("twin").unwrap()).glide.unwrap();
+        assert!(lift.loads);
+        assert_eq!(lift.ticks(32), 120);
+        assert!(err("[building.lift]\nseconds = 4.0\nseconds_per_tile = 0.25\n").contains("pair"));
+        let both = format!(
+            "{pair}[building.glide]\nseconds = 2.0\nseconds_per_tile = 0.1\n[building.lift]\nseconds = 4.0\nseconds_per_tile = 0.25\n"
+        );
+        assert!(err(&both).contains("lift"));
         let bundled = Defs::bundled();
         let gate = bundled.building(bundled.building_id("wind_gate").unwrap());
         assert!(gate.glide.is_some() && gate.pair.is_some() && gate.passable);

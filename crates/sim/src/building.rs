@@ -472,6 +472,9 @@ pub struct GlideDef {
     pub seconds: f32,
     /// And this much more for each tile between the ends (Chebyshev, anchor to anchor).
     pub seconds_per_tile: f32,
+    /// Whether a unit carrying a load may ride too (`[building.lift]`, the Sky Lift), not only
+    /// one with empty hands (`[building.glide]`, the Wind Gate).
+    pub loads: bool,
 }
 
 impl GlideDef {
@@ -1250,6 +1253,8 @@ struct RawBuilding {
     pair: Option<RawPair>,
     outpost: Option<RawOutpost>,
     glide: Option<RawGlide>,
+    /// `[building.lift]` (issue #756): a glide that carries loads too.
+    lift: Option<RawGlide>,
     balloon: Option<RawBalloon>,
     airship: Option<RawAirship>,
     #[serde(default)]
@@ -1621,12 +1626,15 @@ impl BuildingsFile {
                 None => None,
                 Some(o) => Some(resolve_outpost(&b.id, o, items)?),
             };
-            let glide = match &b.glide {
-                None => None,
-                Some(_) if b.pair.is_none() => {
+            let glide = match (&b.glide, &b.lift) {
+                (None, None) => None,
+                (Some(_), Some(_)) => {
+                    return err(format!("building {}: a glide and a lift can't both be set", b.id));
+                }
+                _ if b.pair.is_none() => {
                     return err(format!("building {}: a glide needs a pair", b.id));
                 }
-                Some(g)
+                (Some(g), None) | (None, Some(g))
                     if !(g.seconds.is_finite() && g.seconds >= 0.0)
                         || !(g.seconds_per_tile.is_finite() && g.seconds_per_tile >= 0.0) =>
                 {
@@ -1635,9 +1643,16 @@ impl BuildingsFile {
                         b.id
                     ));
                 }
-                Some(g) => {
-                    Some(GlideDef { seconds: g.seconds, seconds_per_tile: g.seconds_per_tile })
-                }
+                (Some(g), None) => Some(GlideDef {
+                    seconds: g.seconds,
+                    seconds_per_tile: g.seconds_per_tile,
+                    loads: false,
+                }),
+                (None, Some(g)) => Some(GlideDef {
+                    seconds: g.seconds,
+                    seconds_per_tile: g.seconds_per_tile,
+                    loads: true,
+                }),
             };
             let balloon = match &b.balloon {
                 None => None,

@@ -188,7 +188,7 @@ fn a_short_trip_walks_and_a_tie_walks() {
     let mut slow = defs.clone();
     let gate = slow.building_id("wind_gate").unwrap();
     slow.buildings[gate.0 as usize].glide =
-        Some(crate::building::GlideDef { seconds: 10_000.0, seconds_per_tile: 0.0 });
+        Some(crate::building::GlideDef { seconds: 10_000.0, seconds_per_tile: 0.0, loads: false });
     let mut w2 = World::with_map(1, w.map.clone(), Nation::Air, &[START], &slow);
     for p in [A, B] {
         w2.put_building(Footprint::single(p), gate, &slow);
@@ -306,4 +306,166 @@ fn a_world_with_no_gate_keeps_no_glide_state() {
         w.tick(&defs);
     }
     assert!(w.units[0].glider.is_idle());
+}
+
+// --- The Sky Lift (#756): a pair anyone rides, loads and all ---
+
+/// `setup`, with a pair of `id` at `A` and `B` instead of Wind Gates.
+fn setup_pair(id: &str) -> (World, Defs) {
+    let (mut w, defs) = setup(false);
+    let id = defs.building_id(id).unwrap();
+    for p in [A, B] {
+        w.put_building(Footprint::single(p), id, &defs);
+    }
+    w.apply(Command::SetLink { pos: A, to: B }, &defs).unwrap();
+    (w, defs)
+}
+
+fn load(w: &mut World, defs: &Defs) {
+    w.units[0].carrying = Some(Stack { item: defs.item_id("wood").unwrap(), count: 2 });
+}
+
+#[test]
+fn the_sky_lift_is_earth_and_airs_and_carries_loads() {
+    let defs = Defs::bundled();
+    let def = defs.building(defs.building_id("sky_lift").unwrap());
+    assert!(def.passable, "a unit steps on to board");
+    let lift = def.glide.unwrap();
+    assert!(lift.loads);
+    assert_eq!(lift.ticks(32), 120, "4 s plus 0.25 s a tile: 12 s over 32 tiles");
+    assert_eq!(def.pair.map(|p| (p.reach, p.min_tiles)), Some((32, 8)));
+    assert_eq!(def.beside.as_deref(), Some(&[Terrain::Mountain][..]));
+    let tech = defs.tech(def.unlocked_by.unwrap());
+    assert_eq!((tech.id.as_str(), tech.cost), ("sky_lifts", 1000));
+    assert_eq!(tech.fusion, Some([Nation::Earth, Nation::Air]));
+    // The Wind Gate carries nobody's load.
+    let gate = defs.building(defs.building_id("wind_gate").unwrap());
+    assert!(!gate.glide.unwrap().loads);
+}
+
+#[test]
+fn a_loaded_unit_rides_a_sky_lift_and_an_empty_one_does_too() {
+    let (mut w, defs) = setup_pair("sky_lift");
+    let route = direct(&w, START, at(70, 8));
+    load(&mut w, &defs);
+    w.units[0].route = Some(route.clone());
+    w.walk(0, &defs);
+    assert!(has_hop(&w), "a load rides the lift past the lake");
+
+    w.units[0].carrying = None;
+    w.units[0].route = Some(route);
+    w.units[0].pos = START;
+    w.units[0].glider = Glider::default();
+    w.walk(0, &defs);
+    assert!(has_hop(&w), "and so does a unit with empty hands");
+}
+
+#[test]
+fn a_load_crosses_by_lift_and_arrives_with_the_unit() {
+    let (mut w, defs) = setup_pair("sky_lift");
+    let id = w.units[0].id;
+    send(&mut w, &defs);
+    // Picks up a load once on its way (a hauler's trip is the same walk with a load).
+    let mut guard = 0;
+    while w.units[0].route.as_ref().is_none_or(|r| r.is_empty()) {
+        w.tick(&defs);
+        guard += 1;
+        assert!(guard < 1000, "never set out");
+    }
+    load(&mut w, &defs);
+    let stack = w.units[0].carrying;
+    guard = 0;
+    while !w.is_gliding(id) {
+        w.tick(&defs);
+        guard += 1;
+        assert!(guard < 1000, "never boarded");
+    }
+    assert_eq!(w.units[0].pos, A);
+    assert_eq!(w.units[0].carrying, stack, "the load is aboard");
+    let mut ticks = 0;
+    while w.is_gliding(id) {
+        w.tick(&defs);
+        ticks += 1;
+    }
+    assert_eq!(ticks, 4 * 10 + 30 * 10 / 4, "4 s plus 0.25 s over 30 tiles");
+    assert_eq!(w.units[0].pos, B);
+    assert_eq!(w.units[0].carrying, stack, "and lands with it");
+    assert_eq!(w.crossings_at(A), 1);
+    assert_eq!(w.crossings_at(B), 1);
+}
+
+#[test]
+fn a_wind_gate_still_leaves_the_load_behind() {
+    let (mut w, defs) = setup_pair("wind_gate");
+    load(&mut w, &defs);
+    w.units[0].route = Some(direct(&w, START, at(70, 8)));
+    w.walk(0, &defs);
+    assert!(!has_hop(&w));
+}
+
+#[test]
+fn a_beast_never_rides_a_lift() {
+    let (mut w, defs) = setup_pair("sky_lift");
+    w.units[0].beast = Some(Beast { id: crate::beast::BeastId(0), home: START, bored: 0 });
+    w.units[0].route = Some(direct(&w, START, at(70, 8)));
+    w.walk(0, &defs);
+    assert!(!has_hop(&w));
+}
+
+#[test]
+fn a_cut_off_lift_is_not_ridden_loaded_either() {
+    let (mut w, defs) = setup_pair("sky_lift");
+    for y in 0..HEIGHT {
+        w.map[at(47, y)].terrain = Terrain::Water;
+    }
+    w.map_changed();
+    assert_eq!(w.pair_status(A, &defs), Some(PairStatus::CutOff));
+    load(&mut w, &defs);
+    w.units[0].route = Some(direct(&w, START, at(36, 8)));
+    w.walk(0, &defs);
+    assert!(!has_hop(&w));
+}
+
+#[test]
+fn both_ends_of_a_lift_must_stand_against_rock() {
+    let mut defs = Defs::bundled();
+    let lift = defs.building_id("sky_lift").unwrap();
+    // Research is not what is tested here.
+    defs.buildings[lift.0 as usize].unlocked_by = None;
+    let mut w = World::with_map(1, flat(), Nation::Air, &[START], &defs);
+    let site = at(20, 20);
+    let refused = w.check_build(site, lift, &defs);
+    assert!(
+        matches!(refused, Err(BuildError::CannotBuild { why: Blocker::Beside("rock"), .. })),
+        "{refused:?}"
+    );
+    w.map[at(21, 20)].terrain = Terrain::Mountain;
+    w.map_changed();
+    assert_eq!(w.check_build(site, lift, &defs), Ok(()));
+}
+
+#[test]
+fn a_lift_ride_saves_mid_ride_and_lands_the_same() {
+    let (mut w, defs) = setup_pair("sky_lift");
+    let id = w.units[0].id;
+    load(&mut w, &defs);
+    send(&mut w, &defs);
+    for _ in 0..1000 {
+        if w.is_gliding(id) {
+            break;
+        }
+        w.tick(&defs);
+    }
+    assert!(w.is_gliding(id), "never boarded");
+    for _ in 0..10 {
+        w.tick(&defs);
+    }
+    let mut loaded = World::load(&w.save(&defs).expect("saves"), &defs).expect("loads");
+    assert!(loaded.is_gliding(id));
+    for _ in 0..200 {
+        w.tick(&defs);
+        loaded.tick(&defs);
+    }
+    assert_eq!(w.units[0].pos, loaded.units[0].pos);
+    assert_eq!(w.save(&defs).unwrap(), loaded.save(&defs).unwrap());
 }

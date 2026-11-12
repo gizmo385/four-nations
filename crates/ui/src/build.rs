@@ -736,9 +736,19 @@ pub fn building_detail(session: &Session, id: BuildingId) -> BuildingDetail {
             effects.push(format!("Must be {} tiles from any stockpile", o.far_from_stores));
         }
     }
-    if let (Some(p), Some(_)) = (&def.pair, &def.glide) {
-        effects.push(format!("Carries people to its partner up to {} tiles away", p.reach));
-        effects.push("Loads stay behind".to_owned());
+    if let (Some(p), Some(g)) = (&def.pair, &def.glide) {
+        if g.loads {
+            effects.push(format!(
+                "Carries people and their loads to its partner up to {} tiles away",
+                p.reach
+            ));
+            if let Some(word) = def.beside_word() {
+                effects.push(format!("Both ends stand against {word}"));
+            }
+        } else {
+            effects.push(format!("Carries people to its partner up to {} tiles away", p.reach));
+            effects.push("Loads stay behind".to_owned());
+        }
     }
     if let (Some(_), Some(p)) = (&def.balloon, &def.pair) {
         effects.push(format!("Flies goods to its partner up to {} tiles away", p.reach));
@@ -1178,6 +1188,11 @@ mod tests {
             "Carries people to its partner up to 48 tiles away",
         );
         has(&effects(Nation::Air, "wind_gate"), "Loads stay behind");
+        has(
+            &effects(Nation::Earth, "sky_lift"),
+            "Carries people and their loads to its partner up to 32 tiles away",
+        );
+        has(&effects(Nation::Earth, "sky_lift"), "Both ends stand against rock");
         has(
             &effects(Nation::Fire, "balloon_dock"),
             "Flies goods to its partner up to 64 tiles away",
