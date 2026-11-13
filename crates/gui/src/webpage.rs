@@ -84,3 +84,25 @@ pub fn publish(shell: &Shell, last: &mut String) {
     }
     *last = summary;
 }
+
+/// The screen's safe-area insets (#974): the CSS `env(safe-area-inset-*)` that `index.html`
+/// puts in `--fn-safe-top` and the rest, in CSS pixels, which are egui's points. Zero where the
+/// page has none (a desktop browser) or can't be read.
+pub fn safe_area() -> crate::frame::SafeArea {
+    let read = || -> Option<crate::frame::SafeArea> {
+        let window = web_sys::window()?;
+        let root = window.document()?.document_element()?;
+        let style = window.get_computed_style(&root).ok()??;
+        let px = |name: &str| {
+            let value = style.get_property_value(name).unwrap_or_default();
+            value.trim().trim_end_matches("px").parse::<f32>().unwrap_or(0.0).max(0.0)
+        };
+        Some(crate::frame::SafeArea {
+            top: px("--fn-safe-top"),
+            right: px("--fn-safe-right"),
+            bottom: px("--fn-safe-bottom"),
+            left: px("--fn-safe-left"),
+        })
+    };
+    read().unwrap_or_default()
+}

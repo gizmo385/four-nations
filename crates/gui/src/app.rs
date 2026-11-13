@@ -30,6 +30,9 @@ pub struct GuiApp {
     /// The state last written onto the page (`crate::webpage::publish`).
     #[cfg(target_arch = "wasm32")]
     published: String,
+    /// When the safe-area insets were last read from the page.
+    #[cfg(target_arch = "wasm32")]
+    safe_read: Option<Instant>,
 }
 
 impl GuiApp {
@@ -77,6 +80,8 @@ impl GuiApp {
             last_frame: Instant::now(),
             #[cfg(target_arch = "wasm32")]
             published: String::new(),
+            #[cfg(target_arch = "wasm32")]
+            safe_read: None,
         }
     }
 
@@ -114,7 +119,16 @@ impl GuiApp {
             self.shell.key(key);
         }
         #[cfg(target_arch = "wasm32")]
-        crate::webpage::publish(&self.shell, &mut self.published);
+        {
+            crate::webpage::publish(&self.shell, &mut self.published);
+            // The insets change when the phone turns over (the notch moves sides): read them
+            // twice a second, not every frame, since reading them makes the browser work out
+            // the page's style.
+            if self.safe_read.is_none_or(|t| now.duration_since(t).as_secs_f32() >= 0.5) {
+                self.frame.safe = crate::webpage::safe_area();
+                self.safe_read = Some(now);
+            }
+        }
         if self.shell.quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
