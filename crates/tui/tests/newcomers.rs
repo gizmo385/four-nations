@@ -205,8 +205,8 @@ fn a_fusion_lists_every_condition_with_its_live_count() {
     assert!(page.contains("Fusion of Earth and Fire."), "{page}");
     assert!(page.contains("3 Earth residents (2 live here)"), "{page}");
     assert!(page.contains("3 Fire residents (4 live"), "{page}");
-    assert!(page.contains("an Earth or Fire master (0 here)"), "{page}");
-    assert!(page.contains("Needs Prospecting, an Earth or Fire master (0 here)"), "{page}");
+    // #955: a fusion has no masters condition.
+    assert!(!page.contains("master"), "{page}");
     assert!(page.contains("1000 pts + 8"), "the bill:\n{page}");
 }
 

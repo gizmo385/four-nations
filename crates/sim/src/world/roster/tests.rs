@@ -249,7 +249,7 @@ fn a_fusion_is_on_the_tree_and_researchable_only_once_the_gate_stands() {
 }
 
 #[test]
-fn a_fusion_waits_for_its_residents_and_a_master_of_either_nation() {
+fn a_fusion_waits_for_its_residents_and_needs_no_master() {
     let defs = Defs::bundled();
     let steelworks = defs.tech_id("steelworks").unwrap();
     let mut w = steelworks_world(&defs);
@@ -261,11 +261,11 @@ fn a_fusion_waits_for_its_residents_and_a_master_of_either_nation() {
     let CommandError::Research(ResearchError::NotYet(c)) = err else { panic!("{err:?}") };
     assert_eq!(c, Condition::Residents { nation: Nation::Earth, need: 3, have: 2 });
     w.units[2].nation = Some(Nation::Earth);
-    // No master of either nation: the Fire master moves house.
-    w.units[4].nation = Some(Nation::Water);
-    w.units[5].nation = Some(Nation::Fire);
+    // #955: no master of either nation (the Fire master forgets his bends) is no obstacle.
+    w.units[4].bends = 0;
+    w.units[4].bends_by.clear();
+    assert_ne!(w.rank_of(&w.units[4], &defs).rank, Rank::Master);
     w.refresh_roster(&defs);
-    let err = w.apply(Command::SetResearch { tech: steelworks }, &defs).unwrap_err();
-    let CommandError::Research(ResearchError::NotYet(c)) = err else { panic!("{err:?}") };
-    assert_eq!(c.to_string(), "a Earth or Fire master");
+    w.apply(Command::SetResearch { tech: steelworks }, &defs).unwrap();
+    assert_eq!(w.research().queue().last(), Some(&steelworks));
 }

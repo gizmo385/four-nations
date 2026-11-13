@@ -1068,8 +1068,8 @@ features = ["celestial_days"]
 
 # A fusion joins two nations' knowledge and is open to every settlement once the Harmony Gate
 # stands (docs/design/horizons-phase-6.md, "Fusions: the `fusion` field"). Never `core`. The 3
-# residents of each nation, the 1 master and the 8 tools are provisional (#752's playtest sets
-# them); each fusion's `requires` is its own so one can be lowered alone.
+# residents of each nation and the 8 tools are provisional (#752's playtest sets
+# them); there is no masters condition (#955); each fusion's `requires` is its own so one can be lowered alone.
 [[tech]]
 id = "steelworks"
 name = "Steelworks"
@@ -1077,7 +1077,7 @@ description = "Earth reads the ore and Fire holds the heat. Nothing is lost in t
 fusion = ["earth", "fire"]
 cost = 1000
 prereqs = ["prospecting"]
-requires = { residents = { earth = 3, fire = 3 }, masters = 1, masters_of = ["earth", "fire"] }
+requires = { residents = { earth = 3, fire = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 8
@@ -1087,8 +1087,8 @@ buildings = ["steelworks"]
 # --- #755 (research horizons phase 6: `aqueducts`) -----------------------------------------------
 
 # The Earth + Water fusion (docs/design/horizons-phase-6.md, "`aqueducts`"): a stone channel that
-# carries river water to drink and irrigates along its line. The 3 residents of each nation, the
-# 1 master and the 6 tools are provisional (#752's playtest sets them).
+# carries river water to drink and irrigates along its line. The 3 residents of each nation and the
+# 6 tools are provisional (#752's playtest sets them).
 [[tech]]
 id = "aqueducts"
 name = "Aqueducts"
@@ -1096,7 +1096,7 @@ description = "Earth raises the channel and Water fills it. The river goes where
 fusion = ["earth", "water"]
 cost = 1000
 prereqs = ["masonry", "farming"]
-requires = { residents = { earth = 3, water = 3 }, masters = 1, masters_of = ["earth", "water"] }
+requires = { residents = { earth = 3, water = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 6
@@ -1115,7 +1115,7 @@ description = "Water feeds the boiler and Fire keeps it hot. Engines on the bank
 fusion = ["fire", "water"]
 cost = 1000
 prereqs = ["steam_engines"]
-requires = { residents = { fire = 3, water = 3 }, masters = 1, masters_of = ["fire", "water"] }
+requires = { residents = { fire = 3, water = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 6
@@ -1127,7 +1127,7 @@ bank = { beside = ["water", "river", "lake", "canal"], radius = 4 }
 # --- #759 (research horizons phase 6: `cloudbending`) --------------------------------------------
 
 # Water + Air fusion (docs/design/horizons-phase-6.md, "`cloudbending`: Call Rain"). Unlocks the
-# joint bend `call_rain` (data/bending.toml). The 3 residents of each nation, the 1 master and the
+# joint bend `call_rain` (data/bending.toml). The 3 residents of each nation and the
 # 4 tools are provisional (#752's playtest sets them).
 [[tech]]
 id = "cloudbending"
@@ -1136,7 +1136,7 @@ description = "Water lifts the sea into the sky and Air carries the cloud inland
 fusion = ["water", "air"]
 cost = 1000
 prereqs = ["farming"]
-requires = { residents = { water = 3, air = 3 }, masters = 1, masters_of = ["water", "air"] }
+requires = { residents = { water = 3, air = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 4
@@ -1147,7 +1147,7 @@ abilities = ["call_rain"]
 
 # The Fire + Air fusion (docs/design/horizons-phase-6.md, "`airships`"): the Airship Dock sends
 # the city's own traders out with goods, two residents away for a season. `population = 24` is
-# #442's first United City milestone. The 3 residents of each nation, the 1 master, the 8 tools
+# #442's first United City milestone. The 3 residents of each nation, the 8 tools
 # and the 24 are provisional (#752's playtest sets them).
 [[tech]]
 id = "airships"
@@ -1156,7 +1156,7 @@ description = "Fire lifts the hull and Air steers it. Our own traders go out to 
 fusion = ["fire", "air"]
 cost = 1000
 prereqs = ["cartography"]
-requires = { residents = { fire = 3, air = 3 }, masters = 1, masters_of = ["fire", "air"], population = 24 }
+requires = { residents = { fire = 3, air = 3 }, population = 24 }
 [[tech.cost_items]]
 item = "tool"
 count = 8
@@ -1166,7 +1166,7 @@ buildings = ["airship_dock"]
 # --- #756 (research horizons phase 6: `sky_lifts`) -----------------------------------------------
 
 # The Earth + Air fusion (docs/design/horizons-phase-6.md, "`sky_lifts`"): a pair built against
-# rock that anyone rides, loads and all. The 3 residents of each nation, the 1 master and the 6
+# rock that anyone rides, loads and all. The 3 residents of each nation and the 6
 # tools are provisional (#752's playtest sets them).
 [[tech]]
 id = "sky_lifts"
@@ -1175,7 +1175,7 @@ description = "Earth anchors the towers in the rock and Air keeps the cars aloft
 fusion = ["earth", "air"]
 cost = 1000
 prereqs = ["masonry", "carpentry"]
-requires = { residents = { earth = 3, air = 3 }, masters = 1, masters_of = ["earth", "air"] }
+requires = { residents = { earth = 3, air = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 6

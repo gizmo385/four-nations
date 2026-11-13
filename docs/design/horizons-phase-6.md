@@ -32,9 +32,10 @@ owner", and the implementation work is under "Follow-up issues".
    a Water city borrows `brickmaking` without learning `forging`'s Weld. The tech's buildings
    work for everyone, and its modifiers help only residents of the nation that taught it.
 3. **Six fusions, one per pair of nations, open to every settlement.** A fusion names its two
-   nations, costs 1,000 points plus tools, and needs 3 residents of each nation and a master of
-   either. The home nation is usually one of the pair. A Fire city can still learn `aqueducts`
-   once Earth and Water people live there.
+   nations, costs 1,000 points plus tools, and needs 3 residents of each nation. It has no
+   masters condition (#955). The home nation is usually one of the pair. A Fire city can still
+   learn `aqueducts` once Earth and Water
+   people live there.
 4. **Each fusion is one new piece on top of an existing system.** That means a flowing channel
    network (`aqueducts`), a recipe building (`steelworks`), a pair that anyone rides with a load
    (`sky_lifts`), a bank upgrade (`steam_power`), outbound voyages (`airships`) and a joint bend
@@ -109,12 +110,12 @@ which narrows `masters`:
 
 ```toml
 [[tech]]
-id = "aqueducts"
+id = "example_masters"     # illustrative: no bundled fusion uses `masters` (#955)
 requires = { residents = { earth = 3, water = 3 }, masters = 1, masters_of = ["earth", "water"] }
 
 [[tech]]
 id = "airships"
-requires = { residents = { fire = 3, air = 3 }, masters = 1, masters_of = ["fire", "air"], population = 24 }
+requires = { residents = { fire = 3, air = 3 }, population = 24 }
 ```
 
 | Key | Value | What it counts | Can it fall? | Since |
@@ -219,7 +220,7 @@ id = "steelworks"
 fusion = ["earth", "fire"]     # exactly two nations; every settlement sees it after the gate
 cost = 1000
 prereqs = ["prospecting"]
-requires = { residents = { earth = 3, fire = 3 }, masters = 1, masters_of = ["earth", "fire"] }
+requires = { residents = { earth = 3, fire = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 8
@@ -229,9 +230,10 @@ count = 8
   (mockups). Fusions don't use `nation` or `nations`. Those fields say who can ever see a tech,
   and a fusion is open to anyone with the right residents.
 - **The conditions are written out.** A fusion's `requires.residents` names exactly its two
-  nations, and `masters_of` names one or both of them. Load checks it. The condition is plain
-  data, so the playtest can lower one fusion's numbers without touching the others. The 3
-  residents and 1 master are *provisional*.
+  nations. `masters` is optional on a fusion, and none of the six uses it (#955 chose to drop it):
+  a master in the city is not a condition. If one is given, `masters_of` must still name one or
+  both of the fusion's nations. Load checks it. The condition is plain data, so the playtest can
+  lower one fusion's numbers without touching the others. The 3 residents are *provisional*.
 - **Prereqs.** Shared techs, or teachable techs of either of its two nations. `steam_power`
   needs `steam_engines`. A Fire or Water city with Fire residents gets there: Fire knows it, and
   Water borrows it for 500.
@@ -403,7 +405,7 @@ description = "Earth raises the channel and Water fills it. The river goes where
 fusion = ["earth", "water"]
 cost = 1000
 prereqs = ["masonry", "farming"]
-requires = { residents = { earth = 3, water = 3 }, masters = 1, masters_of = ["earth", "water"] }
+requires = { residents = { earth = 3, water = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 6
@@ -459,7 +461,7 @@ description = "Earth reads the ore and Fire holds the heat. Nothing is lost in t
 fusion = ["earth", "fire"]
 cost = 1000
 prereqs = ["prospecting"]
-requires = { residents = { earth = 3, fire = 3 }, masters = 1, masters_of = ["earth", "fire"] }
+requires = { residents = { earth = 3, fire = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 8
@@ -520,7 +522,7 @@ description = "Earth anchors the towers in the rock and Air keeps the cars aloft
 fusion = ["earth", "air"]
 cost = 1000
 prereqs = ["masonry", "carpentry"]
-requires = { residents = { earth = 3, air = 3 }, masters = 1, masters_of = ["earth", "air"] }
+requires = { residents = { earth = 3, air = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 6
@@ -580,7 +582,7 @@ description = "Water feeds the boiler and Fire keeps it hot. Engines on the bank
 fusion = ["fire", "water"]
 cost = 1000
 prereqs = ["steam_engines"]
-requires = { residents = { fire = 3, water = 3 }, masters = 1, masters_of = ["fire", "water"] }
+requires = { residents = { fire = 3, water = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 6
@@ -620,7 +622,7 @@ description = "Fire lifts the hull and Air steers it. Our own traders go out to 
 fusion = ["fire", "air"]
 cost = 1000
 prereqs = ["cartography"]
-requires = { residents = { fire = 3, air = 3 }, masters = 1, masters_of = ["fire", "air"], population = 24 }
+requires = { residents = { fire = 3, air = 3 }, population = 24 }
 [[tech.cost_items]]
 item = "tool"
 count = 8
@@ -693,7 +695,7 @@ description = "Water lifts the sea into the sky and Air carries the cloud inland
 fusion = ["water", "air"]
 cost = 1000
 prereqs = ["farming"]
-requires = { residents = { water = 3, air = 3 }, masters = 1, masters_of = ["water", "air"] }
+requires = { residents = { water = 3, air = 3 } }
 [[tech.cost_items]]
 item = "tool"
 count = 4
@@ -792,7 +794,7 @@ cursor is on Cloudbending:
 | Cloudbending                                                                 Available  1000 pts + 4 tools |
 | Water lifts the sea into the sky and Air carries the cloud inland.                                         |
 | Unlocks: Call Rain (a waterbender and an airbender together: a 13x13 patch grows 1.5x for a season)        |
-| Fusion of Water and Air. Needs 3 Air residents (3 live here) and a Water or Air master (5 here).           |
+| Fusion of Water and Air. Needs 3 Air residents (3 live here).                                              |
 +------------------------------------------------------------------------------------------------ 6 fusions -+
  RESEARCH  Arrows choose - Enter set as target - Tab your tree - Esc or T close                         ? keys
 ```
@@ -1032,7 +1034,9 @@ fusion by 150: 51 of 60 that learned one). Three of its use targets pass: Water'
   `airships` (21). The other three fusions of every nation reach 0 of 32 runs. They stay locked
   on `masters` (1 of the pair's nations), and no newcomer is a master in 180 minutes. The doc
   says "A Fire city can still learn `aqueducts` once Earth and Water people live there."
-  Measured, it can't in this session. This is a taste call (#955).
+  Measured, it couldn't in this session. **#955 decided B: every fusion drops `masters`.**
+  Residents (3 of each), points and tools stay, and `airships` keeps `population = 24`. The
+  numbers above were measured with the masters condition and are not re-run.
 - **A fusion nobody learns can't be used.** Call Rain is cast by 0 of 44 cities that learned
   Cloudbending, in both orders. The opening designates the bend each spring, and the joint job
   sits for the whole year with the status's two casters never both in place (a check on Air
@@ -1069,7 +1073,7 @@ fusion by 150: 51 of 60 that learned one). Three of its use targets pass: Water'
 | `borrow_residents` | 3 | Confirmed: 94% have 3 by + 75 |
 | `borrow_cost` | 2.0 | Confirmed: first borrowed tech at + 39 |
 | Fusion `residents` | 3 each | Confirmed for the home fusions |
-| Fusion `masters` | 1 of the pair | Not met for the other three fusions of any nation (#955) |
+| Fusion `masters` | 1 of the pair | Dropped: #955 decided B, so no fusion has a masters condition |
 | Fusion tool counts | 4 to 8 | Confirmed: no wait on tools was seen in the end states checked (not measured per run) |
 | `population` (`airships`) | 24 | Confirmed: the city has 28 an hour in |
 | Airship `away_minutes` | 15 | Confirmed |

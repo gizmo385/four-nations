@@ -749,8 +749,8 @@ fn check_teachable(raw: &RawTech) -> Result<(), String> {
 
 /// Validates a tech's `fusion = [a, b]` against the rest of the tech (docs/design/horizons-phase-6.md,
 /// "Fusions: the `fusion` field"): two distinct nations; no `nation`, `nations`, `school`,
-/// `teaching`, `teachable` or `core`; `requires.residents` naming exactly those two; `masters_of` naming one
-/// or both. The message is the tech's error, without its id.
+/// `teaching`, `teachable` or `core`; `requires.residents` naming exactly those two; `masters` optional (#955), and
+/// when given `masters_of` naming one or both. The message is the tech's error, without its id.
 fn check_fusion(raw: &RawTech, pair: &[Nation]) -> Result<[Nation; 2], String> {
     let [a, b] = pair else {
         return Err(format!("`fusion` must list exactly two nations, not {}", pair.len()));
@@ -778,9 +778,7 @@ fn check_fusion(raw: &RawTech, pair: &[Nation]) -> Result<[Nation; 2], String> {
             b.as_str()
         ));
     }
-    let Some(of) = &raw.requires.masters_of else {
-        return Err("a fusion needs requires.masters and masters_of".into());
-    };
+    let of = raw.requires.masters_of.as_deref().unwrap_or(&[]);
     if let Some(n) = of.iter().find(|n| **n != *a && **n != *b) {
         return Err(format!(
             "requires.masters_of names {}, which isn't one of the fusion's nations",
