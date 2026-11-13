@@ -11,6 +11,7 @@ use fn_sim::{Nation, Pos, World};
 use crate::airship;
 use crate::ask::Answer;
 use crate::input::{Action, map_key};
+use crate::inspector::InspectorAction;
 use crate::menu::{MenuPage, MenuRow};
 use crate::notice::NoticeAction;
 use crate::screens::saves as saves_screen;
@@ -195,6 +196,12 @@ impl App {
             // nothing, like `F`.
             Action::NextRecipe if self.ui.tool == Tool::Select => self.next_recipe(),
             Action::NextRecipe => {}
+            // `K` keeps the building the inspector shows marked to be taken down (#967).
+            Action::KeepIt => {
+                if let Some(at) = crate::inspector::keep_target(&self.session, &self.ui) {
+                    self.do_inspector_action(InspectorAction::KeepIt(at));
+                }
+            }
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
             Action::DismissNotice => {
@@ -438,11 +445,36 @@ impl App {
             | Action::ShowTools
             | Action::ToggleRepeat
             | Action::NextRecipe
+            | Action::KeepIt
             | Action::Confirm
             | Action::NextUnit
             | Action::PrevUnit
             | Action::DismissNotice
             | Action::Follow => {}
+        }
+    }
+
+    /// Carries out an inspector action (#967): the window's button, or its key. "Keep it" takes
+    /// the take-down mark back (`Command::CancelDeconstruct`): the mark and its job go, and the
+    /// building stands untouched. If a unit already started taking it down, its work goes with
+    /// the job (the sim's own cancel: progress is not kept) and the unit drops the job on its
+    /// next tick. Does nothing while a screen is open over the map.
+    pub fn do_inspector_action(&mut self, action: InspectorAction) {
+        if self.ui.screen.is_some() {
+            return;
+        }
+        match action {
+            InspectorAction::KeepIt(at) => {
+                let name = self.session.world.building_at(at).map(|b| {
+                    self.session.defs.building(b).display_name(self.session.world.nation).to_owned()
+                });
+                self.ui.notice =
+                    match self.session.apply(fn_sim::world::Command::CancelDeconstruct { pos: at })
+                    {
+                        Ok(()) => format!("Keeping the {}", name.unwrap_or_default()),
+                        Err(_) => "Nothing to keep here".to_owned(),
+                    };
+            }
         }
     }
 

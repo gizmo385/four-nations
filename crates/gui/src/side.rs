@@ -185,7 +185,7 @@ pub fn show(
                     .id_salt("side-inspector")
                     .max_height(cap)
                     .auto_shrink([false, true])
-                    .show(ui, |ui| inspector::body(ui, &look, &inspected));
+                    .show(ui, |ui| inspector::body(ui, &look, &inspected, &mut clicks));
                 let seed = look.text(&model.footer, Tone::Dim);
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                     ui.add(Label::new(seed).selectable(false));

@@ -22,6 +22,9 @@ pub enum Hint {
     StartTool(Tool),
     /// The tool is active; acting now (a drag, or a rectangle's `Enter`) applies it here.
     ApplyTool(Tool),
+    /// The building here is marked to be taken down; `K` keeps it (`Command::CancelDeconstruct`,
+    /// #967).
+    KeepIt,
 }
 
 /// One line of a tooltip, and so its role. The text is final English except for hints.
@@ -611,6 +614,11 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         // Its anchor, not the hovered tile (#212): every tile of its footprint says the same.
         let at = world.footprint_at(tile).map_or(tile, |f| f.anchor);
         lines.push(Line::Detail(format!("Built ({}, {})", at.x, at.y)));
+        // A building marked to be taken down says so, and how to take the mark back (#967).
+        if world.is_marked_for_deconstruct(tile) {
+            lines.push(Line::Detail("Marked to be taken down".to_owned()));
+            lines.push(Line::Hint(Hint::KeepIt));
+        }
         // An orchard says how much of its grove is planted (#142); a Fishing Dock (#374) the
         // same, in terms of fishing spots rather than trees.
         let orchard = world.building_at(tile).and_then(|b| defs.building(b).orchard);

@@ -13,11 +13,11 @@
 //! - **The heading is a name**, in its own case: it is pinned above the scroll, so what the
 //!   inspector describes is always in sight.
 
-use eframe::egui::{Align, Label, Layout, ProgressBar, Ui, vec2};
+use eframe::egui::{Align, Button, CursorIcon, Label, Layout, ProgressBar, RichText, Ui, vec2};
 use fn_tui::widgets::Tone;
-use fn_ui::inspector::{Inspected, Part};
+use fn_ui::inspector::{Inspected, InspectorAction, Part};
 
-use crate::side::{Clicks, Look, heading_cased};
+use crate::side::{Clicks, Look, heading_cased, key};
 
 /// A meter bar is this many cells wide, as in the terminal.
 const BAR_CELLS: f32 = 10.0;
@@ -57,7 +57,7 @@ pub(crate) fn title(ui: &mut Ui, look: &Look<'_>, model: &Inspected) {
 }
 
 /// The groups of the inspector, a half-row gap between neighbours. Put it in a scroll area.
-pub(crate) fn body(ui: &mut Ui, look: &Look<'_>, model: &Inspected) {
+pub(crate) fn body(ui: &mut Ui, look: &Look<'_>, model: &Inspected, clicks: &mut Clicks) {
     let (_, _, moved) = split(look.cols, model);
     let mut first = true;
     let mut gap = |ui: &mut Ui| {
@@ -74,12 +74,12 @@ pub(crate) fn body(ui: &mut Ui, look: &Look<'_>, model: &Inspected) {
     for group in model.groups.iter().filter(|g| !g.is_empty()) {
         gap(ui);
         for part in group {
-            show_part(ui, look, part);
+            show_part(ui, look, part, clicks);
         }
     }
 }
 
-fn show_part(ui: &mut Ui, look: &Look<'_>, part: &Part) {
+fn show_part(ui: &mut Ui, look: &Look<'_>, part: &Part, clicks: &mut Clicks) {
     match part {
         Part::Text(text, tone) | Part::Line(text, tone) => {
             ui.add(Label::new(look.text(text, *tone)).wrap().selectable(false));
@@ -89,6 +89,22 @@ fn show_part(ui: &mut Ui, look: &Look<'_>, part: &Part) {
             ui.add(Label::new(look.text(&text, Tone::Dim)).wrap().selectable(false));
         }
         Part::Meter { label, frac, tone, low } => meter(ui, look, label, *frac, *tone, *low),
+        Part::Action(action) => button(ui, look, *action, clicks),
+    }
+}
+
+/// An action of the inspector as a button ("Keep it", #967). Its click comes back as the key the
+/// terminal presses for it, as every click of the panel does.
+fn button(ui: &mut Ui, look: &Look<'_>, action: InspectorAction, clicks: &mut Clicks) {
+    let text = RichText::new(action.label()).font(look.font.clone());
+    let response = ui.add(Button::new(text).small());
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    if response.clicked()
+        && let Some(c) = action.key().chars().next()
+    {
+        clicks.push(key(c.to_ascii_lowercase()));
     }
 }
 

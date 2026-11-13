@@ -34,6 +34,47 @@ use crate::view::{Status, UnitView, settler_view, unit_view};
 /// The most rows of a tile a short panel always keeps ([`Floor::Few`]).
 pub const TILE_FLOOR: usize = 3;
 
+/// Something the player can do from the inspector, as a button in a window and a key hint in
+/// cells. Doing it is `App::do_inspector_action`; the key is [`InspectorAction::key`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InspectorAction {
+    /// "Keep it": takes the mark back from the finished building covering this tile
+    /// (`Command::CancelDeconstruct`, #967).
+    KeepIt(Pos),
+}
+
+impl InspectorAction {
+    /// The button's label.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::KeepIt(_) => "Keep it",
+        }
+    }
+
+    /// The key that does it, in the terminal's words.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::KeepIt(_) => "K",
+        }
+    }
+
+    /// How the terminal says it: "Press K to keep it".
+    pub fn hint(self) -> String {
+        match self {
+            Self::KeepIt(_) => format!("Press {} to keep it", self.key()),
+        }
+    }
+}
+
+/// The building the cursor's `K` would keep (#967): the finished building under the cursor that
+/// is marked to be taken down, while the inspector is describing the tile (not a selected
+/// settler). One rule for the key and for the inspector's action, so a button is never shown
+/// that the key would not press.
+pub fn keep_target(session: &Session, ui: &UiState) -> Option<Pos> {
+    let settler = ui.tool == Tool::Select && ui.selected_unit(session).is_some();
+    (!settler && session.world.is_marked_for_deconstruct(ui.cursor)).then_some(ui.cursor)
+}
+
 /// One piece of a group.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Part {
@@ -46,6 +87,8 @@ pub enum Part {
     Standing { text: String, tail: String },
     /// A meter: `Hunger 72%`, then "low" in the warning's tone when it is not ok.
     Meter { label: &'static str, frac: f32, tone: Tone, low: bool },
+    /// Something to do: a button in a window, the key's hint ([`InspectorAction::hint`]) in cells.
+    Action(InspectorAction),
 }
 
 /// How many rows a short panel must always leave the inspector.
@@ -86,6 +129,7 @@ impl Inspected {
                 Part::Text(t, _) | Part::Line(t, _) => t.clone(),
                 Part::Standing { text, tail } => format!("{text} {tail}"),
                 Part::Meter { label, .. } => (*label).to_owned(),
+                Part::Action(action) => action.hint(),
             });
         }
         out
@@ -234,6 +278,7 @@ fn stockpile_text(session: &Session, pos: Pos) -> Option<String> {
 ///   tool (#307), so the tooltip's own hint adds nothing.
 pub fn hint_text(hint: Hint) -> Option<String> {
     match hint {
+        Hint::KeepIt => Some(InspectorAction::KeepIt(Pos::new(0, 0)).hint()),
         Hint::SelectUnit => Some("Press Enter to select".to_owned()),
         Hint::ApplyTool(_) => None,
         Hint::StartTool(tool) => Some(format!("Press {} for the {} tool", tool.key(), tool.name())),
@@ -296,6 +341,12 @@ fn tile(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> Inspecte
             Line::Title(s) if title.is_none() => title = Some(s),
             Line::Title(s) => rows.push(Part::Text(s, Tone::Strong)),
             Line::Detail(s) => rows.push(Part::Text(s, Tone::Text)),
+            // The marked building's own action: a button where a window can draw one.
+            Line::Hint(Hint::KeepIt) => {
+                if let Some(at) = keep_target(session, ui) {
+                    rows.push(Part::Action(InspectorAction::KeepIt(at)));
+                }
+            }
             Line::Hint(h) => {
                 if let Some(s) = hint_text(h) {
                     rows.push(Part::Line(s, Tone::Dim));
@@ -403,5 +454,91 @@ mod tests {
         assert!(placement_parts(&session, Pos::new(-1, -1), None).is_empty());
         let off = placement_parts(&session, Pos::new(-1, -1), Some(bed));
         assert_eq!(off, [Part::Text("Can't build here: off the map".to_owned(), Tone::Warn)]);
+    }
+}
+
+#[cfg(test)]
+mod keep_it_tests {
+    use fn_sim::Nation;
+    use fn_sim::geom::Footprint;
+    use fn_sim::world::Command;
+
+    use super::*;
+    use crate::app::App;
+    use crate::keyev::{KeyCode, KeyEvent, KeyModifiers};
+
+    /// A game with a bed standing at `(2, 2)`, the cursor on it.
+    fn with_bed() -> (App, Pos) {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let bed = s.defs.building_id("bed").unwrap();
+        let at = Pos::new(2, 2);
+        let defs = s.defs.clone();
+        assert!(s.world.building_record(at).is_none());
+        s.world.put_building(Footprint::single(at), bed, &defs);
+        let mut app = App::new(s, (120, 40));
+        app.ui.cursor = at;
+        (app, at)
+    }
+
+    fn keep_actions(app: &App) -> Vec<InspectorAction> {
+        let model = inspect(&app.session, &app.ui, None);
+        model
+            .groups
+            .iter()
+            .flatten()
+            .filter_map(|p| match p {
+                Part::Action(a) => Some(*a),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn mark(app: &mut App, at: Pos) {
+        app.session.apply(Command::Deconstruct { pos: at }).unwrap();
+    }
+
+    fn press_k(app: &mut App) {
+        app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    }
+
+    #[test]
+    fn a_building_marked_to_be_taken_down_offers_keep_it_and_says_it_is_marked() {
+        let (mut app, at) = with_bed();
+        assert!(keep_actions(&app).is_empty(), "an unmarked building has no Keep it");
+        assert!(!inspect(&app.session, &app.ui, None).plain().iter().any(|t| t.contains("Marked")));
+        mark(&mut app, at);
+        assert_eq!(keep_actions(&app), [InspectorAction::KeepIt(at)]);
+        let plain = inspect(&app.session, &app.ui, None).plain();
+        assert!(plain.contains(&"Marked to be taken down".to_owned()), "{plain:?}");
+        assert!(plain.contains(&"Press K to keep it".to_owned()), "{plain:?}");
+    }
+
+    #[test]
+    fn k_keeps_the_building_and_the_mark_and_its_job_go() {
+        let (mut app, at) = with_bed();
+        mark(&mut app, at);
+        let bed = app.session.world.building_at(at);
+        press_k(&mut app);
+        assert!(!app.session.world.is_marked_for_deconstruct(at));
+        assert_eq!(app.session.world.deconstruct_designations().count(), 0);
+        assert_eq!(app.session.world.building_at(at), bed, "the building stays");
+        assert!(keep_actions(&app).is_empty());
+        assert!(app.ui.notice.starts_with("Keeping the "), "{}", app.ui.notice);
+        // Pressed again on an unmarked building it does nothing.
+        app.ui.notice.clear();
+        press_k(&mut app);
+        assert!(app.ui.notice.is_empty());
+    }
+
+    #[test]
+    fn a_selected_settler_hides_the_action_and_k_leaves_the_mark() {
+        let (mut app, at) = with_bed();
+        mark(&mut app, at);
+        let id = app.session.world.units[0].id;
+        app.ui.select(Some(id));
+        app.ui.cursor = at;
+        assert!(keep_target(&app.session, &app.ui).is_none());
+        press_k(&mut app);
+        assert!(app.session.world.is_marked_for_deconstruct(at));
     }
 }
