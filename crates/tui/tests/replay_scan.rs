@@ -1,10 +1,10 @@
-//! The timeline's scan (crates/web/src/scan.rs) marks each event at the turn whose end first
+//! The timeline's scan (crates/tui/src/replay/scan.rs) marks each event at the turn whose end first
 //! shows it, the turn a seek to the marker lands on.
 
 use fn_sim::Nation;
+use fn_tui::replay::scan::{MarkerKind, Scan};
 use fn_tui::surface::Host;
 use fn_tui::watch::Watcher;
-use fn_web::scan::{MarkerKind, Scan};
 
 /// A log of `turns` turns of an Earth settlement with a research target and nothing else: its
 /// first tech finishes partway through.

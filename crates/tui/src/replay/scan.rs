@@ -10,10 +10,10 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::surface::LogLine;
+use crate::watch::{self, Watcher};
 use fn_sim::Defs;
 use fn_sim::world::{EndeavorEventKind, Event};
-use fn_tui::surface::LogLine;
-use fn_tui::watch::{self, Watcher};
 use fn_ui::alerts::{describe_arrival, describe_death};
 use fn_ui::code::line_diff;
 use fn_ui::endeavor::describe_event;
@@ -161,7 +161,7 @@ pub struct Scan {
 }
 
 impl Scan {
-    /// A scan of the whole log `text`, at its start. Refuses what [`crate::Replay::new`] refuses.
+    /// A scan of the whole log `text`, at its start. Refuses what [`super::Replay::new`] refuses.
     pub fn new(text: &str) -> Result<Self, String> {
         let (header, lines) = watch::parse(&format!("{text}\n"))?;
         let scripts = script_changes(&lines).into();

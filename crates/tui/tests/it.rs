@@ -34,6 +34,8 @@ mod phase3;
 mod pointer;
 mod rail;
 mod reference_goldens;
+mod replay_scan;
+mod replayer;
 mod replays;
 mod research;
 mod runs_dir;

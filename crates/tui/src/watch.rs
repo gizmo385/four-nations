@@ -1669,7 +1669,7 @@ pub fn control_key(watcher: &mut Watcher, key: KeyEvent) -> bool {
 /// every log line it has been fed; going back restores the nearest copy before the target, feeds
 /// it the lines that arrived after the copy was made (a live log keeps growing) and replays
 /// forward to the target, all at once. The web replayer has its own seek bar and snapshots
-/// (`fn_web::Replay`), so this lives with the terminal loop ([`run_in`]).
+/// (`crate::replay::Replay`), so this lives with the terminal loop ([`run_in`]).
 pub struct Rewind {
     /// Every line fed so far, oldest first: a parsed line, or a bad line's message
     /// ([`Watcher::skip_line`]), so a restored copy skips the same lines.
