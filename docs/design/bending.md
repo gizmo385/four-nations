@@ -604,7 +604,10 @@ finished at least one bend of.
   Master (whose toast says they receive the arrow tattoos).
 - **Ranks never go down,** and a newcomer starts as a novice. United City newcomers rank against
   their own nation's numbers and can cast their own nation's rank abilities, as #239's `can_cast`
-  already does for signatures. The Avatar has no rank: he casts his own list.
+  already does for signatures. A newcomer also casts its own nation's branch abilities whenever
+  the settlement has learned the unlocking tech (#958, "newcomers are the teachers"), so it can
+  hold more than one form and rank up. A home settler never casts another nation's ability,
+  however the city learned its tech: the ability belongs to its nation's benders. The Avatar has no rank: he casts his own list.
 - **Rank gates join research gates.** An ability may name a `rank`, and `can_cast` checks it next
   to `unlocked_by`. A signature ability is still one that no tech unlocks and no rank gates, so
   load validation's "one signature per nation" is unchanged.

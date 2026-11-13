@@ -447,8 +447,9 @@ pub(super) fn call_rain(world: &mut World, defs: &Defs) {
         return;
     }
     // A joint bend with no adept of one of its nations would park the other nation's caster on
-    // the plot for the whole year: a newcomer has only its signature, one form, so it never
-    // ranks up (`world/bending/joint_tests.rs`, #958). Wait until both could cast it.
+    // the plot for the whole year. A newcomer ranks up only on forms the city has learned the
+    // tech for (`World::can_cast`, #958), and no borrowable tech unlocks a bend today, so a
+    // newcomer has one form and the slot stays empty. Wait until both could cast it.
     if world.joint_caster_counts(ability, defs).is_none_or(|c| c.iter().any(|&(_, n)| n == 0)) {
         return;
     }

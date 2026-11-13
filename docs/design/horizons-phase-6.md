@@ -77,7 +77,7 @@ What this design assumes about the game after the gate, and where each assumptio
 | One newcomer every 10 minutes at 100% draw, between 60% and 140% | #353, #435 | #435 not yet shipped |
 | Caravans come from all four nations, with deals scaled 1.5x and bigger requests whose reward is `draw` | #442, pacing.md section 4 | Not yet shipped |
 | Population milestones at 24 and 32 | #442 | Not yet shipped |
-| A newcomer works with its own nation's modifiers, casts its own signature ability, and ranks against its own nation's thresholds | #239, #240, #360 | Shipped |
+| A newcomer works with its own nation's modifiers, casts its own signature ability (and its own nation's branch abilities once the city has learned the tech, #958), and ranks against its own nation's thresholds | #239, #240, #360, #958 | Shipped |
 
 **Residents arrive slowly.** At 100% draw the city gains 6 people an hour, so about 1.2 of each
 other nation. Three of one nation takes about 2.5 hours, or 1.8 hours at the 140% ceiling. That
@@ -1039,13 +1039,21 @@ fusion by 150: 51 of 60 that learned one). Three of its use targets pass: Water'
   numbers above were measured with the masters condition and are not re-run.
 - **A fusion nobody learns can't be used.** Call Rain is cast by 0 of 44 cities that learned
   Cloudbending, in both orders. The cause is the rank rule, not the opening (#958). A joint bend
-  wants an adept of each of its two nations, and a newcomer casts only its own nation's
-  signature ability (a branch ability needs the settlement's own nation), one form, while an
-  adept needs two. A newcomer with a dozen bends of Water the Land is still a novice, so the second
-  slot is never filled in any nation's city: the home nation fills one and the other is always a
-  newcomer. The designation sat because `joint_caster_counts` read 0 for that nation. The
-  opening now designates it only while both nations have a caster, so no Air adept stands on the
-  plot for the year. A way to fill the slot is a rules question for the owner (a decision issue).
+  wants an adept of each of its two nations, and an adept needs two forms. A newcomer used to
+  cast only its own nation's signature, one form, so a newcomer with a dozen bends of Water the
+  Land stayed a novice and the second slot was never filled. The owner decided that newcomers
+  are the teachers (#958): a newcomer casts its own nation's branch abilities whenever the
+  city has learned the unlocking tech, so it gains forms and ranks up. A home settler still
+  never casts another nation's ability. **That alone changes nothing in play, because no tech a
+  city can borrow unlocks an ability** (the validation in section 2 and decision 2 above: a
+  teachable tech unlocks none). The scripted opening still reads 0 rains in a short run
+  (`united`, seeds 1 to 8, all four nations: 0 of 14 cities that learned Cloudbending).
+  The opening designates Call Rain only while both nations have a caster, so no Air adept
+  stands on the plot for the year. An experiment that marked all 15 ability techs teachable
+  (not kept) had Water newcomers in Air cities learn Draw Water and Cut Ice, rank up, and
+  cast Call Rain in 2 of 5 Air cities and 1 of 2 Fire cities that learned Cloudbending, and it
+  put fusions later, since the opening borrows more first. Which bend techs a city may borrow
+  is the owner's call (#969).
 - **Fusions come after the borrowed techs.** In the scripted order each fusion waits for every
   borrowed tech first, so 92 of 128 `united` runs (72%) learn a fusion by + 150, below the 85% the
   target wants. Several home fusions are still `Available` at minute 420 on Water and Earth

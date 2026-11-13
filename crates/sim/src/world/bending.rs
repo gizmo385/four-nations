@@ -5,9 +5,10 @@
 //! someone living here must (`check_ability`: a foreign-nation unit, or the Avatar, #237); a unit
 //! whose chi covers the cost and who is allowed to use the ability claims it (`unit_can_bend`,
 //! #239: a signature ability needs only that its nation matches the unit's own, home settler or
-//! not; a branch ability also needs the settlement's research, so only a home-nation unit can
-//! take it; #237: the Avatar may claim any of the four signature abilities, whatever his own
-//! "nation" -- he has none -- and whatever the settlement's), walks to the tile and channels for
+//! not; a branch ability also needs the settlement's research, whoever learned it, so a newcomer
+//! casts its own nation's branch once the city has borrowed the tech (#958) while a home settler
+//! never casts a foreign nation's; #237: the Avatar may claim any of the four signature
+//! abilities, whatever his own "nation" -- he has none -- and whatever the settlement's), walks to the tile and channels for
 //! `AbilityDef::work` seconds (divided by the `speed_modifier` named in `data/bending.toml`).
 //! Needs pre-empt it and its progress is kept, exactly as for harvests. **Chi is spent only when
 //! the bend completes**; since a unit holds one job at a time it can't be spent twice. If the
@@ -712,14 +713,15 @@ impl World {
 
     /// Whether `unit` is allowed to use `ability` at all, whatever its chi (`unit_can_bend` adds
     /// that check). The Avatar (#237) may claim any ability his own `[avatar]` list names,
-    /// whatever his "nation" (he has none) and whatever the settlement's. Otherwise (#239): a
-    /// signature ability (no tech unlocks it) needs only that the unit's own nation matches: any
-    /// unit of that nation can use it, home settler or not, since it needs no research to begin
-    /// with. A branch ability needs the settlement's research too, so only a home-nation unit
-    /// (one with no nation of its own, or explicitly the settlement's) can take it: a unit of
-    /// another nation doesn't benefit from techs its own nation hasn't researched (teaching
-    /// across nations is deferred). Public so a frontend can count who could cast an ability
-    /// (`caster_count`, #248: the bend picker's "Raise Earth: 14 benders").
+    /// whatever his "nation" (he has none) and whatever the settlement's. Otherwise (#239) the
+    /// ability must be of the unit's own nation (`AbilityDef::of_nation`), so a home settler never
+    /// casts a foreign nation's ability, however the city learned it: it belongs to that
+    /// nation's benders. A signature ability (no tech unlocks it) needs nothing more. A branch
+    /// ability needs the settlement to have learned its tech, and that is all (#958): a newcomer
+    /// (a unit of another nation than the settlement's) is the teacher of its own nation's
+    /// techs, so once the city has borrowed one from the From newcomers page the newcomer casts
+    /// that branch, gains forms, and can rank up to adept. Public so a frontend can count who
+    /// could cast an ability (`caster_count`, #248: the bend picker's "Raise Earth: 14 benders").
     pub fn can_cast(&self, unit: &Unit, ability: AbilityId, defs: &Defs) -> bool {
         let def = defs.ability(ability);
         if unit.is_beast() {
@@ -735,12 +737,9 @@ impl World {
         if !def.of_nation(unit_nation) {
             return false;
         }
-        let tech_known = match def.unlocked_by {
-            None => true,
-            // A fusion is the settlement's, whichever of its two nations the caster is of.
-            Some(tech) if def.is_joint() => self.research.is_known(tech),
-            Some(tech) => unit_nation == self.nation && self.research.is_known(tech),
-        };
+        // The settlement's research, whoever learned it: a fusion is the settlement's whichever
+        // of its two nations the caster is of, and a borrowed branch is its newcomers' to cast.
+        let tech_known = def.unlocked_by.is_none_or(|tech| self.research.is_known(tech));
         tech_known && self.meets_rank(unit, def, defs)
     }
 

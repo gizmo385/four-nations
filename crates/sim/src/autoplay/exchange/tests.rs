@@ -125,10 +125,12 @@ fn a_united_fire_city_borrows_fuses_and_uses_what_it_learns() {
     assert!(w.population() > 30, "newcomers kept coming: {}", w.population());
 }
 
-/// Call Rain is a joint bend whose second nation is always a newcomer, and a newcomer never
-/// ranks up to adept (`world/bending/joint_tests.rs`, #958). The opening used to designate it
-/// each spring anyway, and the Air caster that took the first slot stood on the plot for the
-/// whole year; now it designates nothing while a nation has no caster.
+/// Call Rain is a joint bend whose second nation is always a newcomer, and a newcomer ranks up
+/// only through forms the city has learned the tech for (`world/bending/joint_tests.rs`, #958).
+/// No borrowable tech unlocks a bend, so a newcomer here has one form and never ranks up. The
+/// opening used to designate it each spring anyway, and the Air caster that took the first slot
+/// stood on the plot for the whole year; now it designates nothing while a nation has no
+/// caster.
 #[test]
 fn call_rain_is_not_designated_while_a_nation_has_no_caster() {
     let (mut w, defs) = found(Nation::Air, 1);
