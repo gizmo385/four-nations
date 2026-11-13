@@ -161,3 +161,43 @@ fn the_slot_names_where_it_went() {
     let store = KvSaves::new(&kv, clock);
     assert_eq!(store.place("save-1"), "browser storage as save-1");
 }
+
+/// Export and import (#976): a slot's exported bytes come back as a slot in an empty store and
+/// load; a clash gets a number; a file that isn't a save is refused and adds nothing.
+#[test]
+fn an_exported_slot_imports_into_an_empty_store_and_loads() {
+    let from = MemKv::new(usize::MAX);
+    let s = session(48, 32, 40);
+    saves::save(&KvSaves::new(&from, clock), "camp", &s).unwrap();
+    let file = browser_saves::export_value(&&from, "camp").unwrap();
+    assert_eq!(browser_saves::export_file_name("camp"), "camp.fnsave");
+
+    let to = MemKv::new(usize::MAX);
+    assert_eq!(browser_saves::import_value(&&to, "camp.fnsave", &file).unwrap(), "camp");
+    let store = KvSaves::new(&to, clock);
+    let world = saves::load(&store, "camp", &Defs::bundled()).unwrap();
+    assert_eq!(world.tick, s.world.tick);
+    assert_eq!(
+        browser_saves::import_value(&&to, "camp.fnsave", &file).unwrap(),
+        "camp-2",
+        "a taken name gets a number"
+    );
+    // A name a slot can't have is made into one.
+    assert_eq!(
+        browser_saves::import_value(&&to, "my camp (1).fnsave", &file).unwrap(),
+        "my-camp--1-"
+    );
+    assert_eq!(saves::list(&store).unwrap().len(), 3);
+}
+
+#[test]
+fn a_file_that_is_not_a_save_is_refused() {
+    let kv = MemKv::new(usize::MAX);
+    let why = browser_saves::import_value(&&kv, "notes.fnsave", "hello").unwrap_err();
+    assert!(why.starts_with("notes.fnsave isn't a Four Nations save"), "{why}");
+    assert!(!why.contains('\n'), "one line");
+    // Stored-value shape but not a save inside.
+    let fake = browser_saves::encode("not a save\n", 1);
+    assert!(browser_saves::import_value(&&kv, "fake.fnsave", &fake).is_err());
+    assert!((&kv).keys().unwrap().is_empty(), "nothing was added");
+}

@@ -22,7 +22,7 @@ use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone};
 use fn_ui::app::App;
 use fn_ui::keyev::{KeyCode, KeyEvent, KeyModifiers};
-use fn_ui::saves::{MAX_NAME, check_name, new_name};
+use fn_ui::saves::{MAX_NAME, auto_name, check_name, new_name};
 pub use fn_ui::screens::saves::*;
 
 use crate::cells::Metrics;
@@ -96,7 +96,13 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
         &look,
         &spec,
         |ui| {
-            buttons(ui, &look, typing, !slots.is_empty(), !asked, &mut keys);
+            // On touch (#976) a new save is named for the nation and the time, with no typing.
+            let auto =
+                crate::controls::touch_rows(ui.ctx()).then(|| auto_name(slots, &app.session));
+            let typed = app.ui.save_name.as_deref().unwrap_or("");
+            let highlighted = slots.get(at).map(|s| s.name.as_str());
+            let state = Buttons { typing, typed, highlighted, live: !asked, auto };
+            buttons(ui, &look, &state, &mut keys);
             ui.add_space(look.cell.y);
             if let Some(typed) = &app.ui.save_name {
                 name_field(ui, &look, typed, &new_name(slots), opened, &mut keys);
@@ -137,37 +143,90 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
     keys
 }
 
-/// The row of buttons under the title, each the key it stands for: `N`, `Shift+S` and `Enter`
-/// on the list; `Enter` and `Esc` while a name is being typed. `live` is whether they take
-/// clicks (not with a question up), `any` whether there is a slot to save over or load.
-fn buttons(
-    ui: &mut Ui,
-    look: &Look<'_>,
+/// What the row of buttons needs to know.
+struct Buttons<'a> {
+    /// A name is being typed.
     typing: bool,
-    any: bool,
+    /// What has been typed so far.
+    typed: &'a str,
+    /// The highlighted slot, if there is one.
+    highlighted: Option<&'a str>,
+    /// They take clicks (not with a question up).
     live: bool,
-    keys: &mut Vec<KeyEvent>,
-) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing = vec2(look.cell.x * 2.0, 0.0);
+    /// On touch (#976), the name a new save takes without typing.
+    auto: Option<String>,
+}
+
+/// The keys that save under `name` from the list (`N`, the name, `Enter`), or, with the name
+/// field open and `typed` in it, the edits to `name` and `Enter`.
+pub fn auto_save_keys(typing: bool, typed: &str, name: &str) -> Vec<KeyEvent> {
+    let mut keys = Vec::new();
+    if !typing {
+        keys.push(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    }
+    keys.extend(edit_keys(if typing { typed } else { "" }, name));
+    keys.push(key(KeyCode::Enter));
+    keys
+}
+
+/// The row of buttons under the title, each the key it stands for: `N`, `Shift+S` and `Enter`
+/// on the list; `Enter` and `Esc` while a name is being typed. On touch, New save and Save write
+/// the automatic name at once (when nothing is typed). In the browser, Export to file and Import
+/// file (#976), which are the page's, not keys ([`crate::savefiles`]).
+fn buttons(ui: &mut Ui, look: &Look<'_>, b: &Buttons<'_>, keys: &mut Vec<KeyEvent>) {
+    let any = b.highlighted.is_some();
+    let live = b.live;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = vec2(look.cell.x * 2.0, 4.0);
         ui.spacing_mut().button_padding = vec2(look.cell.x, 0.0);
-        let mut button = |ui: &mut Ui, label: &str, enabled: bool, press: KeyEvent| {
+        let height = look.row(ui);
+        let button = |ui: &mut Ui, label: &str, enabled: bool| {
             let text = RichText::new(label).font(look.font.clone());
-            let b = Button::new(text).fill(look.panel).min_size(vec2(0.0, look.cell.y));
-            let response = ui.add_enabled(enabled && live, b);
-            if response.on_hover_cursor(CursorIcon::PointingHand).clicked() {
-                keys.push(press);
-            }
+            let b = Button::new(text).fill(look.panel).min_size(vec2(0.0, height));
+            ui.add_enabled(enabled && live, b).on_hover_cursor(CursorIcon::PointingHand)
         };
-        if typing {
-            button(ui, "Save [Enter]", true, key(KeyCode::Enter));
-            button(ui, "Cancel [Esc]", true, key(KeyCode::Esc));
+        if b.typing {
+            if button(ui, "Save [Enter]", true).clicked() {
+                match &b.auto {
+                    Some(name) if b.typed.is_empty() => {
+                        keys.extend(auto_save_keys(true, b.typed, name));
+                    }
+                    _ => keys.push(key(KeyCode::Enter)),
+                }
+            }
+            if button(ui, "Cancel [Esc]", true).clicked() {
+                keys.push(key(KeyCode::Esc));
+            }
         } else {
-            let new = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
-            button(ui, "New save [N]", true, new);
-            let over = KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT);
-            button(ui, "Save over [Shift+S]", any, over);
-            button(ui, "Load [Enter]", any, key(KeyCode::Enter));
+            if button(ui, "New save [N]", true).clicked() {
+                match &b.auto {
+                    Some(name) => keys.extend(auto_save_keys(false, "", name)),
+                    None => keys.push(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE)),
+                }
+            }
+            if button(ui, "Save over [Shift+S]", any).clicked() {
+                keys.push(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT));
+            }
+            if button(ui, "Load [Enter]", any).clicked() {
+                keys.push(key(KeyCode::Enter));
+            }
+            if cfg!(target_arch = "wasm32") {
+                // Armed while pressed, done as the press lifts, inside the browser's gesture.
+                let export = button(ui, "Export to file", any);
+                let import = button(ui, "Import file", true);
+                let armed = if export.is_pointer_button_down_on() {
+                    b.highlighted.map(|n| crate::savefiles::Action::Export(n.to_owned()))
+                } else if import.is_pointer_button_down_on() {
+                    Some(crate::savefiles::Action::Import)
+                } else {
+                    None
+                };
+                crate::savefiles::arm(armed);
+                crate::savefiles::set_targets(crate::savefiles::describe_targets(
+                    export.rect.center(),
+                    import.rect.center(),
+                ));
+            }
         }
     });
 }

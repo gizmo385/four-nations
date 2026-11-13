@@ -146,6 +146,52 @@ impl<K: Kv> SaveStore for KvSaves<K> {
     }
 }
 
+/// The extension of an exported save file (#976). Its bytes are the slot's stored value.
+pub const FILE_EXTENSION: &str = "fnsave";
+
+/// The file name slot `name` is exported as.
+pub fn export_file_name(name: &str) -> String {
+    format!("{name}.{FILE_EXTENSION}")
+}
+
+/// The stored value of slot `name`, for export: exactly what `localStorage` holds.
+pub fn export_value(kv: &impl Kv, name: &str) -> Result<String, String> {
+    kv.get(&key(name))?.ok_or_else(|| format!("no save named {name}"))
+}
+
+/// Adds an exported file (`file_name`, its text `value`) as a slot (#976): named for the file,
+/// with `-2`, `-3` and on added if that is taken. Returns the slot's name. A file that isn't a
+/// save this build can read is refused with a line saying so, and nothing is added.
+pub fn import_value(kv: &impl Kv, file_name: &str, value: &str) -> Result<String, String> {
+    let refused = |why: String| format!("{file_name} isn't a Four Nations save ({why})");
+    let value = value.trim_end_matches(['\r', '\n']);
+    let text = decode(value).map_err(|_| refused("not an exported save file".to_owned()))?;
+    fn_sim::save::inspect(&text).map_err(|e| refused(e.to_string()))?;
+    let stem = file_name.rsplit_once('.').map_or(file_name, |(stem, _)| stem);
+    let mut base: String = stem
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .take(fn_ui::saves::MAX_NAME - 4)
+        .collect();
+    if base.trim_matches('-').is_empty() {
+        base = "imported".to_owned();
+    }
+    let keys = kv.keys()?;
+    let taken = |name: &str| keys.iter().any(|k| *k == key(name));
+    let name = if taken(&base) {
+        (2..).map(|n| format!("{base}-{n}")).find(|n| !taken(n)).expect("an unused name")
+    } else {
+        base
+    };
+    kv.set(&key(&name), value).map_err(|e| match e {
+        SetError::Full => {
+            "browser storage is full: delete or save over an older slot first".to_owned()
+        }
+        SetError::Other(why) => format!("could not write browser storage: {why}"),
+    })?;
+    Ok(name)
+}
+
 /// The page's clock in whole milliseconds since 1970, for [`KvSaves::new`]. `web_time` reads the
 /// page's `Date.now()` on the web, where std's `SystemTime::now` panics.
 pub fn now_millis() -> u64 {

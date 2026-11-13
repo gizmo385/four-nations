@@ -878,6 +878,13 @@ impl App {
         self.open(Screen::Saves);
     }
 
+    /// The saves changed from outside the game (a file imported in the browser, #976): re-reads
+    /// the list and says `status` in the status line.
+    pub fn saves_changed(&mut self, status: String) {
+        self.refresh_saves();
+        self.ui.status = status;
+    }
+
     /// Re-reads the save directory into the saves screen's list, clamping the highlight to it.
     /// Called when the screen opens and whenever a save in it changes the list.
     fn refresh_saves(&mut self) {

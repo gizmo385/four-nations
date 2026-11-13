@@ -321,3 +321,24 @@ fn clicks_are_arrow_presses_and_edits_are_the_keys_that_make_them() {
     assert_eq!(name_problem("save_1-b"), None);
     assert!(name_problem("no way").is_some());
 }
+
+/// On touch (#976), New save writes a slot named for the nation and the time at once, and a
+/// second one gets a number; nothing is typed and no name field is left open.
+#[test]
+fn on_touch_new_save_writes_an_auto_named_slot() {
+    let tmp = TempDir::new("auto");
+    let store = tmp.store();
+    let mut app = GuiApp::with_shell(game(&store, 40, "<f6>"));
+    app.frame_mut().controls.force_touch = true;
+    let want = saves::auto_name(&[], &state(&app).session);
+    let mut h = harness(&mut app);
+    h.get_by_label("New save [N]").click();
+    h.run_steps(3);
+    h.get_by_label("New save [N]").click();
+    h.run_steps(3);
+    drop(h);
+    let mut got = names(&store);
+    got.sort();
+    assert_eq!(got, vec![want.clone(), format!("{want}-2")]);
+    assert!(state(&app).ui.save_name.is_none(), "no name field left open");
+}
