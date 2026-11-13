@@ -888,31 +888,21 @@ impl Host {
     fn research_screen(&self) -> ResearchScreenView {
         let session = &self.app().session;
         let v = fn_ui::research::screen_view(session);
+        // The From newcomers page (#938): what `Tab` turns to once the gate stands, column by
+        // column with the page's own headers ("FIRE: 2 here", "FUSIONS"). Before the gate there
+        // is no such page, so nothing is reported.
+        let newcomers = fn_ui::research::has_newcomers(session).then(|| {
+            let page = fn_ui::research::newcomers_view(session);
+            page.titles
+                .into_iter()
+                .zip(page.columns)
+                .map(|(title, cards)| NewcomerColumnView { title, cards: tech_card_views(cards) })
+                .collect()
+        });
         ResearchScreenView {
             teachings: teachings_view(session),
-            columns: v
-                .columns
-                .into_iter()
-                .map(|col| {
-                    col.into_iter()
-                        // The TEACHINGS column's Choose and More rows are `teachings` below.
-                        .filter(fn_ui::research::TechCard::is_tech)
-                        .map(|c| TechCardView {
-                            // `crate::research::card_word`, not `TechState::label`: every
-                            // card's own row carries the short word ("Locked", or "Target" for
-                            // the chosen tech); the longer sentence (`label`, "Needs prereqs")
-                            // only shows for whichever card the cursor is on, under the grid
-                            // (#320, "Observation containment").
-                            state: crate::research::card_word(&c).to_owned(),
-                            name: c.name,
-                            cost: c.cost,
-                            unlock: c.unlock,
-                            needs: c.needs,
-                            closed: c.closed,
-                        })
-                        .collect()
-                })
-                .collect(),
+            columns: v.columns.into_iter().map(tech_card_views).collect(),
+            newcomers,
         }
     }
 
@@ -1300,22 +1290,31 @@ impl Host {
     /// too), Enter, Esc (closing the screen again, so a later step starts from the plain map).
     fn plan_research(&self, tech: &str) -> Result<Vec<KeyEvent>, String> {
         let session = &self.app().session;
-        let view = fn_ui::research::screen_view(session);
-        let target = view
-            .columns
-            .iter()
-            .enumerate()
-            .find_map(|(c, col)| {
+        let find = |view: &fn_ui::research::ScreenView| {
+            view.columns.iter().enumerate().find_map(|(c, col)| {
                 col.iter().position(|card| card.is_tech() && card.name == tech).map(|r| (c, r))
             })
-            .ok_or_else(|| format!("no such tech {tech:?}"))?;
+        };
+        let mut keys = self.close_overlay_keys();
+        keys.push(char_key('t'));
+        let view = fn_ui::research::screen_view(session);
+        let (view, target) = match find(&view) {
+            Some(target) => (view, target),
+            // Not on the tree: a borrowed tech or a fusion on the From newcomers page (#938),
+            // which `Tab` turns to once the gate stands.
+            None if fn_ui::research::has_newcomers(session) => {
+                let page = fn_ui::research::newcomers_view(session);
+                let target = find(&page).ok_or_else(|| format!("no such tech {tech:?}"))?;
+                keys.push(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                (page, target)
+            }
+            None => return Err(format!("no such tech {tech:?}")),
+        };
         let card = &view.columns[target.0][target.1];
         if !card.closed.is_empty() {
             return Err(format!("research: {}", card.closed));
         }
         let start = crate::research::initial_cursor(session, &view);
-        let mut keys = self.close_overlay_keys();
-        keys.push(char_key('t'));
         keys.extend(research_nav_keys(&view, start, target));
         keys.push(enter_key());
         keys.push(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -1649,7 +1648,8 @@ pub enum ActionStep {
         #[serde(default)]
         name: Option<String>,
     },
-    /// `{tech}`: the tech's own name (`screen {"research"}`'s cards).
+    /// `{tech}`: the tech's own name (`screen {"research"}`'s cards, or its `newcomers` cards
+    /// once the gate stands, #938).
     Research { tech: String },
     /// `{x, y}`: moves the cursor there, with no `Enter` (so `observe`'s `cursor` field reads
     /// it, without designating or selecting anything).
@@ -1838,6 +1838,26 @@ fn research_nav_keys(
         ));
     }
     keys
+}
+
+/// One column of research cards as `screen {"research"}` reports them. The TEACHINGS column's
+/// Choose and More rows are left out (they are `teachings`). `crate::research::card_word`, not
+/// `TechState::label`: every card's own row carries the short word ("Locked", or "Target" for the
+/// chosen tech); the longer sentence (`label`, "Needs prereqs") only shows for whichever card the
+/// cursor is on, under the grid (#320, "Observation containment").
+fn tech_card_views(cards: Vec<fn_ui::research::TechCard>) -> Vec<TechCardView> {
+    cards
+        .into_iter()
+        .filter(fn_ui::research::TechCard::is_tech)
+        .map(|c| TechCardView {
+            state: crate::research::card_word(&c).to_owned(),
+            name: c.name,
+            cost: c.cost,
+            unlock: c.unlock,
+            needs: c.needs,
+            closed: c.closed,
+        })
+        .collect()
 }
 
 /// What [`Host::act`] records in the run log for one step (the mockup's own "designate harvest
@@ -2189,6 +2209,19 @@ pub struct ResearchScreenView {
     /// TEACHINGS column is (owner #734).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub teachings: Option<TeachingsView>,
+    /// The From newcomers page (#938), once the Harmony Gate stands: one column per other
+    /// nation that has something to teach, then FUSIONS, as `Tab` shows them. Left out before
+    /// the gate, when the screen has no second page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub newcomers: Option<Vec<NewcomerColumnView>>,
+}
+
+/// One column of `screen {"research"}`'s `newcomers` (#938).
+#[derive(Clone, Debug, Serialize)]
+pub struct NewcomerColumnView {
+    /// The column's header: "FIRE: 2 here" (that nation's residents), or "FUSIONS".
+    pub title: String,
+    pub cards: Vec<TechCardView>,
 }
 
 /// `screen {"research"}`'s `teachings` (#744).
@@ -4629,6 +4662,83 @@ mod tests {
         assert_eq!(h.observe().tool, "Select", "the Esc at the end closes the screen again");
         assert!(result.keys.last().is_some_and(|k| k == "<esc>"));
         assert_same_as_key_script(&mut h, Nation::Fire, &result.keys.join(" "));
+    }
+
+    /// A Host whose Harmony Gate stands (the dev hook the `economy_united` prelude uses), so the
+    /// Research screen has its From newcomers page.
+    fn united_host(nation: Nation) -> Host {
+        let mut h = host(nation);
+        let session = &mut h.app_mut().session;
+        assert!(session.world.complete_endeavor(&session.defs));
+        h
+    }
+
+    /// #938: `screen {"research"}` reports the From newcomers page once the gate stands, with
+    /// the page's own column headers and cards, and nothing before.
+    #[test]
+    fn screen_research_reports_the_newcomers_page_only_once_the_gate_stands() {
+        let before = host(Nation::Water).screen("research").unwrap();
+        assert!(matches!(before, ScreenView::Research(ref v) if v.newcomers.is_none()));
+        let json = serde_json::to_value(&before).unwrap();
+        assert!(json.get("newcomers").is_none(), "{json}");
+
+        let h = united_host(Nation::Water);
+        let ScreenView::Research(v) = h.screen("research").unwrap() else { panic!("research") };
+        let columns = v.newcomers.expect("the gate stands");
+        let page = fn_ui::research::newcomers_view(&h.app().session);
+        assert_eq!(columns.iter().map(|c| c.title.clone()).collect::<Vec<_>>(), page.titles);
+        assert_eq!(columns.last().map(|c| c.title.as_str()), Some("FUSIONS"));
+        assert!(columns[0].title.ends_with(" here"), "{}", columns[0].title);
+        for (col, cards) in columns.iter().zip(&page.columns) {
+            assert_eq!(col.cards.len(), cards.len());
+            for (view, card) in col.cards.iter().zip(cards) {
+                assert_eq!(view.name, card.name);
+                assert_eq!(view.state, crate::research::card_word(card));
+                assert_eq!(view.needs, card.needs);
+            }
+        }
+        // The tree's own columns don't list the page's techs (fusions left the tree, #762).
+        let on_page: Vec<&str> =
+            columns.iter().flat_map(|c| c.cards.iter().map(|t| t.name.as_str())).collect();
+        assert!(v.columns.iter().flatten().all(|t| !on_page.contains(&t.name.as_str())));
+    }
+
+    /// #938: the `research` step finds a tech on the From newcomers page and turns to it with
+    /// `Tab`; the keys it presses do the same to a game played by hand.
+    #[test]
+    fn act_research_reaches_a_newcomer_tech_through_tab() {
+        let nation = Nation::Water;
+        let mut h = united_host(nation);
+        let page = fn_ui::research::newcomers_view(&h.app().session);
+        let fusion = page.columns.last().and_then(|c| c.first()).expect("a fusion").name.clone();
+        let result = h.act(&[ActionStep::Research { tech: fusion.clone() }], None);
+        assert!(result.keys.contains(&"<tab>".to_owned()), "{:?}", result.keys);
+        assert!(result.keys.last().is_some_and(|k| k == "<esc>"));
+
+        let mut replay = fresh_shell(nation);
+        let Mode::Game(app) = &mut replay.mode else { panic!("a game") };
+        assert!(app.session.world.complete_endeavor(&app.session.defs));
+        replay.play(&keys::parse(&result.keys.join(" ")).unwrap());
+        let Mode::Game(replay_app) = &replay.mode else { panic!("a game") };
+        assert_eq!(
+            replay_app.session.world.command_log(),
+            h.app().session.world.command_log(),
+            "{:?}",
+            result.keys
+        );
+        // On the tree the same step presses no Tab.
+        let mut h = united_host(nation);
+        let view = fn_ui::research::screen_view(&h.app().session);
+        let tree = view
+            .columns
+            .iter()
+            .flatten()
+            .find(|c| c.is_tech() && c.state == fn_ui::research::TechState::Available)
+            .expect("something researchable")
+            .name
+            .clone();
+        let result = h.act(&[ActionStep::Research { tech: tree }], None);
+        assert!(!result.keys.contains(&"<tab>".to_owned()), "{:?}", result.keys);
     }
 
     #[test]

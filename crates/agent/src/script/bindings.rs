@@ -499,7 +499,10 @@ fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
              order the abilities list shows them (casters is the count the tool row shows, \
              \"20 benders\" or \"no master\"; current marks the one the banner names). A \
              bend ability not listed is not usable yet, so designate won't take it. The \
-             names are what designate's ability field takes.",
+             names are what designate's ability field takes. Once the Harmony Gate stands, \
+             screen(\"research\") also has newcomers: [#{title, cards}], the From newcomers \
+             page (a column per other nation, then FUSIONS), whose techs the research step \
+             sets by name.",
         ),
         (
             "can_build",

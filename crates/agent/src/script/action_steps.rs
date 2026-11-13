@@ -56,7 +56,8 @@ const ACTION_STEP_DOCS: &[ActionStepDoc] = &[
     },
     ActionStepDoc {
         step: "research",
-        fields: "{tech}: the tech's own name (screen(\"research\")'s cards).",
+        fields: "{tech}: the tech's own name (screen(\"research\")'s cards, or its `newcomers` \
+                 cards once the gate stands: borrowed techs and fusions).",
         example: "act([#{step: \"research\", tech: \"Irrigation\"}])",
     },
     ActionStepDoc {
