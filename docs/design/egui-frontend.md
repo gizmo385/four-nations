@@ -46,6 +46,7 @@ changing the TUI.
 | `frame.rs`, `hints.rs` | `surface` (the exhaustive native/cells match), the native layout (hint bar, side panel slot, map, banner), the box painter, the timing overlay; the hint bar from `fn_ui::keys` | New in #876. Arms flip to native as screens convert |
 | `side.rs` | The side panel: `fn_ui::panel::SidePanel` as egui widgets (title, header with pause and speed buttons, Settlement, Alerts, Tool section and list), monospace, tones coloured by `fn_tui::widgets::ToneStyle`. A click returns the keys it stands for (`side::Clicks`), which `GuiApp` types into the shell after the frame; an alert is `L`, a `Down` per line above it and `Enter` (`side::alert_keys`). The inspector (`inspector.rs`) is its last section: `fn_ui::inspector::Inspected` as egui widgets, meters as bars, a pinned heading over a body that scrolls in at most two fifths of the panel (#882) | New in #877 |
 | `mapview.rs`, `camera.rs` | Glyph map from `fn_tui::map::cell_look` + `style_cell`, pan, zoom 1–48 px, block overview below 9 px | Stays. Square tiles (#868's default), click semantics from `fn_ui::pointer`, a hover tooltip and a cached overview texture, `overview.rs` (#878; done) |
+| `notices.rs` | The corner notices (#945): `fn_ui::notice::Notices` as boxes (340 points) stacked in the map's top right, newest on top, kept until dismissed, each with a heading, a line or two, its `NoticeAction` buttons and a close button; past four a "+N more" row. Clicks come back as `notices::Click` for the frame to carry out. Only the window turns notices on (`Notices::set_on`), so the terminal keeps its toasts | New in #945 |
 | `keys.rs` | egui `Event` to `fn_tui::keyev::KeyEvent` | Stays, retargeted to #857's frontend-neutral key type |
 | `fonts.rs` | Loads DejaVu Sans Mono from the system path | Bundles it with `include_bytes!` (#859) |
 | `color.rs` | ratatui `Color` to `Color32` | Stays (the map look and the cell painter both need it) |
@@ -281,6 +282,10 @@ nothing needs the mouse, and the hint bar keeps naming keys.
 | Side panel | Click a section's `[N]`/`[T]`/`[G]`/`[L]` | That key |
 | Side panel | Click an alert | The message log's `Enter` on that entry (cursor to its place, or select its settler) |
 | Side panel | Pause and speed buttons in the header | `Space`, `+`, `-` |
+| Side panel | Click an alert's action button ("Open research") | `App::do_notice_action`: the jump or the screen it names (#945) |
+| Map, corner notices | Click a notice's action button ("Jump to caravan", "Open research") | `App::do_notice_action`; the notice stays until dismissed (#945) |
+| Map, corner notices | Click a notice's `✕` / "Dismiss all" on the "+N more" row | Dismisses it / every notice. `Del`, or `Esc` in Select with nothing selected, dismisses the top one (before `Esc` would open the menu) |
+| Map, corner notices | `Enter` in Select with nothing selected | The top notice's first action, and the notice is done with |
 | Full screens | Click a row or card / double-click | Move the highlight there / then `Enter` |
 | Full screens | Wheel | The screen's own scroll keys |
 | Boxes | Buttons | The box's own keys (`Enter`, `Esc`, the item's letter) |

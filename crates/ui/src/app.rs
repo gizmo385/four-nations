@@ -12,6 +12,7 @@ use crate::airship;
 use crate::ask::Answer;
 use crate::input::{Action, map_key};
 use crate::menu::{MenuPage, MenuRow};
+use crate::notice::NoticeAction;
 use crate::screens::saves as saves_screen;
 use crate::screens::{self, abilities, build as build_screen, msglog, nation, research, traders};
 use crate::script::Step;
@@ -199,6 +200,9 @@ impl App {
             Action::NextRecipe => {}
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
+            Action::DismissNotice => {
+                self.ui.alerts.notices_mut().dismiss_newest();
+            }
             Action::NextUnit if self.ui.tool == Tool::Select => self.ui.cycle(&self.session, 1),
             Action::PrevUnit if self.ui.tool == Tool::Select => self.ui.cycle(&self.session, -1),
             Action::Follow if self.ui.tool == Tool::Select => {
@@ -447,6 +451,7 @@ impl App {
             | Action::Confirm
             | Action::NextUnit
             | Action::PrevUnit
+            | Action::DismissNotice
             | Action::Follow => {}
         }
     }
@@ -455,6 +460,28 @@ impl App {
     fn step(&mut self) {
         if self.session.step() > 0 {
             self.settle(0.0);
+        }
+    }
+
+    /// Carries out the button of a corner notice or a toast (#945): jumps to the place, shows the
+    /// settler, opens the screen. Does nothing while a screen is open over the map (the buttons
+    /// are the map's).
+    pub fn do_notice_action(&mut self, action: NoticeAction) {
+        if self.ui.screen.is_some() {
+            return;
+        }
+        match action {
+            NoticeAction::JumpToCaravan(place) | NoticeAction::JumpTo(place) => {
+                self.ui.go_to(place);
+            }
+            NoticeAction::SelectSettler(id) => {
+                self.ui.select_unit(&self.session, id);
+                if let Some(unit) = self.session.world.unit(id) {
+                    self.ui.go_to(unit.pos);
+                }
+            }
+            NoticeAction::OpenResearch => self.open(Screen::Research),
+            NoticeAction::OpenTraders => self.open(Screen::Traders),
         }
     }
 
@@ -1254,6 +1281,17 @@ impl App {
             return self.set_foot(head);
         }
         if self.ui.tool == Tool::Select {
+            // A corner notice up (#945) is what `Enter` answers first, while nobody is selected:
+            // its first button, and the notice is done with.
+            let top =
+                self.ui.alerts.notices().shown().next().map(|n| (n.id, n.actions.first().copied()));
+            if self.ui.selected.is_none()
+                && let Some((id, Some(first))) = top
+            {
+                self.do_notice_action(first);
+                self.ui.alerts.notices_mut().dismiss(id);
+                return;
+            }
             // A dock with nobody on it opens its screen (#763) where a unit would be selected.
             if self.ui.selectable_here(&self.session).is_empty()
                 && let Some(picks) = airship::open(&self.session, self.ui.cursor)
@@ -1340,7 +1378,8 @@ impl App {
         if self.ui.tool == Tool::Select {
             if self.ui.selected.is_some() {
                 self.ui.select(None);
-            } else {
+            } else if !self.ui.alerts.notices_mut().dismiss_newest() {
+                // A corner notice (#945) is the last thing `Esc` closes: with none up, the menu.
                 self.open_menu();
             }
         } else if self.ui.anchor.take().is_none() {

@@ -124,6 +124,7 @@ fn build_table() -> Vec<Binding> {
     add(Key::plain(Tab), Action::NextUnit);
     add(Key::plain(BackTab), Action::PrevUnit);
     add(Key::ch('f'), Action::Follow);
+    add(Key::plain(KeyCode::Delete), Action::DismissNotice);
 
     for tool in Tool::ALL {
         // Select is Esc; every other tool has a letter.
@@ -198,6 +199,8 @@ pub fn spectator_allowed(action: Action) -> bool {
         Action::Confirm => true,
         Action::Cancel => false,
         Action::NextUnit | Action::PrevUnit | Action::Follow => true,
+        // A spectator has no notices of its own.
+        Action::DismissNotice => false,
         Action::ShowResearch
         | Action::ShowLog
         | Action::ShowHelp
@@ -522,7 +525,9 @@ mod tests {
             }
             let name = b.key.name();
             // The abilities key is shown in the hint bar only (#719), by design.
-            let hint_only = b.action == Action::ShowAbilities;
+            // The window's `Del` (#945) is in neither: the key help is full at 120 by 40, the
+            // terminal has no notices, and the notice's own close button names the key.
+            let hint_only = matches!(b.action, Action::ShowAbilities | Action::DismissNotice);
             let listed = table.iter().any(|e| {
                 (e.help.is_some() || hint_only)
                     && e.actions.iter().any(|a| a.same_kind(b.action))

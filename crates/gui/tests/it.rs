@@ -15,6 +15,7 @@ mod keys;
 mod log;
 mod mapview;
 mod nation;
+mod notices;
 mod page;
 mod research;
 mod saves;

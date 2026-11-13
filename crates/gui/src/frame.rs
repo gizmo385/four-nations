@@ -46,6 +46,7 @@ use crate::color::to_egui;
 use crate::embark::{self, EmbarkView};
 use crate::hints;
 use crate::mapview::MapView;
+use crate::notices;
 use crate::screens;
 use crate::side;
 
@@ -214,6 +215,11 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Where the map widget looks, once a game has shown it.
+    pub fn camera(&self) -> Option<&crate::camera::Camera> {
+        self.map.as_ref().map(|m| &m.camera)
+    }
+
     /// The shell's size in cells as of the last frame: the window's.
     pub fn size(&self) -> (u16, u16) {
         self.size
@@ -417,15 +423,20 @@ impl Frame {
         // The native side panel (#877). Its clicks come back as keys, which the window feeds
         // the shell; with a box open it shows but takes none.
         let mut clicks = Vec::new();
+        let mut actions = Vec::new();
         egui::Panel::right("side")
             .default_size(PANEL_DEFAULT)
             .size_range(PANEL_RANGE.0..=PANEL_RANGE.1)
             .resizable(true)
             .frame(egui::Frame::NONE.fill(panel_fill))
             .show(root, |ui| {
-                clicks = side::show(ui, app, palette, metrics, live);
+                clicks = side::show(ui, app, palette, metrics, live, &mut actions);
             });
         self.keys.extend(clicks);
+        // A toast's button (#945) is carried out at once, as a notice's is below.
+        for action in actions {
+            app.do_notice_action(action);
+        }
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             let avail = ui.available_rect_before_wrap();
@@ -448,6 +459,9 @@ impl Frame {
             }
             view.show(ui, map_rect, app, palette);
             self.timings.map = view.last_paint_ms;
+            // The corner notices (#945), over the map's top right.
+            let notice_clicks = notices::show(ui.ctx(), map_rect, app, palette, metrics, live);
+            notices::apply(app, &notice_clicks);
         });
     }
 

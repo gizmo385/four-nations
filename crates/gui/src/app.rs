@@ -8,9 +8,16 @@ use web_time::Instant;
 use eframe::egui;
 use fn_sim::Nation;
 use fn_tui::color::{ColorDepth, Palette};
-use fn_tui::shell::Shell;
+use fn_tui::shell::{Mode, Shell};
 
 use crate::frame::Frame;
+
+/// Tells the game's alerts (if `shell` is in one) that the window draws corner notices.
+fn pin_notices(shell: &mut Shell) {
+    if let Mode::Game(app) = &mut shell.mode {
+        app.ui.alerts.notices_mut().set_on(true);
+    }
+}
 
 pub struct GuiApp {
     shell: Shell,
@@ -50,6 +57,7 @@ impl GuiApp {
         });
         // `--keys` plays before the window opens, as `--frame --keys` does: handy for
         // screenshots of a particular state.
+        pin_notices(&mut shell);
         shell.play(&keys);
         let mut app = Self::with_shell(shell);
         // `FN_GUI_CELL=N`: the map widget's first cell height, for screenshots of a zoom level.
@@ -88,6 +96,7 @@ impl GuiApp {
         // A text field with the keyboard (the saves screen's name) turns typing into the keys
         // itself, so the raw typing isn't given to the shell as well.
         let field = ctx.egui_wants_keyboard_input();
+        self.show_notices();
         for key in ctx.input(crate::keys::frame_keys) {
             if field && crate::keys::is_typing(&key) {
                 continue;
@@ -104,6 +113,7 @@ impl GuiApp {
         if self.shell.quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        self.show_notices();
         let started = Instant::now();
         if self.shell.paused() {
             self.shell.age(dt);
@@ -120,6 +130,12 @@ impl GuiApp {
 }
 
 impl GuiApp {
+    /// Tells a game's alerts that this window draws corner notices (#945), so the events that
+    /// are notices are no longer toasts as well. Every frame: a new game starts with it off.
+    fn show_notices(&mut self) {
+        pin_notices(&mut self.shell);
+    }
+
     /// One frame of the window into `root`: the keys and the clock, then [`Frame::show`].
     pub fn show(&mut self, root: &mut egui::Ui) {
         let frame_start = Instant::now();

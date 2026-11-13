@@ -92,6 +92,11 @@ impl MapView {
         let sense = if live { Sense::click_and_drag() } else { Sense::hover() };
         let response = ui.interact(rect, ui.scope_id().with("map"), sense);
 
+        // A cursor sent somewhere to be looked at (a notice's jump button, the log's `Enter`) is
+        // centred, not just brought into sight.
+        if app.ui.take_centring() {
+            self.camera.centre = vec2(app.ui.cursor.x as f32 + 0.5, app.ui.cursor.y as f32 + 0.5);
+        }
         // A keyboard move off screen brings the camera along.
         if self.last_cursor != Some(app.ui.cursor) && !self.camera.shows(rect, app.ui.cursor, 3.0) {
             self.camera.centre = vec2(app.ui.cursor.x as f32 + 0.5, app.ui.cursor.y as f32 + 0.5);

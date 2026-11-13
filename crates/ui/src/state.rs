@@ -171,6 +171,11 @@ pub struct UiState {
     pub selected: Option<UnitId>,
     /// Whether the cursor tracks the selected unit (`F`).
     pub following: bool,
+    /// Set when the cursor was sent somewhere to be looked at ([`Self::go_to`]: the message
+    /// log's `Enter`, a notice's jump button, #945). The terminal's view is centred there at
+    /// once; a frontend with a camera of its own (the window's) takes the request with
+    /// [`Self::take_centring`] and centres on the cursor.
+    centring: bool,
     /// The screen over the map, if one is open.
     pub screen: Option<Screen>,
     /// The first row of the open screen that shows.
@@ -277,6 +282,7 @@ impl UiState {
             to_title: false,
             selected: None,
             following: false,
+            centring: false,
             screen: None,
             scroll: 0,
             spectating: false,
@@ -603,6 +609,13 @@ impl UiState {
         self.following = false;
         self.cursor = self.clamp_to_map(place);
         self.center_view();
+        self.centring = true;
+    }
+
+    /// Whether the cursor was sent somewhere ([`Self::go_to`]) since the last call, which clears
+    /// it: a frontend with its own camera centres it on the cursor when this is true.
+    pub fn take_centring(&mut self) -> bool {
+        std::mem::take(&mut self.centring)
     }
 
     /// `Enter` in the Nation screen (`N`, #308): puts the cursor on `id` and opens the selection

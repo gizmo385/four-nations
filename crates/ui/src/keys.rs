@@ -61,6 +61,8 @@ pub enum Action {
     PrevUnit,
     /// `F`: the cursor tracks the selected unit.
     Follow,
+    /// `Del`: takes down the newest corner notice (#945), where the frontend draws them.
+    DismissNotice,
     /// `T`: the research screen.
     ShowResearch,
     /// `L` and `?`: the message log and the key help.
@@ -526,6 +528,9 @@ fn build() -> Vec<Entry> {
         help(units, "Previous settler"),
     );
     add(&[Mode::Map], &[Action::Follow], "F", "follow", help(units, "Follow the selected settler"));
+    // The window's corner notices (#945): in no hint bar and not in the key help (the terminal
+    // has no notices, and the help screen is full); the notice's close button names the key.
+    add(&[], &[Action::DismissNotice], "Delete", "dismiss notice", None);
     add(&[Mode::Map], &[Action::Cancel], "Esc", "close", help(units, "Deselect, or open the menu"));
     add(
         &[Mode::Map],

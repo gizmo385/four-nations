@@ -39,6 +39,7 @@ pub mod hints;
 pub mod inspector;
 pub mod keys;
 pub mod mapview;
+pub mod notices;
 pub mod overview;
 pub mod page;
 pub mod screens;
