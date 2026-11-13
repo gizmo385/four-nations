@@ -31,6 +31,7 @@ pub mod browser_saves;
 pub mod camera;
 pub mod cells;
 pub mod color;
+pub mod controls;
 pub mod embark;
 pub mod fonts;
 pub mod frame;
