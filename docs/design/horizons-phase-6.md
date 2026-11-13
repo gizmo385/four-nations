@@ -1038,18 +1038,29 @@ fusion by 150: 51 of 60 that learned one). Three of its use targets pass: Water'
   Residents (3 of each), points and tools stay, and `airships` keeps `population = 24`. The
   numbers above were measured with the masters condition and are not re-run.
 - **A fusion nobody learns can't be used.** Call Rain is cast by 0 of 44 cities that learned
-  Cloudbending, in both orders. The opening designates the bend each spring, and the joint job
-  sits for the whole year with the status's two casters never both in place (a check on Air
-  seed 1 shows `check_ability` passing and the designation held for 50 minutes). The cause is
-  not yet found, and might be the opening's (#958).
+  Cloudbending, in both orders. The cause is the rank rule, not the opening (#958). A joint bend
+  wants an adept of each of its two nations, and a newcomer casts only its own nation's
+  signature ability (a branch ability needs the settlement's own nation), one form, while an
+  adept needs two. A newcomer with a dozen bends of Water the Land is still a novice, so the second
+  slot is never filled in any nation's city: the home nation fills one and the other is always a
+  newcomer. The designation sat because `joint_caster_counts` read 0 for that nation. The
+  opening now designates it only while both nations have a caster, so no Air adept stands on the
+  plot for the year. A way to fill the slot is a rules question for the owner (a decision issue).
 - **Fusions come after the borrowed techs.** In the scripted order each fusion waits for every
   borrowed tech first, so 92 of 128 `united` runs (72%) learn a fusion by + 150, below the 85% the
   target wants. Several home fusions are still `Available` at minute 420 on Water and Earth
   seeds. A person would research a fusion first.
-- **Steel is capped by the stock limit, and Earth makes none.** The opening makes metal and
-  never spends it, so the Steelworks stops at `stock_limit = 8` in stores. 18 of the 23 Fire
-  cities that learned it made steel. 0 of the 8 Earth cities did, and the cause is not found
-  (#958).
+- **Steel is capped by the stock limit, and Earth makes none.** The Steelworks idles once stores
+  hold its `stock_limit` of 8 metal. The opening makes metal and never spends it. 18 of the 23
+  Fire cities that learned it made steel, since a Fire city's stores sit at 4 to 9 metal. An Earth
+  city's Metalbend has piled 39 to 100 metal by the gate and about 180 by minute 360, so
+  the Steelworks stands idle (seed 17 raises it at minute 366 and makes none), and the same
+  Metalbend draws the ore stores down to about 3, which would starve it next. The opening raises
+  the building each time, and wood is in stores: the stock limit is the blocker (#958). The
+  opening can't spend the metal down (the buildings that cost metal take 1 to 4 each), so a way
+  for the Steelworks to run beside a stock of metal is a rules question for its recipe, for the
+  owner (a decision issue). Earth cities also learn it late: 7 of the 8 that did learned it in
+  the last 30 minutes.
 - **Lifts and engines are placed where the map allows.** A lift pair is sited only across a
   range that splits the work from the stores, and a Steam Engine moves to the bank only if
   water is within 3 tiles of a place one can stand. The city's inland engine stays standing
