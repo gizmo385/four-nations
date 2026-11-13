@@ -115,9 +115,9 @@ Remove drag over the settlement must not fell every tree in it.
 
 ## Follow-up issues
 
-- `B` opens the abilities list; drop the press-again cycle; number keys in the Build and
+- #952: `B` opens the abilities list; drop the press-again cycle; number keys in the Build and
   Abilities lists.
-- One Remove tool on `X` (merging Cancel, Cancel+`O` and Clear's buildings mode) with the
+- #953: one Remove tool on `X` (merging Cancel, Cancel+`O` and Clear's buildings mode) with the
   per-kind preview; Clear keeps the ground only; agent tool and key help updated.
 
 ## Owner decisions
