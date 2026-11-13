@@ -52,6 +52,7 @@ pub mod side;
 pub mod sideways;
 pub mod style;
 pub mod theme;
+pub mod timeline;
 pub mod title;
 pub mod touch;
 #[cfg(target_arch = "wasm32")]
