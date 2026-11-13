@@ -191,16 +191,27 @@ pub fn show(
     // The close button sits on the top edge, right.
     let mut out = Outcome::default();
     let width = (CLOSE.chars().count() + 2) as f32 * look.cell.x;
-    let at = Rect::from_min_size(
-        pos2(geo.frame.right() - width - look.cell.x * 2.0, geo.frame.top() - look.cell.y * 0.5),
-        vec2(width, look.cell.y),
-    );
-    ui.scope_builder(UiBuilder::new().max_rect(at), |ui| {
-        let text = RichText::new(CLOSE).font(look.font.clone());
-        let button = Button::new(text).fill(look.panel).min_size(at.size());
-        out.close = ui.add(button).on_hover_cursor(CursorIcon::PointingHand).clicked();
-    });
+    // On touch it is a finger tall and kept off the window's very edge and corner, where iOS
+    // keeps touches for its own swipes (Control Center is the top right).
+    let touch = crate::controls::touch_rows(ui.ctx());
+    let at = if touch {
+        Rect::from_min_size(
+            pos2(geo.frame.right() - width - look.cell.x * 2.0, outer.top() + 6.0),
+            vec2(width, crate::controls::TARGET),
+        )
+    } else {
+        Rect::from_min_size(
+            pos2(
+                geo.frame.right() - width - look.cell.x * 2.0,
+                geo.frame.top() - look.cell.y * 0.5,
+            ),
+            vec2(width, look.cell.y),
+        )
+    };
 
+    if !touch {
+        close_button(ui, look, at, &mut out);
+    }
     let position = ui
         .scope_builder(UiBuilder::new().max_rect(geo.body), |ui| {
             ui.set_clip_rect(geo.body.intersect(ui.clip_rect()));
@@ -219,8 +230,30 @@ pub fn show(
             detail(ui);
         });
     }
+    // On touch it is drawn after the body, so the list row it hangs over never paints over it
+    // or takes its taps. (With a mouse it is drawn first, as it always was: the body's ids
+    // follow from that order.)
+    if touch {
+        close_button(ui, look, at, &mut out);
+    }
+    // On touch the button's target reaches 8 points past it on every side, and is added last so
+    // it is on top of whatever the body put under it.
+    if touch {
+        let hit = at.expand(8.0).intersect(outer);
+        let r = ui.interact(hit, ui.scope_id().with("page close for a finger"), Sense::click());
+        out.close |= r.clicked();
+    }
     ui.advance_cursor_after_rect(outer);
     out
+}
+
+/// The close button in `at`: a click sets `out.close`.
+fn close_button(ui: &mut Ui, look: &Look<'_>, at: Rect, out: &mut Outcome) {
+    ui.scope_builder(UiBuilder::new().max_rect(at), |ui| {
+        let text = RichText::new(CLOSE).font(look.font.clone());
+        let button = Button::new(text).fill(look.panel).min_size(at.size());
+        out.close |= ui.add(button).on_hover_cursor(CursorIcon::PointingHand).clicked();
+    });
 }
 
 /// `text` on the frame's edge at `at`, on the panel's colour so the line breaks round it.

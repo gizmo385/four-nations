@@ -9,6 +9,7 @@ use fn_gui::app::GuiApp;
 use fn_sim::Nation;
 use fn_tui::shell::{Mode, Shell};
 use fn_ui::app::App;
+use fn_ui::state::Modal;
 use fn_ui::tools::Tool;
 
 const PHONE: egui::Vec2 = egui::vec2(844.0, 390.0);
@@ -119,4 +120,33 @@ fn on_touch_list_rows_are_a_finger_tall() {
     let mouse = row(false);
     assert!(mouse < 44.0, "a cell with a mouse: {mouse}");
     assert!(row(true) >= 44.0, "a finger tall on touch: {}", row(true));
+}
+
+/// On touch a full screen's Close is a finger tall, off the window's top edge, and a tap a
+/// little outside it still counts; with a mouse it is the cell-tall button on the frame's edge.
+#[test]
+fn on_touch_close_is_a_finger_sized_target() {
+    let tap = |touch: bool, below: f32| {
+        let mut app = GuiApp::with_shell(game("u"));
+        app.frame_mut().controls.force_touch = touch;
+        assert_eq!(state(&app).ui.modal, Some(Modal::Build), "the Build list is up");
+        let mut h = harness(&mut app, PHONE);
+        let close = h.get_by_label("Close [Esc]").rect();
+        if touch {
+            assert!(close.height() >= 44.0, "a finger tall: {close:?}");
+            assert!(close.top() >= 8.0 + 4.0, "off the window's edge: {close:?}");
+        }
+        let at = egui::pos2(close.center().x, close.bottom() + below);
+        h.hover_at(at);
+        h.run_steps(1);
+        h.drag_at(at);
+        h.run_steps(1);
+        h.drop_at(at);
+        h.run_steps(3);
+        drop(h);
+        state(&app).ui.modal != Some(Modal::Build)
+    };
+    assert!(tap(true, -10.0), "a tap on it closes the page");
+    assert!(tap(true, 5.0), "a tap just under it does too");
+    assert!(tap(false, -4.0), "a click on the mouse's button closes it");
 }
