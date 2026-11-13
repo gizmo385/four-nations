@@ -1494,7 +1494,11 @@ pub(crate) mod prelude {
                 }
             }
         }
+        // The past is no news: it raises no corner notices (#962) any more than it toasts.
+        let notices = app.ui.alerts.notices().is_on();
+        app.ui.alerts.notices_mut().set_on(false);
         app.settle(CATCH_UP_DT);
+        app.ui.alerts.notices_mut().set_on(notices);
         ScoreStart::of(&app.session.world)
     }
 

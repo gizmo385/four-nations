@@ -62,9 +62,13 @@ fn draw_with(session: &Session, ui: &UiState, palette: &Palette, buf: &mut Buffe
             // The tool banner takes the map's top row; the menu hides it (docs/design/ui.md).
             // A selected settler is the side panel's inspector (#653): the map keeps its
             // full height.
-            if ui.tool != Tool::Select {
+            let banner = ui.tool != Tool::Select;
+            if banner {
                 banner::draw(session, ui, palette, banner_area(regions.map), buf);
             }
+            // The corner notices (#962) sit over the map's top right, under the banner.
+            let skip = if banner { banner_area(regions.map).height } else { 0 };
+            crate::notices::draw(ui.alerts.notices(), palette, regions.map, skip, buf);
         }
     }
     // A question that can lose progress goes over whatever is open (#655), centred on the full

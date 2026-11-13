@@ -525,8 +525,8 @@ mod tests {
             }
             let name = b.key.name();
             // The abilities key is shown in the hint bar only (#719), by design.
-            // The window's `Del` (#945) is in neither: the key help is full at 120 by 40, the
-            // terminal has no notices, and the notice's own close button names the key.
+            // `Del` (#945, #962) is in neither: the key help is full at 120 by 40 and every
+            // notice names the key itself ("Del ✕").
             let hint_only = matches!(b.action, Action::ShowAbilities | Action::DismissNotice);
             let listed = table.iter().any(|e| {
                 (e.help.is_some() || hint_only)
