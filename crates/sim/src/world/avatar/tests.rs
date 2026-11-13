@@ -124,6 +124,30 @@ fn arrival_tick_and_tile_are_deterministic() {
     assert_eq!(events, [EndeavorEventKind::AvatarArrived]);
 }
 
+/// #1001: he lands where the gate's builders can reach him, not in the map's top-left corner.
+/// A strip of land west of a sea channel holds the first free tiles in row order; he must land
+/// on the gate's own side of it, west of the site, and be able to walk to it.
+#[test]
+fn he_lands_on_the_gates_side_of_the_water_not_in_the_corner() {
+    let defs = defs_with_avatar();
+    let mut map = field(24, 10);
+    for y in 0..10 {
+        map.get_mut(at(4, y)).expect("on the map").terrain = Terrain::Water;
+    }
+    let spawns = [at(8, 0), at(9, 0)];
+    let mut w = World::with_map(1, map, Nation::Earth, &spawns, &defs);
+    let stone = defs.item_id("stone").expect("item exists");
+    w.zones.insert(at(8, 8));
+    w.stored.insert(at(8, 8), Stack { item: stone, count: 40 });
+    w.endeavor = EndeavorState::Ready { tick: 0 };
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 5_000, |w| avatar_unit(w).is_some());
+    let pos = avatar_unit(&w).unwrap().pos;
+    assert!(pos.x > 4 && pos.x < ANCHOR.x, "{pos:?}: across the channel or not west");
+    let flood = Flood::new(&w.map, pos, &w.rules);
+    assert!(flood.cost(ANCHOR).is_some(), "{pos:?} can't reach the gate");
+}
+
 /// A save made while he's here loads, and newcomers (#232) still get fresh ids: his fixed id
 /// (u32::MAX) mustn't feed the id counter's fix-up on load.
 #[test]
