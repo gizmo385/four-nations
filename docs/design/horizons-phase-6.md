@@ -28,9 +28,12 @@ owner", and the implementation work is under "Follow-up issues".
    study seats free up, the same way phase 4 handles a short bill.
 2. **Borrowed techs are another nation's craft, not its bending.** A tech marked `teachable` can
    be learned by a settlement of another nation at 2x cost, while at least 3 of the tech's nation
-   live there. Teachable techs unlock no ability. A borrowed tech's bending prereqs are waived:
-   a Water city borrows `brickmaking` without learning `forging`'s Weld. The tech's buildings
-   work for everyone, and its modifiers help only residents of the nation that taught it.
+   live there. A teachable tech unlocks no ability, except the three leaf bends the owner chose
+   in #969 (`canals`, `plantbending`, `spirit_projection`: nothing else requires them), so that
+   a newcomer of the teaching nation casts their form in the borrower's city (#958). A borrowed
+   tech's bending prereqs are waived: a Water city borrows `brickmaking` without learning
+   `forging`'s Weld. The tech's buildings work for everyone, and its modifiers help only
+   residents of the nation that taught it.
 3. **Six fusions, one per pair of nations, open to every settlement.** A fusion names its two
    nations, costs 1,000 points plus tools, and needs 3 residents of each nation. It has no
    masters condition (#955). The home nation is usually one of the pair. A Fire city can still
@@ -186,17 +189,25 @@ borrow_residents = 3       # provisional: residents of the tech's nation needed 
   nation's. A Fire city that borrows `earth_rail` lays rail, and only its Earth residents carry
   1.25x. With no borrowed tech known, every value is bit-for-bit what it is today.
 - **Validation.** `teachable` needs a single `nation`: not a shared tech, not `nations` (#696,
-  so `herding` stays off Air, per owner decision 7), and not a fusion. A teachable tech unlocks
-  no `abilities` and is no school's tech (#717). Phase 5's teachings are phase 5's call. This
-  design marks none of them.
+  so `herding` stays off Air, per owner decision 7), and not a fusion. A teachable tech is no
+  school's tech (#717) and no `cost_items` bill. It may unlock `abilities` since #969 (it
+  couldn't before: "borrowing is not bending"), but then it must be a leaf: load refuses a
+  tech that requires a teachable bend, so a borrowed bend never drags a chain of bends behind
+  it, and `forging`, `irrigation` and the rest stay home. Phase 5's teachings are phase 5's
+  call, with one exception: `plantbending` and `spirit_projection` are teachings and are
+  teachable (#969). A teaching is hidden until a scroll draft keeps it, which only its own
+  nation's city ever does, so another nation's city skips that: it borrows the tech from the
+  From newcomers page without a scroll (`set_target` checks Hidden and Lost only for the tech's
+  own nation), and the page lists it.
 - **Saves.** Nothing new is saved. Whether a known tech was borrowed follows from its nation and
   the world's.
 
 #### Which techs are teachable
 
-The rule is "unlocks no ability". Capstones stay home, although `lightning_generation` and
-`sky_bison` unlock none, because the spec protects each nation's identity (research-horizons.md,
-"Keeping decisions interesting", point 5). #753 flags the shipped techs and any phase 1
+The rule was "unlocks no ability" until #969, which let three leaf bends in: `canals`,
+`plantbending` and `spirit_projection`. Every other bend tech stays home. Capstones stay home,
+although `lightning_generation` and `sky_bison` unlock none, because the spec protects each
+nation's identity (research-horizons.md, "Keeping decisions interesting", point 5). #753 flags the shipped techs and any phase 1
 or 2 tech that has already landed. A later phase's follow-up sets the flag as it appends its
 tech.
 
@@ -204,8 +215,8 @@ tech.
 |---|---|---|
 | Earth | `earthen_walls` (240), `earth_rail` (500), `omashu_chutes` (500) | `earth_shaping`, `tunneling`, `seismic_sense`, `metalbending`: abilities. `badgermole_ways`: the badgermole works with earthbenders, and tunnels are Earth's |
 | Fire | `brickmaking` (240), `smelting` (240), `steam_engines` (500), `hothouses` (500), `cargo_balloons` (1,000) | `forging`, `dancing_dragon`: abilities. `lightning_generation`: the capstone, fed by firebenders' lightning |
-| Water | `healing` (240), `tide_mills` (500), `water_travel` (500), `oil_lamps` (240) | `irrigation`, `ice_construction`, `canals`: abilities. `spirit_oasis`: the capstone |
-| Air | `orchards` (50), `wind_turbines` (500), `lemur_keeping` (240), `wind_gates` (500) | `meditation`, `gliders`, `windmills`, `air_scooter`: abilities. `sky_bison`: the capstone |
+| Water | `healing` (240), `tide_mills` (500), `water_travel` (500), `oil_lamps` (240), `canals` (500, Carve Canal, #969), `plantbending` (500, Regrow, #969) | `irrigation`, `ice_construction`: abilities, and `canals` requires `irrigation`. `spirit_oasis`: the capstone |
+| Air | `orchards` (50), `wind_turbines` (500), `lemur_keeping` (240), `wind_gates` (500), `spirit_projection` (500, Project, #969) | `meditation`, `gliders`, `windmills`, `air_scooter`: abilities. `sky_bison`: the capstone |
 
 Earth teaches the least, because most of its tree is bending. It still teaches rail, which is
 the one hauling answer every other nation lacks. An Earth city that borrows `wind_turbines`
@@ -1037,23 +1048,30 @@ fusion by 150: 51 of 60 that learned one). Three of its use targets pass: Water'
   Measured, it couldn't in this session. **#955 decided B: every fusion drops `masters`.**
   Residents (3 of each), points and tools stay, and `airships` keeps `population = 24`. The
   numbers above were measured with the masters condition and are not re-run.
-- **A fusion nobody learns can't be used.** Call Rain is cast by 0 of 44 cities that learned
+- **A fusion nobody learns can't be used.** Call Rain was cast by 0 of 44 cities that learned
   Cloudbending, in both orders. The cause is the rank rule, not the opening (#958). A joint bend
   wants an adept of each of its two nations, and an adept needs two forms. A newcomer used to
   cast only its own nation's signature, one form, so a newcomer with a dozen bends of Water the
   Land stayed a novice and the second slot was never filled. The owner decided that newcomers
   are the teachers (#958): a newcomer casts its own nation's branch abilities whenever the
   city has learned the unlocking tech, so it gains forms and ranks up. A home settler still
-  never casts another nation's ability. **That alone changes nothing in play, because no tech a
-  city can borrow unlocks an ability** (the validation in section 2 and decision 2 above: a
-  teachable tech unlocks none). The scripted opening still reads 0 rains in a short run
-  (`united`, seeds 1 to 8, all four nations: 0 of 14 cities that learned Cloudbending).
-  The opening designates Call Rain only while both nations have a caster, so no Air adept
-  stands on the plot for the year. An experiment that marked all 15 ability techs teachable
-  (not kept) had Water newcomers in Air cities learn Draw Water and Cut Ice, rank up, and
-  cast Call Rain in 2 of 5 Air cities and 1 of 2 Fire cities that learned Cloudbending, and it
-  put fusions later, since the opening borrows more first. Which bend techs a city may borrow
-  is the owner's call (#969).
+  never casts another nation's ability. That alone changed nothing in play, because no tech a
+  city could borrow unlocked an ability: 0 rains in a short run (`united`, seeds 1 to 8, all
+  four nations: 0 of 14 cities that learned Cloudbending). The owner then chose option B of
+  #969: only the leaf bends `canals`, `plantbending` and `spirit_projection` are teachable,
+  so a Water or Air newcomer holds its signature plus one borrowed bend, which is the two forms
+  an adept needs. **Measured**, the same short run: Call Rain is cast in 3 of the 10 cities that
+  learned Cloudbending (Air 1 of 5, Water 1 of 2, Fire 1 of 3, Earth none learned it), and the
+  opening borrows the three techs (the Fire city of the opening's test has all of them by
+  minute 420). It is still far from the 85% the `united_rains`
+  target asks. The opening designates Call Rain only while both nations have a
+  caster, so no Air adept stands on the plot for the year, and a city that borrows late has a
+  spring or two left. Borrowing 3 more techs first costs fusions time (the next bullet):
+  `united_fusion_by_150` over the same 26 city runs went from 19 to 15, and the cities that
+  learned Cloudbending at all fell from 14 to 10. An experiment that marked all 15 ability
+  techs teachable (option A, not kept) had cast Call Rain in 2 of 5 Air cities and 1 of 2 Fire
+  cities that learned it, with fusions later still. Widening to A stays open if the rains stay
+  thin once the opening is tuned.
 - **Fusions come after the borrowed techs.** In the scripted order each fusion waits for every
   borrowed tech first, so 92 of 128 `united` runs (72%) learn a fusion by + 150, below the 85% the
   target wants. Several home fusions are still `Available` at minute 420 on Water and Earth

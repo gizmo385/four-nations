@@ -79,8 +79,9 @@ impl Exchange {
 impl World {
     /// The From newcomers list for this settlement, empty until the gate is complete
     /// ([`united`](Self::united)). It lists the other nations' teachable techs even while none
-    /// of their people live here: the standing says what is missing. A hidden teaching is never
-    /// listed.
+    /// of their people live here: the standing says what is missing. A teachable teaching
+    /// (`plantbending`, `spirit_projection`, #969) is listed too: its scroll is its own
+    /// nation's, and the newcomers bring it.
     pub fn exchange(&self, defs: &Defs) -> Exchange {
         if !self.united() {
             return Exchange::default();
@@ -121,7 +122,7 @@ impl World {
         let mut entries = Vec::new();
         for from in Nation::ALL.into_iter().filter(|&n| n != home) {
             for (i, t) in defs.techs.iter().enumerate() {
-                if t.teachable && t.nation == Some(from) && t.teaching.is_none() {
+                if t.teachable && t.nation == Some(from) {
                     entries.push(entry(TechId(i as u16), ExchangeKind::Borrowed { from }));
                 }
             }

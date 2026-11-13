@@ -11,8 +11,11 @@
 # - `teachable = true` (docs/design/horizons-phase-6.md, "Borrowed techs"): once the Harmony Gate
 #   stands, a settlement of another nation can learn the tech at `[settings] borrow_cost` times its
 #   cost while `borrow_residents` people of its nation live there. Needs a single `nation`, no
-#   abilities, no school, no fusion and no `cost_items`. A borrower skips its prereqs of that
-#   nation that aren't teachable, and its modifiers help only residents of its own nation.
+#   school, no fusion and no `cost_items`. A borrower skips its prereqs of that nation that
+#   aren't teachable, and its modifiers help only residents of its own nation. A teachable tech
+#   may unlock abilities (#969: `canals`, `plantbending`, `spirit_projection`, the leaf bends:
+#   no tech requires them), so a newcomer of the teaching nation casts them in the borrower's
+#   city; a teaching that is teachable is borrowed without finding its scroll.
 # - `[tech.unlocks]` `modifiers` multiply a nation's modifiers (data/nations.toml) once the tech
 #   is known. Each multiplier must be in (0, 4]; unknown modifier names fail to load.
 #
@@ -662,6 +665,7 @@ id = "canals"
 name = "Canals"
 description = "Waterbenders cut channels that bring the river to the fields."
 nation = "water"
+teachable = true
 cost = 250
 prereqs = ["irrigation", "water_travel"]
 # Carve Canal (#695, docs/design/horizons-phase-2.md): a permanent canal tile beside fresh water.
@@ -989,6 +993,7 @@ id = "plantbending"
 name = "Plantbending"
 description = "Draw the water through the roots and wake the tired soil."
 nation = "water"
+teachable = true
 cost = 250
 prereqs = ["irrigation"]
 [tech.teaching]
@@ -1000,6 +1005,7 @@ id = "spirit_projection"
 name = "Spirit Projection"
 description = "Leave the body behind in meditation, and see what the land hides."
 nation = "air"
+teachable = true
 cost = 250
 prereqs = ["meditation"]
 [tech.teaching]
