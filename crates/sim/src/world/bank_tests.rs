@@ -73,7 +73,7 @@ fn the_bundled_steam_power_is_the_fire_water_fusion() {
     assert_eq!((t.cost, t.prereqs.clone()), (1000, vec![defs.tech_id("steam_engines").unwrap()]));
     let tools = defs.item_id("tool").unwrap();
     assert_eq!(t.cost_items.iter().map(|s| (s.item, s.count)).collect::<Vec<_>>(), [(tools, 6)]);
-    assert_eq!(t.requires.masters, Some(1));
+    assert_eq!(t.requires.masters, None, "#955: no masters condition");
     let engine = defs.building(defs.building_id("steam_engine").unwrap());
     let (tech, bank) = engine.bank_upgrade.as_ref().expect("the engine's bank upgrade");
     assert_eq!(*tech, id);

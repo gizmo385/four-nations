@@ -276,8 +276,8 @@ teaching scroll. Nation teachings appear only for that nation.
 
 ### Exchange techs: after the gate
 
-Fusions need at least 3 residents of each named nation and a master of one. Each costs 1,000
-points plus tools. The home nation counts as one of the pair, so every game has three open to it
+Fusions need at least 3 residents of each named nation (no masters condition, #955). Each costs
+1,000 points plus tools. The home nation counts as one of the pair, so every game has three open to it
 at first and all six once every nation has settled.
 
 | Fusion | Nations | What appears | The decision it asks |

@@ -47,8 +47,8 @@ fn the_bundled_steelworks_is_the_earth_fire_fusion() {
     );
     assert_eq!(t.requires.residents.get(&Nation::Earth), Some(&3));
     assert_eq!(t.requires.residents.get(&Nation::Fire), Some(&3));
-    assert_eq!(t.requires.masters, Some(1));
-    assert_eq!(t.requires.masters_of.as_deref(), Some(&[Nation::Earth, Nation::Fire][..]));
+    // No masters condition (#955).
+    assert_eq!((t.requires.masters, t.requires.masters_of.as_ref()), (None, None));
     // Open to every nation, and to none of them before the gate.
     for nation in Nation::ALL {
         assert!(t.open_to(nation), "{nation:?}");
@@ -90,7 +90,7 @@ fn the_steelworks_makes_one_metal_from_one_ore_and_two_wood() {
 }
 
 #[test]
-fn a_fusion_loads_with_one_or_both_nations_as_masters() {
+fn a_fusion_that_names_masters_names_one_or_both_nations() {
     for of in ["['earth']", "['fire']", "['earth', 'fire']", "['fire', 'earth']"] {
         let extra = format!(
             "fusion = ['earth', 'fire']\nrequires = {{ residents = {{ earth = 3, fire = 3 }}, \
@@ -103,6 +103,15 @@ fn a_fusion_loads_with_one_or_both_nations_as_masters() {
     let t = defs.tech(defs.tech_id("fused").unwrap());
     assert_eq!(t.fusion, Some([Nation::Fire, Nation::Earth]));
     assert!(t.is_fusion() && !t.is_shared());
+}
+
+#[test]
+fn a_fusion_may_omit_its_masters() {
+    // #955: the masters condition is optional on a fusion.
+    let plain = "fusion = ['earth', 'fire']\nrequires = { residents = { earth = 3, fire = 3 } }";
+    with_fused(plain).unwrap();
+    let any = "fusion = ['earth', 'fire']\nrequires = { residents = { earth = 3, fire = 3 }, masters = 1 }";
+    with_fused(any).unwrap();
 }
 
 #[test]
@@ -150,9 +159,7 @@ fn a_fusions_conditions_name_exactly_its_two_nations() {
             format!("{{ residents = {{ earth = 3, water = 3 }}, {masters} }}"),
             "must name exactly earth and fire",
         ),
-        // Masters: absent, or of a nation outside the pair.
-        ("{ residents = { earth = 3, fire = 3 } }".into(), "masters_of"),
-        ("{ residents = { earth = 3, fire = 3 }, masters = 1 }".into(), "masters_of"),
+        // Masters, when given: of a nation outside the pair.
         (
             "{ residents = { earth = 3, fire = 3 }, masters = 1, masters_of = ['earth', 'air'] }"
                 .into(),
