@@ -53,10 +53,11 @@
 //!                               tier's seeds, paired by seed against the first condition, with
 //!                               bootstrap intervals and failure counts. See `cargo xtask
 //!                               agent-compare --help`.
-//!     cargo xtask web [--serve] [--port N] [LOG...]
-//!                               builds the web replayer (#595: web/ plus fn_web.wasm) into
-//!                               target/replayer/, and with --serve serves it on localhost; each LOG
-//!                               is listed in its run picker. See `cargo xtask web --help`.
+//!     cargo xtask web [--fast] [--serve] [--port N] [LOG...]
+//!                               puts the web replayer's page (#595, #999: web/index.html, running
+//!                               fn_gui's wasm) into target/replayer/, and with --serve builds the
+//!                               wasm (as web-gui) and serves it on localhost; each LOG is listed
+//!                               in its run picker. See `cargo xtask web --help`.
 //!     cargo xtask web-gui [--fast] [--serve] [--port N]
 //!                               builds fn_gui for the browser (#859) and binds it with the
 //!                               wasm-bindgen CLI (at Cargo.lock's version) into
@@ -296,7 +297,7 @@ fn nextest_installed() -> bool {
 }
 
 /// The crates the web replayer (#595) builds for the browser.
-const WASM_CRATES: [&str; 6] = ["fn_runfmt", "fn_sim", "fn_ui", "fn_tui", "fn_web", "fn_gui"];
+const WASM_CRATES: [&str; 5] = ["fn_runfmt", "fn_sim", "fn_ui", "fn_tui", "fn_gui"];
 pub(crate) const WASM_TARGET: &str = "wasm32-unknown-unknown";
 
 /// Clippy (`-D warnings`) on [`WASM_CRATES`]' libraries for [`WASM_TARGET`] (#594), so a change
@@ -385,10 +386,10 @@ fn check(crates: &[String], fast: bool) -> Result {
 /// transitively, on `c` -- so a change in `c` also has to retest them.
 fn dependents(c: &str) -> &'static [&'static str] {
     match c {
-        "fn_runfmt" => &["fn_tui", "fn_agent", "fn_web", "fn_gui", "xtask"],
-        "fn_sim" => &["fn_ui", "fn_tui", "fn_agent", "fn_harness", "fn_web", "fn_gui"],
-        "fn_ui" => &["fn_tui", "fn_agent", "fn_web", "fn_gui"],
-        "fn_tui" => &["fn_agent", "fn_web", "fn_gui"],
+        "fn_runfmt" => &["fn_tui", "fn_agent", "fn_gui", "xtask"],
+        "fn_sim" => &["fn_ui", "fn_tui", "fn_agent", "fn_harness", "fn_gui"],
+        "fn_ui" => &["fn_tui", "fn_agent", "fn_gui"],
+        "fn_tui" => &["fn_agent", "fn_gui"],
         _ => &[],
     }
 }

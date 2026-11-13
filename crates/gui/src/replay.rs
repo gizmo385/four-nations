@@ -328,6 +328,105 @@ impl ReplayApp {
     }
 }
 
+/// The replay page (#999): a [`ReplayApp`] once a log is open, and before that a note saying how
+/// to open one. A log arrives by a drop on the window, or from the page around the canvas (its
+/// file picker and its run list hand the bytes to [`arrived`]); a later one replaces the first.
+#[derive(Default)]
+pub struct ReplayPage {
+    app: Option<ReplayApp>,
+    /// Why the last log could not be opened, while none is.
+    status: Option<String>,
+    /// The state last written onto the page (`crate::webpage::publish_replay`).
+    #[cfg(target_arch = "wasm32")]
+    published: String,
+}
+
+impl ReplayPage {
+    /// The replay, once a log is open.
+    pub fn app(&self) -> Option<&ReplayApp> {
+        self.app.as_ref()
+    }
+
+    /// Why the last log could not be opened, while none is.
+    pub fn status(&self) -> Option<&str> {
+        self.status.as_deref()
+    }
+
+    pub fn show(&mut self, root: &mut Ui) {
+        let ctx = root.ctx().clone();
+        if self.app.is_none() {
+            self.take_first(&ctx);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let state = match &self.app {
+                Some(app) => vec![
+                    ("mode", "replay".to_owned()),
+                    ("turn", app.replay().turn().to_string()),
+                    ("total", app.replay().total_turns().to_string()),
+                    ("status", app.status.clone().unwrap_or_default()),
+                ],
+                None => vec![
+                    ("mode", "replay-empty".to_owned()),
+                    ("status", self.status.clone().unwrap_or_default()),
+                ],
+            };
+            crate::webpage::publish_replay(&state, &mut self.published);
+        }
+        match &mut self.app {
+            Some(app) => app.show(root),
+            None => {
+                let window = root.available_rect_before_wrap();
+                root.painter().rect_filled(window, 0.0, cells::DEFAULT_BG);
+                let mut note =
+                    "Open a run's run.jsonl (or .jsonl.gz) with Open log…, or drop it here.\n\
+                    It's replayed here and never uploaded anywhere."
+                        .to_owned();
+                if let Some(status) = &self.status {
+                    note = format!("{status}\n\n{note}");
+                }
+                root.painter().text(
+                    window.center(),
+                    egui::Align2::CENTER_CENTER,
+                    note,
+                    egui::FontId::proportional(16.0),
+                    Color32::from_gray(150),
+                );
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+
+    /// The first log: dropped on the window, or handed over by the page.
+    fn take_first(&mut self, ctx: &egui::Context) {
+        if let Some(file) = ctx.input(|i| i.raw.dropped_files.first().cloned()) {
+            let name = file.path().display().to_string();
+            #[cfg(not(target_arch = "wasm32"))]
+            arrived(name, file.bytes());
+            #[cfg(target_arch = "wasm32")]
+            wasm_bindgen_futures::spawn_local(async move {
+                let bytes = file.bytes_async().await;
+                arrived(name, bytes);
+            });
+        }
+        if let Some((name, bytes)) = take_arrived() {
+            match bytes.and_then(|b| log_text(&b)).and_then(|t| ReplayApp::open(&t)) {
+                Ok(app) => {
+                    self.app = Some(app);
+                    self.status = None;
+                }
+                Err(e) => self.status = Some(format!("Can't replay {name}: {e}")),
+            }
+        }
+    }
+}
+
+impl eframe::App for ReplayPage {
+    fn ui(&mut self, root: &mut Ui, _frame: &mut eframe::Frame) {
+        self.show(root);
+    }
+}
+
 /// A file's name and its bytes as read (or why they could not be).
 type ReadFile = (String, Result<Vec<u8>, String>);
 

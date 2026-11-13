@@ -88,6 +88,29 @@ pub fn publish(shell: &Shell, last: &mut String) {
     *last = summary;
 }
 
+/// The replay page's state (#999) as `data-fn-*` attributes on the canvas, for a script driving
+/// it (`web/check-replay.cjs`): `data-fn-mode` (`replay`, or `replay-empty` before a log is
+/// open), `data-fn-turn`, `data-fn-total` and `data-fn-status` (why a log was refused).
+pub fn publish_replay(state: &[(&str, String)], last: &mut String) {
+    let summary = format!("{state:?}");
+    if summary == *last {
+        return;
+    }
+    let Some(canvas) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id("the_canvas"))
+    else {
+        return;
+    };
+    for name in ["mode", "turn", "total", "status"] {
+        let _ = canvas.remove_attribute(&format!("data-fn-{name}"));
+    }
+    for (name, value) in state {
+        let _ = canvas.set_attribute(&format!("data-fn-{name}"), value);
+    }
+    *last = summary;
+}
+
 /// The screen's safe-area insets (#974): the CSS `env(safe-area-inset-*)` that `index.html`
 /// puts in `--fn-safe-top` and the rest, in CSS pixels, which are egui's points. Zero where the
 /// page has none (a desktop browser) or can't be read.

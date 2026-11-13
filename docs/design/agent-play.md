@@ -359,35 +359,43 @@ shapes read: the first one's `clean`/`train_mean`/`held_out` and the seed tiers'
 on the folder's modification time, which a cache write changes. `watch CAMPAIGN_DIR` opens the
 browser on that campaign (`--focus`), and `watch --list` prints campaigns with their attempts.
 
-### Watching on the web (#595)
+### Watching on the web (#595, #994)
 
-The same watcher runs in a browser. `crates/web` (`fn_web`) compiles `fn_tui`'s `Watcher` to
-`wasm32-unknown-unknown` behind a small C ABI (no wasm-bindgen), and `web/` is a static page
-that loads a log, draws each frame onto a canvas and passes keys and real time across. A
-replay re-simulates the log exactly as the terminal does, so the page needs only the
-`run.jsonl` (a 3 h attempt's is 1-4 MB, its asciicast 40-120 MB), and it shows the same
-screen: the studio panes at 160x45 and up, the agent strip, free look.
+The same watcher runs in a browser, inside the game's own window code. `fn_tui::replay` wraps
+`fn_tui`'s `Watcher` with snapshots for seeking, and `fn_gui::replay` draws it: the replayed
+game through `fn_gui`'s native frame in watch-only mode (the map with zoom, pan and tooltips, the
+side panel and the pages, none taking a click), and the studio's code pane, feed and agent strip
+as cells beside it, laid out as the terminal lays them out (the split at 160x45 cells and up,
+one pane below that). The agent's attention ghost is outlined on the map. A replay re-simulates
+the log exactly as the terminal does, so the page needs only the `run.jsonl` (a 3 h attempt's is
+1-4 MB, its asciicast 40-120 MB). The same app runs natively: `cargo run -p fn_gui -- --replay
+LOG`.
 
-The terminal watcher's keys work there too (Space, `+`/`-`, `.`, `]`, `0`-`3`, free look),
-with buttons for them and a scrubber over turns. Seeking forwards replays a turn at a time
-between frames; seeking backwards restores the nearest snapshot (one is kept every 20 turns,
-as the replay first reaches it) and replays from there, so it costs at most 20 turns, well
-under a second. A log made against other data is refused with the build it was made on.
+The terminal watcher's keys work there too (Space, `+`/`-`, `.`, `]`/`}`, `[`/`{`, `>`, `0`-`3`,
+`j`/`k`), with buttons for them and a scrubber over turns. The terminal's free-look keys are
+not used: the map's own camera is the free look, and zooming or panning never moves the agent's
+cursor. Seeking forwards replays a turn at a time between frames; seeking backwards restores the
+nearest snapshot (one is kept every 20 turns, as the replay first reaches it) and replays from
+there, so it costs at most 20 turns, well under a second. A log made against other data is
+refused with the build it was made on.
 
 The scrubber marks the turns worth finding again: deaths, endeavor milestones (a sign met, the
 endeavor Ready, a stage done, the gate complete), the Avatar coming and going (and the rite
-pausing or breaking), techs learned and bending ranks reached, newcomers, and the agent's script changes (each new
-saved revision, or new ad hoc code, with its `+A −D` against the last one). Each kind has its
-own colour and shape; hovering one lists what happened that turn, clicking it seeks there, and
-the legend's chips hide or show a kind. The log holds only keys and turns, so the page finds
-them by replaying the whole log a second time (`fn_web::scan`) on another instance of the wasm
-in a Web Worker; markers fill in as it goes (a 540-turn run takes a few seconds) without
-slowing the replay being watched.
+pausing or breaking), techs learned and bending ranks reached, newcomers, and the agent's script
+changes (each new saved revision, or new ad hoc code, with its `+A −D` against the last one).
+Each kind has its own colour; hovering a tick lists what happened that turn, and the legend's
+buttons hide or show a kind. The log holds only keys and turns, so the timeline finds them by
+replaying the whole log a second time (`fn_tui::replay::scan`), a few milliseconds of each frame
+(`fn_gui::timeline`); markers fill in as it goes without slowing the replay being watched.
 
-`cargo xtask web` builds the page and the wasm into `target/replayer/`; `--serve` serves it on
-localhost, and each `LOG` argument is copied in and listed in the page's run picker
-(`runs/index.json`). A page link takes `?run=PATH` (a `.jsonl` or `.jsonl.gz`); a file can
-also be opened or dropped on it.
+The page (`web/index.html`) is a header and a canvas marked `data-app="replay"`, on which
+`fn_gui`'s wasm (the game's, from `play/`) starts the replay. The header picks the log ("Open
+log…", the run list, or `?run=PATH`, a `.jsonl` or `.jsonl.gz`) and hands its bytes to the wasm;
+a drop on the canvas goes straight to it. `cargo xtask web` copies the page into
+`target/replayer/` and `cargo xtask web-gui` builds the wasm into `target/replayer/play/`;
+`cargo xtask web --serve` does both and serves the folder on localhost, and each `LOG` argument
+is copied in and listed in the run list (`runs/index.json`). `node web/check-replay.cjs` checks
+the built page in headless Chromium (by hand, not in CI).
 
 **The hosted replayer (#596).** `.github/workflows/pages.yml` builds `main`'s replayer on every
 push and deploys it to GitHub Pages (`https://gizmo385.github.io/four-nations/`; public, as the

@@ -6,7 +6,7 @@
 //! [`Replay`] never reads a clock or a file: its caller hands it the log's text and the real
 //! seconds between frames, so it runs the same natively and in wasm32. [`scan`] replays the whole
 //! log once more, apart from the one being watched, to find the events a timeline marks. Both
-//! started in `fn_web` (the canvas replayer) and live here so `fn_gui` can use them too (#995).
+//! started in `fn_web`, the old canvas replayer, and moved here for `fn_gui`'s replay (#995), which replaced it (#999).
 
 pub mod scan;
 
