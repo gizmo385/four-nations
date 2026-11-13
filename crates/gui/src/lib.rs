@@ -47,6 +47,7 @@ pub mod side;
 pub mod style;
 pub mod theme;
 pub mod title;
+pub mod touch;
 #[cfg(target_arch = "wasm32")]
 pub mod webpage;
 

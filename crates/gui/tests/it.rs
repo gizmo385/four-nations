@@ -27,4 +27,5 @@ mod snapshot;
 mod style;
 mod theme;
 mod title;
+mod touch;
 mod traders;

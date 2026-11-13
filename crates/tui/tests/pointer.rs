@@ -175,3 +175,24 @@ fn the_pointer_does_nothing_with_a_screen_open() {
     pointer::click(&mut app, Pos::new(before.x + 5, before.y));
     assert_eq!(app.ui.cursor, before);
 }
+
+/// A second finger mid-rectangle (#977): the corner is dropped, the tool stays, and neither the
+/// rest of the drag nor the release marks anything.
+#[test]
+fn an_abandoned_drag_drops_the_corner_and_marks_nothing() {
+    let mut app = game();
+    play(&mut app, "h");
+    let start = app.ui.cursor;
+    let mut p = Pointer::new();
+    let (a, b) = (Pos::new(start.x - 6, start.y - 3), Pos::new(start.x - 1, start.y + 1));
+    p.down(&mut app, a);
+    p.moved(&mut app, b);
+    assert_eq!(app.ui.anchor, Some(a), "the live rectangle");
+    p.abandon(&mut app);
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Harvest, None), "the corner is gone");
+    assert!(!p.dragging());
+    p.moved(&mut app, start);
+    p.up(&mut app, start);
+    assert!(app.session.world.command_log().is_empty(), "nothing was marked");
+    assert_eq!(app.ui.anchor, None);
+}

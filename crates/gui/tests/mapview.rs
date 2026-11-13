@@ -57,9 +57,15 @@ fn view_at(app: &App, centre: Pos, cell: f32) -> (MapView, Camera) {
 }
 
 fn harness<'a>(view: &'a mut MapView, app: &'a mut App) -> Harness<'a> {
+    harness_stepping(view, app, 0.25)
+}
+
+/// As [`harness`], each step `dt` seconds of frame time (kittest's default is a quarter second).
+fn harness_stepping<'a>(view: &'a mut MapView, app: &'a mut App, dt: f32) -> Harness<'a> {
     let palette = palette(app);
     let mut h = Harness::builder()
         .with_size(vec2(WINDOW.0, WINDOW.1))
+        .with_step_dt(dt)
         .with_context_setup(fn_gui::setup)
         .build_ui(move |ui| {
             let rect = ui.available_rect_before_wrap();
@@ -351,4 +357,125 @@ fn overview_cost() {
     println!("map {w}x{h}, cell {cell:.2}px");
     println!("uncached painter, per frame (ms): {old:.1?}");
     println!("overview texture, per frame (ms; the first builds it): {new:.1?}");
+}
+
+/// A finger on the map, the way eframe's web runner reports one: the touch, plus the pointer
+/// event it makes for the first finger.
+fn finger(h: &mut Harness<'_>, id: u64, pos: Pos2, phase: egui::TouchPhase) {
+    h.event(Event::Touch {
+        device_id: egui::TouchDeviceId(0),
+        id: egui::TouchId(id),
+        phase,
+        pos,
+        force: None,
+    });
+}
+
+fn finger_down(h: &mut Harness<'_>, pos: Pos2) {
+    finger(h, 0, pos, egui::TouchPhase::Start);
+    h.event(Event::PointerMoved(pos));
+    press(h, pos, PointerButton::Primary, true);
+}
+
+fn finger_up(h: &mut Harness<'_>, pos: Pos2) {
+    finger(h, 0, pos, egui::TouchPhase::End);
+    press(h, pos, PointerButton::Primary, false);
+    h.run_steps(1);
+}
+
+/// A tap on a settler selects it, as a click does; a long press there shows the tooltip and
+/// selects nothing (#977).
+#[test]
+fn a_tap_selects_and_a_long_press_only_shows_the_tooltip() {
+    let mut app = game();
+    let unit = settler(&app);
+    app.ui.point_at(Pos::new(unit.x + 5, unit.y + 2));
+    let (mut view, camera) = view_at(&app, Pos::new(unit.x + 2, unit.y + 1), 16.0);
+    let mut h = harness_stepping(&mut view, &mut app, 0.1);
+    let p = at(&camera, unit);
+    finger_down(&mut h, p);
+    // 0.6 s: a long press, and still short of egui's 0.8 s limit on a click.
+    h.run_steps(5);
+    finger_up(&mut h, p);
+    drop(h);
+    assert_eq!(app.ui.selected, None, "a long press is not a click");
+
+    let (mut view, camera) = view_at(&app, Pos::new(unit.x + 2, unit.y + 1), 16.0);
+    let mut h = harness_stepping(&mut view, &mut app, 0.1);
+    let p = at(&camera, unit);
+    finger_down(&mut h, p);
+    finger_up(&mut h, p);
+    drop(h);
+    assert!(app.ui.selected.is_some(), "a tap is a click");
+}
+
+/// With Harvest, a second finger landing mid-rectangle drops it: nothing is marked and the
+/// corner is gone, though the first finger keeps moving and lifts (#977).
+#[test]
+fn a_second_finger_drops_the_rectangle() {
+    let mut app = game();
+    play(&mut app, "h");
+    let start = app.ui.cursor;
+    let (mut view, camera) = view_at(&app, start, 16.0);
+    let mut h = harness(&mut view, &mut app);
+    let a = at(&camera, Pos::new(start.x - 6, start.y - 3));
+    let b = at(&camera, Pos::new(start.x + 2, start.y + 2));
+    finger_down(&mut h, a);
+    for i in 1..=6 {
+        let p = a + (b - a) * (i as f32 / 6.0);
+        finger(&mut h, 0, p, egui::TouchPhase::Move);
+        h.event(Event::PointerMoved(p));
+        h.run_steps(1);
+    }
+    finger(&mut h, 1, b + vec2(80.0, 0.0), egui::TouchPhase::Start);
+    h.run_steps(2);
+    finger(&mut h, 1, b + vec2(80.0, 0.0), egui::TouchPhase::End);
+    finger_up(&mut h, b);
+    drop(h);
+    assert!(app.session.world.command_log().is_empty(), "nothing was marked");
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Harvest, None));
+}
+
+/// Two fingers moving together pan the map, and spreading them zooms in about their midpoint;
+/// in Select neither moves the cursor or selects anything (#977).
+#[test]
+fn two_fingers_pan_and_pinch() {
+    let mut app = game();
+    let start = app.ui.cursor;
+    let (mut view, _) = view_at(&app, start, 16.0);
+    let before = view.camera;
+    {
+        let mut h = harness(&mut view, &mut app);
+        let (a, b) = (Pos2::new(400.0, 300.0), Pos2::new(500.0, 300.0));
+        finger_down(&mut h, a);
+        finger(&mut h, 1, b, egui::TouchPhase::Start);
+        h.run_steps(1);
+        for i in 1..=4 {
+            let d = vec2(16.0 * i as f32, 0.0);
+            finger(&mut h, 0, a + d, egui::TouchPhase::Move);
+            finger(&mut h, 1, b + d, egui::TouchPhase::Move);
+            h.event(Event::PointerMoved(a + d));
+            h.run_steps(1);
+        }
+        // Spread the fingers apart about their midpoint.
+        let (a, b) = (a + vec2(64.0, 0.0), b + vec2(64.0, 0.0));
+        for i in 1..=4 {
+            let d = vec2(20.0 * i as f32, 0.0);
+            finger(&mut h, 0, a - d, egui::TouchPhase::Move);
+            finger(&mut h, 1, b + d, egui::TouchPhase::Move);
+            h.event(Event::PointerMoved(a - d));
+            h.run_steps(1);
+        }
+        finger(&mut h, 1, b + vec2(80.0, 0.0), egui::TouchPhase::End);
+        finger_up(&mut h, a - vec2(80.0, 0.0));
+    }
+    assert!(
+        view.camera.centre.x < before.centre.x - 2.0,
+        "panned: {:?} -> {:?}",
+        before.centre,
+        view.camera.centre
+    );
+    assert!(view.camera.tile_size().x > before.tile_size().x, "zoomed in");
+    assert_eq!((app.ui.cursor, app.ui.selected), (start, None), "no click, no cursor move");
+    assert!(app.session.world.command_log().is_empty());
 }
