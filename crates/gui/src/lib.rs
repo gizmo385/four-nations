@@ -43,6 +43,7 @@ pub mod mapview;
 pub mod notices;
 pub mod overview;
 pub mod page;
+pub mod savefiles;
 pub mod screens;
 pub mod side;
 pub mod sideways;

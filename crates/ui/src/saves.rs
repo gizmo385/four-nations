@@ -307,6 +307,30 @@ pub fn new_name(slots: &[Slot]) -> String {
         .expect("an unused name")
 }
 
+/// A name for a new slot made without typing (#979's touch play, #976): the nation and the game
+/// time, "Earth-Kingdom-Spring-Y1", as a slot name allows (letters, digits and `-`), with `-2`,
+/// `-3` and on added when that is taken.
+pub fn auto_name(slots: &[Slot], session: &Session) -> String {
+    let nation = &session.defs.nation(session.world.nation).name;
+    let when = crate::time::session_time(session).label();
+    let mut base = String::new();
+    for c in format!("{nation} {when}").chars() {
+        if c.is_ascii_alphanumeric() {
+            base.push(c);
+        } else if !base.is_empty() && !base.ends_with('-') {
+            base.push('-');
+        }
+    }
+    let base = base.trim_end_matches('-');
+    // Room for a `-NN` on the end.
+    let base: String = base.chars().take(MAX_NAME - 4).collect();
+    let taken = |name: &str| slots.iter().any(|s| s.name == name);
+    if !taken(&base) {
+        return base;
+    }
+    (2..).map(|n| format!("{base}-{n}")).find(|name| !taken(name)).expect("an unused name")
+}
+
 /// Saves `session`'s world to slot `name` in `store`, replacing what was there.
 pub fn save(store: &dyn SaveStore, name: &str, session: &Session) -> Result<(), String> {
     check_name(name)?;
@@ -559,5 +583,23 @@ mod tests {
         save(&DiskStore::new(&tmp.0), "save-2", &s).unwrap();
         assert_eq!(load(&DiskStore::new(&tmp.0), "save-2", &defs).unwrap().tick, 50);
         assert_eq!(list(&DiskStore::new(&tmp.0)).unwrap().len(), 1);
+    }
+
+    /// A save made without typing is named for the nation and the time, and a clash gets a
+    /// number.
+    #[test]
+    fn an_auto_name_is_the_nation_and_the_time_and_a_clash_is_numbered() {
+        let tmp = TempDir::new("auto");
+        let s = session();
+        let when = crate::time::session_time(&s).label().replace(' ', "-");
+        let first = auto_name(&[], &s);
+        assert_eq!(first, format!("Water-Tribes-{when}"));
+        check_name(&first).unwrap();
+        let store = DiskStore::new(&tmp.0);
+        save(&store, &first, &s).unwrap();
+        let second = auto_name(&list(&store).unwrap(), &s);
+        assert_eq!(second, format!("{first}-2"));
+        save(&store, &second, &s).unwrap();
+        assert_eq!(auto_name(&list(&store).unwrap(), &s), format!("{first}-3"));
     }
 }

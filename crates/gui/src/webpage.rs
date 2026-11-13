@@ -9,7 +9,8 @@
 //! - [`publish`]: the game's state as `data-fn-*` attributes on the canvas, for a test or a
 //!   script driving the page (`web/play/check-saves.cjs`) to read, since the game is pixels:
 //!   `data-fn-mode` (`title`, `embark` or `game`), and in a game `data-fn-tick`, `data-fn-seed`
-//!   and `data-fn-status` (the status line, where saves and loads say what they did); on the
+//!   and `data-fn-status` (the status line, where saves and loads say what they did) and
+//!   `data-fn-file-buttons` (where the saves screen's Export and Import buttons are); on the
 //!   title screen `data-fn-page` names its step (`menu`, `nation`, `seed` or `load`).
 
 use eframe::wasm_bindgen::JsCast;
@@ -64,6 +65,8 @@ pub fn publish(shell: &Shell, last: &mut String) {
             ("tick", app.session.world.tick.to_string()),
             ("seed", app.session.world.seed.to_string()),
             ("status", app.ui.status.clone()),
+            // The saves screen's file buttons (#976), where a script can tap them.
+            ("file-buttons", crate::savefiles::targets()),
         ],
     };
     let summary = format!("{state:?}");
@@ -76,7 +79,7 @@ pub fn publish(shell: &Shell, last: &mut String) {
     else {
         return;
     };
-    for name in ["page", "tick", "seed", "status"] {
+    for name in ["page", "tick", "seed", "status", "file-buttons"] {
         let _ = canvas.remove_attribute(&format!("data-fn-{name}"));
     }
     for (name, value) in state {

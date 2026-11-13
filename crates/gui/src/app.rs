@@ -131,6 +131,16 @@ impl GuiApp {
             }
             self.shell.key(key);
         }
+        // A save file exported or imported in the browser (#976): its line, and the list again.
+        if let Some(outcome) = crate::savefiles::take_outcome()
+            && let Mode::Game(app) = &mut self.shell.mode
+        {
+            if outcome.changed {
+                app.saves_changed(outcome.status);
+            } else {
+                app.ui.status = outcome.status;
+            }
+        }
         #[cfg(target_arch = "wasm32")]
         {
             crate::webpage::publish(&self.shell, &mut self.published);
@@ -192,6 +202,8 @@ impl GuiApp {
             self.styled = Some(self.nation);
         }
         root.set_style(ctx.global_style());
+        // Whatever the saves screen's file buttons were, it says again if it still shows them.
+        crate::savefiles::set_targets(String::new());
         self.frame.show(root, &mut self.shell, &self.palette);
         // A click on the window's own widgets is the key it stands for, typed after the frame.
         for key in self.frame.take_keys() {
