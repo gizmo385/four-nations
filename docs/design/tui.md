@@ -211,6 +211,15 @@ backgrounds, the stockpile is blue, the cursor is yellow and the selected unit i
   and it never scrolls past the map. Ctrl+arrows and PageUp/PageDown jump it a quarter screen
   (see "Input"). Selecting a unit covers no map rows (the inspector is in the panel, #653), so
   the view only moves when the cursor is out of it.
+- **Corner notices (#962).** Caravan camps, finished techs and deaths stay as boxes over the
+  map's top right (`crate::notices`, `fn_ui::notice`), about 36 columns wide, newest on top, the
+  edge in the notice's tone (warning for traders, bad for a death, accent for the rest). At most
+  two boxes, then a `+N more · Del dismiss` line; on a small terminal they narrow, and under the
+  tool banner they start a row lower. Each shows its actions as key hints (`Enter jump · M trade
+  · Del ✕`, `Enter · T research · Del ✕`): `Enter` runs the top notice's first action, `Del`
+  (or `Esc` with nothing selected) dismisses it. Keys only: the terminal takes no mouse. They
+  draw only over the plain map (a screen or the menu covers them), and an event that is a
+  notice no longer toasts in the panel as well. `Shell` turns them on; a bare `App` has none.
 
 ## Glyphs and colour
 

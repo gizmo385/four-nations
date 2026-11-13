@@ -1,0 +1,5 @@
+┌──────────────────────────────────┐
+│ Fire Nation traders              │
+│ made camp                        │
+│ Enter jump · M trade · Del ✕     │
+└──────────────────────────────────┘

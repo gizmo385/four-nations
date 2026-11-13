@@ -107,6 +107,9 @@ impl Shell {
         let mut app = App::new(session, screen);
         app.saves = saves.clone();
         app.legend_rows = crate::screens::legend_rows;
+        // The terminal draws the corner notices (#962): `App::new` has already caught up with
+        // the game's start, so what it did before now is not news.
+        app.ui.alerts.notices_mut().set_on(true);
         let fast = app.fast;
         Self {
             mode: Mode::Game(Box::new(app)),
@@ -512,6 +515,7 @@ impl Shell {
         let mut app = App::new(session, self.screen).with_can_quit(self.can_quit);
         app.saves = self.saves.clone();
         app.legend_rows = crate::screens::legend_rows;
+        app.ui.alerts.notices_mut().set_on(true);
         self.mode = Mode::Game(Box::new(app));
     }
 

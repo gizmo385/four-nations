@@ -1,0 +1,9 @@
+┌──────────────────────────────────┐
+│ Research done: Pottery           │
+│ Enter · T research · Del ✕       │
+└──────────────────────────────────┘
+┌──────────────────────────────────┐
+│ Research done: Fire Making       │
+│ Enter · T research · Del ✕       │
+└──────────────────────────────────┘
+ +2 more · Del dismiss

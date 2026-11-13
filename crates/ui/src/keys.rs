@@ -528,8 +528,8 @@ fn build() -> Vec<Entry> {
         help(units, "Previous settler"),
     );
     add(&[Mode::Map], &[Action::Follow], "F", "follow", help(units, "Follow the selected settler"));
-    // The window's corner notices (#945): in no hint bar and not in the key help (the terminal
-    // has no notices, and the help screen is full); the notice's close button names the key.
+    // The corner notices (#945, #962): in no hint bar and not in the key help (the help screen is
+    // full, and a notice's own last line names the key: "Del ✕").
     add(&[], &[Action::DismissNotice], "Delete", "dismiss notice", None);
     add(&[Mode::Map], &[Action::Cancel], "Esc", "close", help(units, "Deselect, or open the menu"));
     add(

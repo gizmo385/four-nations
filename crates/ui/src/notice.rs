@@ -6,9 +6,9 @@
 //! corner of the map with a button for each [`NoticeAction`] and a close button. Nothing here
 //! is saved and nothing in the sim knows about it.
 //!
-//! A frontend that draws notices turns them on ([`Notices::set_on`]). Until then none are made,
-//! so the terminal, which has no corner to put them in, keeps today's fading toasts for the same
-//! events; when they are on, an event that is pinned as a notice no longer toasts as well.
+//! A frontend that draws notices turns them on ([`Notices::set_on`]): the window and the terminal
+//! both do. Until then none are made and the same events keep today's fading toasts; when they
+//! are on, an event that is pinned as a notice no longer toasts as well.
 
 use fn_sim::Pos;
 use fn_sim::world::UnitId;
@@ -49,6 +49,35 @@ impl NoticeAction {
             Self::OpenTraders => "Trade [M]",
         }
     }
+
+    /// The action in a word, for a key hint.
+    pub fn verb(self) -> &'static str {
+        match self {
+            Self::JumpToCaravan(_) | Self::JumpTo(_) => "jump",
+            Self::SelectSettler(_) => "show",
+            Self::OpenResearch => "research",
+            Self::OpenTraders => "trade",
+        }
+    }
+
+    /// The key that does this anywhere, where the game has one: `T` opens research and `M` the
+    /// Traders screen. A jump has none of its own: it is the notice's `Enter` or a click.
+    pub fn key(self) -> Option<&'static str> {
+        match self {
+            Self::OpenResearch => Some("T"),
+            Self::OpenTraders => Some("M"),
+            Self::JumpToCaravan(_) | Self::JumpTo(_) | Self::SelectSettler(_) => None,
+        }
+    }
+}
+
+/// One key hint of a notice, for a frontend with no buttons ("Enter jump", "M trade").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyHint {
+    /// The key (or keys), as the hint bar writes them: "Enter", "Enter · T", "M".
+    pub key: String,
+    /// What it does, in a word.
+    pub label: &'static str,
 }
 
 /// Which notices stand for one thing, so a newer one replaces an older (a caravan's leaving
@@ -97,6 +126,27 @@ impl Notice {
             .chain(self.body.iter().map(String::as_str))
             .collect::<Vec<_>>()
             .join(" ")
+    }
+}
+
+impl Notice {
+    /// The actions as key hints, in order. `Enter` runs the first (so it leads the first hint,
+    /// beside the action's own key if it has one: "Enter · T research"); the rest show their own
+    /// key, and one with no key can only be clicked, so it has no hint here.
+    pub fn key_hints(&self) -> Vec<KeyHint> {
+        self.actions
+            .iter()
+            .enumerate()
+            .filter_map(|(i, action)| {
+                let key = match (i, action.key()) {
+                    (0, Some(own)) => format!("Enter · {own}"),
+                    (0, None) => "Enter".to_owned(),
+                    (_, Some(own)) => own.to_owned(),
+                    (_, None) => return None,
+                };
+                Some(KeyHint { key, label: action.verb() })
+            })
+            .collect()
     }
 }
 
@@ -266,6 +316,30 @@ mod tests {
             n.push((Kind::Death, tick), face(title), vec![], Some(Group::Death));
         }
         assert_eq!(titles(&n), ["Katara died (and 2 more)"]);
+    }
+
+    #[test]
+    fn the_actions_are_key_hints_with_enter_on_the_first() {
+        let at = Pos::new(3, 4);
+        let mut n = on();
+        n.push(
+            (Kind::Trade, 1),
+            face("traders"),
+            vec![NoticeAction::JumpToCaravan(at), NoticeAction::OpenTraders],
+            None,
+        );
+        n.push((Kind::Tech, 2), face("learned"), vec![NoticeAction::OpenResearch], None);
+        n.push((Kind::Tech, 3), face("here"), vec![NoticeAction::JumpTo(at)], None);
+        n.push((Kind::Tech, 4), face("bare"), vec![], None);
+        let hints: Vec<Vec<(String, &str)>> = n
+            .shown()
+            .map(|n| n.key_hints().into_iter().map(|h| (h.key, h.label)).collect())
+            .collect();
+        let pair = |k: &str, l| (k.to_owned(), l);
+        assert_eq!(hints[0], []);
+        assert_eq!(hints[1], [pair("Enter", "jump")]);
+        assert_eq!(hints[2], [pair("Enter · T", "research")]);
+        assert_eq!(hints[3], [pair("Enter", "jump"), pair("M", "trade")]);
     }
 
     #[test]

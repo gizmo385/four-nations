@@ -26,6 +26,7 @@ mod message_log;
 mod meter_and_clock;
 mod nation;
 mod newcomers;
+mod notices;
 mod pairs;
 mod panel_alerts;
 mod panels;

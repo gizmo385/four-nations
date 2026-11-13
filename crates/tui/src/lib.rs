@@ -33,6 +33,7 @@ pub mod menu;
 pub mod modal;
 pub mod msglog;
 pub mod nation;
+pub mod notices;
 pub mod page;
 pub mod panel;
 pub mod record;

@@ -985,6 +985,7 @@ impl App {
         self.session.world = world;
         self.session.bend_choice = None;
         let can_quit = self.ui.can_quit;
+        let notices = self.ui.alerts.notices().is_on();
         self.ui = UiState::new(&self.session, self.screen);
         self.ui.can_quit = can_quit;
         // What was loaded is what was saved: nothing has happened since.
@@ -992,6 +993,8 @@ impl App {
         // The loaded game's past events are not news: they age out at once instead of showing
         // as toasts.
         self.ui.alerts.update(&self.session, f32::MAX);
+        // Turned on only now: the past is not news, so it raises no notices either.
+        self.ui.alerts.notices_mut().set_on(notices);
         self.dirty = true;
     }
 
@@ -1037,9 +1040,11 @@ impl App {
         self.menu_prev_paused = None;
         self.teaching_prev_paused = None;
         let can_quit = self.ui.can_quit;
+        let notices = self.ui.alerts.notices().is_on();
         self.ui = UiState::new(&self.session, self.screen);
         self.ui.can_quit = can_quit;
         self.ui.alerts.update(&self.session, 0.0);
+        self.ui.alerts.notices_mut().set_on(notices);
         self.dirty = true;
     }
 
