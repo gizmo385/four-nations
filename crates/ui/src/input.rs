@@ -348,7 +348,7 @@ mod tests {
     fn the_tool_keys_ignore_case_and_enter_and_esc_drive_the_rectangle() {
         for (c, tool) in [
             ('h', Tool::Harvest),
-            ('x', Tool::CancelHarvest),
+            ('x', Tool::Remove),
             ('p', Tool::Stockpile),
             ('b', Tool::Bend),
             ('u', Tool::Build),
@@ -449,7 +449,7 @@ mod tests {
         let refused = [
             Action::ShowTools,
             Action::PickTool(Tool::Harvest),
-            Action::PickTool(Tool::CancelHarvest),
+            Action::PickTool(Tool::Remove),
             Action::PickTool(Tool::Clear),
             Action::PickTool(Tool::Stockpile),
             Action::PickTool(Tool::Bend),
@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn the_help_lists_every_tool_and_group_from_the_table() {
         let rows = help_rows();
-        for tool in [Tool::Harvest, Tool::CancelHarvest, Tool::Stockpile, Tool::Bend, Tool::Build] {
+        for tool in [Tool::Harvest, Tool::Remove, Tool::Stockpile, Tool::Bend, Tool::Build] {
             let row = rows
                 .iter()
                 .find(|r| r.what.starts_with(tool.name()))

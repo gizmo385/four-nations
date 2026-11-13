@@ -167,13 +167,10 @@ impl App {
             Action::PickTool(Tool::Build) => self.open_build_modal(),
             Action::PickTool(Tool::Bend) => self.open_abilities(),
             Action::PickTool(tool) => self.pick_tool(tool),
-            // Standing orders (#277) are Harvest's own toggle, teardown (#335) is Cancel's;
-            // `O` does nothing in any other tool, including Select.
+            // Standing orders (#277) are Harvest's own toggle (Remove has none, #953); `O` does
+            // nothing in any other tool, including Select.
             Action::ToggleRepeat if self.ui.tool == Tool::Harvest => {
                 self.ui.repeating = !self.ui.repeating;
-            }
-            Action::ToggleRepeat if self.ui.tool == Tool::CancelHarvest => {
-                self.ui.teardown = !self.ui.teardown;
             }
             // `O` on a chute (or chute site) in Select mode re-picks its foot (#683), and on a
             // pair end (any tile of it) its partner (#698).
@@ -232,10 +229,7 @@ impl App {
     /// `/` (#664): opens the tool list in the panel, the cursor on the active tool's row (the
     /// first with none).
     fn open_tool_list(&mut self) {
-        let active = match self.ui.tool {
-            Tool::Deconstruct => Tool::Clear,
-            other => other,
-        };
+        let active = self.ui.tool;
         let rows = toolpanel::choices(&self.session);
         self.ui.tool_list = Some(rows.iter().position(|c| c.tool == active).unwrap_or(0));
     }
@@ -277,15 +271,11 @@ impl App {
         }
     }
 
-    /// Picks `tool` from the list and closes it. The tool already active is left as it is (its
-    /// letter pressed again would flip Clear to buildings, which is not what picking a row asks
-    /// for); Build and Bend open their lists, as `U` and `B` do.
+    /// Picks `tool` from the list and closes it. The tool already active is left as it is;
+    /// Build and Bend open their lists, as `U` and `B` do.
     fn pick_from_list(&mut self, tool: Tool) {
         self.ui.tool_list = None;
-        let active = match self.ui.tool {
-            Tool::Deconstruct => Tool::Clear,
-            other => other,
-        };
+        let active = self.ui.tool;
         if tool == Tool::Build {
             self.open_build_modal();
         } else if tool == Tool::Bend {
@@ -347,7 +337,7 @@ impl App {
                     }
                     return;
                 }
-                Action::PickTool(Tool::CancelHarvest) => return self.clear_research(),
+                Action::PickTool(Tool::Remove) => return self.clear_research(),
                 _ => {}
             }
         }
@@ -370,7 +360,7 @@ impl App {
             // site no work has started on. Both say why when there's nothing to do.
             match action {
                 Action::Confirm => return self.start_gate(),
-                Action::PickTool(Tool::CancelHarvest) => return self.withdraw_gate(),
+                Action::PickTool(Tool::Remove) => return self.withdraw_gate(),
                 _ => {}
             }
         }
@@ -411,7 +401,7 @@ impl App {
                     return;
                 }
                 Action::Confirm => return self.trade(false),
-                Action::PickTool(Tool::CancelHarvest) => return self.trade(true),
+                Action::PickTool(Tool::Remove) => return self.trade(true),
                 _ => {}
             }
         }
@@ -562,7 +552,7 @@ impl App {
                         say(&mut self.ui, Err(why));
                     }
                 }
-                Action::PickTool(Tool::CancelHarvest) => {
+                Action::PickTool(Tool::Remove) => {
                     let outcome = airship::cancel(&mut self.session, picks.dock);
                     say(&mut self.ui, outcome);
                 }
@@ -1313,8 +1303,7 @@ impl App {
             Some(corner) => {
                 // The shared logic also takes the Shift state (a repeating harvest): `O`
                 // (`Action::ToggleRepeat`) stands in for it here, since a terminal can't
-                // reliably report Shift+Enter (#277). The same key, read as the Cancel tool's
-                // own teardown toggle instead (#335).
+                // reliably report Shift+Enter (#277).
                 let report = apply_order(
                     &mut self.session,
                     Order {
@@ -1322,7 +1311,6 @@ impl App {
                         from: corner,
                         to: self.ui.cursor,
                         repeating: self.ui.repeating,
-                        teardown: self.ui.teardown,
                         choice: self.ui.choice,
                     },
                 );

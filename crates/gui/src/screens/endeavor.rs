@@ -42,7 +42,7 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 /// The key a gate action's button stands for: `Enter` to choose a site, `X` to withdraw it
-/// (the tool key of `Tool::CancelHarvest`, as `App` reads the screen's keys).
+/// (the tool key of `Tool::Remove`, as `App` reads the screen's keys).
 pub fn action_key(action: GateAction) -> KeyEvent {
     match action {
         GateAction::Place => key(KeyCode::Enter),

@@ -7,7 +7,8 @@
 //!   tool's ghost (#212), green where the building fits and red where something is in the way >
 //!   the rectangle being dragged (#98), in its tool's hue > designation tint (harvest, a
 //!   harvest's standing order a shade greener, #277, a Clear mark in its own hue, #411/#426,
-//!   bend, build, stockpile) and the cast highlight share that tint > wet patch > an aura
+//!   bend, build, stockpile) and the cast highlight share that tint > the faint box of the Remove
+//!   tool's rectangle where nothing would change (#953) > wet patch > an aura
 //!   carrier's own warmth > the warmth of the flame or aura under the cursor > the reach of a
 //!   power source under the cursor, or one the Build tool is placing (#428, #429) > the plots an
 //!   aqueduct under the cursor irrigates > Call Rain's patch (#763) > terrain or biome.
@@ -642,8 +643,12 @@ pub enum Mark {
     Bend,
     Build,
     Stockpile,
-    /// The rectangle being dragged, in the tool's hue (or the standing-order hue, #277).
+    /// The rectangle being dragged, in the tool's hue (or the standing-order hue, #277). With
+    /// the Remove tool (#953) only the tiles that would change wear it.
     Dragged(Tint),
+    /// A tile of the Remove tool's rectangle where nothing would change: the box, in the same
+    /// hue but as faint as a designation, so the tiles that would change stand out in it.
+    Within(Tint),
     /// The Build tool's ghost (#212): green where it fits, red where it doesn't.
     Ghost {
         free: bool,
@@ -785,7 +790,9 @@ pub fn cell_look(
         Tint::for_tool(ui.tool)
     };
     if let Some(tint) = drag_tint {
-        marks.push(Mark::Dragged(tint));
+        // Remove marks each tile it would change (#953): the rest of the box stays faint.
+        let untouched = ui.tool == Tool::Remove && !removes_here(session, over, pos);
+        marks.push(if untouched { Mark::Within(tint) } else { Mark::Dragged(tint) });
     }
     // The Build tool's ghost (#212) and its own door tile (#230) mark `pos` independently of
     // whether `thing` ended up being the ghost itself (a blocked ghost without colour falls
@@ -824,6 +831,20 @@ pub fn cell_look(
     }
 
     Some(CellLook { thing, ground, marks })
+}
+
+/// Whether the Remove tool would take something away on `pos` (#953): a mark, a build site, a
+/// stockpile tile or a building it may take down. The marks come from `over`, gathered once for
+/// the frame.
+fn removes_here(session: &Session, over: &Overlays, pos: Pos) -> bool {
+    over.harvest.contains(&pos)
+        || over.standing.contains(&pos)
+        || over.sowing.contains(&pos)
+        || over.bend.contains(&pos)
+        || over.sites.contains_key(&pos)
+        || over.zones.contains(&pos)
+        || session.world.clear_designations().any(|p| p == pos)
+        || fn_ui::tools::removable_building(session, pos)
 }
 
 /// The terrain or biome look `ground` names.
@@ -984,6 +1005,8 @@ struct MarksEffect {
     is_cursor: bool,
     designation: Option<Tint>,
     dragged: Option<Tint>,
+    /// The faint box of the Remove tool's rectangle (#953).
+    within: Option<Tint>,
     ghost: Option<bool>,
     door: Option<bool>,
 }
@@ -1012,6 +1035,10 @@ fn marks_effect(marks: &[Mark], mono: bool) -> MarksEffect {
         Mark::Dragged(t) => Some(*t),
         _ => None,
     });
+    let within = marks.iter().find_map(|m| match m {
+        Mark::Within(t) => Some(*t),
+        _ => None,
+    });
     if dragged.is_some() && mono && !is_cursor {
         // Without colour a dragged tile is reversed and dimmed; the cursor is reversed alone.
         mods |= Modifier::REVERSED | Modifier::DIM;
@@ -1034,7 +1061,7 @@ fn marks_effect(marks: &[Mark], mono: bool) -> MarksEffect {
         mods.remove(Modifier::DIM | Modifier::UNDERLINED);
         mods |= Modifier::REVERSED | if free { Modifier::BOLD } else { Modifier::DIM };
     }
-    MarksEffect { mods, is_cursor, designation, dragged, ghost, door }
+    MarksEffect { mods, is_cursor, designation, dragged, within, ghost, door }
 }
 
 /// Styles a [`CellLook`] through `palette`: the colour depth, glyph set and nation theme turn
@@ -1065,6 +1092,8 @@ pub fn style_cell(look: &CellLook, defs: &Defs, palette: &Palette) -> TileCell {
     } else if let Some(tint) = marks.dragged {
         palette.dragged(base_bg, tint)
     } else if let Some(tint) = marks.designation {
+        palette.tinted(base_bg, tint)
+    } else if let Some(tint) = marks.within {
         palette.tinted(base_bg, tint)
     } else if look.marks.contains(&Mark::Wet) {
         palette.tinted(base_bg, Tint::Wet)

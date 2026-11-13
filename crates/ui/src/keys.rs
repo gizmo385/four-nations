@@ -43,9 +43,9 @@ pub enum Action {
     ShowTools,
     /// `O`: the active tool's toggle. In Harvest it flips the next rectangle between a one-off
     /// designation and a standing order (#81, #277, stands in for the client's held Shift, which
-    /// a terminal can't reliably report); in Cancel it flips whether it also takes build sites
-    /// and stockpiles (#335). No effect in any other tool. Each tool's toggle is its own table
-    /// row (#781), so the hint bar names the one that is active.
+    /// a terminal can't reliably report). No effect in any other tool: Remove has no toggles
+    /// (#953). Each tool's toggle is its own table row (#781), so the hint bar names the one
+    /// that is active.
     ToggleRepeat,
     /// `R`: in Select mode with the cursor on a building that has another recipe (the Workshop),
     /// switches it to the next one (`Command::SetRecipe`, #712).
@@ -368,7 +368,7 @@ fn build() -> Vec<Entry> {
     add(RESEARCH, &[Action::Confirm], "Enter", "set as target", None);
     add(&[Mode::ResearchPages], &[Action::NextUnit, Action::PrevUnit], "Tab", "switch page", None);
     add(RESEARCH, &[Action::Cancel, Action::ShowResearch], "Esc or T", "close", None);
-    add(RESEARCH, &[Action::PickTool(Tool::CancelHarvest)], "X", "clear target", None);
+    add(RESEARCH, &[Action::PickTool(Tool::Remove)], "X", "clear target", None);
     add(&[Mode::ChooseSchool], &[Action::Confirm], "Enter", "choose", None);
     add(&[Mode::ChooseSchool], &[Action::Cancel], "Esc", "back", None);
 
@@ -391,14 +391,14 @@ fn build() -> Vec<Entry> {
 
     add(&[Mode::Traders], &[step], "Up/Down", "choose", None);
     add(&[Mode::Traders], &[Action::Confirm], "Enter", "take", None);
-    add(&[Mode::Traders], &[Action::PickTool(Tool::CancelHarvest)], "X", "cancel", None);
+    add(&[Mode::Traders], &[Action::PickTool(Tool::Remove)], "X", "cancel", None);
     add(&[Mode::Traders], &[Action::Cancel, Action::ShowTraders], "Esc or M", "close", None);
 
     add(&[Mode::Airship], &[step], "Up/Down", "choose", None);
     add(&[Mode::Airship], &[], "Left/Right", "nation or deal", None);
     add(&[Mode::Airship], &[Action::Faster, Action::Slower], "+/-", "times", None);
     add(&[Mode::Airship], &[Action::Confirm], "Enter", "load and sail", None);
-    add(&[Mode::Airship], &[Action::PickTool(Tool::CancelHarvest)], "X", "cancel", None);
+    add(&[Mode::Airship], &[Action::PickTool(Tool::Remove)], "X", "cancel", None);
     add(&[Mode::Airship], &[Action::Cancel], "Esc", "close", None);
     add(&[Mode::AirshipSend], &[Action::Confirm], "Enter", "load and sail", None);
     add(&[Mode::AirshipSend], &[Action::Cancel], "Esc", "back", None);
@@ -406,7 +406,7 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Endeavor], &[step], "Up/Down", "scroll", None);
     add(&[Mode::Endeavor], &[Action::Confirm], "Enter", "place", None);
     add(&[Mode::Endeavor], &[Action::Cancel, Action::ShowEndeavor], "Esc or G", "close", None);
-    add(&[Mode::Endeavor], &[Action::PickTool(Tool::CancelHarvest)], "X", "withdraw", None);
+    add(&[Mode::Endeavor], &[Action::PickTool(Tool::Remove)], "X", "withdraw", None);
     add(&[Mode::Endeavor], &[jump], "PgUp/PgDn", "page", None);
 
     add(&[Mode::Log], &[step], "Up/Down", "choose", None);
@@ -570,14 +570,6 @@ fn build() -> Vec<Entry> {
     // are the Tool section's settings (`toolpanel`), as short verbs.
     only.set(Some(Tool::Harvest));
     add(IN_TOOL, &[Action::ToggleRepeat], "O", "repeat", help(in_tool, "Standing order (Harvest)"));
-    only.set(Some(Tool::CancelHarvest));
-    add(
-        IN_TOOL,
-        &[Action::ToggleRepeat],
-        "O",
-        "teardown",
-        help(in_tool, "Also sites, stockpiles (Cancel)"),
-    );
     // The Bend tool's own way to the abilities screen (#719), hint bar only like the toggles.
     only.set(Some(Tool::Bend));
     add(IN_TOOL, &[Action::ShowAbilities], "I", "abilities", None);
@@ -643,8 +635,8 @@ fn tool_help(tool: Tool) -> &'static str {
     match tool {
         Tool::Select | Tool::Gate => "",
         Tool::Harvest => "Harvest: chop, mine, gather",
-        Tool::CancelHarvest => "Cancel a mark",
-        Tool::Clear | Tool::Deconstruct => "Clear the ground",
+        Tool::Remove => "Remove: marks, sites, stockpiles, buildings",
+        Tool::Clear => "Clear the ground (trees, rock, plants)",
         Tool::Stockpile => "Stockpile",
         Tool::Bend => "Bend: pick an ability to channel",
         Tool::Build => "Build",
@@ -784,7 +776,7 @@ mod tests {
     }
 
     /// A tool's toggle is a row of its own (#781): in the tool modes' hints for that tool only,
-    /// and one `O` row a tool in the key help, plus Select's `O` on a chute (#683).
+    /// and one `O` row a tool in the key help (Harvest's), plus Select's `O` on a chute (#683).
     #[test]
     fn a_tools_toggles_are_its_own_rows() {
         let text = |mode, tool| {
@@ -793,8 +785,9 @@ mod tests {
         };
         for mode in [Mode::Tool, Mode::ToolCorner] {
             assert!(text(mode, Tool::Harvest).ends_with(" · O repeat"));
-            assert!(text(mode, Tool::CancelHarvest).ends_with(" · O teardown"));
-            for tool in [Tool::Clear, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow] {
+            for tool in
+                [Tool::Remove, Tool::Clear, Tool::Stockpile, Tool::Bend, Tool::Build, Tool::Sow]
+            {
                 assert!(!text(mode, tool).contains("O "), "{tool:?}");
             }
             // The abilities key is the Bend tool's, and every map mode without a tool names it
@@ -808,10 +801,10 @@ mod tests {
         assert!(!text(Mode::Select, Tool::Harvest).contains("O "));
         assert_eq!(line(Mode::Tool), "Arrows move · Enter set corner · Esc leave tool");
         let rows: Vec<_> = help_rows().into_iter().filter(|r| r.keys == "O").collect();
-        assert_eq!(rows.len(), 4);
+        assert_eq!(rows.len(), 3);
         assert!(rows.iter().all(|r| r.group == Group::InTool));
-        assert!(rows[2].what.contains("chute"));
-        assert!(rows[3].what.contains("Automate"), "#730");
+        assert!(rows[1].what.contains("chute"));
+        assert!(rows[2].what.contains("Automate"), "#730");
     }
 
     /// The title and embark screens' hints (#686), as their old footers worded them, in the

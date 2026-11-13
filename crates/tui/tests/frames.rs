@@ -17,7 +17,7 @@ use fn_tui::frame::{render, render_app, to_ansi, to_text};
 use fn_tui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_tui::state::Modal;
 use fn_tui::{keys, layout, new_session};
-use fn_ui::tools::tiles_between;
+use fn_ui::tools::{Here, tiles_between};
 use fn_ui::{Session, Tool};
 use ratatui::buffer::{Buffer, Cell};
 use ratatui::style::{Color, Modifier};
@@ -395,8 +395,8 @@ fn a_script_marks_fruit_trees_for_clearing_and_x_withdraws_them() {
     assert_eq!(marked, want);
 
     app.play(&keys::parse("x <left> <up> <enter> <right> <down> <enter>").unwrap());
-    assert_eq!(app.ui.tool, Tool::CancelHarvest);
-    assert_eq!(app.ui.notice, "cancel: 4 clear marks, 0 skipped");
+    assert_eq!(app.ui.tool, Tool::Remove);
+    assert_eq!(app.ui.notice, "remove: 4 marks, 0 skipped");
     assert_eq!(app.session.world.clear_designations().count(), 0);
     // Withdrawing the mark doesn't touch the resource itself: nothing was cleared yet.
     for pos in tiles_between(fruit_corners.0, fruit_corners.1) {
@@ -648,10 +648,10 @@ fn a_tool_key_switches_tools_and_drops_the_corner_and_the_result() {
     let mut app = play("h <enter> <right> <enter> <enter>");
     assert!(!app.ui.notice.is_empty() && app.ui.anchor.is_some());
     app.play(&keys::parse("x").unwrap());
-    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::CancelHarvest, None));
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Remove, None));
     assert!(app.ui.notice.is_empty());
     app.play(&keys::parse("<enter> X").unwrap());
-    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::CancelHarvest, None), "the same key again");
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Remove, None), "the same key again");
 }
 
 /// `U` opens the Build modal instead of switching tools (#285); the tool and the choice stay as
@@ -744,7 +744,7 @@ fn cancel_withdraws_what_the_rectangle_covers() {
     let app =
         play(&format!("{HARVEST_SCRIPT} x <up*4> <left*5> <enter> <down*4> <right*5> <enter>"));
     assert!(
-        app.ui.notice.starts_with("cancel: ") && app.ui.notice.contains("harvest mark"),
+        app.ui.notice.starts_with("remove: ") && app.ui.notice.contains(" marks"),
         "{}",
         app.ui.notice
     );
@@ -903,7 +903,7 @@ fn a_build_site_then_the_finished_building_read_in_the_inspector() {
     assert!(text.contains("├─ BED (UNDER CONSTRUCTION) ─"), "the inspector's heading:\n{text}");
     assert!(text.contains("Materials: 0/5 Wood"), "{text}");
     assert!(text.contains("Work: 0s of 20s"), "{text}");
-    assert!(text.contains("Press X for the Cancel tool"), "{text}");
+    assert!(text.contains("Press X for the Remove tool"), "{text}");
 
     app.play(&keys::parse("<tick 9000>").unwrap());
     assert!(app.session.world.building_at(site).is_some(), "the bed should finish building");
@@ -1078,7 +1078,7 @@ fn the_here_section_names_a_powered_and_an_unpowered_workshop_and_the_source_its
 fn the_dragged_rectangle_is_tinted_between_the_cursor_and_the_designations() {
     for (keys, tint) in [
         ("h", Tint::Harvest),
-        ("x", Tint::Harvest),
+        ("x", Tint::Remove),
         ("p", Tint::Stockpile),
         ("b <enter>", Tint::Bend),
     ] {
@@ -1094,9 +1094,13 @@ fn the_dragged_rectangle_is_tinted_between_the_cursor_and_the_designations() {
                 if pos == app.ui.cursor {
                     assert_eq!(cell.bg, p.cursor_bg(), "{keys} {depth:?}: the cursor wins");
                 } else {
-                    let want = p.dragged(ground_bg(&p, &app.session, pos), tint);
+                    // Remove tints only the tiles that would change (#953); the rest of its
+                    // box is as faint as a designation.
+                    let ground = ground_bg(&p, &app.session, pos);
+                    let faint = tint == Tint::Remove && !Here::at(&app.session, pos).removable();
+                    let want = if faint { p.tinted(ground, tint) } else { p.dragged(ground, tint) };
                     assert_eq!(cell.bg, want, "{keys} {depth:?} {pos:?}");
-                    assert_ne!(cell.bg, p.color(ground_bg(&p, &app.session, pos)));
+                    assert_ne!(cell.bg, p.color(ground));
                     assert_ne!(cell.bg, p.cursor_bg());
                     checked += 1;
                 }
@@ -1689,4 +1693,43 @@ fn an_aura_carrier_wears_a_warm_background_and_warms_its_reach_under_the_cursor(
     let cold_cell = cell_at(&app, &buf, cold);
     assert_eq!(warm_cell.bg, p.tinted(ground_bg(&p, &app.session, warm), Tint::Warm));
     assert_eq!(cold_cell.bg, p.color(ground_bg(&p, &app.session, cold)));
+}
+
+/// #953: the Remove rectangle marks each tile that would change in the warning colour, at drag
+/// strength, and the rest of its box faintly; a plain tool's rectangle is drag-tinted throughout.
+#[test]
+fn the_remove_rectangle_marks_each_tile_it_would_change() {
+    use fn_tui::map::{Mark, Overlays, cell_look};
+
+    let start = App::new(new_session(7, Nation::Earth), SIZE).ui.cursor;
+    let (a, b) = harvest_corners(start);
+    let mut app = play(&format!("{HARVEST_SCRIPT} x <up*4> <left*5> <enter> <down*5> <right*7>"));
+    assert!(app.ui.anchor.is_some());
+    let (from, to) = app.ui.rect().unwrap();
+    let p = palette(&app.session, ColorDepth::TrueColor, false);
+    let over = Overlays::gather(&app.session, &app.ui);
+    let (mut changed, mut faint) = (0, 0);
+    for pos in tiles_between(from, to) {
+        let look = cell_look(&app.session, &app.ui, &p, &over, pos).unwrap();
+        let removes = Here::at(&app.session, pos).removable();
+        assert_eq!(look.marks.contains(&Mark::Dragged(Tint::Remove)), removes, "{pos:?}");
+        assert_eq!(look.marks.contains(&Mark::Within(Tint::Remove)), !removes, "{pos:?}");
+        if removes {
+            changed += 1;
+        } else {
+            faint += 1;
+        }
+    }
+    // Harvest marks lie inside the box, and so do tiles with nothing on them.
+    assert!(tiles_between(a, b).any(|t| tiles_between(from, to).any(|u| u == t)));
+    assert!(changed > 0 && faint > 0, "{changed} changed, {faint} faint");
+    // The box and its marks are in the frame: the warning colour, not the harvest hue.
+    let buf = frame(&mut app, ColorDepth::TrueColor, false, SIZE);
+    let marked = tiles_between(from, to)
+        .filter(|&t| t != app.ui.cursor && Here::at(&app.session, t).removable())
+        .find(|&t| !app.session.world.units.iter().any(|u| u.pos == t))
+        .expect("a marked tile with no unit on it");
+    let ground = ground_bg(&p, &app.session, marked);
+    assert_eq!(cell_at(&app, &buf, marked).bg, p.dragged(ground, Tint::Remove));
+    assert_ne!(p.tint_rgb(Tint::Remove), p.tint_rgb(Tint::Harvest));
 }

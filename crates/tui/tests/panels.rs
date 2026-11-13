@@ -901,7 +901,7 @@ fn the_help_lists_the_keys_from_the_tables() {
         let what = &row.what[..row.what.len().min(18)];
         assert!(seen.contains(what), "{what:?} in\n{seen}");
     }
-    for tool in [Tool::Harvest, Tool::CancelHarvest, Tool::Stockpile, Tool::Bend] {
+    for tool in [Tool::Harvest, Tool::Remove, Tool::Stockpile, Tool::Bend] {
         assert!(seen.contains(tool.name()), "{seen}");
     }
     // `?` closes it again, and L switches to the log.
@@ -1414,7 +1414,7 @@ fn status_line(frame: &str) -> String {
 fn every_tool_section_says_what_the_tool_does_and_the_hint_bar_does_not() {
     let tools = [
         ("h", Tool::Harvest),
-        ("x", Tool::CancelHarvest),
+        ("x", Tool::Remove),
         ("e", Tool::Clear),
         ("p", Tool::Stockpile),
         ("b <enter>", Tool::Bend),
@@ -1454,7 +1454,6 @@ fn the_section_previews_the_rectangle_then_says_what_was_marked() {
         from: a.ui.anchor.unwrap(),
         to: a.ui.cursor,
         repeating: false,
-        teardown: false,
         choice: None,
     };
     let report = fn_ui::tools::preview_order(&a.session, order);
@@ -1493,12 +1492,13 @@ fn the_toggles_show_their_state() {
     let frame = text(&mut a, SIZE);
     assert!(tool_section(&frame, "[H]").iter().any(|l| l == "Standing order: on"), "{frame}");
 
+    // Remove has no toggle, and `O` does nothing in it (#953).
     run(&mut a, "x");
-    let cancel = tool_section(&text(&mut a, SIZE), "[X]").join(" ");
-    assert!(cancel.contains("Also sites, stockpiles: off"), "{cancel}");
+    let remove = tool_section(&text(&mut a, SIZE), "[X]").join(" ");
+    assert!(remove.contains("Takes away anything you made"), "{remove}");
+    assert!(!remove.contains("Also sites") && !remove.contains(": off"), "{remove}");
     run(&mut a, "o");
-    let cancel = tool_section(&text(&mut a, SIZE), "[X]").join(" ");
-    assert!(cancel.contains("Also sites, stockpiles: on"), "{cancel}");
+    assert_eq!(tool_section(&text(&mut a, SIZE), "[X]").join(" "), remove);
 }
 
 /// A short panel keeps what the tool does and gives the inspector's rows up first, so Build's
@@ -1515,4 +1515,30 @@ fn a_short_panel_keeps_the_tool_section_and_the_inspector_gives_way() {
     assert!(last.contains('('), "the inspector heading names the cursor: {last}");
     let below: Vec<&str> = frame.lines().skip(y + 1).take(3).collect();
     assert!(below.iter().any(|l| l.contains("build here")), "{frame}");
+}
+
+/// #953: with a corner set the Remove section previews one line a kind, the stockpile line as the
+/// warning, and an empty rectangle says so and issues nothing.
+#[test]
+fn the_remove_section_previews_what_the_rectangle_would_take_away() {
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "x <enter>");
+    let empty = tool_section(&text(&mut a, SIZE), "[X]").join(" ");
+    assert!(empty.contains("1 x 1 tiles") && empty.contains("Nothing to remove"), "{empty}");
+    run(&mut a, "<enter>");
+    assert_eq!(a.ui.notice, "remove: nothing to remove");
+    assert_eq!(a.session.world.command_log().len(), 0, "an empty rectangle issues nothing");
+
+    // A stockpile of three tiles, then a Remove rectangle over it.
+    let mut a = app(7, Nation::Earth, SIZE);
+    run(&mut a, "p <enter> <right*2> <enter>");
+    let zones = a.session.world.stockpile_zones().count();
+    assert!(zones > 0);
+    run(&mut a, "x <left*2> <enter> <right*2>");
+    let frame = text(&mut a, SIZE);
+    let section = tool_section(&frame, "[X]").join(" ");
+    assert!(section.contains(&format!("Unzones {zones} stockpile")), "{section}");
+    assert!(!section.contains("Nothing to remove"), "{section}");
+    run(&mut a, "<enter>");
+    assert_eq!(a.session.world.stockpile_zones().count(), 0);
 }

@@ -324,7 +324,7 @@ const CASES: &[Case] = &[
     Case { name: "map_stockpile", script: "<enter> p", headings: &["STOCKPILE"] },
     Case { name: "map_bend", script: "<enter> B", headings: &["BEND"] },
     Case { name: "map_clear", script: "<enter> e", headings: &["CLEAR"] },
-    Case { name: "map_cancel", script: "<enter> x", headings: &["CANCEL"] },
+    Case { name: "map_remove", script: "<enter> x", headings: &["REMOVE"] },
     Case { name: "build_modal", script: "<enter> u", headings: &["BUILD"] },
     Case { name: "research_screen", script: "<enter> t", headings: &["RESEARCH"] },
     Case { name: "nation_screen", script: "<enter> n", headings: &["NATION"] },

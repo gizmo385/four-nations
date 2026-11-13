@@ -181,6 +181,9 @@ pub enum Tint {
     RepeatingHarvest,
     /// A Clear mark (#411/#426): apart from `Harvest` and `RepeatingHarvest`.
     Clear,
+    /// The Remove tool (#953): the theme's warning colour, so it never looks like Select or
+    /// like a harvest; its banner, hint chip and drag wear it.
+    Remove,
     Stockpile,
     /// The nation's accent.
     Bend,
@@ -198,14 +201,15 @@ pub enum Tint {
 }
 
 impl Tint {
-    /// The tint a tool's rectangle (and its result) wears: the client's hues. Cancelling shows
-    /// the harvest hue, as the client's drag does. `None` for the tool that designates nothing.
+    /// The tint a tool's rectangle (and its result) wears: the client's hues. Removing wears the
+    /// warning colour (#953). `None` for the tool that designates nothing.
     pub fn for_tool(tool: fn_ui::Tool) -> Option<Self> {
         use fn_ui::Tool;
         match tool {
             // Sowing wears the harvest hue too: both are "designate a unit's work here" (#198).
-            Tool::Harvest | Tool::CancelHarvest | Tool::Sow => Some(Self::Harvest),
-            Tool::Clear | Tool::Deconstruct => Some(Self::Clear),
+            Tool::Harvest | Tool::Sow => Some(Self::Harvest),
+            Tool::Remove => Some(Self::Remove),
+            Tool::Clear => Some(Self::Clear),
             Tool::Stockpile => Some(Self::Stockpile),
             Tool::Bend => Some(Self::Bend),
             // The gate is a building too (#643).
@@ -322,6 +326,7 @@ impl Palette {
             Tint::Harvest => o.harvest,
             Tint::RepeatingHarvest => o.repeating,
             Tint::Clear => o.clear,
+            Tint::Remove => to_u8(self.theme.warn),
             Tint::Stockpile => o.stockpile,
             Tint::Bend => self.accent,
             Tint::Build => o.build,
@@ -343,6 +348,7 @@ impl Palette {
             (ColorDepth::Ansi16, Tint::Build) => self.solid[3],
             (ColorDepth::Ansi16, Tint::RepeatingHarvest) => self.solid[7],
             (ColorDepth::Ansi16, Tint::Clear) => self.solid[8],
+            (ColorDepth::Ansi16, Tint::Remove) => self.solid[6],
             (_, Tint::Wet) => self.color(mix(base, self.tint_rgb(tint), 0.75)),
             // Only a designation takes a palette entry of its own on 256 colours; a reach is a
             // plain mix like warmth, so it never reaches `designation_256`.
@@ -694,7 +700,9 @@ mod tests {
             for depth in [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16] {
                 let p = Palette::new(&defs, n, depth, false);
                 for (what, base) in bases(&p.glyphs) {
-                    for tint in [Tint::Harvest, Tint::Clear, Tint::Stockpile, Tint::Bend] {
+                    for tint in
+                        [Tint::Harvest, Tint::Clear, Tint::Remove, Tint::Stockpile, Tint::Bend]
+                    {
                         let dragged = p.dragged(base, tint);
                         let who = format!("{n:?} {depth:?} {tint:?} on {what}");
                         assert_ne!(dragged, p.color(base), "{who}: ground");
@@ -712,7 +720,7 @@ mod tests {
     fn tools_wear_the_clients_hues() {
         use fn_ui::Tool;
         assert_eq!(Tint::for_tool(Tool::Harvest), Some(Tint::Harvest));
-        assert_eq!(Tint::for_tool(Tool::CancelHarvest), Some(Tint::Harvest));
+        assert_eq!(Tint::for_tool(Tool::Remove), Some(Tint::Remove), "the warning colour (#953)");
         assert_eq!(Tint::for_tool(Tool::Clear), Some(Tint::Clear));
         assert_eq!(Tint::for_tool(Tool::Stockpile), Some(Tint::Stockpile));
         assert_eq!(Tint::for_tool(Tool::Bend), Some(Tint::Bend));
@@ -771,6 +779,7 @@ mod tests {
                     Tint::Harvest,
                     Tint::RepeatingHarvest,
                     Tint::Clear,
+                    Tint::Remove,
                     Tint::Stockpile,
                     Tint::Build,
                     Tint::Bend,

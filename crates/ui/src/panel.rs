@@ -116,7 +116,7 @@ pub struct ToolSection {
     pub tool: Tool,
     /// The tool list is open: the section is that list, in the plain heading tone.
     pub list: bool,
-    /// The standing-order or teardown toggle is on: the title says so, and Harvest's tint
+    /// The standing-order toggle is on: the title says so, and Harvest's tint
     /// follows.
     pub repeating: bool,
     /// Groups of lines, blank rows between them when there is room; the Build tool's building
@@ -447,7 +447,11 @@ fn bend_ability_row(session: &Session, marks: &Marks) -> Option<Row> {
 fn tool_line(line: &Line) -> ToolLine {
     match line {
         Line::Text(text, emphasis) => {
-            let tone = if *emphasis == Emphasis::Dim { Tone::Dim } else { Tone::Text };
+            let tone = match emphasis {
+                Emphasis::Dim => Tone::Dim,
+                Emphasis::Warn => Tone::Warn,
+                Emphasis::Plain => Tone::Text,
+            };
             ToolLine::Text(text.clone(), tone)
         }
         Line::Setting { label, value } => ToolLine::Setting {
@@ -483,7 +487,6 @@ fn tool_section(
         anchor: ui.anchor,
         cursor: ui.cursor,
         repeating: ui.repeating,
-        teardown: ui.teardown,
         choice: ui.choice,
         marked: ui.marked_now(),
         list: ui.tool_list,

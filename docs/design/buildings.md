@@ -166,9 +166,9 @@ or nothing changes.
   whole footprint in one tick, along with everything the building owned (seats, craft jobs, a
   plot's jobs, its fire, units inside, anyone bound for its bed). `[deconstruct] refund` of each
   cost item (half, rounded down) drops by the anchor, plus a production building's delivered
-  batch inputs in full. The endeavor's gate can't be taken down. In the TUI it is the Clear
-  tool's buildings mode (`E` twice, docs/design/clearing.md, section 5); a stockpile is removed
-  through the Cancel tool's teardown mode (#335) instead.
+  batch inputs in full. The endeavor's gate can't be taken down. In the TUI it is the Remove
+  tool (`X`, #953, docs/design/tool-pickers.md), which takes away everything the player made in
+  its rectangle: marks, sites, stockpile tiles and finished buildings.
 
 ### Saves and determinism
 

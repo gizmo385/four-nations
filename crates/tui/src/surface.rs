@@ -1089,15 +1089,9 @@ impl Host {
     /// `UiState`.
     fn plan_step(&self, step: &ActionStep) -> Result<Vec<KeyEvent>, String> {
         match step {
-            ActionStep::Designate { tool, from, to, standing, teardown, ability } => self
-                .plan_designate(
-                    *tool,
-                    from.pos(),
-                    to.pos(),
-                    *standing,
-                    *teardown,
-                    ability.as_deref(),
-                ),
+            ActionStep::Designate { tool, from, to, standing, ability } => {
+                self.plan_designate(*tool, from.pos(), to.pos(), *standing, ability.as_deref())
+            }
             ActionStep::Build { building, from, to } => {
                 self.plan_build(building, from.pos(), to.pos())
             }
@@ -1160,15 +1154,14 @@ impl Host {
     /// `designate`: Esc to close any open screen or modal (the tool's letter and `o` wouldn't
     /// reach the game otherwise), the tool's letter (or, for `tool: "bend"`, `B` and the arrows
     /// that reach the ability's row and `Enter`, [`Self::bend_ability_keys`]), `o` for a
-    /// standing order or (#335) a teardown cancel, a cursor walk to `from` (Shift for runs of
-    /// 10), Enter, a walk to `to`, Enter.
+    /// standing order, a cursor walk to `from` (Shift for runs of 10), Enter, a walk to `to`,
+    /// Enter.
     fn plan_designate(
         &self,
         tool: DesignateTool,
         from: Pos,
         to: Pos,
         standing: bool,
-        teardown: bool,
         ability: Option<&str>,
     ) -> Result<Vec<KeyEvent>, String> {
         if !self.in_bounds(from) || !self.in_bounds(to) {
@@ -1179,9 +1172,6 @@ impl Host {
         }
         if standing && tool != DesignateTool::Harvest {
             return Err("standing orders are only for the harvest tool".into());
-        }
-        if teardown && tool != DesignateTool::Cancel {
-            return Err("teardown is only for the cancel tool".into());
         }
         if ability.is_some() && tool != DesignateTool::Bend {
             return Err("ability is only for the bend tool".into());
@@ -1195,20 +1185,11 @@ impl Host {
                 .letter()
                 .expect("every designate tool has a letter")
                 .to_ascii_lowercase();
-            // `E` toggles the Clear tool between ground and buildings (#342), so press it as
-            // many times as it takes from the tool active now. Every other tool's key only
-            // ever picks that tool.
-            // Like every tool key, the last press re-picks the tool, dropping a corner left
-            // set: from the mode already active that takes two (there and back).
-            let presses = match (tool, self.app().ui.tool) {
-                (DesignateTool::Clear, Tool::Clear) => 2,
-                (DesignateTool::Deconstruct, Tool::Clear) => 1,
-                (DesignateTool::Deconstruct, _) => 2,
-                _ => 1,
-            };
-            keys.extend(std::iter::repeat_n(char_key(letter), presses));
+            // A tool's key only ever picks that tool, and pressed again re-picks it, dropping a
+            // corner left set (docs/design/tool-pickers.md).
+            keys.push(char_key(letter));
         }
-        if standing || teardown {
+        if standing {
             keys.push(char_key('o'));
         }
         keys.extend(walk_keys(self.app().ui.cursor, from));
@@ -1630,16 +1611,17 @@ fn line_text(line: Line) -> Option<String> {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "step", rename_all = "snake_case")]
 pub enum ActionStep {
-    /// `{tool, from, to, standing?, teardown?, ability?}`: a rectangle designation. `standing`
-    /// (default `false`) is only for `tool: "harvest"`; `teardown` (#335, default `false`) is
-    /// only for `tool: "cancel"` -- without it, a cancel withdraws only job designations (a
-    /// harvest, a bend, a Sow or a Clear mark) and leaves a build site or a stockpile tile
-    /// alone; with it, those go too. `ability` (#333) is only for `tool: "bend"`: the ability's
+    /// `{tool, from, to, standing?, ability?}`: a rectangle designation. `standing` (default
+    /// `false`) is only for `tool: "harvest"`. `tool: "remove"` (#953, `x`) takes away everything
+    /// the player made in the rectangle: marks, unfinished build sites, stockpile tiles and
+    /// finished buildings (marked to be taken down), skipping landmarks; it has no flags, and an
+    /// empty rectangle presses its keys and removes nothing. `tool: "clear"` is the ground only
+    /// (`e`). `ability` (#333) is only for `tool: "bend"`: the ability's
     /// own name (as the Bend tool's own banner shows it, listed by `screen {"bend"}`), lowered to `B`
     /// (which opens the abilities list on the ability the tool channels now), as many arrow
     /// presses as it takes to reach that one's row, and `Enter` (#952); with none given, `B`
     /// `Enter` re-arms the ability active now.
-    /// Any of these three flags set on the wrong tool, or an `ability` that's unknown or not yet
+    /// `standing` or `ability` set on the wrong tool, or an `ability` that's unknown or not yet
     /// usable, fails to plan.
     Designate {
         tool: DesignateTool,
@@ -1647,8 +1629,6 @@ pub enum ActionStep {
         to: Coord,
         #[serde(default)]
         standing: bool,
-        #[serde(default)]
-        teardown: bool,
         #[serde(default)]
         ability: Option<String>,
     },
@@ -1709,12 +1689,11 @@ impl Coord {
 #[serde(rename_all = "lowercase")]
 pub enum DesignateTool {
     Harvest,
-    Cancel,
-    /// Clear the ground (docs/design/clearing.md, #411/#426): `e` plus the rectangle.
+    /// Take away everything the player made in the rectangle (#953): `x` plus the rectangle.
+    Remove,
+    /// Clear the ground (docs/design/clearing.md, #411/#426): `e` plus the rectangle. Ground
+    /// only; buildings are `remove`'s.
     Clear,
-    /// Mark finished buildings to be taken down (#342): the Clear tool's buildings mode, `e e`
-    /// plus the rectangle (only as many `e`s as it takes from the tool active now).
-    Deconstruct,
     Stockpile,
     Bend,
     /// Sow an empty farm plot (issue #198, #333): `c` plus the rectangle.
@@ -1725,9 +1704,8 @@ impl DesignateTool {
     fn tool(self) -> Tool {
         match self {
             Self::Harvest => Tool::Harvest,
-            Self::Cancel => Tool::CancelHarvest,
+            Self::Remove => Tool::Remove,
             Self::Clear => Tool::Clear,
-            Self::Deconstruct => Tool::Deconstruct,
             Self::Stockpile => Tool::Stockpile,
             Self::Bend => Tool::Bend,
             Self::Sow => Tool::Sow,
@@ -1737,9 +1715,8 @@ impl DesignateTool {
     fn name(self) -> &'static str {
         match self {
             Self::Harvest => "harvest",
-            Self::Cancel => "cancel",
+            Self::Remove => "remove",
             Self::Clear => "clear",
-            Self::Deconstruct => "deconstruct",
             Self::Stockpile => "stockpile",
             Self::Bend => "bend",
             Self::Sow => "sow",
@@ -1947,6 +1924,7 @@ pub(crate) fn describe_mark(mark: &Mark) -> String {
         Mark::Build => "build",
         Mark::Stockpile => "stockpile",
         Mark::Dragged(_) => "dragged",
+        Mark::Within(_) => "within",
         Mark::Ghost { .. } => "ghost",
         Mark::Door { .. } => "door",
         Mark::Wet => "wet",
@@ -3209,7 +3187,6 @@ mod tests {
             from: Coord { x: at.x, y: at.y },
             to: Coord { x: at.x, y: at.y },
             standing: false,
-            teardown: false,
             ability: None,
         }];
         let result = h.act(&steps, None);
@@ -3934,7 +3911,6 @@ mod tests {
             from: Coord { x: from.x, y: from.y },
             to: Coord { x: to.x, y: to.y },
             standing: false,
-            teardown: false,
             ability: None,
         }];
         let result = h.act(&steps, Some("wood for a bed".into()));
@@ -3960,7 +3936,6 @@ mod tests {
             from: Coord { x: from.x, y: from.y },
             to: Coord { x: to.x, y: to.y },
             standing: false,
-            teardown: false,
             ability: None,
         }];
         let result = h.act(&steps, Some("make room for a bed".into()));
@@ -3973,11 +3948,11 @@ mod tests {
         assert_same_as_key_script(&mut h, Nation::Earth, &script);
     }
 
-    /// `designate {tool: deconstruct}` (#342) lowers to `e e` plus the rectangle: the Clear
-    /// tool's second mode. From the Clear tool's ground mode it takes one `e`, and a building in
-    /// the rectangle is marked once.
+    /// `designate {tool: remove}` (#953) lowers to `x` plus the rectangle, whatever tool is
+    /// active; a rectangle with nothing in it presses its keys and says so, and a building in
+    /// it is marked once. `clear` stays `e`, however many times it is sent.
     #[test]
-    fn act_designate_deconstruct_lowers_to_e_e_and_marks_the_building() {
+    fn act_designate_remove_lowers_to_x_and_takes_the_building() {
         let mut h = host(Nation::Earth);
         let cursor = h.app().ui.cursor;
         let from = Pos::new(cursor.x + 2, cursor.y + 1);
@@ -3987,32 +3962,32 @@ mod tests {
             from: Coord { x: from.x, y: from.y },
             to: Coord { x: to.x, y: to.y },
             standing: false,
-            teardown: false,
             ability: None,
         };
         let world = &h.app().session.world;
         assert!(fn_ui::tools::tiles_between(from, to).all(|p| world.building_record(p).is_none()));
-        let result = h.act(&[step(DesignateTool::Deconstruct)], None);
+        let result = h.act(&[step(DesignateTool::Remove)], None);
         assert!(result.error.is_none(), "{result:?}");
-        assert_eq!(h.app().ui.tool, Tool::Deconstruct);
+        assert_eq!(h.app().ui.tool, Tool::Remove);
         let script = result.keys.join(" ");
-        assert_eq!(script, "e e <right> <right> <down> <enter> <right> <down> <enter>");
-        assert!(result.notices[0].notice.contains("no building here"), "{result:?}");
+        assert_eq!(script, "x <right> <right> <down> <enter> <right> <down> <enter>");
+        assert_eq!(result.notices[0].notice, "remove: nothing to remove", "{result:?}");
         assert_same_as_key_script(&mut h, Nation::Earth, &script);
 
-        // Back to ground mode is one `e`, and from there buildings mode is one more.
-        let result = h.act(&[step(DesignateTool::Clear)], None);
-        assert_eq!(result.keys[0], "e", "{result:?}");
-        assert_ne!(result.keys[1], "e", "{result:?}");
-        assert_eq!(h.app().ui.tool, Tool::Clear);
+        // Clear is one `e`, from Remove or from Clear itself.
+        for _ in 0..2 {
+            let result = h.act(&[step(DesignateTool::Clear)], None);
+            assert_eq!(result.keys[0], "e", "{result:?}");
+            assert_ne!(result.keys[1], "e", "{result:?}");
+            assert_eq!(h.app().ui.tool, Tool::Clear);
+        }
         let bed = h.app().session.defs.building_id("bed").unwrap();
         let defs = h.app().session.defs.clone();
         h.app_mut().session.world.put_building(fn_sim::geom::Footprint::single(to), bed, &defs);
-        let result = h.act(&[step(DesignateTool::Deconstruct)], None);
+        let result = h.act(&[step(DesignateTool::Remove)], None);
         assert!(result.error.is_none(), "{result:?}");
-        assert_eq!(result.keys[0], "e", "{result:?}");
-        assert_ne!(result.keys[1], "e", "{result:?}");
-        assert_eq!(result.notices[0].notice, "clear buildings: 1 marked, 0 skipped");
+        assert_eq!(result.keys[0], "x", "{result:?}");
+        assert_eq!(result.notices[0].notice, "remove: 1 building, 0 skipped");
         let marked: Vec<Pos> = h.app().session.world.deconstruct_designations().collect();
         assert_eq!(marked, [to]);
     }
@@ -4035,7 +4010,6 @@ mod tests {
                 from: Coord { x: water.x, y: water.y },
                 to: Coord { x: water.x, y: water.y },
                 standing: false,
-                teardown: false,
                 ability: None,
             },
             ActionStep::Designate {
@@ -4043,7 +4017,6 @@ mod tests {
                 from: Coord { x: land_from.x, y: land_from.y },
                 to: Coord { x: land_to.x, y: land_to.y },
                 standing: false,
-                teardown: false,
                 ability: None,
             },
         ];
@@ -4082,7 +4055,6 @@ mod tests {
                 from: Coord { x: water.x, y: water.y },
                 to: Coord { x: water.x, y: water.y },
                 standing: false,
-                teardown: false,
                 ability: None,
             },
             ActionStep::Cursor { x: water.x, y: water.y },
@@ -4113,7 +4085,6 @@ mod tests {
             from: Coord { x: water.x, y: water.y },
             to: Coord { x: water.x, y: water.y },
             standing: false,
-            teardown: false,
             ability: None,
         }];
         let first = h.act(&designate, None);
@@ -4157,7 +4128,6 @@ mod tests {
             from: Coord { x: from.x, y: from.y },
             to: Coord { x: to.x, y: to.y },
             standing: true,
-            teardown: false,
             ability: None,
         }];
         let result = h.act(&steps, None);
@@ -4176,7 +4146,6 @@ mod tests {
             from: Coord { x: cursor.x, y: cursor.y },
             to: Coord { x: cursor.x, y: cursor.y },
             standing: true,
-            teardown: false,
             ability: None,
         }];
         let result = h.act(&steps, None);
@@ -4187,45 +4156,13 @@ mod tests {
         assert_eq!(h.observe().tool, "Select", "nothing was pressed");
     }
 
-    /// #335: `designate {tool: cancel, teardown: true}` presses `o` after `x`, the same key the
-    /// standing-order toggle uses, which also withdraws a build site or a stockpile tile.
+    /// The old `cancel` tool name and its `teardown` flag are gone (#953): one `remove` tool.
     #[test]
-    fn act_designate_teardown_presses_o_after_the_cancel_tool_letter() {
-        let mut h = host(Nation::Fire);
-        let cursor = h.app().ui.cursor;
-        let steps = vec![ActionStep::Designate {
-            tool: DesignateTool::Cancel,
-            from: Coord { x: cursor.x, y: cursor.y },
-            to: Coord { x: cursor.x, y: cursor.y },
-            standing: false,
-            teardown: true,
-            ability: None,
-        }];
-        let result = h.act(&steps, None);
-        assert!(result.error.is_none(), "{result:?}");
-        assert_eq!(result.keys.join(" "), "x o <enter> <enter>");
-        assert!(h.app().ui.teardown);
-        assert_same_as_key_script(&mut h, Nation::Fire, &result.keys.join(" "));
-    }
-
-    #[test]
-    fn act_designate_refuses_teardown_outside_the_cancel_tool_and_presses_nothing() {
-        let mut h = host(Nation::Earth);
-        let cursor = h.app().ui.cursor;
-        let steps = vec![ActionStep::Designate {
-            tool: DesignateTool::Harvest,
-            from: Coord { x: cursor.x, y: cursor.y },
-            to: Coord { x: cursor.x, y: cursor.y },
-            standing: false,
-            teardown: true,
-            ability: None,
-        }];
-        let result = h.act(&steps, None);
-        let err = result.error.unwrap();
-        assert_eq!(err.step, 0);
-        assert!(err.reason.contains("cancel"), "{}", err.reason);
-        assert!(result.keys.is_empty());
-        assert_eq!(h.observe().tool, "Select", "nothing was pressed");
+    fn the_cancel_tool_name_and_teardown_flag_are_gone() {
+        let old = r#"{"step":"designate","tool":"cancel","from":{"x":1,"y":1},"to":{"x":1,"y":1}}"#;
+        assert!(serde_json::from_str::<ActionStep>(old).is_err());
+        let new = r#"{"step":"designate","tool":"remove","from":{"x":1,"y":1},"to":{"x":1,"y":1}}"#;
+        assert!(serde_json::from_str::<ActionStep>(new).is_ok());
     }
 
     #[test]
@@ -4236,7 +4173,6 @@ mod tests {
             from: Coord { x: -1, y: 0 },
             to: Coord { x: 0, y: 0 },
             standing: false,
-            teardown: false,
             ability: None,
         }];
         let result = h.act(&steps, None);
@@ -4274,7 +4210,6 @@ mod tests {
             from: Coord { x: pos.x, y: pos.y },
             to: Coord { x: pos.x, y: pos.y },
             standing: false,
-            teardown: false,
             ability: None,
         }];
         let result = h.act(&steps, None);
@@ -4297,7 +4232,6 @@ mod tests {
                 from: Coord { x: pos.x, y: pos.y },
                 to: Coord { x: pos.x, y: pos.y },
                 standing: false,
-                teardown: false,
                 ability: None,
             }]
         };
@@ -4364,7 +4298,6 @@ mod tests {
                 from: Coord { x: pos.x, y: pos.y },
                 to: Coord { x: pos.x, y: pos.y },
                 standing: false,
-                teardown: false,
                 ability: ability.map(str::to_owned),
             }]
         };
@@ -4405,7 +4338,6 @@ mod tests {
             from: Coord { x: cursor.x, y: cursor.y },
             to: Coord { x: cursor.x, y: cursor.y },
             standing: false,
-            teardown: false,
             ability: Some("Not A Real Ability".into()),
         }];
         let result = h.act(&steps, None);
@@ -4420,7 +4352,6 @@ mod tests {
             from: Coord { x: cursor.x, y: cursor.y },
             to: Coord { x: cursor.x, y: cursor.y },
             standing: false,
-            teardown: false,
             ability: Some("Inner Fire".into()),
         }];
         let result = h.act(&steps, None);
@@ -4439,7 +4370,6 @@ mod tests {
             from: Coord { x: cursor.x, y: cursor.y },
             to: Coord { x: cursor.x, y: cursor.y },
             standing: false,
-            teardown: false,
             ability: Some("Hearthflame".into()),
         }];
         let result = h.act(&steps, None);

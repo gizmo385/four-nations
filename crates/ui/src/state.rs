@@ -128,12 +128,6 @@ pub struct UiState {
     /// (`crate::tools::Pick::repeating`). Resets whenever the tool changes (`set_tool`), and has
     /// no effect outside the Harvest tool.
     pub repeating: bool,
-    /// `O` while the Cancel tool is active (#335, `crate::tools::Pick::teardown`): the next
-    /// rectangle applied also withdraws a build site or a stockpile tile, which a plain cancel
-    /// leaves alone so cancelling harvest jobs over a stockpiled area doesn't tear the
-    /// stockpile down by accident. The same `O` key as `repeating`, just read for a different
-    /// tool; the two never both apply at once. Resets whenever the tool changes (`set_tool`).
-    pub teardown: bool,
     /// The chute whose foot is being picked (#683, `crate::chute`): set when the Build tool places
     /// a chute site, or by `O` on a chute in Select mode. While set, `Enter` on the map sets the
     /// foot at the cursor and `Esc` leaves it unset; changing tools drops it.
@@ -268,7 +262,6 @@ impl UiState {
             bounds: (map.width(), map.height()),
             tool: Tool::Select,
             repeating: false,
-            teardown: false,
             linking: None,
             choice: None,
             anchor: None,
@@ -403,9 +396,9 @@ impl UiState {
         self.follow();
     }
 
-    /// Switches to `tool`, dropping the corner, the last result and the `O` toggle (standing
-    /// order on Harvest, teardown on Cancel, #277/#335; it has no key of its own while leaving
-    /// the tool, so leaving the tool is the only way back to its plain behaviour). The building
+    /// Switches to `tool`, dropping the corner, the last result and the `O` toggle (the standing
+    /// order on Harvest, #277; it has no key of its own while leaving the tool, so leaving the
+    /// tool is the only way back to its plain behaviour). The building
     /// choice is not a tool's own state (`crate::tools::switch_tool` resolves it): it outlives
     /// the switch, so coming back to Build returns to it.
     pub fn set_tool(&mut self, tool: Tool) {
@@ -414,25 +407,20 @@ impl UiState {
         self.notice.clear();
         self.marked = None;
         self.repeating = false;
-        self.teardown = false;
         self.linking = None;
         // Entering a tool shows the banner (#307), which the view must keep the cursor clear
         // of.
         self.follow();
     }
 
-    /// "Harvest · repeating" while the standing-order toggle (`O`, #277) is on, "Cancel ·
-    /// teardown" while the Cancel tool's own teardown toggle (`O`, #335) is on; `None` the rest
-    /// of the time, including outside those two tools, where `O` does nothing. Shown in the
+    /// "Harvest · repeating" while the standing-order toggle (`O`, #277) is on; `None` the rest
+    /// of the time, including outside Harvest, where `O` does nothing. Shown in the
     /// status line (`crate::draw::tool_status`) and the Tool section's heading
     /// (`crate::panel::sections`), so the player can tell what the next rectangle will do
     /// without looking at the map.
     pub fn repeating_label(&self) -> Option<String> {
         if self.tool == Tool::Harvest && self.repeating {
             return Some(format!("{} · repeating", self.tool.name()));
-        }
-        if self.tool == Tool::CancelHarvest && self.teardown {
-            return Some(format!("{} · teardown", self.tool.name()));
         }
         None
     }

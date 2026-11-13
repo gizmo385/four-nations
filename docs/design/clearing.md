@@ -195,19 +195,16 @@ Reopen this if a playtest wants a ford gone.
 | Key | Tool | What it does | Never touches |
 |---|---|---|---|
 | `H` | Harvest | Take the yield. Renewables stay standing. `O` sets a standing order. | |
-| `X` | Cancel | Take back an **order**: harvest, standing, sow, bend, clear and deconstruct marks. Build sites and stockpiles only through #335's explicit mode. | Anything physically there |
-| `E` | Clear | Remove a **thing**. Mode 1, **ground**: plants, trees, rocks (this doc). `E` again, mode 2, **buildings**: deconstruct marks (#342). | Orders |
+| `X` | Remove | Take away everything the player made: harvest, standing, sow, bend and clear marks, build sites, stockpile tiles and finished buildings (#953, docs/design/tool-pickers.md; it replaced Cancel and this table's buildings mode). | Landmarks, units, ground items, terrain |
+| `E` | Clear | Remove a **thing of the land**: plants, trees, rocks (this doc). Ground only; `E` pressed again changes nothing. | Orders and buildings |
 
-- `E` is free and sits beside WASD. It cycles like `U` (buildings) and `B` (abilities). The tool
-  banner names the mode (`CLEAR ground` / `CLEAR buildings`), and the footer shows `E: buildings`
-  or `E: ground`.
-- Starting in ground mode means a careless rectangle over the settlement uproots trees, not
-  houses: the #335 lesson. Marking buildings takes a second, deliberate press.
-- Stockpile removal stays with #335's explicit cancel mode, since a stockpile tile is an order
-  ("store here"), not a thing on the land. #342 already defers to #335 on this.
+- `E` is free and sits beside WASD. Superseded by #953: it no longer has a buildings mode (a
+  press-again toggle was the thing the owner could not find), so a Remove drag over the
+  settlement never fells its trees and a Clear drag never takes down a house.
+- Stockpile removal and buildings are the Remove tool's (`X`), whose preview lists what goes.
 - The notice follows the other tools: `clear: 6 marked, 2 skipped (can't be cleared)`.
-- The agent's `act` gets `designate {tool: clear}` and `designate {tool: deconstruct}`, lowered to
-  `e` and `e e`. The agent API stays explicit while the TUI shares one key.
+- The agent's `act` gets `designate {tool: clear}` (`e`) and `designate {tool: remove}` (`x`,
+  #953; it replaced `cancel` and `deconstruct`).
 - Marks draw in the new `clear` colour, the same way harvest marks use `harvest`.
 
 The owner chose this one-key layout (#458), so #342's TUI work is `E`'s second mode, not a new
@@ -237,8 +234,8 @@ key.
   Blocked by #425.
 
 None of them is blocked by #342 or #335. Clearing touches neither buildings nor stockpiles.
-Following #458, #342's TUI work is `E`'s second mode (buildings) rather than a new key, with the
-agent step `designate {tool: deconstruct}` lowered to `e e`.
+Following #458, #342's TUI work was `E`'s second mode (buildings); #953 moved it to the Remove
+tool (`X`), the agent step `designate {tool: remove}`.
 
 ## Owner decisions
 

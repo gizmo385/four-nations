@@ -27,7 +27,7 @@ fn the_slash_key_lists_the_tools_in_the_panel_and_marks_the_active_one() {
     assert_eq!(a.ui.tool_list, Some(0));
     let text = frame(&mut a);
     assert!(text.contains("DESIGNATE"), "{text}");
-    for row in ["H Harvest", "X Cancel", "E Clear", "P Stockpile", "B Bend", "U Build", "C Sow"] {
+    for row in ["H Harvest", "X Remove", "E Clear", "P Stockpile", "B Bend", "U Build", "C Sow"] {
         assert!(text.contains(row), "{row} missing:\n{text}");
     }
     // The Bend row names the nation's ability.
@@ -45,7 +45,7 @@ fn a_tool_with_nothing_to_do_says_why() {
 #[test]
 fn up_down_choose_and_enter_picks() {
     let a = app("/ <down> <enter>");
-    assert_eq!(a.ui.tool, Tool::CancelHarvest);
+    assert_eq!(a.ui.tool, Tool::Remove);
     assert_eq!(a.ui.tool_list, None);
     // Up stops at the top, Down at the bottom, and the map cursor stays where it was.
     let start = app("").ui.cursor;
@@ -63,7 +63,7 @@ fn up_down_choose_and_enter_picks() {
 fn a_tools_own_letter_picks_it_from_the_list() {
     for (letter, tool) in [
         ("h", Tool::Harvest),
-        ("x", Tool::CancelHarvest),
+        ("x", Tool::Remove),
         ("e", Tool::Clear),
         ("p", Tool::Stockpile),
         ("c", Tool::Sow),
@@ -87,7 +87,7 @@ fn a_tools_own_letter_picks_it_from_the_list() {
 fn the_seven_letters_still_work_straight_from_the_map() {
     for (letter, tool) in [
         ("h", Tool::Harvest),
-        ("x", Tool::CancelHarvest),
+        ("x", Tool::Remove),
         ("e", Tool::Clear),
         ("p", Tool::Stockpile),
         ("c", Tool::Sow),
@@ -122,7 +122,7 @@ fn picking_the_active_tool_leaves_it_as_it_is() {
     assert_eq!(a.ui.tool, Tool::Clear);
     // Another tool's row drops the corner, as switching tools does.
     let a = app("h <enter> / <down> <enter>");
-    assert_eq!(a.ui.tool, Tool::CancelHarvest);
+    assert_eq!(a.ui.tool, Tool::Remove);
     assert_eq!(a.ui.anchor, None);
 }
 
