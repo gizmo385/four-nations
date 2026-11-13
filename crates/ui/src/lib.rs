@@ -48,6 +48,7 @@ pub mod link;
 pub mod menu;
 pub mod meter;
 pub mod msglog;
+pub mod notice;
 pub mod page;
 pub mod panel;
 pub mod patch;

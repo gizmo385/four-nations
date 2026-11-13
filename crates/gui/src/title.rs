@@ -42,6 +42,8 @@ const NOMINAL_HEIGHT: f32 = 460.0;
 const MARGIN: f32 = 20.0;
 const ROW: f32 = 40.0;
 const BODY: f32 = 16.0;
+/// The least room a row's text keeps clear of the row's edge, so a cut line ends inside it.
+const ROW_PAD: f32 = 12.0;
 
 // -----------------------------------------------------------------------------------------
 // Click -> keys
@@ -200,8 +202,36 @@ fn button(ui: &mut Ui, label: &str, look: &Look, primary: bool, width: f32) -> R
     response
 }
 
+/// `text` laid out on one line in `font`, cut short with a `…` when it would be wider than
+/// `max` points (#943): a row's text never spills past the row, whatever a save is called.
+pub fn fitted(
+    painter: &egui::Painter,
+    text: &str,
+    font: FontId,
+    colour: Color32,
+    max: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let whole = painter.layout_no_wrap(text.to_owned(), font.clone(), colour);
+    if whole.size().x <= max {
+        return whole;
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let cut = |n: usize| format!("{}…", chars[..n].iter().collect::<String>().trim_end());
+    // The most characters that still fit with the ellipsis; width only grows with length.
+    let (mut lo, mut hi) = (0, chars.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if painter.layout_no_wrap(cut(mid), font.clone(), colour).size().x <= max {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    painter.layout_no_wrap(cut(lo), font, colour)
+}
+
 /// Text centred in `rect`, `dy` points off the middle, with the pointer `▸` to its left when
-/// `pointer` is set. Returns where its left edge is.
+/// `pointer` is set. It is cut short with an ellipsis to fit the row, less a margin each side.
 fn centred(
     painter: &egui::Painter,
     rect: Rect,
@@ -211,12 +241,28 @@ fn centred(
     dy: f32,
     pointer: Option<(&str, Color32)>,
 ) {
-    let galley = painter.layout_no_wrap(text.to_owned(), font.clone(), colour);
+    let galley = fitted(painter, text, font.clone(), colour, rect.width() - 2.0 * ROW_PAD);
     let at = Align2::CENTER_CENTER.anchor_size(rect.center() + vec2(0.0, dy), galley.size());
     painter.galley(at.min, galley, colour);
     if let Some((mark, ink)) = pointer {
         painter.text(pos2(at.min.x - 10.0, at.center().y), Align2::RIGHT_CENTER, mark, font, ink);
     }
+}
+
+/// Text starting at `x`, `dy` points off the row's middle, cut short to end before the row's
+/// right padding.
+fn left_text(
+    painter: &egui::Painter,
+    rect: Rect,
+    x: f32,
+    text: &str,
+    font: FontId,
+    colour: Color32,
+    dy: f32,
+) {
+    let galley = fitted(painter, text, font, colour, rect.right() - ROW_PAD - x);
+    let at = Align2::LEFT_CENTER.anchor_size(pos2(x, rect.center().y + dy), galley.size());
+    painter.galley(at.min, galley, colour);
 }
 
 // -----------------------------------------------------------------------------------------
@@ -293,9 +339,7 @@ fn menu(ui: &mut Ui, screen: &TitleScreen, defs: &Defs, look: &Look, keys: &mut 
         let selected = i == screen.cursor;
         // Continue says which save it would load.
         let detail = match (item, &screen.continue_slot) {
-            (MenuItem::Continue, Some(slot)) => {
-                Some(format!("{}: {}", slot.name, slot.describe(defs)))
-            }
+            (MenuItem::Continue, Some(slot)) => Some(slot.summary(defs, "·")),
             _ => None,
         };
         let height = if detail.is_some() { 58.0 } else { 46.0 };
@@ -495,7 +539,8 @@ fn seed(ui: &mut Ui, screen: &TitleScreen, defs: &Defs, look: &Look, keys: &mut 
     buttons(ui, look, ("Back", KeyCode::Esc), ("Embark", KeyCode::Enter), keys);
 }
 
-/// The Load step: every save, newest first, with the same text the saves screen shows.
+/// The Load step: every save, newest first, each with its name and the short line the Continue row
+/// shows (#943), both cut to the row.
 fn load(ui: &mut Ui, screen: &TitleScreen, defs: &Defs, look: &Look, keys: &mut Vec<KeyEvent>) {
     if screen.save_slots.is_empty() {
         ui.add(dim(look, words::NO_SAVES));
@@ -527,20 +572,8 @@ fn load(ui: &mut Ui, screen: &TitleScreen, defs: &Defs, look: &Look, keys: &mut 
                             look.accent,
                         );
                     }
-                    p.text(
-                        pos2(x, rect.center().y - 9.0),
-                        Align2::LEFT_CENTER,
-                        &slot.name,
-                        mono(BODY),
-                        name_ink,
-                    );
-                    p.text(
-                        pos2(x, rect.center().y + 11.0),
-                        Align2::LEFT_CENTER,
-                        slot.describe(defs),
-                        mono(12.0),
-                        ink,
-                    );
+                    left_text(p, rect, x, &slot.name, mono(BODY), name_ink, -9.0);
+                    left_text(p, rect, x, &slot.summary(defs, "·"), mono(12.0), ink, 11.0);
                 });
                 if selected && moved {
                     r.scroll_to_me(None);

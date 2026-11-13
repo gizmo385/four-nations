@@ -29,6 +29,16 @@ pub fn key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
     if ui.modal == Some(Modal::Build) {
         return build_modal_key(ui, session, key);
     }
+    // The abilities list's rows on the number row (#952): browsing only, as the arrows are.
+    if ui.screen == Some(Screen::Abilities)
+        && let Some(n) = input::row_digit(key)
+    {
+        if n >= fn_ui::bend::abilities(session).len() {
+            return false;
+        }
+        ui.ability_cursor = n;
+        return true;
+    }
     let Some(action) = input::map_key(key) else { return false };
     if !input::spectator_allowed(action) {
         return false;
@@ -297,7 +307,11 @@ fn build_modal_key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
         KeyCode::Char(c) if c.is_alphabetic() => {
             ui.build_cursor = build::jump_to_letter(&rows, at, c);
         }
-        _ => return false,
+        // `1` to `9` put the highlight on that row (#952).
+        _ => match fn_ui::input::row_digit(key).filter(|&n| n < rows.len()) {
+            Some(n) => ui.build_cursor = n,
+            None => return false,
+        },
     }
     true
 }
@@ -359,6 +373,27 @@ mod tests {
         assert_eq!(u.modal, Some(Modal::Build), "Enter never places or closes it");
         assert!(key(&mut u, &s, k(KeyCode::Esc)));
         assert_eq!(u.modal, None);
+    }
+
+    /// The number keys put the Build highlight and the abilities pointer on a row (#952), and do
+    /// nothing past the end of the list; `B` stays a tool key, refused for a spectator.
+    #[test]
+    fn number_keys_browse_the_build_and_abilities_lists() {
+        let s = session();
+        let mut u = ui(&s);
+        assert!(key(&mut u, &s, k(KeyCode::Char('u'))));
+        assert!(key(&mut u, &s, k(KeyCode::Char('3'))));
+        assert_eq!(u.build_cursor, 2);
+        assert!(key(&mut u, &s, k(KeyCode::Esc)));
+
+        assert!(!key(&mut u, &s, k(KeyCode::Char('b'))), "B arms a tool: refused");
+        assert_eq!(u.screen, None);
+        assert!(key(&mut u, &s, k(KeyCode::Char('i'))));
+        assert_eq!(u.screen, Some(Screen::Abilities));
+        assert!(key(&mut u, &s, k(KeyCode::Char('2'))));
+        assert_eq!(u.ability_cursor, 1);
+        assert!(!key(&mut u, &s, k(KeyCode::Char('9'))), "past the end of the list");
+        assert_eq!(u.ability_cursor, 1);
     }
 
     /// `T` opens the research screen; inside it, `Enter` does nothing (it would set the agent's

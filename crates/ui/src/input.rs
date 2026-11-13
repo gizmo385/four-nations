@@ -124,6 +124,7 @@ fn build_table() -> Vec<Binding> {
     add(Key::plain(Tab), Action::NextUnit);
     add(Key::plain(BackTab), Action::PrevUnit);
     add(Key::ch('f'), Action::Follow);
+    add(Key::plain(KeyCode::Delete), Action::DismissNotice);
 
     for tool in Tool::ALL {
         // Select is Esc; every other tool has a letter.
@@ -158,6 +159,23 @@ fn build_table() -> Vec<Binding> {
     t
 }
 
+/// The row a number-row key names on a list screen (#952): `1` to `9` are rows 0 to 8. A keypad
+/// digit is not one (it moves, as everywhere else), and nothing else is.
+pub fn row_digit(key: KeyEvent) -> Option<usize> {
+    let chord =
+        key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT);
+    match key.code {
+        KeyCode::Char(c @ '1'..='9')
+            if key.kind != KeyEventKind::Release
+                && !chord
+                && !key.state.contains(KeyEventState::KEYPAD) =>
+        {
+            Some(c as usize - '1' as usize)
+        }
+        _ => None,
+    }
+}
+
 /// Whether `action` may reach the watch spectator's own `UiState` in free look (#330,
 /// `fn_tui::spectate`): camera and cursor movement, browsing a unit or a read-only screen, never
 /// anything that would change the agent's own game. Every [`Action`] variant is matched by name,
@@ -181,6 +199,8 @@ pub fn spectator_allowed(action: Action) -> bool {
         Action::Confirm => true,
         Action::Cancel => false,
         Action::NextUnit | Action::PrevUnit | Action::Follow => true,
+        // A spectator has no notices of its own.
+        Action::DismissNotice => false,
         Action::ShowResearch
         | Action::ShowLog
         | Action::ShowHelp
@@ -470,7 +490,8 @@ mod tests {
         // A lone "/" is the slash key itself ("Esc or /"), not a separator.
         let words =
             label.split(' ').flat_map(|w| if w == "/" { vec![w] } else { w.split('/').collect() });
-        for word in words.filter(|w| *w != "or") {
+        // "Esc, B or I": a comma ends a word too.
+        for word in words.map(|w| w.trim_end_matches(',')).filter(|w| *w != "or") {
             match word {
                 "Arrows" => out.extend(["Up", "Down", "Left", "Right"].map(String::from)),
                 "Ctrl+Arrows" => out
@@ -504,7 +525,9 @@ mod tests {
             }
             let name = b.key.name();
             // The abilities key is shown in the hint bar only (#719), by design.
-            let hint_only = b.action == Action::ShowAbilities;
+            // The window's `Del` (#945) is in neither: the key help is full at 120 by 40, the
+            // terminal has no notices, and the notice's own close button names the key.
+            let hint_only = matches!(b.action, Action::ShowAbilities | Action::DismissNotice);
             let listed = table.iter().any(|e| {
                 (e.help.is_some() || hint_only)
                     && e.actions.iter().any(|a| a.same_kind(b.action))
@@ -525,6 +548,8 @@ mod tests {
             .chain(["Ctrl+C".to_owned(), "Shift+S".to_owned(), "Shift+Tab".to_owned()])
             // The message log's filters (#661): the number row, read by `App::key`.
             .chain(["1-5".to_owned()])
+            // The Build and Abilities lists' rows (#952), read by `App::key`.
+            .chain(["1-9".to_owned()])
             // The embark exit prompt's `Q`, read by `Shell`, not the game's key map (#703).
             .chain(["Q".to_owned()])
             // The title and embark screens' own keys (#686), read by `title.rs` and `embark.rs`:

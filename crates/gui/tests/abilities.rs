@@ -207,3 +207,27 @@ fn the_keys_of_a_click_are_the_arrows_then_enter() {
     let up: Vec<_> = click_keys(3, 2, false).iter().map(|k| k.code).collect();
     assert_eq!(up, [KeyCode::Up]);
 }
+
+/// `B` opens the same page as `I` (#952), on the ability the Bend tool channels now; the number
+/// keys put the highlight on a row; `B` again closes it as `I` does.
+#[test]
+fn b_opens_the_page_and_the_number_keys_pick_a_row() {
+    let mut app = GuiApp::with_shell(game(Nation::Fire, ""));
+    let mut h = harness(&mut app);
+    h.event(Event::Text("b".into()));
+    h.run_steps(2);
+    h.get_by_label("◆ ABILITIES ◆");
+    h.event(Event::Text("2".into()));
+    h.run_steps(2);
+    drop(h);
+    assert_eq!(snapshot(app.shell()), snapshot(&game(Nation::Fire, "i <down>")));
+    assert_eq!(state(app.shell()).ui.tool, Tool::Select, "opening it leaves the tool alone");
+    assert_eq!(app.frame().surface, Some(Surface::Page(PageKind::Abilities)));
+
+    let mut h = harness(&mut app);
+    h.event(Event::Text("b".into()));
+    h.run_steps(2);
+    drop(h);
+    assert_eq!(snapshot(app.shell()), snapshot(&game(Nation::Fire, "i <down> i")));
+    assert_eq!(app.frame().surface, Some(Surface::Native));
+}

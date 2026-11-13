@@ -1,23 +1,23 @@
 //! The Bend tool's banner as a view model (#586): what a player reads on the active tool banner
-//! (`BEND Hearthflame ... B: next ability`) and in the side panel's one Bend row
+//! (`BEND Hearthflame ... B: abilities`) and in the side panel's one Bend row
 //! (`Hearthflame  20 benders`), in one place, so the TUI draws from it and `screen {"bend"}`
 //! reports it, and the two can't drift apart.
 //!
-//! What it covers is exactly what pressing `B` shows, no more. The banner names one ability at a
-//! time; `B` moves on to the next the settlement can use (`tools::usable_abilities`: its nation's,
-//! with their tech known, in data order), wrapping round, and costs nothing. So the rows here are
-//! those abilities in `B`'s own order, each as the banner and the Tool row would draw it when
-//! `B` lands on it. An ability the settlement can't use yet is never on the banner, so it isn't
-//! here either (the Research screen's "Unlocks:" line is where a player reads which tech gives
-//! it). Nothing about targets, best uses or whether a tile is bendable: the banner says none of
-//! that.
+//! What it covers is what the Bend tool can channel, no more. The banner names one ability at a
+//! time; the ones the settlement can use are `tools::usable_abilities` (its nation's, with their
+//! tech known, in data order), which the abilities screen (`B` or `I`) lists first. So the rows
+//! here are those abilities, each as the banner and the Tool row would draw it when the screen's
+//! `Enter` lands on it. An ability the settlement can't use yet is never on the banner, so it
+//! isn't here either (the Research screen's "Unlocks:" line is where a player reads which tech
+//! gives it). Nothing about targets, best uses or whether a tile is bendable: the banner says
+//! none of that.
 //!
-//! It reads the same whichever tool is active: `b` from any tool lands on the ability this names
-//! as current (`tools::cycle_ability` only moves the choice when `B` is pressed *within* the Bend
-//! tool), the way `build::picker_rows` reads the same whether or not the Build tool is open.
+//! It reads the same whichever tool is active: the ability it names as current is the one the
+//! screen opens on, the way `build::picker_rows` reads the same whether or not the Build tool is
+//! open.
 //!
-//! The abilities screen (`I`, #719) is wider than the banner: [`abilities`] lists the ones that
-//! can't be used yet too, with what each needs, which `B` never visits.
+//! The abilities screen (`B` or `I`, #719, #952) is wider than the banner: [`abilities`] lists
+//! the ones that can't be used yet too, with what each needs.
 
 use fn_sim::Terrain;
 use fn_sim::bending::{AbilityId, Effect};
@@ -45,8 +45,9 @@ pub struct BendRow {
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct BendView {
-    /// Every ability `B` cycles through, in `B`'s order; the current one is flagged. Empty only
-    /// if the nation has no ability defined at all (the data tests guard against that).
+    /// Every ability the Bend tool can channel, in the screen's order; the current one is
+    /// flagged. Empty only if the nation has no ability defined at all (the data tests guard
+    /// against that).
     pub rows: Vec<BendRow>,
 }
 
@@ -54,11 +55,6 @@ impl BendView {
     /// The row the banner names now.
     pub fn current(&self) -> Option<&BendRow> {
         self.rows.iter().find(|r| r.current)
-    }
-
-    /// Whether the banner offers `B: next ability`: there is more than one to move on to.
-    pub fn offers_next(&self) -> bool {
-        self.rows.len() > 1
     }
 }
 
@@ -271,7 +267,6 @@ mod tests {
     use fn_sim::world::Command;
 
     use super::*;
-    use crate::tools::{Tool, cycle_ability};
 
     #[test]
     fn a_new_game_shows_each_nations_signature_ability_alone() {
@@ -279,7 +274,6 @@ mod tests {
             let s = Session::new(1, nation, 48, 32);
             let v = view(&s);
             assert_eq!(v.rows.len(), 1, "{nation:?}: {v:?}");
-            assert!(!v.offers_next(), "{nation:?}");
             let row = v.current().unwrap();
             let signature = crate::tools::ability_for_nation(&s.defs, nation).unwrap();
             assert_eq!(row.name, s.defs.ability(signature).name);
@@ -287,10 +281,9 @@ mod tests {
         }
     }
 
-    /// Locked forms are absent; research the tech and the form is there, in `B`'s order, and
-    /// `B` walks the current flag along the rows exactly as the banner's badge would.
+    /// Locked forms are absent; research the tech and the form is there, in the data's order.
     #[test]
-    fn a_locked_form_is_absent_until_researched_and_b_walks_the_rows() {
+    fn a_locked_form_is_absent_until_researched() {
         let mut s = Session::new(3, Nation::Fire, 48, 32);
         let before = view(&s);
         assert_eq!(before.rows.len(), 1);
@@ -309,18 +302,14 @@ mod tests {
         let v = view(&s);
         let names: Vec<&str> = v.rows.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["Hearthflame", "Inner Fire", "Weld"]);
-        assert!(v.offers_next());
         assert_eq!(v.current().unwrap().name, "Hearthflame");
 
-        // B inside the Bend tool moves the flag; the rows themselves stay put.
-        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        // Picking one on the abilities screen moves the flag; the rows themselves stay put.
+        s.bend_choice = Some(s.defs.ability_id("inner_fire").unwrap());
         let v = view(&s);
         assert_eq!(v.current().unwrap().name, "Inner Fire");
         assert_eq!(v.rows.iter().filter(|r| r.current).count(), 1);
         assert_eq!(v.rows.len(), 3);
-        // Picking the tool from another leaves it alone, so reading from any tool agrees.
-        cycle_ability(&mut s, Tool::Select, Tool::Bend);
-        assert_eq!(view(&s).current().unwrap().name, "Inner Fire");
     }
 
     /// The abilities screen's list: a new game has the nation's signature ability to use and the
@@ -352,9 +341,9 @@ mod tests {
         assert!(weld.unusable.as_deref().unwrap().starts_with("Needs "));
     }
 
-    /// Every ability the Bend tool cycles through is a usable row, in `B`'s order.
+    /// Every ability the Bend tool can channel is a usable row, in the data's order.
     #[test]
-    fn the_usable_rows_are_exactly_what_b_cycles_through() {
+    fn the_usable_rows_are_exactly_what_the_tool_can_channel() {
         let mut s = Session::new(3, Nation::Fire, 48, 32);
         let dragon = s.defs.tech_id("dancing_dragon").unwrap();
         s.apply(Command::SetResearch { tech: dragon }).unwrap();

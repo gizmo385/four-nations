@@ -1744,10 +1744,37 @@ impl World {
             // Avatar"'s priority list puts Avatar tasks first): never a queued `Job`, so there's
             // nothing to claim, just his own place to take (`world/gate.rs`, #238).
             self.units[i].job_task = Some(Task::Rite);
+        } else if self.units[i].homeward {
+            self.walk_home(i, defs);
         } else if self.claim_job(i, defs) {
             self.units[i].wander_left = 0;
         } else {
             self.wander(i, defs);
+        }
+    }
+
+    /// One tick of a newcomer's walk in from where it arrived (#944): along the shortest route
+    /// to the cheapest reachable tile on or beside the settlement's anchor. The route is planned
+    /// when there is none, so it is also how the walk resumes after a need pre-empted it
+    /// (`finish_need` clears the route). Clears `homeward` on arrival, or when no route exists
+    /// (the unit then behaves like any other idle unit rather than stand there for good).
+    fn walk_home(&mut self, i: usize, defs: &Defs) {
+        self.units[i].wander_left = 0;
+        if self.units[i].route.is_none() {
+            let anchor = self.settlement_anchor();
+            let flood = self.flood_from(i);
+            match self.stand_tile(&flood, anchor).and_then(|(_, s)| flood.path_to(s)) {
+                Some(path) => self.units[i].route = Some(route_from(path)),
+                None => {
+                    self.units[i].homeward = false;
+                    return;
+                }
+            }
+        }
+        if self.walk(i, defs) {
+            let u = &mut self.units[i];
+            u.homeward = false;
+            u.route = None;
         }
     }
 

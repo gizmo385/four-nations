@@ -16,6 +16,11 @@
 //! nothing to show hides itself"). A toast ages by the `dt` the caller passes to
 //! [`Alerts::update`], in real seconds, so this crate never reads a clock.
 //!
+//! A few events are also **corner notices** (#945, [`crate::notice`]): a caravan making camp or
+//! about to leave, a finished tech and a death stay on screen until dismissed, where a frontend
+//! that draws them has turned that on. Toasts (and open alerts) carry contextual actions too
+//! ([`Toast::actions`]): a jump to the place the event names, the research screen.
+//!
 //! A **routine success never toasts** (#417, docs/design/side-panel-v2.md "Zone 2"): a finished
 //! bend is logged (`L`) but never shown as a toast (a failed one still is -- that's the one
 //! worth an eye). **Repeats coalesce**: while two or more toasts of the same [`Kind`] and
@@ -36,6 +41,7 @@ use fn_sim::world::{
 };
 
 use crate::endeavor;
+use crate::notice::{Group, NoticeAction, Notices};
 use crate::session::Session;
 use crate::tools::{Tool, usable_abilities};
 use crate::view::{food_in_stores, stuck_items};
@@ -288,6 +294,10 @@ pub struct Entry {
     /// still says something worth an agent's attention.
     #[cfg_attr(feature = "serde", serde(skip))]
     failed: bool,
+    /// What a button on its toast can do about it (#945): jump to the place it names, show the
+    /// settler it names, open the screen it is about.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    actions: Vec<NoticeAction>,
 }
 
 impl Entry {
@@ -306,6 +316,7 @@ impl Entry {
             left: 0.0,
             toast: None,
             failed: false,
+            actions: Vec::new(),
         }
     }
 
@@ -374,6 +385,8 @@ pub struct Alerts {
     /// The arrival tick of the caravan already warned about leaving (#438), so the warning is
     /// one line a visit.
     trade_warned: Option<u64>,
+    /// The corner notices up (#945): view state, off until a frontend that draws them turns it on.
+    notices: Notices,
 }
 
 impl Alerts {
@@ -383,8 +396,11 @@ impl Alerts {
         let world = &session.world;
         let events = world.events();
         if world.tick < self.last_tick || events.len() < self.seen {
-            // A new world (regenerate, nation switch, a loaded game): the old log is gone.
+            // A new world (regenerate, nation switch, a loaded game): the old log is gone, and
+            // the notices with it, but the frontend still draws them.
+            let on = self.notices.is_on();
             *self = Self::default();
+            self.notices.set_on(on);
         }
         self.last_tick = world.tick;
 
@@ -419,8 +435,7 @@ impl Alerts {
             && v.leaves.saturating_sub(world.tick) <= TRADE_WARNING_TICKS
         {
             self.trade_warned = Some(v.arrived);
-            let text = format!("{} leave in two minutes", caravan_name(session, v.nation));
-            let line = Line::new(Kind::Trade, text.clone(), toast_of(&text)).at(v.camp);
+            let line = camp_line(&caravan_name(session, v.nation), "leave in two minutes", v.camp);
             fresh.push(((world.tick, TRADE_ORDER), line));
         }
         // The one-time bend tip (#382): also not one of `World`'s own monotonic logs, so this
@@ -444,8 +459,27 @@ impl Alerts {
         // then a full stockpile and the bend tip: the order the alert log read the world's nine
         // separate lists in before #605, whatever order the sim logged them in.
         fresh.sort_by_key(|(key, ..)| *key);
-        for ((tick, _), line) in fresh {
+        for ((tick, _), mut line) in fresh {
             self.next_id += 1;
+            let actions = line.actions();
+            if let Some(group) = line.retire
+                && self.notices.is_on()
+            {
+                self.notices.retire(group);
+            }
+            // A pinned event (#945) is a corner notice where a frontend draws them, and then no
+            // toast as well: where none are drawn it stays the toast it always was.
+            if let Some(pin) = line.pin.take()
+                && self.notices.is_on()
+            {
+                self.notices.push(
+                    (line.kind, tick),
+                    (pin.title, pin.body),
+                    actions.clone(),
+                    pin.group,
+                );
+                line.toast = None;
+            }
             let left = if line.toast.is_some() { line.kind.toast_seconds() } else { 0.0 };
             self.log.push(Entry {
                 id: self.next_id,
@@ -459,6 +493,7 @@ impl Alerts {
                 left,
                 toast: line.toast,
                 failed: line.failed,
+                actions,
             });
         }
         for e in &mut self.log {
@@ -486,6 +521,16 @@ impl Alerts {
         self.full_items = stuck.iter().map(|(item, ..)| *item).collect();
     }
 
+    /// The corner notices (#945), for a frontend to draw.
+    pub fn notices(&self) -> &Notices {
+        &self.notices
+    }
+
+    /// The corner notices, to turn on, dismiss or take actions from.
+    pub fn notices_mut(&mut self) -> &mut Notices {
+        &mut self.notices
+    }
+
     /// Every line since the world began, oldest first (bounded by [`MAX_HISTORY`]).
     pub fn history(&self) -> &[Entry] {
         &self.log
@@ -509,6 +554,7 @@ impl Alerts {
             left: 0.0,
             toast: None,
             failed: false,
+            actions: Vec::new(),
         });
         if self.log.len() > MAX_HISTORY {
             self.log.drain(0..self.log.len() - MAX_HISTORY);
@@ -527,6 +573,7 @@ impl Alerts {
             count: usize,
             tick: u64,
             failed: bool,
+            actions: Vec<NoticeAction>,
         }
         let mut groups: Vec<Group> = Vec::new();
         for e in &self.log {
@@ -540,6 +587,7 @@ impl Alerts {
                     g.text = toast.text.clone();
                     g.tick = e.tick;
                     g.failed = e.failed;
+                    g.actions = e.actions.clone();
                 }
                 None => groups.push(Group {
                     kind: e.kind,
@@ -549,6 +597,7 @@ impl Alerts {
                     count: 1,
                     tick: e.tick,
                     failed: e.failed,
+                    actions: e.actions.clone(),
                 }),
             }
         }
@@ -583,6 +632,7 @@ impl Alerts {
                 category: g.category,
                 urgency: g.kind.urgency(g.failed),
                 since: g.tick,
+                actions: g.actions,
                 // A repeat coalesces into the subject plus a count (#417: "Hearthflame failed
                 // ×3"); a lone occurrence keeps its own, richer text instead.
                 text: if g.count > 1 { format!("{} ×{}", g.subject, g.count) } else { g.text },
@@ -602,6 +652,7 @@ impl Alerts {
                 category: Category::Alert,
                 urgency: Urgency::Stores,
                 since: self.stores_since,
+                actions: Vec::new(),
                 text: describe_stores_full(&self.stores_full),
             });
         }
@@ -611,6 +662,7 @@ impl Alerts {
                 category: Category::Alert,
                 urgency: Urgency::Idle,
                 since,
+                actions: Vec::new(),
                 text: TEACHING_WAITS.to_owned(),
             });
         }
@@ -620,6 +672,8 @@ impl Alerts {
                 category: Category::Alert,
                 urgency: Urgency::Idle,
                 since,
+                // The obvious thing to do about it (#945).
+                actions: vec![NoticeAction::OpenResearch],
                 text: describe_research_idle(points),
             });
         }
@@ -655,6 +709,8 @@ pub struct Toast {
     /// The tick it was raised (or last repeated), so the newest sorts first within an urgency.
     pub since: u64,
     pub text: String,
+    /// What a button can do about it (#945), in order.
+    pub actions: Vec<NoticeAction>,
 }
 
 /// One line before it is an [`Entry`]: what an event (or a standing condition) becomes.
@@ -667,12 +723,63 @@ struct Line {
     place: Option<Pos>,
     unit: Option<UnitId>,
     fold: Option<Fold>,
+    /// The buttons it offers, when they are not simply where it is (`Line::actions`).
+    acting: Option<Vec<NoticeAction>>,
+    /// `Some` for an event that is also a corner notice where a frontend draws them (#945).
+    pin: Option<Pin>,
+    /// The notices of this group come down with it (a caravan leaving).
+    retire: Option<Group>,
+}
+
+/// How a line is pinned as a corner notice (#945).
+struct Pin {
+    group: Option<Group>,
+    /// The notice's heading and the lines under it.
+    title: String,
+    body: Vec<String>,
 }
 
 impl Line {
     /// A line that names no place or settler and folds with nothing.
     fn new(kind: Kind, text: String, toast: Option<ToastSpec>) -> Self {
-        Self { kind, text, failed: false, toast, place: None, unit: None, fold: None }
+        Self {
+            kind,
+            text,
+            failed: false,
+            toast,
+            place: None,
+            unit: None,
+            fold: None,
+            acting: None,
+            pin: None,
+            retire: None,
+        }
+    }
+
+    /// Makes it a corner notice too, standing for `group` if it has one, with this heading and
+    /// these lines under it.
+    fn pinned(mut self, group: Option<Group>, title: String, body: Vec<String>) -> Self {
+        self.pin = Some(Pin { group, title, body });
+        self
+    }
+
+    /// Gives it these buttons in place of the default.
+    fn acting(mut self, actions: Vec<NoticeAction>) -> Self {
+        self.acting = Some(actions);
+        self
+    }
+
+    /// The buttons it offers: its own, else a jump to the place it names, else the settler it
+    /// names (#945: an obvious target, nothing more).
+    fn actions(&self) -> Vec<NoticeAction> {
+        if let Some(own) = &self.acting {
+            return own.clone();
+        }
+        match (self.place, self.unit) {
+            (Some(place), _) => vec![NoticeAction::JumpTo(place)],
+            (None, Some(unit)) => vec![NoticeAction::SelectSettler(unit)],
+            (None, None) => Vec::new(),
+        }
     }
 
     fn at(mut self, place: Pos) -> Self {
@@ -745,10 +852,21 @@ fn line_for(session: &Session, ev: &Event) -> Option<Line> {
         }
         Event::Tech(c) => {
             let text = format!("Learned {}", defs.tech(c.tech).name);
+            let title = format!("Research done: {}", defs.tech(c.tech).name);
             Line::new(Kind::Tech, text.clone(), toast(&text))
+                .acting(vec![NoticeAction::OpenResearch])
+                .pinned(None, title, Vec::new())
         }
         Event::Death(d) => {
-            let line = Line::new(Kind::Death, describe_death(d), None);
+            // Rare and the worst news there is, so a corner notice (#945), folded when several
+            // come together; the log line is as it was.
+            let (title, body) =
+                (format!("{} died", d.name), vec![format!("of {}", death_cause(d))]);
+            let line = Line::new(Kind::Death, describe_death(d), None).pinned(
+                Some(Group::Death),
+                title,
+                body,
+            );
             // The settler is gone, so the line has no unit to follow; the tile it died on (#775)
             // is what `Enter` jumps to. A death from before the event carried one has none.
             match d.pos {
@@ -827,6 +945,16 @@ fn caravan_name(session: &Session, nation: fn_sim::Nation) -> String {
     caravans.iter().find(|c| c.nation == nation).map_or("Traders".to_owned(), |c| c.name.clone())
 }
 
+/// A line about the caravan at `camp` (it made camp, it is about to leave): a toast, and where a
+/// frontend draws them a corner notice (#945) with a jump to the camp and the Traders screen.
+fn camp_line(name: &str, what: &str, camp: Pos) -> Line {
+    let text = format!("{name} {what}");
+    Line::new(Kind::Trade, text.clone(), toast_of(&text))
+        .at(camp)
+        .acting(vec![NoticeAction::JumpToCaravan(camp), NoticeAction::OpenTraders])
+        .pinned(Some(Group::Caravan), name.to_owned(), vec![what.to_owned()])
+}
+
 /// A caravan's line (#438, docs/design/text-voice.md): "Fire Nation traders made camp", "...
 /// found nowhere to camp", "... left", and in the log only "Deal done with the Fire Nation
 /// traders: 2 metal" and "Request met: Food for the families at Fire Fountain City".
@@ -835,8 +963,7 @@ fn caravan_line(session: &Session, ev: &CaravanEvent) -> Line {
     let caravan = |n, united| defs.trade.caravan(n, united);
     match &ev.kind {
         CaravanEventKind::Arrived { nation, camp } => {
-            let text = format!("{} made camp", caravan_name(session, *nation));
-            Line::new(Kind::Trade, text.clone(), toast_of(&text)).at(*camp)
+            camp_line(&caravan_name(session, *nation), "made camp", *camp)
         }
         CaravanEventKind::Skipped { nation } => {
             let text = format!("{} found nowhere to camp", caravan_name(session, *nation));
@@ -844,7 +971,11 @@ fn caravan_line(session: &Session, ev: &CaravanEvent) -> Line {
         }
         CaravanEventKind::Left { nation } => {
             let text = format!("{} left", caravan_name(session, *nation));
-            Line::new(Kind::Trade, text.clone(), toast_of(&text))
+            // The camp is gone: so is any notice that offered a jump to it (#945).
+            Line {
+                retire: Some(Group::Caravan),
+                ..Line::new(Kind::Trade, text.clone(), toast_of(&text))
+            }
         }
         CaravanEventKind::DealDone { nation, deal, united } => {
             let name = caravan_name(session, *nation);
@@ -957,7 +1088,12 @@ fn describe_chart_event(session: &Session, ev: &ChartEvent) -> (String, ToastSpe
 /// The alert line for a death: "Mei died of starvation". The web replayer's timeline markers
 /// (#595) use it too, so a marker's tooltip reads like the log.
 pub fn describe_death(d: &Death) -> String {
-    let how = match d.cause {
+    format!("{} died of {}", d.name, death_cause(d))
+}
+
+/// What a settler died of, as a noun: "starvation".
+fn death_cause(d: &Death) -> &'static str {
+    match d.cause {
         DeathCause::Starvation => "starvation",
         DeathCause::Dehydration => "dehydration",
         DeathCause::Exhaustion => "exhaustion",
@@ -965,8 +1101,7 @@ pub fn describe_death(d: &Death) -> String {
         DeathCause::Exposure => "exposure",
         DeathCause::Injury => "injuries",
         DeathCause::Sickness => "sickness",
-    };
-    format!("{} died of {how}", d.name)
+    }
 }
 
 /// "Pema has joined the settlement" (#232).
@@ -2006,6 +2141,84 @@ mod tests {
         assert_eq!(warned(&log), 1, "still one");
         assert!(log.iter().any(|(_, t)| t == "Fire Nation traders left"), "{log:?}");
         assert!(alerts.history().iter().all(|e| e.kind != Kind::Trade || !e.worth_stopping()));
+    }
+
+    /// Corner notices (#945): a caravan making camp is one with a jump to its camp, the leaving
+    /// warning takes its place, and the caravan leaving takes it down. Where no frontend draws
+    /// notices (the default), none is made and the toasts are as they were.
+    #[test]
+    fn a_caravan_is_a_corner_notice_from_camp_to_leaving() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let src = include_str!("../../../data/trade.toml")
+            .replacen("opens = \"known_on_the_road\"", "", 1)
+            .replacen("offset_minutes = 4.0", "offset_minutes = 0.1", 1);
+        s.defs = s.defs.clone().with_trade(&src).unwrap();
+        let (mut pinned, mut plain) = (Alerts::default(), Alerts::default());
+        pinned.notices_mut().set_on(true);
+        fn run(s: &mut Session, pinned: &mut Alerts, plain: &mut Alerts, ticks: u64) {
+            for _ in 0..ticks {
+                s.tick();
+                pinned.update(s, 0.0);
+                plain.update(s, 0.0);
+            }
+        }
+        run(&mut s, &mut pinned, &mut plain, 100);
+        let camp = s.world.caravan().expect("camped").camp;
+        let up: Vec<_> = pinned.notices().shown().collect();
+        assert_eq!(up.len(), 1);
+        assert_eq!(up[0].title, "Fire Nation traders");
+        assert_eq!(up[0].body, ["made camp"]);
+        assert_eq!(up[0].actions, [NoticeAction::JumpToCaravan(camp), NoticeAction::OpenTraders]);
+        assert!(pinned.toasts().is_empty(), "a notice instead of a toast");
+        assert!(!plain.notices().any(), "off by default");
+        assert_eq!(plain.toast_lines(), ["Fire Nation traders made camp"]);
+
+        run(&mut s, &mut pinned, &mut plain, 7 * 600);
+        let texts: Vec<_> = pinned.notices().shown().map(|n| n.text()).collect();
+        assert_eq!(texts, ["Fire Nation traders leave in two minutes"], "replaced, not stacked");
+        run(&mut s, &mut pinned, &mut plain, 2 * 600 + 10);
+        assert!(!pinned.notices().any(), "nothing to jump to once they have left");
+        assert!(pinned.history().iter().any(|e| e.text == "Fire Nation traders left"));
+    }
+
+    /// A finished tech and a death are corner notices too (#945), with the research screen and
+    /// the place the settler died as their buttons; an ordinary toast names its target the same
+    /// way (a newcomer: show the settler).
+    #[test]
+    fn a_tech_and_a_death_are_corner_notices_and_toasts_carry_actions() {
+        let s = v3_fixture_session();
+        let mut pinned = Alerts::default();
+        pinned.notices_mut().set_on(true);
+        pinned.update(&s, 0.0);
+        let up: Vec<_> = pinned.notices().shown().collect();
+        let tech = up.iter().find(|n| n.kind == Kind::Tech).expect("a tech notice");
+        assert!(tech.title.starts_with("Research done: "), "{}", tech.title);
+        assert_eq!(tech.actions, [NoticeAction::OpenResearch]);
+        let death = up.iter().find(|n| n.kind == Kind::Death).expect("a death notice");
+        assert!(death.text().contains(" died of "), "{}", death.text());
+        assert!(pinned.toasts().iter().all(|t| t.kind != Kind::Tech));
+
+        let mut plain = Alerts::default();
+        plain.update(&s, 0.0);
+        assert!(!plain.notices().any());
+        let toasts = plain.toasts();
+        let learned = toasts.iter().find(|t| t.kind == Kind::Tech).expect("still a toast");
+        assert_eq!(learned.actions, [NoticeAction::OpenResearch]);
+        let newcomer = toasts.iter().find(|t| t.kind == Kind::Arrival).expect("a newcomer");
+        assert!(matches!(newcomer.actions[..], [NoticeAction::SelectSettler(_)]));
+    }
+
+    /// The notices survive a frame but not a new world, which keeps the frontend's choice.
+    #[test]
+    fn a_new_world_clears_the_notices_and_keeps_them_on() {
+        let s = v3_fixture_session();
+        let mut alerts = Alerts::default();
+        alerts.notices_mut().set_on(true);
+        alerts.update(&s, 0.0);
+        assert!(alerts.notices().any());
+        let fresh = Session::new(7, Nation::Earth, 48, 32);
+        alerts.update(&fresh, 0.0);
+        assert!(!alerts.notices().any() && alerts.notices().is_on());
     }
 
     #[test]

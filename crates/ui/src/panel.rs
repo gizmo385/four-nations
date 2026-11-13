@@ -429,7 +429,7 @@ fn picker_row(row: &build::PickerRow, chosen: Option<BuildingId>, marks: &Marks)
 }
 
 /// The Tool section's one row while the Bend tool is active (#418, docs/design/side-panel-v2.md
-/// "Zone 3"): the current ability (the one `B` would channel next, or cycles to, #248) and how
+/// "Zone 3"): the current ability (the one the tool channels, #248) and how
 /// many in the settlement could cast it ("Hearthflame 20 benders", `World::caster_count`), or,
 /// for a rank-gated ability, how many hold the rank itself ("2 adepts", "no master",
 /// `text::caster_label`). `None` with nothing castable.

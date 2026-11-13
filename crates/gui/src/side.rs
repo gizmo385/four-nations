@@ -32,6 +32,7 @@ use fn_ui::alerts::Toast;
 use fn_ui::app::App;
 use fn_ui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 use fn_ui::msglog;
+use fn_ui::notice::NoticeAction;
 use fn_ui::panel::{
     AlertsSection, ChoiceTones, SETTLEMENT_KEY, Settlement, SidePanel, ToolLine, ToolSection,
 };
@@ -138,7 +139,14 @@ fn chars(spans: &[(String, Tone)]) -> usize {
 
 /// Draws the panel into `ui`, the side panel's slot, and returns the keys its clicks stand for.
 /// `live` is false while a box or screen has the keys: the panel still shows but takes no click.
-pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics, live: bool) -> Clicks {
+pub fn show(
+    ui: &mut Ui,
+    app: &App,
+    palette: &Palette,
+    metrics: &Metrics,
+    live: bool,
+    actions: &mut Vec<NoticeAction>,
+) -> Clicks {
     let model = model(app, palette);
     let fill = |rgb| to_egui(palette.token(rgb), Color32::BLACK);
     let mut clicks = Clicks::new();
@@ -189,7 +197,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics, live: 
                 title(ui, &look, &model.title);
                 header(ui, &look, &model, app.session.clock.paused, &mut clicks);
                 glance(ui, &look, &model.settlement, &mut clicks);
-                alerts(ui, &look, &model.alerts, app, &mut clicks);
+                alerts(ui, &look, &model.alerts, app, (&mut clicks, &mut *actions));
                 if let Some(tool) = &model.tool {
                     tool_section(ui, &look, tool, &mut clicks);
                 }
@@ -198,6 +206,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics, live: 
     });
     if !live {
         clicks.clear();
+        actions.clear();
     }
     clicks
 }
@@ -408,7 +417,13 @@ fn trailing_key(right: &str) -> Option<char> {
 }
 
 /// The open alerts, each whole and wrapped, a gap between them.
-fn alerts(ui: &mut Ui, look: &Look<'_>, a: &AlertsSection, app: &App, clicks: &mut Clicks) {
+fn alerts(
+    ui: &mut Ui,
+    look: &Look<'_>,
+    a: &AlertsSection,
+    app: &App,
+    (clicks, actions): (&mut Clicks, &mut Vec<NoticeAction>),
+) {
     heading(ui, look, &a.title, &a.right, Tone::Heading, trailing_key(&a.right), clicks);
     // The model's entries are `Alerts::open`'s, one for one.
     let open = app.ui.alerts.open();
@@ -425,6 +440,20 @@ fn alerts(ui: &mut Ui, look: &Look<'_>, a: &AlertsSection, app: &App, clicks: &m
             && let Some(toast) = open.get(i)
         {
             clicks.extend(alert_keys(&app.ui, toast));
+        }
+        // The alert's buttons (#945), where it has an obvious target.
+        if let Some(toast) = open.get(i)
+            && !toast.actions.is_empty()
+        {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(look.cw, 2.0);
+                for &action in &toast.actions {
+                    let text = RichText::new(action.label()).font(look.font.clone());
+                    if ui.add(Button::new(text).small()).clicked() {
+                        actions.push(action);
+                    }
+                }
+            });
         }
     }
 }

@@ -4,7 +4,7 @@ use crate::keyev::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crate::research::screen_view;
 use crate::saves::{self, Store};
 use crate::toolpanel;
-use crate::tools::{Order, apply_order, cycle_ability, switch_tool};
+use crate::tools::{Order, apply_order, switch_tool};
 use crate::{Session, Tool};
 use fn_sim::{Nation, Pos, World};
 
@@ -12,6 +12,7 @@ use crate::airship;
 use crate::ask::Answer;
 use crate::input::{Action, map_key};
 use crate::menu::{MenuPage, MenuRow};
+use crate::notice::NoticeAction;
 use crate::screens::saves as saves_screen;
 use crate::screens::{self, abilities, build as build_screen, msglog, nation, research, traders};
 use crate::script::Step;
@@ -131,6 +132,13 @@ impl App {
             msglog::press(&mut self.ui, &self.session, c);
             return;
         }
+        // The Abilities list's rows are on the number row too (#952): `1` to `9` put the pointer
+        // on that ability. A keypad digit still moves, as everywhere else.
+        if self.ui.screen == Some(Screen::Abilities)
+            && let Some(n) = crate::input::row_digit(key)
+        {
+            return self.point_at_ability(n);
+        }
         if let Some(action) = map_key(key) {
             self.act(action);
         }
@@ -152,9 +160,12 @@ impl App {
                 self.ui.jump(dx, dy);
                 self.foot_hint();
             }
-            // `U` opens the Build modal instead of switching tools (#285); every other tool key
-            // still goes straight to `pick_tool`.
+            // `U` opens the Build modal instead of switching tools (#285), and `B` the abilities
+            // screen (#952): a tool's key never changes what it does by being pressed again, so
+            // both open a list and `Enter` there arms the tool. Every other tool key still goes
+            // straight to `pick_tool`.
             Action::PickTool(Tool::Build) => self.open_build_modal(),
+            Action::PickTool(Tool::Bend) => self.open_abilities(),
             Action::PickTool(tool) => self.pick_tool(tool),
             // Standing orders (#277) are Harvest's own toggle, teardown (#335) is Cancel's;
             // `O` does nothing in any other tool, including Select.
@@ -189,6 +200,9 @@ impl App {
             Action::NextRecipe => {}
             Action::Confirm => self.confirm(),
             Action::Cancel => self.cancel(),
+            Action::DismissNotice => {
+                self.ui.alerts.notices_mut().dismiss_newest();
+            }
             Action::NextUnit if self.ui.tool == Tool::Select => self.ui.cycle(&self.session, 1),
             Action::PrevUnit if self.ui.tool == Tool::Select => self.ui.cycle(&self.session, -1),
             Action::Follow if self.ui.tool == Tool::Select => {
@@ -264,8 +278,8 @@ impl App {
     }
 
     /// Picks `tool` from the list and closes it. The tool already active is left as it is (its
-    /// letter pressed again would cycle Bend's ability or flip Clear to buildings, which is not
-    /// what picking a row asks for); Build opens its picker, as `U` does.
+    /// letter pressed again would flip Clear to buildings, which is not what picking a row asks
+    /// for); Build and Bend open their lists, as `U` and `B` do.
     fn pick_from_list(&mut self, tool: Tool) {
         self.ui.tool_list = None;
         let active = match self.ui.tool {
@@ -274,6 +288,8 @@ impl App {
         };
         if tool == Tool::Build {
             self.open_build_modal();
+        } else if tool == Tool::Bend {
+            self.open_abilities();
         } else if tool != active {
             self.pick_tool(tool);
         }
@@ -371,7 +387,12 @@ impl App {
         if self.ui.screen == Some(Screen::Abilities) {
             // The list has a pointer, not a scroll (#719): the arrows move it by one ability (a
             // Shift step is still one), PgUp/PgDn by a page, and Enter picks for the Bend tool.
+            // `B` closes the list, as `I` does and as `U` closes the Build list (#952).
             match action {
+                Action::PickTool(Tool::Bend) => {
+                    self.ui.screen = None;
+                    return;
+                }
                 Action::Move { dy, .. } => return self.move_ability_cursor(dy),
                 Action::Jump { dy, .. } => {
                     return self.move_ability_cursor(dy * self.ability_page());
@@ -430,6 +451,7 @@ impl App {
             | Action::Confirm
             | Action::NextUnit
             | Action::PrevUnit
+            | Action::DismissNotice
             | Action::Follow => {}
         }
     }
@@ -438,6 +460,28 @@ impl App {
     fn step(&mut self) {
         if self.session.step() > 0 {
             self.settle(0.0);
+        }
+    }
+
+    /// Carries out the button of a corner notice or a toast (#945): jumps to the place, shows the
+    /// settler, opens the screen. Does nothing while a screen is open over the map (the buttons
+    /// are the map's).
+    pub fn do_notice_action(&mut self, action: NoticeAction) {
+        if self.ui.screen.is_some() {
+            return;
+        }
+        match action {
+            NoticeAction::JumpToCaravan(place) | NoticeAction::JumpTo(place) => {
+                self.ui.go_to(place);
+            }
+            NoticeAction::SelectSettler(id) => {
+                self.ui.select_unit(&self.session, id);
+                if let Some(unit) = self.session.world.unit(id) {
+                    self.ui.go_to(unit.pos);
+                }
+            }
+            NoticeAction::OpenResearch => self.open(Screen::Research),
+            NoticeAction::OpenTraders => self.open(Screen::Traders),
         }
     }
 
@@ -588,6 +632,14 @@ impl App {
         let at = self.ui.ability_cursor.min(rows.len().saturating_sub(1)) as i64;
         let to = (at + i64::from(dy)).clamp(0, rows.len() as i64 - 1).max(0);
         self.ui.ability_cursor = to as usize;
+    }
+
+    /// Puts the abilities screen's pointer on row `n` (0-based, locked rows included, so the
+    /// strip can say what they need); a number past the list's end does nothing.
+    fn point_at_ability(&mut self, n: usize) {
+        if n < crate::bend::abilities(&self.session).len() {
+            self.ui.ability_cursor = n;
+        }
     }
 
     /// How many abilities PgUp and PgDn move: a page of the list (its header takes a row).
@@ -1001,15 +1053,21 @@ impl App {
         self.dirty = true;
     }
 
-    /// A tool key other than `U`, which opens the Build modal instead ([`Self::open_build_modal`]):
+    /// A tool key other than `U` and `B`, which open the Build modal and the abilities screen
+    /// instead ([`Self::open_build_modal`], [`Self::open_abilities`]):
     /// the tool becomes active, and the corner and the last result are dropped (pressing the
     /// active tool's own key again does just that).
     fn pick_tool(&mut self, requested: Tool) {
-        // `B` again moves on to the next ability the settlement can use (#123).
-        cycle_ability(&mut self.session, self.ui.tool, requested);
         let (tool, choice) = switch_tool(&self.session, self.ui.tool, self.ui.choice, requested);
         self.ui.choice = choice;
         self.ui.set_tool(tool);
+    }
+
+    /// `B` (#952): opens the abilities screen, the pointer on the ability the Bend tool channels
+    /// now, so `B` `Enter` re-arms the last one. The tool and its ability stay as they were until
+    /// `Enter` there picks one ([`Self::pick_ability`]).
+    fn open_abilities(&mut self) {
+        self.open(Screen::Abilities);
     }
 
     /// `U`: opens the Build modal (#285) instead of switching tools; the tool and the choice
@@ -1148,7 +1206,12 @@ impl App {
             KeyCode::Char(c) if c.is_alphabetic() => {
                 self.ui.build_cursor = build_screen::jump_to_letter(&rows, at, c);
             }
-            _ => {}
+            // `1` to `9` put the highlight on that row (#952).
+            _ => {
+                if let Some(n) = crate::input::row_digit(key).filter(|&n| n < rows.len()) {
+                    self.ui.build_cursor = n;
+                }
+            }
         }
     }
 
@@ -1218,6 +1281,17 @@ impl App {
             return self.set_foot(head);
         }
         if self.ui.tool == Tool::Select {
+            // A corner notice up (#945) is what `Enter` answers first, while nobody is selected:
+            // its first button, and the notice is done with.
+            let top =
+                self.ui.alerts.notices().shown().next().map(|n| (n.id, n.actions.first().copied()));
+            if self.ui.selected.is_none()
+                && let Some((id, Some(first))) = top
+            {
+                self.do_notice_action(first);
+                self.ui.alerts.notices_mut().dismiss(id);
+                return;
+            }
             // A dock with nobody on it opens its screen (#763) where a unit would be selected.
             if self.ui.selectable_here(&self.session).is_empty()
                 && let Some(picks) = airship::open(&self.session, self.ui.cursor)
@@ -1304,7 +1378,8 @@ impl App {
         if self.ui.tool == Tool::Select {
             if self.ui.selected.is_some() {
                 self.ui.select(None);
-            } else {
+            } else if !self.ui.alerts.notices_mut().dismiss_newest() {
+                // A corner notice (#945) is the last thing `Esc` closes: with none up, the menu.
                 self.open_menu();
             }
         } else if self.ui.anchor.take().is_none() {

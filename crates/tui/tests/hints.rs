@@ -135,7 +135,7 @@ fn a_tool_names_its_own_toggle_and_no_other_tools() {
         assert!(!line.contains(other), "{script:?}:\n{line}");
     }
     // A tool with no toggle names none, and neither does Select.
-    for script in ["", "e", "p", "b", "c"] {
+    for script in ["", "e", "p", "b <enter>", "c"] {
         let (line, _) = status_line(script, 120);
         assert!(!line.contains("O repeat") && !line.contains("O teardown"), "{script:?}:\n{line}");
     }

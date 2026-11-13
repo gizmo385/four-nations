@@ -10,7 +10,7 @@
 //! `U` leaves the tool and the choice as they were. Arrows or `W`/`S` move the highlight by one
 //! row, locked ones included, so the strip can show what they still need; any other letter jumps
 //! to the next name that starts with it (`W`, `S` and `U` are taken, so a building beginning
-//! with one can't be reached that way).
+//! with one can't be reached that way). `1` to `9` put the highlight on that row (#952).
 
 use crate::color::Palette;
 use crate::page;

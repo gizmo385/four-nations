@@ -66,7 +66,6 @@ fn a_tools_own_letter_picks_it_from_the_list() {
         ("x", Tool::CancelHarvest),
         ("e", Tool::Clear),
         ("p", Tool::Stockpile),
-        ("b", Tool::Bend),
         ("c", Tool::Sow),
     ] {
         let a = app(&format!("/ {letter}"));
@@ -77,6 +76,11 @@ fn a_tools_own_letter_picks_it_from_the_list() {
     let a = app("/ u");
     assert_eq!(a.ui.tool_list, None);
     assert!(a.ui.modal.is_some());
+    // Bend opens the abilities list, as `B` does (#952): the tool waits for `Enter` there.
+    let a = app("/ b");
+    assert_eq!(a.ui.tool_list, None);
+    assert_eq!(a.ui.screen, Some(fn_tui::state::Screen::Abilities));
+    assert_eq!(a.ui.tool, Tool::Select);
 }
 
 #[test]
@@ -86,13 +90,13 @@ fn the_seven_letters_still_work_straight_from_the_map() {
         ("x", Tool::CancelHarvest),
         ("e", Tool::Clear),
         ("p", Tool::Stockpile),
-        ("b", Tool::Bend),
         ("c", Tool::Sow),
     ] {
         let a = app(letter);
         assert_eq!((a.ui.tool, a.ui.tool_list), (tool, None), "{letter}");
     }
     assert!(app("u").ui.modal.is_some());
+    assert_eq!(app("b").ui.screen, Some(fn_tui::state::Screen::Abilities));
 }
 
 #[test]

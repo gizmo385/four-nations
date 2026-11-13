@@ -101,6 +101,8 @@ fn the_camp_draws_as_tents_and_the_traders_on_the_map() {
     let mut a = year_two();
     run(&mut a, CAMPED);
     let camp = a.session.world.caravan().expect("camped").camp;
+    // Where the camp lands depends on where the settlers are, so bring it into view.
+    a.ui.go_to(camp);
     let frame = text(&mut a);
     let row = |dy: i32| -> String {
         let (x0, y0) = (a.ui.view.x, a.ui.view.y);

@@ -6,11 +6,12 @@
 //! highlighted row is marked by `▸` and the quiet background (`page::highlight`), and its place
 //! in the list is on the bottom edge once the list scrolls.
 //!
-//! The pointer opens on the ability the Bend tool channels now. `Enter` (`App::pick_ability`)
-//! picks the highlighted one: the Bend tool becomes active with it and the screen closes; on one
-//! that can't be used yet it does nothing, and the strip says why. `Esc` or `I` closes the
-//! screen and leaves the tool and its ability as they were. `B` still picks the Bend tool
-//! directly, and pressed again moves on to the next usable ability, as before.
+//! `B` opens it from the map (#952, as `U` opens the Build screen) and `I` opens the same one.
+//! The pointer opens on the ability the Bend tool channels now, so `B` `Enter` re-arms the last
+//! one. `Enter` (`App::pick_ability`) picks the highlighted one: the Bend tool becomes active
+//! with it and the screen closes; on one that can't be used yet it does nothing, and the strip
+//! says why. `1` to `9` put the pointer on that row. `Esc`, `B` or `I` closes the screen and
+//! leaves the tool and its ability as they were.
 
 use crate::bend::AbilityRow;
 use crate::rows::{Marks, Row, Tone, fit, wrap};

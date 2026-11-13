@@ -121,7 +121,7 @@ pub fn choices(session: &Session) -> Vec<ToolChoice> {
         .collect()
 }
 
-/// Bend's row: the ability `B` would channel, by name; with none usable yet, why.
+/// Bend's row: the ability the tool channels, by name; with none usable yet, why.
 fn bend_choice(session: &Session) -> (String, Option<String>) {
     match bend_ability(session) {
         Some(id) if !usable_abilities(session).is_empty() => {

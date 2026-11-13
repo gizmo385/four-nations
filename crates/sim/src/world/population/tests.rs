@@ -428,3 +428,104 @@ fn old_saves_without_the_growth_fields_still_load() {
     sorted.dedup();
     assert_eq!(ids.len(), sorted.len(), "a newcomer's id collided with an existing unit: {ids:?}");
 }
+
+/// A big flat island with the settlement in the middle, so the nearest-edge spawn is 70 tiles
+/// of path out (#944).
+fn big_world(defs: &Defs) -> World {
+    let map = Grid::from_fn(141, 141, |_| Tile {
+        elevation: 100,
+        temperature: 128,
+        moisture: 128,
+        terrain: Terrain::Land,
+        biome: BiomeId(0),
+        resource: None,
+        building: None,
+    });
+    World::with_map(1, map, Nation::Earth, &[at(70, 70)], defs)
+}
+
+fn newcomer_index(w: &World) -> usize {
+    w.units.len() - 1
+}
+
+/// Ticks a unit needs for `steps` straight steps at baseline speed, with generous slack for
+/// terrain and a slower nation.
+fn walk_budget(steps: u64) -> u64 {
+    steps * (BASE_TICKS_PER_STEP as u64) * 2
+}
+
+/// #944: a newcomer who spawns far out walks straight to the settlement, in about the time the
+/// path takes, and is on normal behaviour (not `homeward`) once there.
+#[test]
+fn a_far_newcomer_walks_straight_home_and_then_behaves_normally() {
+    let defs = Defs::bundled();
+    let mut w = big_world(&defs);
+    w.units[0].idle_until = u64::MAX;
+    assert!(w.spawn_newcomer(&defs));
+    let n = newcomer_index(&w);
+    let start = w.units[n].pos;
+    let anchor = w.settlement_anchor();
+    let dist = |p: Pos| (p.x - anchor.x).abs().max((p.y - anchor.y).abs());
+    assert!(dist(start) >= 60, "spawned only {} tiles out", dist(start));
+    assert!(w.units[n].homeward);
+    let mut last = dist(start);
+    let mut arrived_at = None;
+    for t in 0..walk_budget(dist(start) as u64) {
+        w.tick(&defs);
+        let d = dist(w.units[n].pos);
+        // Straight home: never further from the anchor than a step back (a wander would drift
+        // both ways).
+        assert!(d <= last + 1, "tick {t}: drifted from {last} to {d}");
+        last = last.min(d);
+        if !w.units[n].homeward {
+            arrived_at = Some(t);
+            break;
+        }
+    }
+    assert!(arrived_at.is_some(), "never arrived; {} tiles out", dist(w.units[n].pos));
+    assert_eq!(w.units[n].pos, anchor);
+    assert!(w.units[n].route.is_none());
+}
+
+/// #944: an urgent need still wins on the way (the newcomer eats), and the walk resumes after,
+/// so it neither starves nor gives up.
+#[test]
+fn a_hungry_newcomer_eats_on_the_way_and_still_arrives() {
+    let defs = Defs::bundled();
+    let mut w = big_world(&defs);
+    w.units[0].idle_until = u64::MAX;
+    let fish = defs.item_id("fish").unwrap();
+    w.stored.insert(at(70, 71), Stack { item: fish, count: 20 });
+    assert!(w.spawn_newcomer(&defs));
+    let n = newcomer_index(&w);
+    let id = w.units[n].id;
+    let low = defs.needs.hunger.low;
+    w.units[n].needs.hunger = low * 0.5;
+    let before = w.stored_food(&defs);
+    let mut ate = false;
+    for _ in 0..walk_budget(200) {
+        w.tick(&defs);
+        let Some(u) = w.unit(id) else { panic!("the newcomer died on the way") };
+        ate |= w.stored_food(&defs) < before;
+        if !u.homeward {
+            break;
+        }
+    }
+    let u = w.unit(id).expect("alive");
+    assert!(ate, "it should have gone for food");
+    assert!(!u.homeward, "it should still have arrived");
+    assert!(u.needs.hunger > low, "hunger {} still low", u.needs.hunger);
+}
+
+/// #944: a save from before `homeward` existed loads with nobody walking in.
+#[test]
+fn old_saves_without_homeward_load_as_settled() {
+    let defs = Defs::bundled();
+    let mut w = world(1, &defs);
+    assert!(w.spawn_newcomer(&defs));
+    let text = w.save(&defs).unwrap();
+    assert!(text.contains("homeward:true"), "{text}");
+    let old = text.replace("homeward:true,", "").replace("homeward:false,", "");
+    let loaded = World::load(&old, &defs).unwrap();
+    assert!(loaded.units.iter().all(|u| !u.homeward));
+}

@@ -37,4 +37,4 @@
 │                                                                                                                      │
 │                                                                                                                      │
 ┗──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┛
- BUILD  Up/Down choose · Enter build · Esc or U close                                                     PAUSED ? keys
+ BUILD  Up/Down choose · 1-9 row · Enter build · Esc or U close                                           PAUSED ? keys

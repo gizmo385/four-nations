@@ -61,6 +61,8 @@ pub enum Action {
     PrevUnit,
     /// `F`: the cursor tracks the selected unit.
     Follow,
+    /// `Del`: takes down the newest corner notice (#945), where the frontend draws them.
+    DismissNotice,
     /// `T`: the research screen.
     ShowResearch,
     /// `L` and `?`: the message log and the key help.
@@ -348,8 +350,8 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Select], &[Action::NextUnit], "Tab", "next unit", None);
     add(&[Mode::Select], &[Action::Cancel], "Esc", "menu", None);
     add(IN_SELECT, &[Action::ShowTools], "/", "tools", None);
-    // The abilities screen (#719): a hint-bar item only, no key help row (`B` still picks the
-    // Bend tool directly, and the screen is where Bend's abilities are read and chosen).
+    // The abilities screen (#719): a hint-bar item only, no key help row (`B` opens the same
+    // screen, #952, and it is where Bend's abilities are read and chosen).
     add(IN_SELECT, &[Action::ShowAbilities], "I", "abilities", None);
     add(&[Mode::Selected], &[Action::Confirm], "Enter", "next unit here", None);
     add(&[Mode::Selected], &[Action::NextUnit], "Tab", "next unit", None);
@@ -376,8 +378,15 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Nation], &[jump], "PgUp/PgDn", "page", None);
 
     add(&[Mode::Abilities], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Abilities], &[], "1-9", "row", None);
     add(&[Mode::Abilities], &[Action::Confirm], "Enter", "bend", None);
-    add(&[Mode::Abilities], &[Action::Cancel, Action::ShowAbilities], "Esc or I", "close", None);
+    add(
+        &[Mode::Abilities],
+        &[Action::Cancel, Action::ShowAbilities, Action::PickTool(Tool::Bend)],
+        "Esc, B or I",
+        "close",
+        None,
+    );
     add(&[Mode::Abilities], &[jump], "PgUp/PgDn", "page", None);
 
     add(&[Mode::Traders], &[step], "Up/Down", "choose", None);
@@ -438,6 +447,7 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Tools], &all_tools, &tools, "by letter", None);
 
     add(&[Mode::Build], &[], "Up/Down", "choose", None);
+    add(&[Mode::Build], &[], "1-9", "row", None);
     add(&[Mode::Build], &[], "Enter", "build", None);
     add(&[Mode::Build], &[], "Esc or U", "close", None);
 
@@ -518,6 +528,9 @@ fn build() -> Vec<Entry> {
         help(units, "Previous settler"),
     );
     add(&[Mode::Map], &[Action::Follow], "F", "follow", help(units, "Follow the selected settler"));
+    // The window's corner notices (#945): in no hint bar and not in the key help (the terminal
+    // has no notices, and the help screen is full); the notice's close button names the key.
+    add(&[], &[Action::DismissNotice], "Delete", "dismiss notice", None);
     add(&[Mode::Map], &[Action::Cancel], "Esc", "close", help(units, "Deselect, or open the menu"));
     add(
         &[Mode::Map],
@@ -633,7 +646,7 @@ fn tool_help(tool: Tool) -> &'static str {
         Tool::CancelHarvest => "Cancel a mark",
         Tool::Clear | Tool::Deconstruct => "Clear the ground",
         Tool::Stockpile => "Stockpile",
-        Tool::Bend => "Bend: channel the nation's ability",
+        Tool::Bend => "Bend: pick an ability to channel",
         Tool::Build => "Build",
         Tool::Sow => "Sow a farm plot",
     }
