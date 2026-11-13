@@ -1298,15 +1298,15 @@ impl Host {
         let mut keys = self.close_overlay_keys();
         keys.push(char_key('t'));
         let view = fn_ui::research::screen_view(session);
-        let (view, target) = match find(&view) {
-            Some(target) => (view, target),
+        let (view, page, target) = match find(&view) {
+            Some(target) => (view, fn_ui::research::ResearchPage::Tree, target),
             // Not on the tree: a borrowed tech or a fusion on the From newcomers page (#938),
             // which `Tab` turns to once the gate stands.
             None if fn_ui::research::has_newcomers(session) => {
                 let page = fn_ui::research::newcomers_view(session);
                 let target = find(&page).ok_or_else(|| format!("no such tech {tech:?}"))?;
                 keys.push(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-                (page, target)
+                (page, fn_ui::research::ResearchPage::Newcomers, target)
             }
             None => return Err(format!("no such tech {tech:?}")),
         };
@@ -1317,6 +1317,12 @@ impl Host {
         let start = crate::research::initial_cursor(session, &view);
         keys.extend(research_nav_keys(&view, start, target));
         keys.push(enter_key());
+        // A school option asks first (CHOOSE A SCHOOL, #729): the step names the tech, so it
+        // answers the box with a second Enter. Without it the Esc below cancelled the box and
+        // the target was never set.
+        if crate::research::needs_confirm(session, page, target).is_some() {
+            keys.push(enter_key());
+        }
         keys.push(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         Ok(keys)
     }
@@ -4739,6 +4745,29 @@ mod tests {
             .clone();
         let result = h.act(&[ActionStep::Research { tech: tree }], None);
         assert!(!result.keys.contains(&"<tab>".to_owned()), "{:?}", result.keys);
+    }
+
+    /// A school option opens CHOOSE A SCHOOL; the `research` step answers it with a second Enter,
+    /// so the target is set (the Esc used to cancel the box, and nothing was chosen).
+    #[test]
+    fn act_research_confirms_a_school_option() {
+        let nation = Nation::Water;
+        let mut h = host(nation);
+        let view = fn_ui::research::screen_view(&h.app().session);
+        let card = view
+            .columns
+            .iter()
+            .flatten()
+            .find(|c| c.school.is_some())
+            .expect("every nation has a school fork");
+        let (tech, id) = (card.name.clone(), card.id);
+        let result = h.act(&[ActionStep::Research { tech: tech.clone() }], None);
+        assert!(result.error.is_none(), "{result:?}");
+        let tail: Vec<&str> = result.keys.iter().rev().take(3).map(String::as_str).collect();
+        assert_eq!(tail, ["<esc>", "<enter>", "<enter>"], "{:?}", result.keys);
+        let research = h.app().session.world.research();
+        assert_eq!(research.queue().last(), Some(&id), "{tech} is the target");
+        assert_same_as_key_script(&mut h, nation, &result.keys.join(" "));
     }
 
     #[test]
