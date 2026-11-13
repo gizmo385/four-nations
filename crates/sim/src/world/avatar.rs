@@ -4,9 +4,9 @@
 //! that already decides who may claim what; this file only owns *whether* he is here.
 //!
 //! **Arrival.** Two in-game minutes (`AvatarDef::arrive_after_minutes`) after the gate's
-//! foundation stage is done (`GateSite`, `gate.rs`, #236), he appears on the nearest free tile
-//! west of the site, searched in row-major order (`Grid::positions`) so it is deterministic. A
-//! world with no gate, or whose data has no `[avatar]`, never schedules him.
+//! foundation stage is done (`GateSite`, `gate.rs`, #236), he appears on the free tile nearest
+//! the site by walking distance, west of it when one can be reached (#1001), so he can always
+//! walk to the gate. A world with no gate, or whose data has no `[avatar]`, never schedules him.
 //!
 //! **Leaving and returning.** While he is here, `check_avatar_patience` watches his hunger and
 //! energy: if either has stayed at or below `low` with no gap for `AvatarDef::patience_minutes`,
@@ -25,6 +25,7 @@
 //! (a claimed job is released like a death's, `World::release`), so reusing it is safe.
 
 use super::*;
+use crate::flood::Flood;
 
 /// Reserved for the Avatar: higher than any id a settler or a newcomer (#232) could ever reach.
 const AVATAR_UNIT_ID: UnitId = UnitId(u32::MAX);
@@ -77,12 +78,24 @@ impl World {
             && self.units_at(pos).next().is_none()
     }
 
-    /// The nearest free tile west of the gate's site, searched row-major (top to bottom, left to
-    /// right) so it is deterministic (`docs/design/endgame.md`, "Arrival"). `None` while no tile
-    /// west of the site is free yet, or there is no site to arrive beside.
+    /// The free tile nearest the gate's site by walking distance, west of it if any such tile
+    /// can be walked to (`docs/design/endgame.md`, "Arrival"), else on any side. Ties break by
+    /// `Flood::seek`'s own order, so it is deterministic. `None` while no tile the site reaches
+    /// is free yet, or there is no site to arrive beside.
+    ///
+    /// Walking distance, not row order (#1001): the old search took the first free tile west of
+    /// the site in row-major order, which is the map's top-left corner, so Aang often landed on
+    /// another landmass, where nobody could feed him and he could reach no pillar.
     fn avatar_arrival_tile(&self) -> Option<Pos> {
         let anchor = self.gate_anchor()?;
-        self.map.positions().filter(|p| p.x < anchor.x).find(|&p| self.free_for_guest(p))
+        let nearest = |west: bool| {
+            Flood::seek(&self.map, anchor, &self.rules, |p, _| {
+                ((!west || p.x < anchor.x) && self.free_for_guest(p)).then_some(((), ()))
+            })
+            .1
+            .map(|(p, ())| p)
+        };
+        nearest(true).or_else(|| nearest(false))
     }
 
     /// Puts the Avatar on the map at `pos`, with a full meter of everything (`[avatar]`).
