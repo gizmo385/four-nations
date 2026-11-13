@@ -11,6 +11,8 @@
 //!   `Enter` on release.
 //! - **A tool, a right click** is `Esc` (drop the corner, else leave the tool): [`cancel`].
 //! - **A press with the tool list open** only closes the list, as any other key would.
+//! - **An abandoned press** (a second finger on a touch screen) drops a rectangle's corner and
+//!   applies nothing: [`Pointer::abandon`].
 //!
 //! Everything goes through the keys themselves (`App::key`), so a click issues exactly the
 //! command the keyboard path would and nothing here duplicates the tools' logic. While a drag is
@@ -151,6 +153,19 @@ impl Pointer {
             activate(app);
         }
         app.dirty = true;
+    }
+}
+
+impl Pointer {
+    /// Drops the press without applying anything (a second finger landed, #977): a rectangle
+    /// being drawn loses its corner (`Esc`, as a right click would), and the release that
+    /// follows does nothing.
+    pub fn abandon(&mut self, app: &mut App) {
+        let was_dragging = std::mem::take(&mut self.dragging);
+        if self.down.take().is_some() && was_dragging && app.ui.anchor.is_some() {
+            esc(app);
+            app.dirty = true;
+        }
     }
 }
 

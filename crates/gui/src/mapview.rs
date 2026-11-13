@@ -13,6 +13,11 @@
 //! click is `Esc`. A drag pans in Select mode and, with the secondary or middle button, in any;
 //! the wheel zooms about the pointer. Resting the pointer on a tile for [`Hover::DELAY`] seconds
 //! shows its tooltip (`fn_ui::inspect::tooltip_lines`) without moving the cursor.
+//!
+//! Touch (#977, [`crate::touch`]): a tap is a click and one finger drags as the left button
+//! does. Two fingers pan and pinch-zoom about their midpoint, and a rectangle in progress is
+//! dropped when the second lands. A long press shows the tile's tooltip until the finger lifts,
+//! and never applies a tool.
 
 use eframe::egui::{
     self, Color32, FontFamily, FontId, Mesh, PointerButton, Pos2, Rect, RichText, Sense, Shape,
@@ -30,6 +35,7 @@ use fn_ui::tools::Tool;
 use crate::camera::Camera;
 use crate::color::to_egui;
 use crate::overview::{Overview, block_color};
+use crate::touch::Gestures;
 
 /// A tile's side in pixels in a fresh window: square, so a little smaller than the terminal's
 /// tall cell was, to keep about as many tiles across.
@@ -67,6 +73,8 @@ pub struct MapView {
     /// How long the last paint took, for the overlay and the findings.
     pub last_paint_ms: f32,
     hover: Hover,
+    /// What the fingers are doing, on a touch screen.
+    gestures: Gestures,
     /// The overview texture, below the glyph size.
     pub overview: Overview,
 }
@@ -79,6 +87,7 @@ impl MapView {
             last_cursor: None,
             last_paint_ms: 0.0,
             hover: Hover::default(),
+            gestures: Gestures::default(),
             overview: Overview::default(),
         }
     }
@@ -102,8 +111,34 @@ impl MapView {
             self.camera.centre = vec2(app.ui.cursor.x as f32 + 0.5, app.ui.cursor.y as f32 + 0.5);
         }
 
+        // The fingers, on a touch screen (a mouse is never `touching`).
+        let (touching, fingers, at, multi_touch) = ui.input(|i| {
+            let touching = i.any_touches();
+            let mt = i.multi_touch();
+            let fingers = mt.map_or(usize::from(touching), |m| m.num_touches);
+            (touching, fingers, i.pointer.latest_pos(), mt)
+        });
+        let touch = self.gestures.update(touching, at, fingers, ui.input(|i| i.time));
+        if live && touch.cancel {
+            self.pointer.abandon(app);
+        }
+        // Two fingers pan and zoom about their midpoint; one-finger rules are off till they lift.
+        if live
+            && touch.multi
+            && let Some(mt) = multi_touch
+        {
+            self.camera.pan(mt.translation_delta);
+            if mt.zoom_delta != 1.0 && rect.contains(mt.center_pos) {
+                self.camera.zoom_at(rect, mt.center_pos, mt.zoom_delta);
+            }
+        }
+        let one_finger = !touch.multi && !self.gestures.long_pressing() && !touch.swallow_release;
+
         // The wheel zooms about the pointer.
-        if live && let Some(hover) = response.hover_pos() {
+        if live
+            && !touch.multi
+            && let Some(hover) = response.hover_pos()
+        {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + i.zoom_delta().ln() * 200.0);
             if scroll != 0.0 {
                 self.camera.zoom_at(rect, hover, (scroll / 200.0).exp());
@@ -114,6 +149,7 @@ impl MapView {
             !matches!(app.ui.tool, Tool::Select | Tool::Gate) && pointer::map_has_pointer(app);
         let primary_pans = !rectangle_tool;
         if live
+            && one_finger
             && (response.dragged_by(PointerButton::Secondary)
                 || response.dragged_by(PointerButton::Middle)
                 || (primary_pans && response.dragged_by(PointerButton::Primary)))
@@ -121,6 +157,7 @@ impl MapView {
             self.camera.pan(response.drag_delta());
         }
         if live
+            && one_finger
             && rectangle_tool
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -137,7 +174,10 @@ impl MapView {
                 self.pointer.up(app, tile);
             }
         }
-        if live && let Some(p) = response.interact_pointer_pos() {
+        if live
+            && one_finger
+            && let Some(p) = response.interact_pointer_pos()
+        {
             let tile = self.camera.screen_to_tile(rect, p);
             if response.clicked_by(PointerButton::Primary) {
                 pointer::click_with(app, tile, pointer::Button::Primary);
@@ -157,6 +197,13 @@ impl MapView {
             .map(|p| self.camera.screen_to_tile(rect, p))
             .filter(|&t| app.session.world.map.get(t).is_some());
         let tip = self.hover.update(resting, ui.input(|i| i.time));
+        // A long press shows its tile at once, finger down (touch has no hover).
+        let pressed = touch
+            .long_press
+            .filter(|_| live)
+            .map(|p| self.camera.screen_to_tile(rect, p))
+            .filter(|&t| app.session.world.map.get(t).is_some());
+        let tip = pressed.or(tip);
 
         let started = web_time::Instant::now();
         if self.camera.glyphs() {
