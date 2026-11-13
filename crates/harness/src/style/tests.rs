@@ -13,7 +13,16 @@ fn the_bundled_styles_load_and_resolve() {
     let ids: Vec<&str> = styles.iter().map(|s| s.id.as_str()).collect();
     assert_eq!(
         ids,
-        ["steady", "careless", "branch_first", "school_first", "school_second", "united", "idle"]
+        [
+            "steady",
+            "careless",
+            "branch_first",
+            "school_first",
+            "school_second",
+            "united",
+            "united_branch_first",
+            "idle"
+        ]
     );
 
     assert_eq!(
@@ -129,7 +138,10 @@ fn gate_at_is_inherited_and_only_the_united_style_sets_it() {
     let styles = Styles::bundled();
     assert_eq!(styles.get("united").unwrap().gate_at, Some(240));
     assert_eq!(styles.get("united").unwrap().play, styles.get("steady").unwrap().play);
-    for s in styles.iter().filter(|s| s.id != "united") {
+    // #764: its branch-first twin stands it at the same minute.
+    assert_eq!(styles.get("united_branch_first").unwrap().gate_at, Some(240));
+    assert_eq!(economy(&styles, "united_branch_first").3, ResearchOrder::BranchFirst);
+    for s in styles.iter().filter(|s| !s.id.starts_with("united")) {
         assert_eq!(s.gate_at, None, "{}", s.id);
     }
     let text = "[[style]]\nid = \"a\"\nopening = \"economy\"\ngate_at = 100\n\

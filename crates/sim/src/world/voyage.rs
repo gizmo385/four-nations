@@ -499,6 +499,8 @@ impl World {
         };
         let at = self.voyages.partition_point(|v| v.dock < dock);
         self.voyages.insert(at, away);
+        // The balance harness's `voyages` tally (#764).
+        self.tallies.count_school("voyages", 1);
     }
 
     /// Lands the airship `voyages[k]`: the crew step off at the door and the goods spill beside it.

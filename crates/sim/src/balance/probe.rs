@@ -18,7 +18,7 @@ use crate::defs::{Defs, ResourceId};
 use crate::endeavor::SignKind;
 use crate::geom::Pos;
 use crate::jobs::{ItemId, JobKind};
-use crate::world::{Death, IdleReason, Task, UnitId, World};
+use crate::world::{Death, ExchangeStanding, IdleReason, Task, UnitId, World};
 
 use super::autopsy::Autopsy;
 use super::site::{MATERIAL_SIGNS, SiteProfile, sign_resources};
@@ -490,6 +490,8 @@ impl Probe {
             .zip(&signs)
             .find(|(s, _)| s.kind == SignKind::Population)
             .map_or(0, |(_, p)| p.target);
+        // The sign no longer asks anything of a United City, which grows past it (#764).
+        let population_target = if world.united() { 0 } else { population_target };
         let material_unmet = self.materials.iter().any(|m| {
             m.in_reach
                 && progress(&m.sign).is_some_and(|p| !p.met)
@@ -498,15 +500,23 @@ impl Probe {
 
         let queue_empty = world.research().queue().is_empty();
         let research_waiting = queue_empty
-            && defs.techs_for(world.nation).any(|(id, t)| {
+            && (defs.techs_for(world.nation).any(|(id, t)| {
                 // A school option closed by its sibling can never be set (horizons-phase-4.md).
                 !world.research().is_known(id)
                     && world.research().closed_by(id, defs).is_none()
                     // A teaching can be set only once kept from a draft (horizons-phase-5.md).
                     && (t.teaching.is_none() || world.kept_teachings().any(|k| k == id))
-                    && t.visible_when(world.united())
+                    // A fusion and a borrowed tech are another matter, below: they wait on the
+                    // city's residents, which research can't change.
+                    && !t.is_fusion()
                     && t.prereqs.iter().all(|&p| world.research().is_known(p))
-            });
+            }) || world
+                // What the From newcomers page lists as available now: nothing missing (the
+                // list is empty before the gate, so the pre-gate game reads as it did).
+                .exchange(defs)
+                .entries
+                .iter()
+                .any(|e| e.standing == ExchangeStanding::Available));
 
         let casters = |full: bool| {
             settlers.iter().any(|u| {

@@ -32,6 +32,9 @@ fn season(
         scrolls_copied: 7,
         food_per_head: food,
         population,
+        residents: [0; 4],
+        research_points: 0,
+        chi_mean: 0.0,
         signs_met: Vec::new(),
     }
 }
@@ -59,6 +62,14 @@ fn every_name_parses_and_a_bad_one_says_why() {
         "stage_minute.3",
         "school_minute",
         "tally.ice_paid",
+        "tally.steel_made",
+        "residents_at.75",
+        "residents_at.75.fire",
+        "borrowed_minute",
+        "fusion_minute",
+        "celestial_chi",
+        "longest_gap.after_gate",
+        "after_gate.borrowed_minute",
     ] {
         assert_eq!(parse(name).name(), name, "name() is parse()'s inverse");
     }
@@ -73,6 +84,8 @@ fn every_name_parses_and_a_bad_one_says_why() {
     assert!(err("stage_minute.0").contains("no stage"));
     assert!(err("stage_minute.9").contains("no stage"));
     assert!(err("tally.gold").contains("no tally"));
+    assert!(err("residents_at.75.moon").contains("no nation"));
+    assert!(err("residents_at.soon").contains("whole number"));
 }
 
 /// horizons-phase-4.md, "Measuring it" (#731): the stage minute, the first school learned and a
@@ -231,4 +244,60 @@ fn the_gate_minute_and_metrics_counted_from_it() {
     assert_eq!(m.deadline(&bar, &rec, &defs), 330.0);
     rec.gate_minute = None;
     assert_eq!(m.deadline(&bar, &rec, &defs), rec.minutes);
+}
+
+/// horizons-phase-6.md, "Measuring it" (#764): residents past the gate, the first borrowed tech
+/// and fusion, a fusion's tally, the celestial refill and the gap after the gate.
+#[test]
+fn the_exchange_metrics_read_off_the_record() {
+    let mut rec = record(Nation::Earth, 1);
+    rec.minutes = 420.0;
+    assert_eq!(read("residents_at.75", &rec), None, "no gate, no reading");
+    rec.gate_minute = Some(240.0);
+    let mut row = season(5, 0, 315.0, 30, 0, 5.0);
+    row.residents = [1, 4, 22, 3];
+    rec.seasons.push(row);
+    assert_eq!(read("residents_at.75", &rec), Some(4.0), "the most of any other nation");
+    assert_eq!(read("residents_at.75.fire", &rec), Some(3.0));
+    assert_eq!(read("residents_at.75.earth", &rec), Some(22.0), "the home nation, if asked");
+    assert_eq!(read("residents_at.90", &rec), None, "no row there");
+
+    // Brickmaking is Fire's, so Earth borrows it; `star_charts` is shared; `steelworks` is a fusion.
+    assert_eq!(read("borrowed_minute", &rec), Some(f64::INFINITY));
+    assert_eq!(read("fusion_minute", &rec), Some(f64::INFINITY));
+    rec.techs = vec![
+        ("star_charts".to_owned(), 250.0),
+        ("brickmaking".to_owned(), 300.0),
+        ("steelworks".to_owned(), 330.0),
+        ("tide_mills".to_owned(), 310.0),
+    ];
+    assert_eq!(read("borrowed_minute", &rec), Some(300.0));
+    assert_eq!(read("after_gate.borrowed_minute", &rec), Some(60.0));
+    assert_eq!(read("after_gate.fusion_minute", &rec), Some(90.0));
+
+    // A fusion's tally is read only where the fusion was learned.
+    rec.fusion_tallies = vec![("steel_made".to_owned(), 9), ("rains".to_owned(), 0)];
+    assert_eq!(read("tally.steel_made", &rec), Some(9.0));
+    assert_eq!(read("tally.rains", &rec), None, "cloudbending was never learned");
+
+    assert_eq!(read("celestial_chi", &rec), None, "no day rose");
+    rec.fusion_tallies.push(("celestial_chi".to_owned(), 600));
+    rec.fusion_tallies.push(("celestial_benders".to_owned(), 24));
+    assert_eq!(read("celestial_chi", &rec), Some(25.0));
+
+    // Events at 270 and 300 split 240 to 420 into 30, 30 and 120.
+    rec.timeline = vec![crate::testkit::event(270.0, "a"), crate::testkit::event(300.0, "b")];
+    assert_eq!(read("longest_gap.after_gate", &rec), Some(120.0));
+    rec.gate_minute = None;
+    assert_eq!(read("longest_gap.after_gate", &rec), None);
+
+    // Flags before the gate don't count against these readings, and a reading `M` minutes past
+    // the gate is due then.
+    rec.gate_minute = Some(240.0);
+    assert_eq!(parse("residents_at.75").flags_from(&rec), 240.0);
+    assert_eq!(parse("tally.steel_made").flags_from(&rec), 240.0);
+    assert_eq!(parse("tally.ice_paid").flags_from(&rec), 0.0);
+    assert_eq!(parse("pop_at.120").flags_from(&rec), 0.0);
+    let bar = Bar { at_most: None, at_least: Some(3.0) };
+    assert_eq!(parse("residents_at.75").deadline(&bar, &rec, &Defs::bundled()), 315.0);
 }

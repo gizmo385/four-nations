@@ -93,6 +93,10 @@
 //!   every reachable building once its tech is known, and a Map Room's own Chart job is what
 //!   uncovers a buried ruin in the first place.
 //!
+//! - plays the United City once the gate stands (`exchange`, #764; docs/design/horizons-phase-6.md,
+//!   "Measuring it"): borrows the other nations' teachable techs cheapest first, then each fusion,
+//!   and plays each fusion's simplest use. Before the gate it does nothing, so no earlier run moves.
+//!
 //! Stateless and `Copy`, and deterministic for the reasons given above for `Opening`.
 
 use crate::bending::{AbilityId, Effect};
@@ -106,6 +110,7 @@ use crate::nation::Nation;
 use crate::research::TechId;
 use crate::world::{Command, TICKS_PER_SECOND, World};
 
+mod exchange;
 mod horizons;
 mod pacing;
 mod schools;
@@ -508,7 +513,13 @@ impl Economy {
         let plan = self.hold_school(world, defs, plan);
         let plan = hold_missing_bills(world, defs, plan);
         keep_teachings(world, defs, self.research);
+        if exchange::active(world) {
+            exchange::set_targets(world, defs, true);
+        }
         queue_next_known_tech(world, defs, plan.into_iter());
+        if exchange::active(world) && world.research().queue().is_empty() {
+            exchange::set_targets(world, defs, false);
+        }
         if !self.beds_only {
             pacing::forage_missing_kinds(world, defs, anchor);
             pacing::take_deals(world, defs);
@@ -542,6 +553,7 @@ impl Economy {
         if self.healing == HealingPolicy::Planned {
             self.sow_plots(world, defs, HERB_GARDEN);
         }
+        exchange::step(world, defs, anchor);
         let wanted = self.wanted_items(world, defs);
         let own = horizons::own_bends(world, defs);
         keep_bends_designated(world, defs, anchor, DEPOSIT_RADIUS, self.people, &wanted, &own);
@@ -627,7 +639,9 @@ impl Economy {
     fn raise_buildings(&self, world: &mut World, defs: &Defs, anchor: Pos) {
         let targets: Vec<BuildingId> = horizons::buildable(world.nation, defs).collect();
         for building in targets {
-            if horizons::raises_itself(&defs.building(building).id) {
+            if horizons::raises_itself(&defs.building(building).id)
+                || exchange::raises_itself(&defs.building(building).id)
+            {
                 continue;
             }
             // Raised by `pacing::raise_campfire`, which looks for a site within a cold bed's reach.
@@ -668,6 +682,8 @@ impl Economy {
             "campfire" if !self.beds_only => pacing::campfire_target(world, defs),
             // One road, laid in one go by `horizons::pave_once`, not tile by tile here.
             "paved_road" => 0,
+            // Laid by `exchange` (#764): a line from the water, a pair across a range.
+            id if exchange::raises_itself(id) => 0,
             "chute" => u32::from(horizons::chute_wanted(world, defs)),
             // Phase 3 (#713): the house needs a garden, the Workshop a second one for wares, the
             // Archive a hall to stand beside.
@@ -693,6 +709,10 @@ impl Economy {
     /// `BedPolicy::Ahead`, or if the data has no such sign.
     fn bed_ceiling(&self, world: &World, defs: &Defs) -> u32 {
         let BedPolicy::ToTarget { margin } = self.beds else { return u32::MAX };
+        // The United City has met the sign and grows past it: a newcomer needs a free bed (#764).
+        if world.united() {
+            return u32::MAX;
+        }
         defs.endeavor
             .signs
             .iter()

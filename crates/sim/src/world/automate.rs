@@ -149,6 +149,12 @@ impl World {
                 b.craft = None;
                 self.place_ground(pos, Stack { item: output.item, count: output.count });
                 self.tallies.count_school("automated_batches", 1);
+                if self
+                    .building_at(pos)
+                    .is_some_and(|b| defs.building(b).id == super::forge::STEELWORKS)
+                {
+                    self.tallies.count_school("steel_made", output.count);
+                }
             }
         }
     }

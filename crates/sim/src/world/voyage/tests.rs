@@ -321,6 +321,21 @@ fn the_airship_waits_for_fuel_and_crew_jobs_open_once_it_is_loaded_and_fuelled()
     assert!(jobs_of(&w, |k| matches!(k, JobKind::Crew { .. })) <= 2);
 }
 
+/// #764: a bunker above half full is never refuelled on its own, so a dock left with 15 of the 20
+/// a voyage burns would wait for ever. A planned voyage asks for the rest.
+#[test]
+fn a_planned_voyage_refuels_a_bunker_that_is_above_half_but_short_of_the_voyage() {
+    let (mut w, defs) = setup(3, 15);
+    w.apply(plan_cmd(Nation::Earth, &[(WOOD_FOR_ORE, 1)]), &defs).unwrap();
+    for _ in 0..1200 {
+        w.tick(&defs);
+        if w.anchored(DOCK).unwrap().bunker().is_some_and(|b| b.count >= 20) || is_away(&w) {
+            return;
+        }
+    }
+    panic!("still {:?}", w.voyage_status(DOCK, &defs));
+}
+
 #[test]
 fn nothing_sails_short_of_a_whole_crew() {
     // One settler only: the second place in the crew is never filled.

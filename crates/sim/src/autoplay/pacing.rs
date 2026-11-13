@@ -391,6 +391,22 @@ fn feeds_missing_sign(world: &World, defs: &Defs, item: ItemId) -> bool {
     })
 }
 
+/// Whether the stores can pay `give` taken `times` times and still keep each good's threshold
+/// (module doc, "What can be spared"): what the opening asks before it sends goods out on a
+/// voyage (`exchange::plan_voyage`, #764). A good that is never paid (stone) can't be spared.
+pub(super) fn can_spare(
+    world: &World,
+    defs: &Defs,
+    give: &[crate::trade::Goods],
+    times: u32,
+) -> bool {
+    let stock = Stock::read(world, defs);
+    give.iter().all(|g| {
+        let Some((have, keep)) = pay_of(g).and_then(|p| stock.level(p)) else { return false };
+        have >= g.count * times + keep
+    })
+}
+
 /// Takes the camped caravan's deals as the module doc lays out, one `Command::TakeDeal` at a
 /// time, re-reading the world after each so the goods already promised are never promised twice.
 pub(super) fn take_deals(world: &mut World, defs: &Defs) {

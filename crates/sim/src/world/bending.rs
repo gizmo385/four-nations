@@ -1497,6 +1497,8 @@ impl World {
             Effect::Rain { radius, growth_boost, minutes } => {
                 let until_tick = self.tick + minutes_to_ticks_min1(minutes * magnitude);
                 self.rains.retain(|r| r.center != pos);
+                // The balance harness's `rains` tally (#764).
+                self.tallies.count_school("rains", 1);
                 self.rains.push(Rain {
                     center: pos,
                     radius: *radius,
