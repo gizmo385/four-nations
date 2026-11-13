@@ -80,7 +80,10 @@ pub fn list() -> Vec<Value> {
                              `teachings` once a teaching scroll has been read: the drafts \
                              waiting (oldest first, each teaching's name, cost, unlock and \
                              reason), the teachings kept and lost, and how many are left to \
-                             find.",
+                             find. Once the Harmony Gate stands it also has `newcomers`, the From \
+                             newcomers page: a column per other nation (title with its residents \
+                             here) of techs to borrow, then FUSIONS, each card as on the tree. \
+                             The `research` step sets them by name.",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {
