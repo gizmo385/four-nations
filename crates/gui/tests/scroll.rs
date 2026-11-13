@@ -57,10 +57,11 @@ fn dragging_the_build_list_scrolls_it() {
     assert!(after < before - 40.0, "the list moved up with the drag: {before} -> {after}");
 }
 
-/// The side panel's sections scroll by drag too.
+/// The side panel's sections scroll by drag too (in the drawer, as the window is compact).
 #[test]
 fn dragging_the_side_panel_scrolls_it() {
     let mut app = GuiApp::with_shell(game(""));
+    app.frame_mut().controls.drawer_open = true;
     let mut h = harness(&mut app, egui::vec2(844.0, 240.0));
     let before = top_of(&h, "ALERTS");
     let at = egui::pos2(700.0, 120.0);

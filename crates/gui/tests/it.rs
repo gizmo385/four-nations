@@ -6,6 +6,7 @@ mod browser_saves;
 mod camera;
 mod cells;
 mod controls;
+mod drawer;
 mod embark;
 mod endeavor;
 mod frame;

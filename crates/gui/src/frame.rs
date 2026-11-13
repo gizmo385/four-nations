@@ -271,6 +271,8 @@ impl Frame {
     }
 
     fn show_inside(&mut self, root: &mut Ui, shell: &mut Shell, palette: &Palette) {
+        let touch = self.controls.force_touch || crate::controls::touch_device(root.ctx());
+        crate::controls::set_touch_rows(root.ctx(), touch);
         let metrics = Metrics::new(root.ctx());
         let window = root.available_rect_before_wrap();
         let (cols, rows) = metrics.grid_in(window.size());
@@ -481,21 +483,26 @@ impl Frame {
         }
 
         // The native side panel (#877). Its clicks come back as keys, which the window feeds
-        // the shell; with a box open it shows but takes none.
-        let mut clicks = Vec::new();
-        let mut actions = Vec::new();
-        egui::Panel::right("side")
-            .default_size(PANEL_DEFAULT)
-            .size_range(PANEL_RANGE.0..=PANEL_RANGE.1)
-            .resizable(true)
-            .frame(egui::Frame::NONE.fill(panel_fill))
-            .show(root, |ui| {
-                clicks = side::show(ui, app, palette, metrics, live, &mut actions);
-            });
-        self.keys.extend(clicks);
-        // A toast's button (#945) is carried out at once, as a notice's is below.
-        for action in actions {
-            app.do_notice_action(action);
+        // the shell; with a box open it shows but takes none. In a compact window (#979) it is
+        // a drawer over the map instead, drawn after the map below.
+        let compact = !crate::controls::wide(window);
+        if !compact {
+            self.controls.drawer_open = false;
+            let mut clicks = Vec::new();
+            let mut actions = Vec::new();
+            egui::Panel::right("side")
+                .default_size(PANEL_DEFAULT)
+                .size_range(PANEL_RANGE.0..=PANEL_RANGE.1)
+                .resizable(true)
+                .frame(egui::Frame::NONE.fill(panel_fill))
+                .show(root, |ui| {
+                    clicks = side::show(ui, app, palette, metrics, live, &mut actions);
+                });
+            self.keys.extend(clicks);
+            // A toast's button (#945) is carried out at once, as a notice's is below.
+            for action in actions {
+                app.do_notice_action(action);
+            }
         }
 
         if rail {
@@ -516,8 +523,10 @@ impl Frame {
             crate::controls::more_sheet(root.ctx(), app, palette, &mut self.controls, touch);
         self.keys.extend(more_keys);
 
+        let mut central = Rect::NOTHING;
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             let avail = ui.available_rect_before_wrap();
+            central = avail;
             // The banner's strip is reserved whenever a tool is active, so the map does not
             // jump when a box opens over it; the menu hides the banner itself.
             let top = if app.ui.banner() { BANNER_HEIGHT as f32 * ch } else { 0.0 };
@@ -537,13 +546,95 @@ impl Frame {
             }
             view.show(ui, map_rect, app, palette);
             self.timings.map = view.last_paint_ms;
-            if !rail && live {
+            // In a compact window the time controls float at the map's top right while the
+            // drawer is closed, and More with them; otherwise More has its corner when the rail
+            // (and its bar) is off.
+            let mut notices_at = map_rect;
+            if compact && !self.controls.drawer_open {
+                let keys = crate::controls::float_time(
+                    ui.ctx(),
+                    map_rect,
+                    app,
+                    palette,
+                    live,
+                    rail,
+                    &mut self.controls,
+                );
+                self.keys.extend(keys);
+                notices_at.min.y += crate::controls::FLOAT_HEIGHT + 6.0;
+            } else if !rail && live {
                 crate::controls::corner_more(ui.ctx(), map_rect, palette, &mut self.controls);
             }
             // The corner notices (#945), over the map's top right.
-            let notice_clicks = notices::show(ui.ctx(), map_rect, app, palette, metrics, live);
+            let notice_clicks = notices::show(ui.ctx(), notices_at, app, palette, metrics, live);
             notices::apply(app, &notice_clicks);
         });
+        if compact {
+            if self.controls.drawer_open {
+                self.show_drawer(root.ctx(), central, app, live, palette, metrics);
+            } else {
+                let alerts = app.ui.alerts.open().len();
+                crate::controls::drawer_tab(
+                    root.ctx(),
+                    central,
+                    palette,
+                    alerts,
+                    &mut self.controls,
+                );
+            }
+        }
+    }
+
+    /// The side panel as a drawer over the right of `over` (#979, board 2): a tap on the map
+    /// beside it closes it and does nothing else, as does its chevron. The game keeps running.
+    fn show_drawer(
+        &mut self,
+        ctx: &egui::Context,
+        over: Rect,
+        app: &mut App,
+        live: bool,
+        palette: &Palette,
+        metrics: &Metrics,
+    ) {
+        let panel_fill = to_egui(palette.token(palette.theme.panel), Color32::BLACK);
+        let edge = to_egui(palette.token(palette.theme.accent_soft), Color32::GRAY);
+        let width = PANEL_DEFAULT.min(over.width() * 0.75);
+        let drawer = Rect::from_min_max(egui::pos2(over.right() - width, over.top()), over.max);
+        let beside = Rect::from_min_max(over.min, egui::pos2(drawer.left(), over.bottom()));
+        let mut clicks = Vec::new();
+        let mut actions = Vec::new();
+        let mut close = false;
+        egui::Area::new(Id::unique("fn_gui drawer")).fixed_pos(over.min).order(Order::Middle).show(
+            ctx,
+            |ui| {
+                ui.set_min_size(over.size());
+                // The map beside the drawer, dimmed: a tap or the start of a drag there is the
+                // drawer's, so it never reaches the map as a click or a pan.
+                let scrim =
+                    ui.interact(beside, ui.scope_id().with("scrim"), egui::Sense::click_and_drag());
+                ui.painter().rect_filled(beside, 0.0, Color32::from_black_alpha(60));
+                if live && (scrim.clicked() || scrim.drag_started()) {
+                    close = true;
+                }
+                ui.painter().rect_filled(drawer, 0.0, panel_fill);
+                ui.painter().vline(drawer.left(), drawer.y_range(), egui::Stroke::new(1.0, edge));
+                if crate::controls::drawer_close(ui, palette, drawer.min) {
+                    close = true;
+                }
+                let body = Rect::from_min_max(drawer.min + vec2(0.0, 28.0), drawer.max);
+                ui.scope_builder(UiBuilder::new().max_rect(body), |ui| {
+                    ui.set_clip_rect(body);
+                    clicks = side::show(ui, app, palette, metrics, live, &mut actions);
+                });
+            },
+        );
+        self.keys.extend(clicks);
+        for action in actions {
+            app.do_notice_action(action);
+        }
+        if close {
+            self.controls.drawer_open = false;
+        }
     }
 
     fn show_overlay(&self, root: &Ui, window: Rect, surface: Surface, metrics: &Metrics) {

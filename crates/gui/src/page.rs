@@ -55,6 +55,12 @@ pub struct Look<'a> {
 }
 
 impl<'a> Look<'a> {
+    /// The height of a row that can be picked: a cell, or a finger's on touch
+    /// ([`crate::controls::row_height`]).
+    pub fn row(&self, ui: &Ui) -> f32 {
+        crate::controls::row_height(ui.ctx(), self.cell.y)
+    }
+
     pub fn new(palette: &'a Palette, metrics: &Metrics) -> Self {
         let fill = |rgb| to_egui(palette.token(rgb), Color32::BLACK);
         Self {
@@ -279,8 +285,12 @@ pub fn paint_row(
 /// `sense` is `Sense::click()` for a row that can be picked. The row is exposed to the
 /// accessibility tree as one node holding its text, so a screen reader and the kittest tests
 /// can find and click it.
+///
+/// A row that can be picked is [`crate::controls::TARGET`] tall on touch (#979), its text
+/// centred in it.
 pub fn text_row(ui: &mut Ui, look: &Look<'_>, row: &Row, selected: bool, sense: Sense) -> Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), look.cell.y), sense);
+    let height = if sense.senses_click() { look.row(ui) } else { look.cell.y };
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), sense);
     let painter = ui.painter_at(rect);
     let clickable = sense.senses_click();
     if selected {
