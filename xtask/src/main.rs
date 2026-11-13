@@ -386,9 +386,9 @@ fn check(crates: &[String], fast: bool) -> Result {
 fn dependents(c: &str) -> &'static [&'static str] {
     match c {
         "fn_runfmt" => &["fn_tui", "fn_agent", "fn_web", "fn_gui", "xtask"],
-        "fn_sim" => &["fn_ui", "fn_tui", "fn_agent", "fn_harness", "fn_gui"],
-        "fn_ui" => &["fn_tui", "fn_agent", "fn_gui"],
-        "fn_tui" => &["fn_agent", "fn_gui"],
+        "fn_sim" => &["fn_ui", "fn_tui", "fn_agent", "fn_harness", "fn_web", "fn_gui"],
+        "fn_ui" => &["fn_tui", "fn_agent", "fn_web", "fn_gui"],
+        "fn_tui" => &["fn_agent", "fn_web", "fn_gui"],
         _ => &[],
     }
 }

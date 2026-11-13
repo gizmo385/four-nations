@@ -5,9 +5,9 @@
 use fn_sim::Nation;
 use fn_tui::color::{ColorDepth, Palette};
 use fn_tui::frame::to_text;
+use fn_tui::replay::{Replay, SNAPSHOT_EVERY, START_PACE};
 use fn_tui::surface::Host;
 use fn_tui::watch::{self, Watcher};
-use fn_web::{Replay, SNAPSHOT_EVERY, START_PACE};
 
 const SIZE: (u16, u16) = (160, 45);
 
@@ -112,30 +112,4 @@ fn a_log_made_against_other_data_names_its_build() {
         Err(e) => e,
     };
     assert!(err.contains("different data") && err.contains("abc1234"), "{err}");
-}
-
-#[test]
-fn the_c_abi_opens_renders_and_reports_errors() {
-    use fn_web::abi::*;
-
-    let text = log(2);
-    let ptr = fw_input(text.len());
-    // SAFETY: `fw_input` just returned a buffer of exactly this many bytes.
-    unsafe { std::ptr::copy_nonoverlapping(text.as_ptr(), ptr, text.len()) };
-    assert_eq!(fw_open(), 1);
-    assert_eq!(fw_total_turns(), 2);
-    assert_eq!(fw_pace(), START_PACE);
-    fw_seek(2);
-    while fw_seek_step() == 1 {}
-    assert_eq!(fw_turn(), 2);
-    assert!(!fw_render(SIZE.0, SIZE.1).is_null());
-
-    let bad = b"not a log";
-    let ptr = fw_input(bad.len());
-    // SAFETY: as above.
-    unsafe { std::ptr::copy_nonoverlapping(bad.as_ptr(), ptr, bad.len()) };
-    assert_eq!(fw_open(), 0);
-    // SAFETY: the text buffer is valid until the next call.
-    let message = unsafe { std::slice::from_raw_parts(fw_text_ptr(), fw_text_len()) };
-    assert!(!message.is_empty());
 }

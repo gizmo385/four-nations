@@ -1145,9 +1145,7 @@ version = "0.1.0"
 dependencies = [
  "fn_sim",
  "fn_tui",
- "fn_ui",
  "ratatui",
- "serde_json",
 ]
 
 [[package]]

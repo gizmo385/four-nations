@@ -37,6 +37,7 @@ pub mod notices;
 pub mod page;
 pub mod panel;
 pub mod record;
+pub mod replay;
 pub mod research;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod run;
