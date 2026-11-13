@@ -661,6 +661,10 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
             let name = defs.endeavor.stage(id).map_or(id.as_str(), |(_, s)| &s.name);
             format!("Stage done: {name}")
         }
+        EndeavorEventKind::TaskDone(id) => {
+            let task = defs.endeavor.stages.iter().flat_map(|s| &s.tasks).find(|t| t.id == *id);
+            format!("Task done: {}", task.map_or(id.as_str(), |t| &t.name))
+        }
         // The Avatar as a guest (#237); his own screen and side-panel glyphs are #242's.
         EndeavorEventKind::AvatarArrived => {
             let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());

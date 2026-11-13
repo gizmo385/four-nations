@@ -12,6 +12,12 @@
 # - partial_credit: a sign not met at the horizon (never met, or met once and since slipped, unless
 #                   the endeavor latched Ready) earns this × min(1, value/target). In 0..=1.
 # - default_weight: the weight of every milestone not listed below. Above 0.
+# - task_credit:    a stage not done earns this × the mean of its tasks' credits, a done task's
+#                   credit being its met credit as above and an undone one 0 (#1009). In 0..=1;
+#                   keep it under late_credit, so a stage's tasks never outscore the stage. 0 (the
+#                   default) turns it off.
+# - avatar_arrival: the weight of the Avatar's arrival as a milestone of its own, `avatar_arrived`
+#                   (#1009). 0 (the default) leaves it out. Not a [[progress.weight]] id.
 # [[progress.weight]]: per-milestone overrides by id (a sign id, "ready" or a stage id), e.g.
 #   { id = "scrolls", weight = 0.5 }. Must name a milestone that exists (`ScoreDef::check`); a
 #   weight of 0 takes it out of the score (its row is still reported).
@@ -40,6 +46,8 @@
 [progress]
 late_credit = 0.6
 partial_credit = 0.5
+task_credit = 0.5
+avatar_arrival = 0.5
 default_weight = 1.0
 
 [care]

@@ -70,6 +70,7 @@ pub fn marker_for(defs: &Defs, ev: &Event) -> Option<(MarkerKind, String)> {
                 | EndeavorEventKind::ChapterMet(_)
                 | EndeavorEventKind::Ready
                 | EndeavorEventKind::StageDone(_)
+                | EndeavorEventKind::TaskDone(_)
                 | EndeavorEventKind::PopulationMilestone(_)
                 | EndeavorEventKind::Complete => MarkerKind::Milestone,
                 EndeavorEventKind::AvatarArrived

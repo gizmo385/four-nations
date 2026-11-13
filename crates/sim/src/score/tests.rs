@@ -32,6 +32,7 @@ fn blank(defs: &Defs) -> Inputs {
                 value: 0,
                 target,
                 met_now: false,
+                tasks: Vec::new(),
             })
             .collect(),
         ready_latched: false,
@@ -457,7 +458,8 @@ fn compute_reads_the_worlds_events_deaths_and_care_and_cuts_off_at_the_horizon()
     assert_eq!(at_300.care.deaths, 2);
     assert!(!at_300.past_horizon);
     assert_eq!(at_300.world_tick, 300);
-    assert_eq!(at_300.milestones.len(), 14);
+    // 14, and the Avatar's arrival (#1009), which the bundled profile weighs.
+    assert_eq!(at_300.milestones.len(), 15);
     near(at_300.care.person_minutes, world.care().person_minutes());
     near(at_300.care.suffering, world.care().severe_any_minutes() / world.care().person_minutes());
     assert_eq!(at_300.care.severe_minutes.len(), 4);
@@ -555,4 +557,81 @@ fn an_unknown_or_malformed_profile_is_refused() {
     assert!(e.contains("surprise") && e.contains("profile.x"), "{e}");
     let range = format!("{good}\n[profile.x]\nprogress.late_credit = 3.0\n");
     assert!(ScoreDef::from_toml_profile(&range, "x").is_err());
+}
+
+/// A stage row with these tasks, each done at the tick given (#1009).
+fn with_tasks(run: &mut Inputs, stage: &str, done: &[Option<u64>]) {
+    run.milestone(stage).tasks = done
+        .iter()
+        .enumerate()
+        .map(|(k, &d)| TaskRow { id: format!("t{k}"), name: format!("Task {k}"), done: d })
+        .collect();
+}
+
+#[test]
+fn a_stage_not_done_earns_a_share_of_its_done_tasks() {
+    let (defs, score) = setup();
+    let score_with = |done: &[Option<u64>], stage_done: Option<u64>| {
+        let mut run = blank(&defs);
+        with_tasks(&mut run, "pillars", done);
+        if let Some(t) = stage_done {
+            run.met("pillars", t, 1, 1);
+        }
+        let card = Scorecard::build(&score, run);
+        (card.score, row(&card, "pillars").credit)
+    };
+    let t = Some(50 * TURN);
+    let (none, none_credit) = score_with(&[None; 4], None);
+    let (three, three_credit) = score_with(&[t, t, t, None], None);
+    let (all, _) = score_with(&[t, t, t, t], None);
+    let (stage, stage_credit) = score_with(&[t, t, t, t], Some(60));
+    near(none_credit, 0.0);
+    // Three of four, each met at half the horizon (credit 0.8): 0.5 × 3 × 0.8 / 4.
+    near(three_credit, 0.5 * 3.0 * 0.8 / 4.0);
+    assert!(none < three && three < all && all < stage, "{none} {three} {all} {stage}");
+    near(stage_credit, score.progress.met_credit(60 * TURN, 0, 100 * TURN));
+    // A task done after the horizon doesn't exist for the score, and task_credit 0 turns it off.
+    let mut off = score.clone();
+    off.progress.task_credit = 0.0;
+    let mut run = blank(&defs);
+    with_tasks(&mut run, "pillars", &[t, t, t, None]);
+    near(row(&Scorecard::build(&off, run), "pillars").credit, 0.0);
+}
+
+#[test]
+fn the_avatars_arrival_is_a_milestone_only_when_weighed() {
+    let defs = Defs::bundled();
+    let cfg = MapGenConfig { seed: 7, width: 64, height: 64, ..MapGenConfig::default() };
+    let mut world = World::new(&cfg, Nation::Water, 5, &defs);
+    for _ in 0..10 {
+        world.tick(&defs);
+    }
+    let arrived = crate::world::EndeavorEvent { tick: 5, kind: EndeavorEventKind::AvatarArrived };
+    world.insert_event_for_test(arrived);
+    let done = crate::world::EndeavorEvent {
+        tick: 6,
+        kind: EndeavorEventKind::TaskDone("air_pillar".to_owned()),
+    };
+    world.insert_event_for_test(done);
+
+    let score = ScoreDef::bundled();
+    let card = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), 10_000);
+    let avatar = row(&card, AVATAR_ID);
+    assert_eq!(
+        (avatar.kind, avatar.first_met, avatar.weight),
+        (MilestoneKind::Avatar, Some(5), 0.5)
+    );
+    assert!(avatar.credit > 0.99);
+    near(card.weight_total, 14.5);
+    // The task shows on its stage's row, and earns the stage a share.
+    let pillars = row(&card, "pillars");
+    assert_eq!(pillars.tasks.len(), 4);
+    assert_eq!(pillars.tasks.iter().find(|t| t.id == "air_pillar").unwrap().done, Some(6));
+    assert!(pillars.credit > 0.0 && pillars.first_met.is_none());
+
+    let mut off = score.clone();
+    off.progress.avatar_arrival = 0.0;
+    let card = Scorecard::compute(&world, &defs, &off, &ScoreStart::default(), 10_000);
+    assert!(card.milestones.iter().all(|m| m.id != AVATAR_ID));
+    near(card.weight_total, 14.0);
 }

@@ -95,6 +95,7 @@ pub fn compute_par(header: &RunLogHeader, horizon: u32) -> Result<Par, String> {
                 MilestoneKind::Sign => "sign",
                 MilestoneKind::Ready => "ready",
                 MilestoneKind::Stage => "stage",
+                MilestoneKind::Avatar => "avatar",
             }
             .to_owned(),
             met_turn: m.first_met.map(|t| run.turn_of(t)),
@@ -356,8 +357,11 @@ impl Report {
         for m in rows {
             let mark = if m.first_met.is_some() && m.met_now { '+' } else { ' ' };
             let met = m.first_met.map_or(String::new(), |t| format!("t{}", r.turn_of(t)));
+            let tasks_done = m.tasks.iter().filter(|t| t.done.is_some()).count();
             let at = if m.kind == MilestoneKind::Sign {
                 format!("{}/{}", m.value, m.target)
+            } else if !m.tasks.is_empty() && m.first_met.is_none() {
+                format!("{tasks_done}/{} tasks", m.tasks.len())
             } else {
                 String::new()
             };
@@ -369,6 +373,16 @@ impl Report {
                 }
                 (MilestoneKind::Sign, false) if !m.met_now && short == 1 => "one short".to_owned(),
                 (MilestoneKind::Sign, false) if !m.met_now => format!("{short} short"),
+                // A stage under way: the tasks still to do (#1009).
+                (MilestoneKind::Stage, _) if m.first_met.is_none() && tasks_done > 0 => {
+                    let left: Vec<&str> = m
+                        .tasks
+                        .iter()
+                        .filter(|t| t.done.is_none())
+                        .map(|t| t.name.as_str())
+                        .collect();
+                    format!("to do: {}", left.join(", "))
+                }
                 _ => String::new(),
             };
             let par_cell = if par_col { format!("  {:>7}", par_met(&m.id)) } else { String::new() };
@@ -526,6 +540,7 @@ impl Report {
                         MilestoneKind::Sign => "sign",
                         MilestoneKind::Ready => "ready",
                         MilestoneKind::Stage => "stage",
+                        MilestoneKind::Avatar => "avatar",
                     },
                     "name": m.name,
                     "met_turn": m.first_met.map(|t| r.turn_of(t)),
@@ -535,6 +550,11 @@ impl Report {
                     "slipped": m.slipped,
                     "weight": m.weight,
                     "credit": m.credit,
+                    "tasks": m.tasks.iter().map(|t| json!({
+                        "id": t.id,
+                        "name": t.name,
+                        "done_turn": t.done.map(|d| r.turn_of(d)),
+                    })).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -707,17 +727,33 @@ pub fn score_rule(def: &ScoreDef) -> String {
             .collect();
         let _ = write!(out, " unless noted ({}).", notes.join("; "));
     }
+    if p.avatar_arrival > 0.0 {
+        let _ = write!(
+            out,
+            " The Avatar's arrival is a milestone too, weighing {}.",
+            rule_num(p.avatar_arrival)
+        );
+    }
     let _ = write!(
         out,
         " A milestone first reached at the very start earns full credit and one first reached at \
          the end of the run earns {} of it, falling in a straight line between, so sooner is \
          better. A sign not met at the end (never met, or met and since lost) earns {} of its \
-         progress toward its target. Care multiplies progress. It starts at 1 and loses {} per \
+         progress toward its target.{} Care multiplies progress. It starts at 1 and loses {} per \
          death, {} per close call (a settler's health dipping dangerously low and recovering, or \
          the Avatar leaving), and {} times the share of settler-time that anyone spends {}. So a \
          death or lasting suffering costs score however far the settlement gets.",
         rule_pct(p.late_credit),
         rule_pct(p.partial_credit),
+        if p.task_credit > 0.0 {
+            format!(
+                " A stage not yet done earns {} of its tasks' credit (a task done earns as a \
+                 milestone would; one not done earns nothing), so each pillar raised counts.",
+                rule_pct(p.task_credit)
+            )
+        } else {
+            String::new()
+        },
         rule_num(c.death),
         rule_num(c.close_call),
         rule_num(c.suffering),

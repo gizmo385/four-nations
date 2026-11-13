@@ -9,7 +9,10 @@
 //!   `1 - (1 - late_credit) × (t - start) / (horizon - start)`, where `start` is turn 0 (see
 //!   "Preludes" below); one met at or before `start` earns 1. A sign not holding at the horizon earns only
 //!   `partial_credit × min(1, value / target)`, unless the endeavor latched Ready, which keeps
-//!   every sign's first-met credit as the game does. Ready and the stages have no partial credit.
+//!   every sign's first-met credit as the game does. Ready has no partial credit. A stage that
+//!   isn't done earns `task_credit` × the mean of its tasks' credits, each a done task's met
+//!   credit or 0 (#1009), so three pillars of four score between none and the finished stage.
+//!   With `avatar_arrival` above 0, the Avatar's arrival is one more milestone of that weight.
 //! - **Care** is `max(0, 1 - death × deaths - close_call × close_calls - suffering × share)`. The
 //!   counts come from `World::care()` (#533) and `World::deaths`; nothing here counts anything.
 //!
@@ -44,6 +47,10 @@ pub const SCORE_SCALE: f64 = 1000.0;
 
 /// The id of the Ready milestone: every sign met at once.
 pub const READY_ID: &str = "ready";
+
+/// The id of the Avatar's arrival milestone (#1009): scored only when `[progress]
+/// avatar_arrival` gives it a weight above 0.
+pub const AVATAR_ID: &str = "avatar_arrived";
 
 /// Why `data/score.toml` was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +89,11 @@ pub struct ProgressDef {
     pub default_weight: f64,
     /// Per-milestone overrides, by id, in file order.
     pub weights: Vec<(String, f64)>,
+    /// A stage that isn't done earns this × the mean of its tasks' credits (each a done task's
+    /// met credit, or 0), #1009. 0 turns it off.
+    pub task_credit: f64,
+    /// The weight of the Avatar's arrival as a milestone of its own, #1009. 0 leaves it out.
+    pub avatar_arrival: f64,
 }
 
 /// `[care]`.
@@ -139,6 +151,10 @@ struct ProgressFile {
     late_credit: f64,
     partial_credit: f64,
     default_weight: f64,
+    #[serde(default)]
+    task_credit: f64,
+    #[serde(default)]
+    avatar_arrival: f64,
     #[serde(default)]
     weight: Vec<WeightFile>,
 }
@@ -260,6 +276,15 @@ impl ScoreDef {
                 partial_credit: unit("partial_credit", p.partial_credit)?,
                 default_weight: p.default_weight,
                 weights,
+                task_credit: unit("task_credit", p.task_credit)?,
+                avatar_arrival: if p.avatar_arrival.is_finite() && p.avatar_arrival >= 0.0 {
+                    p.avatar_arrival
+                } else {
+                    return Err(ScoreError(format!(
+                        "[progress] avatar_arrival = {} must be 0 or more",
+                        p.avatar_arrival
+                    )));
+                },
             },
             care: CareDef {
                 death: non_negative("death", c.death)?,
@@ -292,6 +317,9 @@ impl ScoreDef {
 impl ProgressDef {
     /// The weight of milestone `id`.
     pub fn weight_of(&self, id: &str) -> f64 {
+        if id == AVATAR_ID {
+            return self.avatar_arrival;
+        }
         self.weights.iter().find(|(w, _)| w == id).map_or(self.default_weight, |&(_, w)| w)
     }
 
@@ -338,6 +366,17 @@ pub enum MilestoneKind {
     Sign,
     Ready,
     Stage,
+    /// The Avatar's arrival (#1009), when the profile weighs it.
+    Avatar,
+}
+
+/// One task of a stage, on its stage's row (#1009).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TaskRow {
+    pub id: String,
+    pub name: String,
+    /// The tick it was done, within the horizon; `None` if it wasn't.
+    pub done: Option<u64>,
 }
 
 /// One milestone's row on the scorecard.
@@ -362,6 +401,9 @@ pub struct MilestoneRow {
     pub weight: f64,
     /// Credit in 0..=1, before weighting.
     pub credit: f64,
+    /// A stage's tasks, in data order (#1009); empty for every other kind and for a stage with
+    /// none. While the stage isn't done, they earn it `task_credit` × their mean credit.
+    pub tasks: Vec<TaskRow>,
 }
 
 /// The care half of the score.
@@ -437,6 +479,7 @@ struct Milestone {
     value: u32,
     target: u32,
     met_now: bool,
+    tasks: Vec<TaskRow>,
 }
 
 impl Scorecard {
@@ -471,6 +514,7 @@ impl Scorecard {
                 value: p.value,
                 target: p.target,
                 met_now: p.met,
+                tasks: Vec::new(),
             });
         }
         milestones.push(Milestone {
@@ -481,9 +525,19 @@ impl Scorecard {
             value: u32::from(ready.is_some()),
             target: 1,
             met_now: ready.is_some(),
+            tasks: Vec::new(),
         });
         for stage in &defs.endeavor.stages {
             let done = first(&|k| matches!(k, EndeavorEventKind::StageDone(id) if *id == stage.id));
+            let tasks = stage
+                .tasks
+                .iter()
+                .map(|t| TaskRow {
+                    id: t.id.clone(),
+                    name: t.name.clone(),
+                    done: first(&|k| matches!(k, EndeavorEventKind::TaskDone(id) if *id == t.id)),
+                })
+                .collect();
             milestones.push(Milestone {
                 id: stage.id.clone(),
                 kind: MilestoneKind::Stage,
@@ -492,6 +546,21 @@ impl Scorecard {
                 value: u32::from(done.is_some()),
                 target: 1,
                 met_now: done.is_some(),
+                tasks,
+            });
+        }
+        if score.progress.avatar_arrival > 0.0 {
+            let arrived = first(&|k| matches!(k, EndeavorEventKind::AvatarArrived));
+            let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
+            milestones.push(Milestone {
+                id: AVATAR_ID.to_owned(),
+                kind: MilestoneKind::Avatar,
+                name: format!("{name} arrives"),
+                first_met: arrived,
+                value: u32::from(arrived.is_some()),
+                target: 1,
+                met_now: arrived.is_some(),
+                tasks: Vec::new(),
             });
         }
 
@@ -532,6 +601,16 @@ impl Scorecard {
                     }
                     (MilestoneKind::Sign, _) => p.partial(m.value, m.target),
                     (_, Some(t)) => p.met_credit(t, inputs.start, inputs.horizon),
+                    // A stage not done: a share of its done tasks (#1009).
+                    (MilestoneKind::Stage, None) if !m.tasks.is_empty() => {
+                        let sum: f64 = m
+                            .tasks
+                            .iter()
+                            .filter_map(|t| t.done)
+                            .map(|t| p.met_credit(t, inputs.start, inputs.horizon))
+                            .sum();
+                        p.task_credit * sum / m.tasks.len() as f64
+                    }
                     (_, None) => 0.0,
                 };
                 MilestoneRow {
@@ -545,6 +624,7 @@ impl Scorecard {
                     met_now: m.met_now,
                     slipped,
                     credit,
+                    tasks: m.tasks,
                 }
             })
             .collect();

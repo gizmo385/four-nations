@@ -178,6 +178,15 @@ fn an_earth_settlement_raises_its_own_pillar_but_not_the_fire_one() {
     assert_eq!(job.claimed_by, None);
     assert_eq!(stage_id(&w), Some("pillars"), "the stage waits for the Fire pillar");
     assert!(stages_done(&w) == ["base"]);
+    // The Earth pillar is logged once, as its own event (#1009); the Fire pillar isn't.
+    let tasks: Vec<&str> = w
+        .endeavor_events()
+        .filter_map(|e| match &e.kind {
+            EndeavorEventKind::TaskDone(id) => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tasks, ["earth_pillar"]);
 }
 
 #[test]

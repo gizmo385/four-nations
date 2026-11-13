@@ -624,7 +624,10 @@ impl World {
         u.chi = (u.chi - def.chi).max(0.0);
         u.bends += 1;
         self.note_rank_up(i, defs);
-        self.gate_mut().expect("checked above").tasks[usize::from(task)].done = true;
+        let state = &mut self.gate_mut().expect("checked above").tasks[usize::from(task)];
+        state.done = true;
+        let task_id = state.id.clone();
+        self.endeavor_event(EndeavorEventKind::TaskDone(task_id));
         self.gate_progressed(defs);
     }
 }
