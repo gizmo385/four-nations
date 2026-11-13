@@ -116,3 +116,76 @@ fn the_agents_look_is_outlined_on_the_map() {
     let outline = app.frame().outlines.first().expect("an outline on the map");
     assert_eq!((outline.at, outline.w, outline.h), (attention.at, 3, 3));
 }
+
+/// A log of `turns` turns of an Earth settlement with a research target: its first tech finishes
+/// partway through, which the timeline marks.
+fn research_log(turns: u32) -> String {
+    let mut h = Host::new(7, Nation::Earth, None, None, None, false).unwrap();
+    h.press_keys("t <enter> <esc>", Some("research".into()), None).unwrap();
+    for _ in 0..turns {
+        h.end_turn(1);
+    }
+    h.log().to_jsonl(&h.header())
+}
+
+#[test]
+fn the_timeline_scans_in_slices_and_hides_a_kind() {
+    use fn_gui::timeline::Timeline;
+    use fn_tui::replay::scan::MarkerKind;
+    let mut timeline = Timeline::new(&research_log(40));
+    assert!(!timeline.scanned());
+    // A zero budget is still one turn a call, so the scan always moves on.
+    assert!(timeline.scan_for(0.0));
+    while timeline.scan_for(0.01) {}
+    assert!(timeline.scanned());
+    let learned: Vec<u32> = timeline
+        .ticks()
+        .iter()
+        .filter(|(_, k)| *k == MarkerKind::Learned)
+        .map(|(t, _)| *t)
+        .collect();
+    assert!(!learned.is_empty(), "{:?}", timeline.markers());
+    assert!(!timeline.events_at(learned[0]).is_empty());
+    timeline.toggle(MarkerKind::Learned);
+    assert!(timeline.ticks().iter().all(|(_, k)| *k != MarkerKind::Learned));
+    assert!(timeline.events_at(learned[0]).iter().all(|m| m.kind != MarkerKind::Learned));
+}
+
+#[test]
+fn the_buttons_are_the_watchers_keys_and_the_bar_seeks() {
+    let mut app = ReplayApp::open(&log(10)).unwrap();
+    let mut h = harness(&mut app, STUDIO);
+    h.get_by_label("Pause replay").click();
+    h.run_steps(2);
+    h.get_by_label("Next turn").click();
+    h.run_steps(2);
+    h.get_by_label("Next turn").click();
+    h.run_steps(2);
+    drop(h);
+    assert!(app.replay().paused());
+    assert_eq!(app.replay().turn(), 2);
+    // A click in the middle of the bar goes to the middle turn.
+    let mut h = harness(&mut app, STUDIO);
+    h.get_by_label_contains("timeline").click();
+    for _ in 0..30 {
+        h.run_steps(1);
+    }
+    drop(h);
+    assert_eq!(app.replay().turn(), 5);
+    assert!(!app.replay().seeking());
+}
+
+#[test]
+fn a_gzipped_log_opens_like_the_plain_one() {
+    use std::io::Write;
+    let text = log(2);
+    // A stored-block gzip member by hand: miniz_oxide's deflate plus RFC 1952's header.
+    let body = miniz_oxide::deflate::compress_to_vec(text.as_bytes(), 6);
+    let mut gz = vec![0x1f, 0x8b, 8, 8, 0, 0, 0, 0, 0, 255];
+    gz.write_all(b"run.jsonl\0").unwrap();
+    gz.extend_from_slice(&body);
+    gz.extend_from_slice(&[0; 8]);
+    assert_eq!(fn_gui::replay::log_text(&gz).unwrap(), text);
+    assert_eq!(fn_gui::replay::log_text(text.as_bytes()).unwrap(), text);
+    assert!(fn_gui::replay::log_text(&[0x1f, 0x8b, 8, 0]).is_err());
+}
