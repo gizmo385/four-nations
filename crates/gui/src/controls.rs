@@ -16,7 +16,7 @@
 
 use eframe::egui::{
     self, Align, Align2, Color32, FontFamily, FontId, Layout, Pos2, Rect, Response, RichText,
-    Sense, Stroke, StrokeKind, Ui, WidgetInfo, vec2,
+    Sense, Stroke, StrokeKind, Ui, WidgetInfo, pos2, vec2,
 };
 use fn_tui::color::Palette;
 use fn_ui::app::App;
@@ -43,6 +43,31 @@ pub struct Controls {
     pub rail_on: bool,
     /// The More sheet is open.
     pub more_open: bool,
+    /// In a compact window (#979), the side panel's drawer is open over the map.
+    pub drawer_open: bool,
+    /// Lay out for a finger even without a touch screen seen (tests): see [`touch_rows`].
+    pub force_touch: bool,
+}
+
+/// Where [`set_touch_rows`] keeps this frame's answer.
+fn touch_rows_id() -> egui::Id {
+    egui::Id::unique("fn_gui touch rows")
+}
+
+/// Sets, for this frame, whether list rows are sized for a finger ([`touch_rows`]).
+pub fn set_touch_rows(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(touch_rows_id(), on));
+}
+
+/// Whether list rows are sized for a finger this frame (#979): a touch screen, or
+/// [`Controls::force_touch`].
+pub fn touch_rows(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp(touch_rows_id())).unwrap_or(false)
+}
+
+/// The height of one list row: a cell, or [`TARGET`] when rows are sized for a finger.
+pub fn row_height(ctx: &egui::Context, cell: f32) -> f32 {
+    if touch_rows(ctx) { cell.max(TARGET) } else { cell }
 }
 
 fn key(code: KeyCode) -> KeyEvent {
@@ -345,6 +370,129 @@ pub fn corner_more(ctx: &egui::Context, map: Rect, palette: &Palette, controls: 
                 controls.more_open = true;
             }
         });
+}
+
+/// How tall the floating time controls are ([`float_time`]), so what else sits in the map's
+/// top-right corner can start below them.
+pub const FLOAT_HEIGHT: f32 = 36.0;
+
+/// In a compact window with the drawer closed (#979, board 1): pause, slower and faster at the
+/// map's top-right corner, and More when the rail (whose bar has its own) is off. Returns the
+/// keys they stand for.
+pub fn float_time(
+    ctx: &egui::Context,
+    map: Rect,
+    app: &App,
+    palette: &Palette,
+    live: bool,
+    rail: bool,
+    controls: &mut Controls,
+) -> Vec<KeyEvent> {
+    let look = Look::new(palette);
+    let mut keys = Vec::new();
+    let paused = app.session.clock.paused;
+    let h = FLOAT_HEIGHT - 4.0;
+    egui::Area::new(egui::Id::unique("fn_gui float time"))
+        .pivot(egui::Align2::RIGHT_TOP)
+        .fixed_pos(map.right_top() + vec2(-6.0, 6.0))
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let (label, name) = if paused { ("▶", "Play") } else { ("Pause", "Pause") };
+                if text_button(ui, &look, label, name, h, paused).clicked() && live {
+                    keys.push(ch(' '));
+                }
+                if text_button(ui, &look, "-", "Slower", h, false).clicked() && live {
+                    keys.push(ch('-'));
+                }
+                if text_button(ui, &look, "+", "Faster", h, false).clicked() && live {
+                    keys.push(ch('+'));
+                }
+                if !rail {
+                    let r = rail_button(ui, &look, vec2(h, h), MORE_ICON, ("More", ""), false);
+                    if r.clicked() && live {
+                        controls.more_open = true;
+                    }
+                }
+            });
+        });
+    keys
+}
+
+/// The closed drawer's tab on the map's right edge (#979, board 1), with the open-alert count:
+/// a tap opens the drawer.
+pub fn drawer_tab(
+    ctx: &egui::Context,
+    map: Rect,
+    palette: &Palette,
+    alerts: usize,
+    controls: &mut Controls,
+) {
+    let look = Look::new(palette);
+    let size = vec2(28.0, 64.0);
+    egui::Area::new(egui::Id::unique("fn_gui drawer tab"))
+        .fixed_pos(pos2(map.right() - size.x, map.center().y - size.y / 2.0))
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            let (rect, r) = ui.allocate_exact_size(size, Sense::click());
+            let painter = ui.painter_at(rect);
+            let rounding = egui::CornerRadius { nw: 8, sw: 8, ne: 0, se: 0 };
+            painter.rect(
+                rect,
+                rounding,
+                look.panel,
+                Stroke::new(1.0, look.line),
+                StrokeKind::Inside,
+            );
+            let font = egui::FontId::monospace(16.0);
+            painter.text(
+                rect.center() - vec2(0.0, 12.0),
+                Align2::CENTER_CENTER,
+                "‹",
+                font.clone(),
+                look.text,
+            );
+            if alerts > 0 {
+                let dot = rect.center() + vec2(0.0, 12.0);
+                painter.circle_filled(dot, 9.0, look.accent);
+                let n = if alerts > 9 { "9+".to_owned() } else { alerts.to_string() };
+                painter.text(
+                    dot,
+                    Align2::CENTER_CENTER,
+                    n,
+                    egui::FontId::monospace(11.0),
+                    look.on_accent,
+                );
+            }
+            let name = match alerts {
+                0 => "Open panel".to_owned(),
+                1 => "Open panel: 1 alert".to_owned(),
+                n => format!("Open panel: {n} alerts"),
+            };
+            r.widget_info(|| WidgetInfo::labeled(egui::Role::Button, true, name.clone()));
+            if r.clicked() {
+                controls.drawer_open = true;
+            }
+        });
+}
+
+/// The open drawer's close chevron, in `ui` at `rect`'s top-left. Returns whether it was tapped.
+pub fn drawer_close(ui: &mut Ui, palette: &Palette, at: Pos2) -> bool {
+    let look = Look::new(palette);
+    let rect = Rect::from_min_size(at, vec2(TARGET, 28.0));
+    let r = ui.interact(rect, ui.scope_id().with("fn_gui drawer close"), Sense::click());
+    let painter = ui.painter_at(rect);
+    let colour = if r.hovered() { look.text } else { look.dim };
+    painter.text(
+        rect.left_center() + vec2(8.0, 0.0),
+        Align2::LEFT_CENTER,
+        "›",
+        egui::FontId::monospace(18.0),
+        colour,
+    );
+    r.widget_info(|| WidgetInfo::labeled(egui::Role::Button, true, "Close panel"));
+    r.clicked()
 }
 
 /// A text button at least [`TARGET`] wide and `height` tall.

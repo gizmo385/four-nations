@@ -103,6 +103,8 @@ fn with_nothing_selected_it_is_the_tile_under_the_cursor() {
 #[test]
 fn a_short_panel_scrolls_the_inspector_instead_of_trimming_it() {
     let mut app = GuiApp::with_shell(game());
+    // A short window is compact (#979): the panel is the drawer, opened.
+    app.frame_mut().controls.drawer_open = true;
     let mut h = harness(&mut app, egui::vec2(1200.0, 260.0));
     tab(&mut h);
     for label in ["Health", "Hunger", "Thirst", "Energy", "Chi"] {

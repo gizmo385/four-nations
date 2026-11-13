@@ -103,8 +103,9 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                     }
                 }
             });
-            let first = (shown.state.clamped_offset().y / look.cell.y).round().max(0.0) as usize;
-            let visible = (shown.inner_rect.height() / look.cell.y).floor() as usize;
+            let row = look.row(ui);
+            let first = (shown.state.clamped_offset().y / row).round().max(0.0) as usize;
+            let visible = (shown.inner_rect.height() / row).floor() as usize;
             fn_ui::text::window_label("abilities", first, visible, rows.len())
         },
         |ui| {

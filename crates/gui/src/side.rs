@@ -339,7 +339,14 @@ pub(crate) fn heading_cased(
     click: Option<char>,
     clicks: &mut Clicks,
 ) {
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), look.ch), Sense::hover());
+    // On touch (#979) a heading that is a link is a finger tall and taps anywhere along it.
+    let touch = click.is_some() && crate::controls::touch_rows(ui.ctx());
+    let height = if touch { crate::controls::row_height(ui.ctx(), look.ch) } else { look.ch };
+    let sense = if touch { Sense::click() } else { Sense::hover() };
+    let (rect, row) = ui.allocate_exact_size(vec2(ui.available_width(), height), sense);
+    if let (Some(c), true) = (click, row.clicked()) {
+        clicks.push(key(c));
+    }
     ui.painter().hline(rect.x_range(), rect.center().y, Stroke::new(1.0, look.rule));
     let gap = |ui: &mut Ui, add: &mut dyn FnMut(&mut Ui)| {
         egui::Frame::NONE.fill(look.panel).inner_margin(Margin::symmetric(4, 0)).show(ui, add);
@@ -432,7 +439,16 @@ fn alerts(
             ui.add_space(look.ch * 0.5);
         }
         let label = Label::new(look.text(&entry.text, entry.tone)).wrap().selectable(false);
-        let response = ui.add(label.sense(Sense::click()));
+        // On touch (#979) an alert is at least a finger tall, and a tap anywhere on it counts.
+        let min = crate::controls::row_height(ui.ctx(), 0.0);
+        let shown = ui.scope(|ui| {
+            ui.set_min_height(min);
+            ui.add(label.sense(Sense::click()))
+        });
+        let mut response = shown.inner;
+        if min > 0.0 {
+            response |= ui.interact(shown.response.rect, look.id(ui), Sense::click());
+        }
         if response.hovered() {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         }
