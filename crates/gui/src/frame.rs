@@ -212,6 +212,8 @@ pub struct Frame {
     /// The keys the window's own widgets (the side panel's clicks) stand for, not yet given to
     /// the shell ([`Frame::take_keys`]).
     keys: Vec<KeyEvent>,
+    /// The touch controls' state (#978): the rail's switch, the More sheet.
+    pub controls: crate::controls::Controls,
 }
 
 impl Frame {
@@ -416,9 +418,30 @@ impl Frame {
         let panel_fill = fill(palette.theme.panel);
         let ch = metrics.cell.y;
 
-        // The bar first: the panel beside the map then stops above it, as the TUI's status line
-        // runs under both.
-        self.show_bar(root, &hints::bar(app, palette, cols), metrics);
+        // Without the touch controls the hint bar goes first, so the panel beside the map stops
+        // above it, as the TUI's status line runs under both. With them (#978) the rail and the
+        // panel run the window's height, and the action bar (the mode's keys as buttons) sits
+        // under the map alone.
+        let window = root.available_rect_before_wrap();
+        let touch = crate::controls::touch_device(root.ctx());
+        let rail = crate::controls::rail_shown(root.ctx(), &self.controls);
+        let bar = hints::bar(app, palette, cols);
+        if rail {
+            let wide = crate::controls::wide(window);
+            let width =
+                if wide { crate::controls::RAIL_WIDE } else { crate::controls::RAIL_NARROW };
+            let mut keys = Vec::new();
+            egui::Panel::left("rail")
+                .exact_size(width)
+                .resizable(false)
+                .frame(egui::Frame::NONE.fill(panel_fill))
+                .show(root, |ui| {
+                    keys = crate::controls::rail(ui, app, palette, wide, live);
+                });
+            self.keys.extend(keys);
+        } else {
+            self.show_bar(root, &bar, metrics);
+        }
 
         // The native side panel (#877). Its clicks come back as keys, which the window feeds
         // the shell; with a box open it shows but takes none.
@@ -437,6 +460,24 @@ impl Frame {
         for action in actions {
             app.do_notice_action(action);
         }
+
+        if rail {
+            self.hint_text = bar.text();
+            let mut keys = Vec::new();
+            let controls = &mut self.controls;
+            egui::Panel::bottom("hints")
+                .exact_size(crate::controls::BAR_HEIGHT)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(egui::Frame::NONE.fill(panel_fill))
+                .show(root, |ui| {
+                    keys = crate::controls::action_bar(ui, app, &bar, palette, live, controls);
+                });
+            self.keys.extend(keys);
+        }
+        let more_keys =
+            crate::controls::more_sheet(root.ctx(), app, palette, &mut self.controls, touch);
+        self.keys.extend(more_keys);
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             let avail = ui.available_rect_before_wrap();
@@ -459,6 +500,9 @@ impl Frame {
             }
             view.show(ui, map_rect, app, palette);
             self.timings.map = view.last_paint_ms;
+            if !rail && live {
+                crate::controls::corner_more(ui.ctx(), map_rect, palette, &mut self.controls);
+            }
             // The corner notices (#945), over the map's top right.
             let notice_clicks = notices::show(ui.ctx(), map_rect, app, palette, metrics, live);
             notices::apply(app, &notice_clicks);

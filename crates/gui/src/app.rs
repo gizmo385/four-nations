@@ -89,6 +89,11 @@ impl GuiApp {
         &self.frame
     }
 
+    /// The window's frame, to change its own state (the touch controls' switch, in tests).
+    pub fn frame_mut(&mut self) -> &mut Frame {
+        &mut self.frame
+    }
+
     fn step(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f64().min(0.25);
