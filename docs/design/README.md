@@ -16,6 +16,7 @@ Keep this list in step when you add a doc or change a status.
 - [side-panel-v2.md](side-panel-v2.md): the side panel (glance, feed, here)
 - [bending.md](bending.md), [research.md](research.md), [research-horizons.md](research-horizons.md), [horizons-phase-1.md](horizons-phase-1.md), [power.md](power.md): abilities, tech tree, the long-term research spec and its first phase, power
 - [buildings.md](buildings.md), [nation-buildings.md](nation-buildings.md), [materials.md](materials.md), [clearing.md](clearing.md): buildings, materials, clearing ground
+- [tool-pickers.md](tool-pickers.md): tools that need a choice open a list; one Remove tool
 - [horizons-phase-2.md](horizons-phase-2.md): research horizons phase 2, routes, outposts, beasts and canals
 - [horizons-phase-4.md](horizons-phase-4.md): research horizons phase 4, schools (one fork per nation, item costs, the 1,000 tier)
 - [pacing.md](pacing.md), [late-tree.md](late-tree.md), [endgame.md](endgame.md), [difficulty.md](difficulty.md), [harm.md](harm.md): pacing, progression and pressure
