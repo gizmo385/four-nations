@@ -17,8 +17,8 @@
 │ DESIGNATING                                                Tab     Log in --watch: next kind                         │
 │ /  List the tools in the panel                             ?       Key help and legend                               │
 │ H  Harvest: chop, mine, gather                             F5      Quicksave                                         │
-│ X  Cancel a mark                                           F9      Quickload (asks first)                            │
-│ E  Clear the ground                                        F6      Saves                                             │
+│ X  Remove: marks, sites, stockpiles, buildings             F9      Quickload (asks first)                            │
+│ E  Clear the ground (trees, rock, plants)                  F6      Saves                                             │
 │ P  Stockpile                                               Esc     Game menu: save, load, new map, quit              │
 │ B  Bend: pick an ability to channel                        Ctrl+C  Quit at once, without asking                      │
 │ U  Build                                                                                                             │
@@ -26,9 +26,9 @@
 │                                                            Enter  Set a corner, then apply                           │
 │                                                            Esc    Drop the corner, then leave                        │
 │                                                            O      Standing order (Harvest)                           │
-│                                                            O      Also sites, stockpiles (Cancel)                    │
 │                                                            O      Move a chute foot or partner (Select)              │
 │                                                            O      Automate a machine in a yard (Select)              │
+│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
