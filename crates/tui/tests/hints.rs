@@ -124,18 +124,15 @@ fn the_help_text_lists_every_key_help_row() {
 /// A tool's toggle is in the bar while that tool is up and in no other tool's (#781).
 #[test]
 fn a_tool_names_its_own_toggle_and_no_other_tools() {
-    for (script, toggle, other) in [
-        ("h", "O repeat", "teardown"),
-        ("h <enter>", "O repeat", "teardown"),
-        ("x", "O teardown", "repeat"),
-        ("x <enter>", "O teardown", "repeat"),
-    ] {
+    for (script, toggle, other) in
+        [("h", "O repeat", "teardown"), ("h <enter>", "O repeat", "teardown")]
+    {
         let (line, _) = status_line(script, 120);
         assert!(line.contains(toggle), "{script:?}:\n{line}");
         assert!(!line.contains(other), "{script:?}:\n{line}");
     }
     // A tool with no toggle names none, and neither does Select.
-    for script in ["", "e", "p", "b <enter>", "c"] {
+    for script in ["", "e", "x", "x <enter>", "p", "b <enter>", "c"] {
         let (line, _) = status_line(script, 120);
         assert!(!line.contains("O repeat") && !line.contains("O teardown"), "{script:?}:\n{line}");
     }
@@ -145,9 +142,10 @@ fn a_tool_names_its_own_toggle_and_no_other_tools() {
 #[test]
 fn the_key_help_lists_each_tool_toggle() {
     let rows = fn_ui::keys::help_rows();
-    for what in ["Standing order (Harvest)", "Also sites, stockpiles (Cancel)"] {
-        assert!(rows.iter().any(|r| r.keys == "O" && r.what == what), "{what}");
-    }
+    let what = "Standing order (Harvest)";
+    assert!(rows.iter().any(|r| r.keys == "O" && r.what == what), "{what}");
+    // Remove has none (#953).
+    assert!(!rows.iter().any(|r| r.keys == "O" && r.what.contains("Cancel")));
 }
 
 /// The map banner names the tool but not what it does: that is the panel's Tool section (#781).

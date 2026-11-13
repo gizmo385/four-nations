@@ -348,7 +348,7 @@ like Shift+arrows. With Caps Lock on, they move 10 tiles too.
 | `Esc` | Deselect the settler | Drop the corner, or (with none) back to Select | Same |
 | `Tab` / Shift+`Tab` | Select the next / previous unit; the cursor jumps to it | none | none |
 | `F` | Follow the selected unit (the cursor tracks it) | none | Centres once |
-| `H` `X` `P` `B` | Harvest, cancel harvest, stockpile, bend tool | Switch tool (drops the corner) | Same |
+| `H` `X` `P` `B` | Harvest, remove (#953), stockpile, bend tool | Switch tool (drops the corner) | Same |
 | `T` | Research screen | same | Same |
 | `Space` | Pause / run | same | Same |
 | `+` / `-` | Faster / slower | same | none (new) |
@@ -617,7 +617,7 @@ dragged goes between the cursor and the designation tints).
 
 The designation tools and key scripts. Where it differs from the proposal above:
 
-- **Keys.** `H` `X` `P` `B` in either case pick `Tool::Harvest`, `CancelHarvest`, `Stockpile` and
+- **Keys.** `H` `X` `P` `B` in either case pick `Tool::Harvest`, `Remove` (once `CancelHarvest`, #953), `Stockpile` and
   `Bend` through `fn_ui::tools::switch_tool`; `U` (build) is not bound until the build tool has a
   picker. `Enter` and `Esc` are `Action::Confirm` and `Action::Cancel`; in Select mode both do
   nothing yet (#99 gives them selecting and closing the bar). Picking a tool, even the active one,

@@ -134,6 +134,22 @@ fn taking_down_a_2x2_hall_clears_the_footprint_and_its_seats_and_refunds_half_by
     w.check_invariants(&defs).unwrap();
 }
 
+/// The refund a Remove preview quotes is what taking the building down drops (#953).
+#[test]
+fn deconstruct_refund_quotes_what_taking_the_building_down_drops() {
+    let defs = Defs::bundled();
+    let anchor = at(10, 6);
+    let mut w = with("study_hall", anchor, &[at(4, 6), at(4, 8)], &defs);
+    let quote = w.deconstruct_refund(at(11, 7), &defs);
+    assert!(!quote.is_empty());
+    assert!(w.deconstruct_refund(at(0, 0), &defs).is_empty(), "nothing where nothing stands");
+    w.apply(Command::Deconstruct { pos: anchor }, &defs).unwrap();
+    tick_until_gone(&mut w, anchor, 20_000, &defs);
+    for stack in quote {
+        assert_eq!(dropped_near(&w, anchor, stack.item, 3), stack.count, "{stack:?}");
+    }
+}
+
 #[test]
 fn a_production_building_gives_back_its_batch_inputs_in_full() {
     let defs = Defs::bundled();

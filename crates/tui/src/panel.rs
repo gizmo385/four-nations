@@ -82,8 +82,8 @@ pub fn rect_hint(ui: &UiState) -> Option<String> {
 fn apply_verb(tool: Tool) -> &'static str {
     match tool {
         Tool::Harvest | Tool::Stockpile | Tool::Sow => "designate",
-        Tool::CancelHarvest => "cancel",
-        Tool::Clear | Tool::Deconstruct => "clear",
+        Tool::Remove => "remove",
+        Tool::Clear => "clear",
         Tool::Bend => "bend",
         Tool::Build => "build",
         Tool::Gate => "place",
@@ -535,7 +535,7 @@ mod tests {
         ui.anchor = Some(Pos::new(3, 3));
         ui.cursor = Pos::new(7, 5);
         assert_eq!(rect_hint(&ui).as_deref(), Some("Enter: designate 5x3"));
-        ui.set_tool(Tool::CancelHarvest);
+        ui.set_tool(Tool::Remove);
         assert_eq!(rect_hint(&ui).as_deref(), Some("Enter: set a corner"), "a new tool drops it");
     }
 

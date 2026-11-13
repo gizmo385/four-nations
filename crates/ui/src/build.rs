@@ -3,10 +3,9 @@
 //! finished building says in the tooltip. Pure functions over `Session`, so the tests cover them;
 //! the frontends draw the picker and `tools::apply_rect` turns a drag into `DesignateBuild`.
 //!
-//! The Cancel tool withdraws a build designation too, but only with its own teardown toggle on
-//! (`fn_ui::tools::Pick::teardown`, #335): with it, a tile with a site issues `CancelBuild`, a
-//! stockpile tile `CancelStockpile`; without it, a job designation still goes (a bend, a Sow or
-//! a Clear mark, else `CancelHarvest`) but a site or a stockpile tile is left alone.
+//! The Remove tool (#953) withdraws a build designation too, with everything else the player made
+//! in its rectangle: a tile with a site issues `CancelBuild`, a stockpile tile `CancelStockpile`
+//! (`fn_ui::tools::Tool::command`).
 //!
 //! A building can cover several tiles (its footprint, #196, docs/design/buildings.md,
 //! "Placing"): `anchor_for` turns the tile under the cursor into the footprint's top-left tile,

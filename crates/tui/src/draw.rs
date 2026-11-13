@@ -163,8 +163,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
 }
 
 /// The hint bar's badge text for `mode`: the mode's name, and in a tool "HARVEST · REPEATING"
-/// while the standing-order toggle is on (#277) or "CANCEL · TEARDOWN" while the Cancel tool's
-/// own is (#335).
+/// while the standing-order toggle is on (#277).
 pub fn mode_label(ui: &UiState, mode: Mode) -> String {
     match ui.repeating_label() {
         Some(label) if matches!(mode, Mode::Tool | Mode::ToolCorner) => label.to_uppercase(),

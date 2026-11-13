@@ -25,19 +25,17 @@ struct ActionStepDoc {
 const ACTION_STEP_DOCS: &[ActionStepDoc] = &[
     ActionStepDoc {
         step: "designate",
-        fields: "{tool, from, to, standing?, teardown?, ability?}: tool is \"harvest\", \
-                 \"cancel\", \"clear\", \"stockpile\", \"bend\" or \"sow\", from/to a \
-                 rectangle. standing (default false) only applies when tool is \"harvest\": \
-                 true re-queues the designation once the resource ripens again. teardown \
-                 (default false) only applies when tool is \"cancel\": without it, cancel \
-                 withdraws only job designations (a harvest, a bend, a sow or a clear mark) \
-                 and leaves a build site or stockpile tile alone; with it, those go too. \
-                 ability only applies when tool is \"bend\": the ability's own name (as the \
+        fields: "{tool, from, to, standing?, ability?}: tool is \"harvest\", \
+                 \"remove\", \"clear\", \"stockpile\", \"bend\" or \"sow\", from/to a \
+                 rectangle. \"remove\" takes away everything the player made in it (marks, \
+                 build sites, stockpile tiles and finished buildings, skipping landmarks) and \
+                 takes no flag; \"clear\" is the ground only. standing (default false) only applies when tool is \"harvest\": \
+                 true re-queues the designation once the resource ripens again. ability only applies when tool is \"bend\": the ability's own name (as the \
                  Bend tool's own banner shows it, as screen(\"bend\") lists them -- each nation's \
                  abilities are its own, so read the list rather than guessing a name); with \
                  none given, the \
-                 Bend tool is armed with the ability that is active now. Any \
-                 of these three set on the wrong tool, or an ability that's unknown or not yet \
+                 Bend tool is armed with the ability that is active now. Either \
+                 of these set on the wrong tool, or an ability that's unknown or not yet \
                  usable, fails to plan.",
         example: "act([#{step: \"designate\", tool: \"sow\", from: #{x: 10, y: 10}, \
                    to: #{x: 12, y: 10}}], \"sow the near field\")",
@@ -136,7 +134,6 @@ mod tests {
                 from: Coord { x: 0, y: 0 },
                 to: Coord { x: 0, y: 0 },
                 standing: false,
-                teardown: false,
                 ability: None,
             },
             ActionStep::Build {

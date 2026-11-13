@@ -77,6 +77,24 @@ impl World {
         }
     }
 
+    /// The goods taking down the finished building covering `pos` would return now: each cost
+    /// entry's refund share (`deconstruct_terms`), nothing for a building raised with no bill
+    /// (#727). Empty with no building. The fuel, pantry, dock and batch goods it also gives back
+    /// are not counted. For a client to say what a Remove rectangle returns.
+    pub fn deconstruct_refund(&self, pos: Pos, defs: &Defs) -> Vec<Stack> {
+        let Some(b) = self.building_record(pos).filter(|b| !b.free) else { return Vec::new() };
+        let (refund, _) = self.deconstruct_terms(defs);
+        defs.building(b.id)
+            .cost
+            .iter()
+            .map(|c| Stack {
+                item: c.item,
+                count: crate::building::DeconstructDef::share_of(c.count, refund),
+            })
+            .filter(|s| s.count > 0)
+            .collect()
+    }
+
     /// Takes back the mark on the finished building covering `pos`. Work already done on it is
     /// lost; the building itself was never touched.
     pub(super) fn cancel_deconstruct(&mut self, pos: Pos) -> Result<(), DesignateError> {

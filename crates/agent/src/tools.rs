@@ -106,8 +106,8 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": "act",
             "description": "Runs named steps in order, each lowered to the keys a player would \
-                             press: designate {tool: harvest|cancel|clear|stockpile|bend|sow, \
-                             from, to, standing?, teardown?, ability?}, build {building, from, \
+                             press: designate {tool: harvest|remove|clear|stockpile|bend|sow, \
+                             from, to, standing?, ability?}, build {building, from, \
                              to}, select {x,y} or {name}, research {tech}, cursor {x,y}, keys \
                              {script}, gate {x,y}, cancel_gate, keep_teaching {tech}. \
                              `keep_teaching` keeps a teaching from the oldest pending draft \
@@ -116,10 +116,13 @@ pub fn list() -> Vec<Value> {
                              gate with its top-left tile on (x,y) once the endeavor is Ready \
                              (screen endeavor's `action` says so); `cancel_gate` withdraws its \
                              site before work on it starts. `standing` (harvest only) re-queues the designation when \
-                             the resource ripens again. `teardown` (cancel only) also withdraws \
-                             a build site or a stockpile tile; without it a cancel withdraws \
-                             only job designations (a harvest, a bend, a sow or a clear mark) \
-                             and leaves those alone. `ability` (bend only) is the ability's own \
+                             the resource ripens again. `remove` takes away everything the \
+                             player made in the rectangle: harvest, bend, sow and clear marks, \
+                             unfinished build sites, stockpile tiles (their goods drop to be \
+                             hauled) and finished buildings (marked to be taken down), skipping \
+                             landmarks; it has no flags, and an empty rectangle removes \
+                             nothing. `clear` is the ground only (trees, rock, plants). \
+                             `ability` (bend only) is the ability's own \
                              name as the Bend tool's own banner shows it, taken from \
                              screen bend's list (each nation's abilities are its own, so \
                              never a name from memory); it's lowered to the bend key (which \
@@ -127,11 +130,11 @@ pub fn list() -> Vec<Value> {
                              arrow presses as reach its row, and Enter; with none given, the \
                              bend key and Enter re-arm the ability active now. A step that can't be \
                              planned (an unknown tech, a building the Build modal doesn't \
-                             offer, a tile off the map, standing or teardown on the wrong \
+                             offer, a tile off the map, standing on the wrong \
                              tool, an ability that's unknown, locked or not for the bend tool, \
                              ...) presses nothing and the steps after it don't run. The \
                              result's `notices` carries each designate or build step's own \
-                             'N done, M skipped: reason' text (cancel's own breaks the done \
+                             'N done, M skipped: reason' text (remove's own breaks the done \
                              count out by kind instead, and a sow names a plot that's already \
                              sown or marked instead of the misleading 'not a farm plot'), so a \
                              mostly-skipped rectangle (an impassable tile, say) is obvious \
@@ -154,15 +157,13 @@ pub fn list() -> Vec<Value> {
                                 "tool": {
                                     "type": "string",
                                     "enum": [
-                                        "harvest", "cancel", "clear", "deconstruct",
-                                        "stockpile", "bend", "sow",
+                                        "harvest", "remove", "clear", "stockpile", "bend", "sow",
                                     ],
                                 },
                                 "building": {"type": "string"},
                                 "from": coord,
                                 "to": coord,
                                 "standing": {"type": "boolean"},
-                                "teardown": {"type": "boolean"},
                                 "ability": {"type": "string"},
                                 "x": {"type": "integer"},
                                 "y": {"type": "integer"},

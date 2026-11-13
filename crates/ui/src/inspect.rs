@@ -599,10 +599,10 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         if let Some(anchor) = world.footprint_at(tile).map(|f| f.anchor) {
             lines.extend(pair_lines(world, defs, anchor).into_iter().map(Line::Detail));
         }
-        lines.push(Line::Hint(if tool == Tool::CancelHarvest {
-            Hint::ApplyTool(Tool::CancelHarvest)
+        lines.push(Line::Hint(if tool == Tool::Remove {
+            Hint::ApplyTool(Tool::Remove)
         } else {
-            Hint::StartTool(Tool::CancelHarvest)
+            Hint::StartTool(Tool::Remove)
         }));
         return Some(lines);
     }
@@ -1087,11 +1087,11 @@ mod tests {
                 Line::Title("Bed (under construction)".into()),
                 Line::Detail("Materials: 0/5 Wood".into()),
                 Line::Detail("Work: 0s of 20s".into()),
-                Line::Hint(Hint::StartTool(Tool::CancelHarvest)),
+                Line::Hint(Hint::StartTool(Tool::Remove)),
             ]
         );
-        let lines = tooltip_lines(&s, Tool::CancelHarvest, pos).unwrap();
-        assert_eq!(lines.last(), Some(&Line::Hint(Hint::ApplyTool(Tool::CancelHarvest))));
+        let lines = tooltip_lines(&s, Tool::Remove, pos).unwrap();
+        assert_eq!(lines.last(), Some(&Line::Hint(Hint::ApplyTool(Tool::Remove))));
     }
 
     #[test]

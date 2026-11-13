@@ -36,8 +36,7 @@ pub fn tint(ui: &UiState) -> Option<Tint> {
 }
 
 /// The badge: the tool's name, the Build tool's chosen building, the Bend ability it channels
-/// or the Clear tool's mode, `· REPEATING` while the standing-order toggle (`O`, #277) is on,
-/// and `· TEARDOWN` while the Cancel tool's own teardown toggle (`O`, #335) is on.
+/// and `· REPEATING` while the standing-order toggle (`O`, #277) is on.
 pub fn badge(session: &Session, ui: &UiState) -> String {
     let mut s = ui.tool.name().to_uppercase();
     match ui.tool {
@@ -53,16 +52,10 @@ pub fn badge(session: &Session, ui: &UiState) -> String {
                 s.push_str(&row.name);
             }
         }
-        // The Clear tool's two modes (docs/design/clearing.md, section 5): `E` toggles them.
-        Tool::Clear => s.push_str(" ground"),
-        Tool::Deconstruct => s.push_str(" buildings"),
         _ => {}
     }
     if ui.tool == Tool::Harvest && ui.repeating {
         s.push_str(" · REPEATING");
-    }
-    if ui.tool == Tool::CancelHarvest && ui.teardown {
-        s.push_str(" · TEARDOWN");
     }
     s
 }
@@ -97,10 +90,9 @@ pub fn segments(session: &Session, ui: &UiState) -> Vec<String> {
     if !anchored {
         match ui.tool {
             Tool::Harvest if ui.repeating => segs.push("O: one-shot".to_owned()),
-            Tool::CancelHarvest if ui.teardown => segs.push("O: jobs only".to_owned()),
             Tool::Build => segs.push("U: pick another".to_owned()),
-            Tool::Clear => segs.push("E: buildings".to_owned()),
-            Tool::Deconstruct => segs.push("E: ground".to_owned()),
+            // Clear is the ground only (#953): buildings are Remove's.
+            Tool::Clear => segs.push("X: remove buildings".to_owned()),
             Tool::Bend => segs.push("B: abilities".to_owned()),
             _ => {}
         }

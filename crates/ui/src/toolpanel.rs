@@ -13,13 +13,17 @@
 //! │ Standing order: off          │   the tool's toggles
 //! ```
 //!
+//! Remove (`X`) has no toggles; its preview is one line a kind, with names where they fit
+//! (`tools::Removal::lines`): "Takes down 3: Bed, Bed, Workshop", "Cancels 2 marks: chop, sow",
+//! "Unzones 4 stockpile tiles: 18 goods drop to be hauled" (the warning colour), "Back: 9 Wood".
+//!
 //! Each group is a [`Block`]; [`blocks`] returns them in the order they read. With the tool list
 //! open (`/`, #664) the section is that list alone, [`choices`] as rows:
 //!
 //! ```text
 //! ├─ DESIGNATE ───────────────── [/] ─┤
 //! │ ▸ H Harvest    chop, mine         │
-//! │   X Cancel     remove a mark      │
+//! │   X Remove     what you made      │
 //! │   B Bend       Raise Earth        │
 //! │   C Sow        build a farm plot  │   dim, with the reason
 //! ```
@@ -42,6 +46,8 @@ pub enum Emphasis {
     Plain,
     /// A reason or a state that is background to the rest.
     Dim,
+    /// Something to look at twice before applying: goods that will drop, a zone that goes.
+    Warn,
 }
 
 /// One line of the section.
@@ -72,8 +78,6 @@ pub struct ToolState<'a> {
     pub cursor: Pos,
     /// The Harvest tool's standing-order toggle.
     pub repeating: bool,
-    /// The Cancel tool's toggle for also taking sites and stockpiles.
-    pub teardown: bool,
     /// The Build tool's building.
     pub choice: Option<BuildingId>,
     /// What the rectangle just applied marked, while it is still the news
@@ -108,8 +112,8 @@ pub fn choices(session: &Session) -> Vec<ToolChoice> {
             let letter = tool.letter()?;
             let (what, unusable) = match tool {
                 Tool::Harvest => ("chop, mine".to_owned(), None),
-                Tool::CancelHarvest => ("remove a mark".to_owned(), None),
-                Tool::Clear | Tool::Deconstruct => ("clear ground".to_owned(), None),
+                Tool::Remove => ("take away what you made".to_owned(), None),
+                Tool::Clear => ("clear ground".to_owned(), None),
                 Tool::Stockpile => ("storage".to_owned(), None),
                 Tool::Bend => bend_choice(session),
                 Tool::Build => ("a building".to_owned(), None),
@@ -170,10 +174,6 @@ fn settings(st: &ToolState) -> Block {
         Tool::Harvest => {
             vec![Line::Setting { label: "Standing order".to_owned(), value: on(st.repeating) }]
         }
-        Tool::CancelHarvest => vec![Line::Setting {
-            label: "Also sites, stockpiles".to_owned(),
-            value: on(st.teardown),
-        }],
         _ => Vec::new(),
     }
 }
@@ -188,11 +188,21 @@ fn preview(session: &Session, st: &ToolState, anchor: Pos) -> Block {
             from: anchor,
             to: st.cursor,
             repeating: st.repeating,
-            teardown: st.teardown,
             choice: st.choice,
         },
     );
     let mut lines = vec![Line::Text(size_text(anchor, st.cursor), Emphasis::Plain)];
+    // Remove says what goes, one line a kind, names and all; the stockpile line is the warning.
+    if st.tool == Tool::Remove && report.done() {
+        lines.extend(
+            report
+                .removal
+                .lines()
+                .into_iter()
+                .map(|l| Line::Text(l.text, if l.warn { Emphasis::Warn } else { Emphasis::Plain })),
+        );
+        return lines;
+    }
     if !report.done() {
         lines.push(Line::Text(st.tool.nothing().to_owned(), Emphasis::Plain));
         // Build and Bend can say why: a tech missing, a rank, a tree in the way.
@@ -285,15 +295,18 @@ mod tests {
         s
     }
 
+    /// A game founded the way the title screen does, with the difficulty preset's starting
+    /// stockpiles laid down near the start.
+    fn founded() -> Session {
+        let defs = fn_sim::Defs::bundled();
+        let size = defs.embark.map_size("small").unwrap();
+        let survey = fn_sim::embark::Survey::new(&fn_sim::embark::Survey::config(7, size), &defs);
+        let start = survey.default_site(&defs);
+        Session::found(survey, Nation::Earth, start, Some("normal".to_owned())).unwrap()
+    }
+
     fn order(tool: Tool, choice: Option<BuildingId>) -> Order {
-        Order {
-            tool,
-            from: Pos::new(0, 0),
-            to: Pos::new(63, 63),
-            repeating: false,
-            teardown: false,
-            choice,
-        }
+        Order { tool, from: Pos::new(0, 0), to: Pos::new(63, 63), repeating: false, choice }
     }
 
     /// What the preview promised, then what applying did: the same counts, cost and reasons.
@@ -335,20 +348,124 @@ mod tests {
     }
 
     #[test]
-    fn cancel_counts_the_marks_it_withdraws_by_kind() {
+    fn remove_counts_everything_it_takes_by_kind() {
         let mut s = scene();
         agree(&mut s, order(Tool::Harvest, None));
         let corner =
             Order { from: Pos::new(26, 26), to: Pos::new(36, 36), ..order(Tool::Stockpile, None) };
         agree(&mut s, corner);
-        let plain = agree(&mut s, order(Tool::CancelHarvest, None));
-        assert!(plain.counts.iter().any(|c| c.preview().ends_with("harvest marks to remove")));
-        assert!(!plain.counts.iter().any(|c| c.preview().contains("stockpile")));
-        // With the toggle on it takes the stockpile tiles too, which a plain cancel left.
-        let all = Order { teardown: true, ..order(Tool::CancelHarvest, None) };
-        let torn = agree(&mut s, all);
-        assert!(torn.counts.iter().any(|c| c.preview().contains("stockpile")), "{torn:?}");
-        assert_eq!(torn.lead, "Removed");
+        let all = agree(&mut s, order(Tool::Remove, None));
+        let kinds: Vec<String> = all.counts.iter().map(|c| c.preview()).collect();
+        assert!(kinds.iter().any(|k| k == "3 buildings to remove"), "{kinds:?}");
+        assert!(kinds.iter().any(|k| k.contains("marks to remove")), "{kinds:?}");
+        assert!(kinds.iter().any(|k| k.ends_with(" stockpile tiles to remove")), "{kinds:?}");
+        assert_eq!(all.lead, "Removed");
+        // Everything went: a second rectangle finds nothing and says so.
+        let again = agree(&mut s, order(Tool::Remove, None));
+        assert!(!again.done());
+        assert_eq!(again.summary(), "Nothing removed.");
+        assert_eq!(again.notice, "remove: nothing to remove");
+    }
+
+    /// The preview is one line a kind, names where they fit; the stockpile line is the warning.
+    #[test]
+    fn the_remove_preview_names_each_kind_on_its_own_line() {
+        let mut s = scene();
+        let marks_at =
+            Order { from: Pos::new(20, 20), to: Pos::new(24, 24), ..order(Tool::Harvest, None) };
+        agree(&mut s, marks_at);
+        let zone_at =
+            Order { from: Pos::new(30, 30), to: Pos::new(32, 32), ..order(Tool::Stockpile, None) };
+        agree(&mut s, zone_at);
+        let bed = s.defs.building_id("bed").unwrap();
+        let defs = s.defs.clone();
+        s.world.put_building(Footprint::single(Pos::new(8, 8)), bed, &defs);
+        s.world.put_building(Footprint::single(Pos::new(9, 8)), bed, &defs);
+        let state = ToolState {
+            tool: Tool::Remove,
+            anchor: Some(Pos::new(0, 0)),
+            cursor: Pos::new(63, 63),
+            repeating: false,
+            choice: None,
+            marked: None,
+            list: None,
+        };
+        let shown = blocks(&s, &state);
+        let texts: Vec<(String, Emphasis)> = shown
+            .iter()
+            .flatten()
+            .filter_map(|l| match l {
+                Line::Text(t, e) => Some((t.clone(), *e)),
+                _ => None,
+            })
+            .collect();
+        let find = |start: &str| texts.iter().find(|(t, _)| t.starts_with(start)).cloned();
+        assert_eq!(texts[1].0, "64 x 64 tiles");
+        let down = find("Takes down").expect("a buildings line");
+        assert!(down.0.starts_with("Takes down 5: "), "{down:?}");
+        assert!(down.0.contains("and 1 more"), "{down:?}");
+        let marks = find("Cancels").expect("a marks line");
+        assert!(marks.0.starts_with("Cancels ") && marks.0.contains(" marks: "), "{marks:?}");
+        assert_eq!(marks.1, Emphasis::Plain);
+        // The start's own stockpiles are in the rectangle, and the line is the warning.
+        let zone = find("Unzones").expect("a stockpile line");
+        assert_eq!(zone.1, Emphasis::Warn, "{zone:?}");
+        assert!(find("Back: ").is_some(), "{texts:?}");
+        // Remove has no toggles.
+        assert!(!shown.iter().flatten().any(|l| matches!(l, Line::Setting { .. })));
+    }
+
+    /// A stockpile line says how many goods drop, from what the zones hold.
+    #[test]
+    fn the_stockpile_line_counts_the_goods_that_drop() {
+        let s = founded();
+        let zones: Vec<Pos> = s.world.stockpile_zones().collect();
+        let goods: u32 =
+            zones.iter().filter_map(|&p| s.world.stored_at(p)).map(|st| st.count).sum();
+        assert!(!zones.is_empty() && goods > 0, "the start has stocked stockpiles");
+        let whole = Order {
+            to: Pos::new(s.world.map.width() - 1, s.world.map.height() - 1),
+            ..order(Tool::Remove, None)
+        };
+        let report = preview_order(&s, whole);
+        let lines = report.removal.lines();
+        let zone = lines.iter().find(|l| l.text.starts_with("Unzones")).expect("a zone line");
+        let n = zones.len();
+        assert_eq!(
+            zone.text,
+            format!("Unzones {n} stockpile tiles: {goods} goods drop to be hauled")
+        );
+        assert!(zone.warn);
+    }
+
+    /// An empty rectangle says so and issues nothing.
+    #[test]
+    fn an_empty_remove_rectangle_says_so_and_issues_nothing() {
+        let mut s = scene();
+        let (jobs, zones) = (s.world.jobs().len(), s.world.stockpile_zones().count());
+        let state = ToolState {
+            tool: Tool::Remove,
+            anchor: Some(Pos::new(40, 40)),
+            cursor: Pos::new(41, 41),
+            repeating: false,
+            choice: None,
+            marked: None,
+            list: None,
+        };
+        let texts: Vec<String> = blocks(&s, &state)
+            .iter()
+            .flatten()
+            .filter_map(|l| match l {
+                Line::Text(t, _) => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.contains(&"Nothing to remove".to_owned()), "{texts:?}");
+        let o = Order { from: Pos::new(40, 40), to: Pos::new(41, 41), ..order(Tool::Remove, None) };
+        let report = apply_order(&mut s, o);
+        assert!(!report.done());
+        assert_eq!(report.refused, 0);
+        assert_eq!((s.world.jobs().len(), s.world.stockpile_zones().count()), (jobs, zones));
     }
 
     #[test]
@@ -367,12 +484,15 @@ mod tests {
     }
 
     #[test]
-    fn deconstruct_counts_each_building_once() {
+    fn remove_takes_down_each_building_once() {
         let mut s = scene();
-        let report = agree(&mut s, order(Tool::Deconstruct, None));
+        let report = agree(&mut s, order(Tool::Remove, None));
         // Two farm plots and a hall, however many tiles the hall covers.
-        assert_eq!(report.counts.len(), 1);
-        assert_eq!(report.counts[0].preview(), "3 buildings to take down");
+        assert_eq!(report.removal.buildings.len(), 3, "{:?}", report.removal);
+        assert_eq!(
+            report.removal.lines()[0].text,
+            "Takes down 3: Farm Plot, Farm Plot, Study Hall"
+        );
     }
 
     #[test]
@@ -422,7 +542,6 @@ mod tests {
             anchor: Some(Pos::new(0, 0)),
             cursor: Pos::new(6, 3),
             repeating: true,
-            teardown: false,
             choice: None,
             marked: Some("Marked 1 tree."),
             list: None,
@@ -479,7 +598,6 @@ mod tests {
             anchor: None,
             cursor: Pos::new(0, 0),
             repeating: false,
-            teardown: false,
             choice: None,
             marked: None,
             list: Some(2),
@@ -505,7 +623,7 @@ mod tests {
     fn every_tool_says_what_it_does() {
         let s = scene();
         let tools = Tool::ALL.into_iter().filter(|&t| t != Tool::Select);
-        for tool in tools.chain([Tool::Deconstruct, Tool::Gate]) {
+        for tool in tools.chain([Tool::Gate]) {
             let about = tool.about(&s);
             assert!(about.ends_with('.') && about.len() > 20, "{tool:?}: {about}");
             assert_eq!(tool.nothing().is_empty(), tool == Tool::Gate, "{tool:?}");
