@@ -189,3 +189,29 @@ fn a_gzipped_log_opens_like_the_plain_one() {
     assert_eq!(fn_gui::replay::log_text(text.as_bytes()).unwrap(), text);
     assert!(fn_gui::replay::log_text(&[0x1f, 0x8b, 8, 0]).is_err());
 }
+
+#[test]
+fn the_page_opens_the_log_it_is_handed_and_says_why_it_cannot() {
+    use fn_gui::replay::{ReplayPage, arrived};
+    let mut page = ReplayPage::default();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(STUDIO.0, STUDIO.1))
+        .with_context_setup(fn_gui::setup)
+        .build_ui(|ui| page.show(ui));
+    h.run_steps(2);
+    arrived("bad.jsonl".into(), Ok(b"not a log".to_vec()));
+    h.run_steps(2);
+    drop(h);
+    assert!(page.app().is_none());
+    assert!(page.status().is_some_and(|s| s.contains("bad.jsonl")), "{:?}", page.status());
+
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(STUDIO.0, STUDIO.1))
+        .with_context_setup(fn_gui::setup)
+        .build_ui(|ui| page.show(ui));
+    arrived("run.jsonl".into(), Ok(log(2).into_bytes()));
+    h.run_steps(3);
+    drop(h);
+    assert_eq!(page.app().map(|a| a.replay().total_turns()), Some(2));
+    assert_eq!(page.status(), None);
+}

@@ -4,47 +4,99 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Four Nations replays</title>
-<link rel="stylesheet" href="style.css">
+<!-- The web replayer (#595, #999): fn_gui's own wasm (the game at /play/) on a canvas marked
+     data-app="replay", replaying a run log in the browser (crates/gui/src/replay.rs). This page
+     only picks the log: "Open log…", the run list (runs/index.json, which `cargo xtask web LOG...`
+     writes for local use; the published site has none) or ?run=PATH, and hands its bytes to the
+     wasm (`fn_open_log`); a drop on the canvas goes straight to it. `cargo xtask web` copies this
+     file into target/replayer/ and `cargo xtask web-gui` builds play/ and writes the build's
+     hash in for __FN_BUILD__; `cargo xtask web --serve` does both. -->
+<style>
+  :root { --bg: #121212; --fg: #d0d0d0; --panel: #1c1c1c; --line: #333; --muted: #8a8a8a; --accent: #6fb3d2; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+    font: 14px system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .play { margin-left: auto; color: var(--accent); text-decoration: none; }
+  button, .file, select { font: inherit; color: var(--fg); background: #262626;
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+  .file input { display: none; }
+  #the_canvas { display: block; flex: 1 1 auto; width: 100%; min-height: 0; outline: none; }
+</style>
 </head>
 <body>
 <header>
   <h1>Four Nations replays</h1>
-  <label class="pick" id="pick" hidden>Run
-    <select id="runs" disabled><option>no run index</option></select>
-  </label>
+  <label class="pick" id="pick" hidden>Run <select id="runs"></select></label>
   <label class="file">Open log…<input id="file" type="file" accept=".jsonl,.txt,.gz,application/json,application/x-ndjson,text/plain,application/gzip"></label>
-  <span id="build" class="muted"></span>
+  <span id="name" class="muted"></span>
   <a class="play" href="play/" title="Play the game in this browser">Play the game</a>
 </header>
-<main id="stage">
-  <canvas id="screen" tabindex="0" aria-label="the replayed game screen"></canvas>
-  <div id="message" class="message"><p>Open a run's <code>run.jsonl</code> (or <code>.jsonl.gz</code>, or a <code>.txt</code> copy) with “Open log…”, or drop it here.<br>It's replayed in your browser and never uploaded anywhere.</p></div>
-</main>
-<footer id="controls" hidden>
-  <button id="play" title="Space">Pause</button>
-  <button id="slower" title="-">−</button>
-  <span id="pace" class="pace">×20</span>
-  <button id="faster" title="+">+</button>
-  <button id="step" title=".">Step</button>
-  <button id="next" title="]">Next turn</button>
-  <div id="timeline" class="timeline">
-    <div id="marks" class="marks" aria-label="events on the timeline"></div>
-    <input id="scrub" type="range" min="0" max="0" value="0" aria-label="turn">
-    <div id="tip" class="tip" role="tooltip" hidden></div>
-  </div>
-  <span id="turn" class="turn">turn 0 / 0</span>
-  <span id="legend" class="legend" hidden></span>
-  <span class="panes">
-    <button data-key="1" title="1: code">Code</button><button data-key="2" title="2: game">Game</button><button data-key="3" title="3: feed">Feed</button><button data-key="0" title="0: studio">Studio</button>
-  </span>
-  <label class="size">Size
-    <select id="size">
-      <option value="fit">fit</option>
-      <option value="160x45">160×45</option>
-      <option value="120x40">120×40</option>
-    </select>
-  </label>
-</footer>
-<script type="module" src="replay.js"></script>
+<canvas id="the_canvas" data-app="replay" tabindex="0" aria-label="the replayed game"></canvas>
+<script type="module">
+  import init, { fn_open_log } from './play/fn_gui.js?v=__FN_BUILD__';
+  const $ = (id) => document.getElementById(id);
+  const ready = init({ module_or_path: './play/fn_gui_bg.wasm?v=__FN_BUILD__' });
+
+  async function open(name, bytes) {
+    await ready;
+    fn_open_log(name, bytes);
+    $('name').textContent = name;
+    document.title = `${name} · Four Nations replays`;
+    $('the_canvas').focus();
+  }
+
+  async function openUrl(url) {
+    $('name').textContent = `loading ${url}…`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      $('name').textContent = `couldn't load ${url}: ${response.status} ${response.statusText}`;
+      return;
+    }
+    await open(url.split('/').pop(), new Uint8Array(await response.arrayBuffer()));
+  }
+
+  $('file').addEventListener('change', async () => {
+    const file = $('file').files[0];
+    if (file) await open(file.name, new Uint8Array(await file.arrayBuffer()));
+  });
+
+  // The run index: a list of { path, name, nation, seed, build, turns, score? }.
+  async function loadIndex() {
+    let runs = [];
+    try {
+      const response = await fetch('runs/index.json');
+      if (response.ok) runs = (await response.json()).runs ?? [];
+    } catch (_) { /* no index: runs are opened from disk */ }
+    if (!runs.length) return;
+    const select = $('runs');
+    select.replaceChildren(new Option('choose a run…', ''));
+    for (const run of runs) {
+      const bits = [run.nation, run.turns != null ? `${run.turns} turns` : null,
+        run.score != null ? `score ${run.score}` : null].filter(Boolean).join(', ');
+      select.add(new Option(`${run.name}${bits ? ` (${bits})` : ''}`, run.path));
+    }
+    $('pick').hidden = false;
+    select.onchange = () => {
+      if (!select.value) return;
+      const params = new URLSearchParams(location.search);
+      params.set('run', select.value);
+      history.replaceState(null, '', `?${params}`);
+      openUrl(select.value);
+    };
+  }
+
+  await loadIndex();
+  const run = new URLSearchParams(location.search).get('run');
+  if (run) {
+    $('runs').value = run;
+    await openUrl(run);
+  }
+  await ready;
+  window.fnReplayStarted = true;
+</script>
 </body>
 </html>

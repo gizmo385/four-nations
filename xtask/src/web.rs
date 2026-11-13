@@ -1,14 +1,16 @@
-//! `cargo xtask web [--serve] [--port N] [LOG...]` (#595): builds the web replayer into
-//! `target/replayer/` -- `web/`'s page plus `fn_web.wasm` built for `wasm32-unknown-unknown` with the
-//! `web` profile -- and with `--serve`, serves it on localhost.
+//! `cargo xtask web [--fast] [--serve] [--port N] [LOG...]` (#595, #999): puts the web replayer's
+//! page (`web/index.html`) into `target/replayer/`, and with `--serve` builds the game's wasm too
+//! (it is the replayer's: `web-gui` below) and serves the folder on localhost. Without `--serve`
+//! it needs no wasm-bindgen CLI, so Pages runs it before installing one.
 //!
 //! Each `LOG` (a `run.jsonl`, or a run folder holding one) is copied into `target/replayer/runs/` and
 //! listed in `runs/index.json`, the same shape #596's published index takes, so the page's run
 //! picker lists them. The command prints a `?run=` link for each.
 //!
-//! `cargo xtask web-gui` (#859) is the same for fn_gui, the egui game, into `target/replayer/play/`
-//! through the wasm-bindgen CLI. `web` does not build it; `pages.yml` runs both, and the folder
-//! is published at `/play/` next to the replayer (#866). The folder is `play/`, not `gui/`,
+//! `cargo xtask web-gui` (#859) builds fn_gui, the egui game, into `target/replayer/play/`
+//! through the wasm-bindgen CLI. The replayer is the same wasm on a canvas of its own (#999), so
+//! `web-gui` also writes the build's hash into the replayer's page. `pages.yml` runs both, and the
+//! folder is published at `/play/` next to the replayer (#866). The folder is `play/`, not `gui/`,
 //! because that is the URL: `https://gizmo385.github.io/four-nations/play/`.
 //!
 //! The server is a few lines of std on purpose: it serves files from one folder to the local
@@ -22,16 +24,19 @@ use std::path::{Path, PathBuf};
 use crate::{Result, cargo_env, root};
 
 const HELP: &str = "\
-usage: cargo xtask web [--serve] [--port N] [LOG...]
+usage: cargo xtask web [--fast] [--serve] [--port N] [LOG...]
 
-Builds the web replayer (the page in web/ and fn_web.wasm) into target/replayer/.
-  --serve    then serve target/replayer/ on http://127.0.0.1:PORT/ until interrupted
+Puts the web replayer's page (web/index.html) into target/replayer/. The page runs the game's own
+wasm (play/), which `cargo xtask web-gui` builds; --serve builds it too.
+  --serve    build the wasm (as web-gui), then serve target/replayer/ on http://127.0.0.1:PORT/
+  --fast     with --serve: the quick unoptimised wasm (web-gui --fast)
   --port N   the port for --serve (default 8595)
   LOG        a run.jsonl (or a run folder holding one) to copy into target/replayer/runs/ and list
              in the page's run picker; a ?run= link is printed for each";
 
 pub fn run(args: &[&str]) -> Result {
     let mut serve = false;
+    let mut fast = false;
     let mut port: u16 = 8595;
     let mut logs: Vec<PathBuf> = Vec::new();
     let mut i = 0;
@@ -42,6 +47,7 @@ pub fn run(args: &[&str]) -> Result {
                 return Ok(());
             }
             "--serve" => serve = true,
+            "--fast" => fast = true,
             "--port" => {
                 i += 1;
                 let v = args.get(i).ok_or("--port wants a number")?;
@@ -55,6 +61,9 @@ pub fn run(args: &[&str]) -> Result {
 
     let out = build()?;
     let links = add_runs(&out, &logs)?;
+    if serve {
+        build_gui(fast)?;
+    }
     println!("web replayer built into {}", out.display());
     if serve {
         let base = format!("http://127.0.0.1:{port}/");
@@ -68,23 +77,23 @@ pub fn run(args: &[&str]) -> Result {
     }
 }
 
-/// Builds the wasm and copies the page next to it; the output folder.
+/// Copies the replayer's page into the output folder; that folder. The wasm is `web-gui`'s.
 pub fn build() -> Result<PathBuf> {
     let root = root();
-    cargo_env(
-        &["build", "--profile", "web", "--target", crate::WASM_TARGET, "-p", "fn_web", "--lib"],
-        &[],
-    )?;
     let out = root.join("target/replayer");
     fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     for entry in fs::read_dir(root.join("web")).map_err(|e| format!("web/: {e}"))? {
         let path = entry.map_err(|e| e.to_string())?.path();
-        if path.is_file() {
+        // The page's scripts for a developer (`check-replay.cjs`) are not published.
+        if path.is_file() && path.extension().is_none_or(|e| e != "cjs") {
             copy(&path, &out.join(path.file_name().expect("a file has a name")))?;
         }
     }
-    let wasm = root.join(format!("target/{}/web/fn_web.wasm", crate::WASM_TARGET));
-    copy(&wasm, &out.join("fn_web.wasm"))?;
+    // The page's leftovers from before #999 (its own wasm, script and style), if an old build
+    // left them here: they would be published with nothing using them.
+    for stale in ["fn_web.wasm", "replay.js", "scan.js", "style.css"] {
+        let _ = fs::remove_file(out.join(stale));
+    }
     Ok(out)
 }
 
@@ -190,6 +199,12 @@ pub fn build_gui(fast: bool) -> Result<PathBuf> {
         fs::write(out.join(name), text.replace("__FN_BUILD__", &build))
             .map_err(|e| format!("{name}: {e}"))?;
     }
+    // The replayer's page asks for the same glue and wasm (#999), by the same hash.
+    let page = root.join("web/index.html");
+    let text = fs::read_to_string(&page).map_err(|e| format!("{}: {e}", page.display()))?;
+    let replayer = out.parent().expect("play/ has a parent").join("index.html");
+    fs::write(&replayer, text.replace("__FN_BUILD__", &build))
+        .map_err(|e| format!("{}: {e}", replayer.display()))?;
     copy(&root.join("web/play/manifest.webmanifest"), &out.join("manifest.webmanifest"))?;
     fs::create_dir_all(out.join("icons")).map_err(|e| format!("icons: {e}"))?;
     for name in PLAY_ICONS {

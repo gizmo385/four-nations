@@ -191,7 +191,8 @@ One row is roughly one agent PR (the #842 estimates). "Words" means a row-model 
 
 **Stays cells:** the watcher (`fn_tui::watch`), the studio (`fn_tui::studio`), the run browser
 (`fn_tui::browser`, `runs`) and spectate. They are agent and dev tools, desktop only (#866 hides
-Replays on the web), and they change often. Cells cost almost nothing once #872 lands (#871).
+Replays on the web), and they change often. Cells cost almost nothing once #872 lands (#871). Since #994 a replay's game pane is the native frame, read only (`fn_gui::replay`, which is
+also the web replayer); its code pane, feed and strip are still cells.
 
 Rows 2–4 are the milestone that matters. After them, an ordinary session (map, panel, cursor,
 tools) is native, and only screens you open and close are cells. The menus and the title screen

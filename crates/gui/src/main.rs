@@ -8,7 +8,8 @@
 //! app opens with no arguments. A query with a `seed` skips it for a game at the default site of
 //! that seed, `nation` and map size (`?seed=7&nation=2&size=0`), which is how the page's scripts
 //! start a fixed game. The page can't quit, so `Shell::with_quit(false)` hides Quit; there is no
-//! runs folder, so no Replays (the replayer is its own page). Saves there go to the browser's
+//! runs folder, so no Replays. The replay page (`web/index.html`, the site's root) runs this same
+//! wasm on a canvas marked `data-app="replay"`: a run log replayed (`fn_gui::replay`, #999). Saves there go to the browser's
 //! `localStorage` (`fn_gui::browser_saves`); natively, to the save directory as in `fn_tui`.
 
 #[cfg(target_arch = "wasm32")]
@@ -30,6 +31,13 @@ mod web {
         })
     }
 
+    /// The replay page (`web/index.html`, #999) hands a log it read (its file picker, its run
+    /// list) to the replay here; a `.jsonl.gz` is unpacked on this side.
+    #[eframe::wasm_bindgen::prelude::wasm_bindgen]
+    pub fn fn_open_log(name: String, bytes: Vec<u8>) {
+        fn_gui::replay::arrived(name, Ok(bytes));
+    }
+
     pub async fn start() {
         let document = web_sys::window().and_then(|w| w.document()).expect("a page");
         let canvas = document
@@ -37,6 +45,23 @@ mod web {
             .expect("a canvas with id the_canvas")
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("a canvas");
+        // The replay page's canvas says so (#999): the same wasm replays a run log there.
+        if canvas.get_attribute("data-app").as_deref() == Some("replay") {
+            let result = eframe::WebRunner::new()
+                .start(
+                    canvas,
+                    eframe::WebOptions::default(),
+                    Box::new(|cc| {
+                        fn_gui::setup(&cc.egui_ctx);
+                        Ok(Box::new(fn_gui::replay::ReplayPage::default()))
+                    }),
+                )
+                .await;
+            if let Err(e) = result {
+                web_sys::console::error_1(&e);
+            }
+            return;
+        }
         fn_gui::webpage::guard_game_keys(&canvas);
         fn_gui::savefiles::install(&canvas);
         let saves = Some(fn_gui::browser_saves::local::store());
