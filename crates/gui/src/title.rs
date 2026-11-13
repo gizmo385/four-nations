@@ -23,8 +23,8 @@
 //! `Enter` reaches the shell and not a focused button.
 
 use eframe::egui::{
-    self, Align2, Color32, FontFamily, FontId, Label, Margin, Rect, Response, RichText, ScrollArea,
-    Sense, Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2,
+    self, Align2, Color32, FontFamily, FontId, Label, Margin, Rect, Response, RichText, Sense,
+    Stroke, StrokeKind, Ui, UiBuilder, pos2, vec2,
 };
 use fn_sim::{Defs, Nation};
 use fn_tui::color::Palette;
@@ -284,24 +284,27 @@ pub fn show(ui: &mut Ui, screen: &TitleScreen, defs: &Defs, palette: &Palette) -
         pos2(avail.center().x + width / 2.0, avail.bottom()),
     );
     ui.scope_builder(UiBuilder::new().max_rect(column), |ui| {
-        ScrollArea::vertical().id_salt("title scroll").auto_shrink([false, true]).show(ui, |ui| {
-            header(ui, &look, palette);
-            ui.add_space(20.0);
-            let frame = egui::Frame::NONE
-                .fill(look.panel)
-                .stroke(Stroke::new(1.0, look.soft))
-                .inner_margin(Margin::same(MARGIN as i8));
-            frame.show(ui, |ui| {
-                ui.set_width(width - 2.0 * MARGIN - 2.0);
-                ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-                match &screen.page {
-                    Page::Menu => menu(ui, screen, defs, &look, &mut keys),
-                    Page::Nation { cursor } => nation(ui, defs, *cursor, &look, &mut keys),
-                    Page::Seed { .. } => seed(ui, screen, defs, &look, &mut keys),
-                    Page::Load => load(ui, screen, defs, &look, &mut keys),
-                }
-            });
-        });
+        crate::style::scroll_vertical().id_salt("title scroll").auto_shrink([false, true]).show(
+            ui,
+            |ui| {
+                header(ui, &look, palette);
+                ui.add_space(20.0);
+                let frame = egui::Frame::NONE
+                    .fill(look.panel)
+                    .stroke(Stroke::new(1.0, look.soft))
+                    .inner_margin(Margin::same(MARGIN as i8));
+                frame.show(ui, |ui| {
+                    ui.set_width(width - 2.0 * MARGIN - 2.0);
+                    ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
+                    match &screen.page {
+                        Page::Menu => menu(ui, screen, defs, &look, &mut keys),
+                        Page::Nation { cursor } => nation(ui, defs, *cursor, &look, &mut keys),
+                        Page::Seed { .. } => seed(ui, screen, defs, &look, &mut keys),
+                        Page::Load => load(ui, screen, defs, &look, &mut keys),
+                    }
+                });
+            },
+        );
     });
     keys
 }
@@ -553,7 +556,7 @@ fn load(ui: &mut Ui, screen: &TitleScreen, defs: &Defs, look: &Look, keys: &mut 
             d.insert_temp(id, cursor);
             before != Some(cursor)
         });
-        ScrollArea::vertical().id_salt("title saves").max_height(360.0).show(ui, |ui| {
+        crate::style::scroll_vertical().id_salt("title saves").max_height(360.0).show(ui, |ui| {
             for (i, slot) in screen.save_slots.iter().enumerate() {
                 let selected = i == cursor;
                 let (name_ink, ink) = match (slot.loadable(), selected) {

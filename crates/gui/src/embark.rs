@@ -356,33 +356,37 @@ pub fn side(
     live: bool,
 ) -> Keys {
     let mut keys = Keys::new();
-    egui::Frame::NONE.inner_margin(Margin::symmetric(PAD, PAD / 2)).show(ui, |ui| {
-        let cols = metrics.grid_in(vec2(ui.available_width(), 0.0)).0 as usize;
-        let look = Look { palette, font: metrics.font.clone(), cols, ch: metrics.cell.y };
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        let marks = Marks::new(palette.ascii);
-        ui.vertical_centered(|ui| {
-            ui.add(look.label(&[(words::title(&marks), Tone::Title)]));
-        });
-        ui.add_space(look.ch * 0.5);
-        let report = screen.report(defs);
-        for row in words::report_rows(&screen.site(), &report, defs, &marks, cols) {
-            look.row(ui, &row);
-        }
-        ui.add_space(look.ch);
-        ui.spacing_mut().item_spacing = vec2(0.0, 6.0);
-        let overview = screen.is_overview();
-        let mut pressed = |text: &str, enabled: bool, k: KeyEvent| {
-            if button(ui, &look, text, enabled && live) {
-                keys.push(k);
+    // The panel scrolls when the window is too short for the report and the buttons (#973).
+    let scroll = crate::style::scroll_vertical().id_salt("embark side").auto_shrink([false, false]);
+    scroll.show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(Margin::symmetric(PAD, PAD / 2)).show(ui, |ui| {
+            let cols = metrics.grid_in(vec2(ui.available_width(), 0.0)).0 as usize;
+            let look = Look { palette, font: metrics.font.clone(), cols, ch: metrics.cell.y };
+            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            let marks = Marks::new(palette.ascii);
+            ui.vertical_centered(|ui| {
+                ui.add(look.label(&[(words::title(&marks), Tone::Title)]));
+            });
+            ui.add_space(look.ch * 0.5);
+            let report = screen.report(defs);
+            for row in words::report_rows(&screen.site(), &report, defs, &marks, cols) {
+                look.row(ui, &row);
             }
-        };
-        pressed("Settle", true, key('e'));
-        pressed("Zoom in", screen.can_zoom_in(), key('+'));
-        pressed("Zoom out", !overview, key('-'));
-        pressed("New seed", true, key('r'));
-        pressed("Back", overview, press(KeyCode::Esc));
-        pressed("Keys", true, key('?'));
+            ui.add_space(look.ch);
+            ui.spacing_mut().item_spacing = vec2(0.0, 6.0);
+            let overview = screen.is_overview();
+            let mut pressed = |text: &str, enabled: bool, k: KeyEvent| {
+                if button(ui, &look, text, enabled && live) {
+                    keys.push(k);
+                }
+            };
+            pressed("Settle", true, key('e'));
+            pressed("Zoom in", screen.can_zoom_in(), key('+'));
+            pressed("Zoom out", !overview, key('-'));
+            pressed("New seed", true, key('r'));
+            pressed("Back", overview, press(KeyCode::Esc));
+            pressed("Keys", true, key('?'));
+        })
     });
     keys
 }

@@ -15,8 +15,7 @@
 //! approximate). The close button is `Esc`.
 
 use eframe::egui::{
-    self, Button, CursorIcon, Label, Rect, RichText, ScrollArea, Sense, Ui, UiBuilder, WidgetInfo,
-    pos2, vec2,
+    self, Button, CursorIcon, Label, Rect, RichText, Sense, Ui, UiBuilder, WidgetInfo, pos2, vec2,
 };
 use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone};
@@ -169,8 +168,9 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
         &look,
         &spec,
         |ui| {
-            let mut area =
-                ScrollArea::vertical().id_salt("endeavor page").auto_shrink([false, false]);
+            let mut area = crate::style::scroll_vertical()
+                .id_salt("endeavor page")
+                .auto_shrink([false, false]);
             if follow {
                 area = area.vertical_scroll_offset(app.ui.scroll as f32 * look.cell.y);
             }

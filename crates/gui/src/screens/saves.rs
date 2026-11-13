@@ -17,9 +17,7 @@
 //! shell none of the raw typing (`crate::app`), so a letter isn't typed twice; with the field
 //! unfocused the keyboard types the name as it always did.
 
-use eframe::egui::{
-    self, Button, CursorIcon, Id, Label, RichText, ScrollArea, Sense, TextEdit, Ui, vec2,
-};
+use eframe::egui::{self, Button, CursorIcon, Id, Label, RichText, Sense, TextEdit, Ui, vec2};
 use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone};
 use fn_ui::app::App;
@@ -108,7 +106,8 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                 page::text_row(ui, &look, &note, false, Sense::hover());
                 return None;
             }
-            let list = ScrollArea::vertical().id_salt("saves list").auto_shrink([false, false]);
+            let list =
+                crate::style::scroll_vertical().id_salt("saves list").auto_shrink([false, false]);
             let shown = list.show(ui, |ui| {
                 for (i, slot) in slots.iter().enumerate() {
                     let chosen = i == at;

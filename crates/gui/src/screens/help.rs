@@ -15,8 +15,8 @@
 //! Both scroll with the wheel.
 
 use eframe::egui::{
-    self, Align, Button, Color32, CursorIcon, Layout, Rect, RichText, ScrollArea, Sense, Ui,
-    WidgetInfo, pos2, vec2,
+    self, Align, Button, Color32, CursorIcon, Layout, Rect, RichText, Sense, Ui, WidgetInfo, pos2,
+    vec2,
 };
 use fn_tui::color::Palette;
 use fn_tui::legend::{LegendEntry, entries};
@@ -50,7 +50,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
         |ui| {
             keys.extend(tabs(ui, &look, app.ui.help_tab));
             ui.add_space(look.cell.y);
-            ScrollArea::vertical()
+            crate::style::scroll_vertical()
                 .id_salt(("help", app.ui.help_tab as u8))
                 .auto_shrink([false, false])
                 .show(ui, |ui| match app.ui.help_tab {

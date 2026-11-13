@@ -14,7 +14,9 @@
 //! terminal's `!` against a low one, and the grid keeps the terminal's columns (the name column
 //! as wide as the longest name, DOING taking what the others leave, BENDING dropped first when
 //! DOING would get narrow). The header and the stores, almanac and traits stay put; the roster
-//! between them scrolls, to the pointer when it moves (and the wheel can look elsewhere).
+//! between them scrolls, to the pointer when it moves (and the wheel can look elsewhere). In a
+//! short window (a phone held sideways, #973) pinning the footer would leave the roster less
+//! than a third of the page, so the footer scrolls with the roster instead.
 //!
 //! The screen is the shell's own (`UiState::nation_cursor`), so every key works as it does in
 //! the terminal, and a click is the keys it stands for ([`click_keys`]): a click on a settler's
@@ -22,7 +24,7 @@
 //! screen, and the close button is `Esc`.
 
 use eframe::egui::{
-    self, CursorIcon, Rect, Response, ScrollArea, Sense, Ui, UiBuilder, WidgetInfo, pos2, vec2,
+    self, CursorIcon, Rect, Response, Sense, Ui, UiBuilder, WidgetInfo, pos2, vec2,
 };
 use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone};
@@ -186,8 +188,10 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
             if wide {
                 page::text_row(ui, &look, &header(&cols), false, Sense::hover());
             }
-            let footer_h = footer.len() as f32 * look.cell.y;
             let top = ui.cursor().top();
+            let pinned_h = footer.len() as f32 * look.cell.y;
+            let pin = body.bottom() - top - pinned_h >= body.height() / 3.0;
+            let footer_h = if pin { pinned_h } else { 0.0 };
             let roster_h = (body.bottom() - top - footer_h).max(look.cell.y);
             let list = Rect::from_min_size(pos2(body.left(), top), vec2(body.width(), roster_h));
             // The settlers drawn, as (top, bottom, place in the roster), for the position on
@@ -195,7 +199,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
             let mut placed: Vec<(f32, f32, usize)> = Vec::new();
             let shown = ui
                 .scope_builder(UiBuilder::new().max_rect(list), |ui| {
-                    ScrollArea::vertical()
+                    crate::style::scroll_vertical()
                         .id_salt("nation roster")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
@@ -224,6 +228,11 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                                     n += 1;
                                 }
                             }
+                            if !pin {
+                                for row in &footer {
+                                    page::text_row(ui, &look, row, false, Sense::hover());
+                                }
+                            }
                         })
                 })
                 .inner;
@@ -237,13 +246,15 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                 fn_ui::text::window_label("settlers", first, on_screen.len(), ids.len())
             });
 
-            // The footer, pinned under the roster.
-            let below = Rect::from_min_max(pos2(body.left(), list.bottom()), body.max);
-            ui.scope_builder(UiBuilder::new().max_rect(below), |ui| {
-                for row in &footer {
-                    page::text_row(ui, &look, row, false, Sense::hover());
-                }
-            });
+            // The footer, pinned under the roster when there is room.
+            if pin {
+                let below = Rect::from_min_max(pos2(body.left(), list.bottom()), body.max);
+                ui.scope_builder(UiBuilder::new().max_rect(below), |ui| {
+                    for row in &footer {
+                        page::text_row(ui, &look, row, false, Sense::hover());
+                    }
+                });
+            }
             position
         },
         |ui| {
