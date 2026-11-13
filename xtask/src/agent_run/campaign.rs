@@ -648,6 +648,7 @@ pub(super) fn run(repo: &Path, opts: &Opts) -> Result {
         (None, Some(dir)) => (dir.clone(), open_campaign(dir, &tracks_path)?, false),
         (None, None) => return Err("agent-run campaign: --track or --resume is required".into()),
     };
+    ledger.track.use_score_profile();
     let attempts = opts.attempts.unwrap_or(1);
 
     let fn_agent = agent_eval::fn_agent_binary(repo)?;

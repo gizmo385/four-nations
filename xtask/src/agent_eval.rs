@@ -107,6 +107,28 @@ pub(crate) struct Track {
     /// A score below this is a collapse: the failure count the gate reports and its second
     /// promotion condition reads.
     pub(crate) collapse_below: f64,
+    /// The `data/score.toml` profile the track scores with (#1008); `None` is the default
+    /// (`gate`). Left out of a ledger when `None`, so ledgers from before it still match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) score_profile: Option<String>,
+}
+
+/// The environment variable `fn_agent` reads its score profile from (`fn_agent::scorecard::
+/// PROFILE_ENV`; xtask doesn't link `fn_agent`, so the name is repeated here).
+pub(crate) const SCORE_PROFILE_ENV: &str = "FN_SCORE_PROFILE";
+
+impl Track {
+    /// Points every `fn_agent` this process starts at the track's score profile (#1008): the
+    /// clean evaluations, the pars, `fn_agent score`, and the model's own MCP server, which the
+    /// `claude` child starts and which inherits the environment. Set once, process-wide, because
+    /// one invocation scores one track and those children are spawned in many places. `fn_agent`
+    /// refuses an unknown profile at start, so a typo fails the first child loudly.
+    pub(crate) fn use_score_profile(&self) {
+        let name = self.score_profile.as_deref().unwrap_or("");
+        // SAFETY: called from the command's entry point, right after the track is loaded and
+        // before any thread is spawned, so nothing reads the environment concurrently.
+        unsafe { std::env::set_var(SCORE_PROFILE_ENV, name) };
+    }
 }
 
 /// The seeds the balance harness tunes on (its panel). The gate and owner-only tiers avoid them,
@@ -168,6 +190,12 @@ impl Track {
         }
         if !self.collapse_below.is_finite() || self.collapse_below <= 0.0 {
             return bad("collapse_below wants a score above 0");
+        }
+        if let Some(p) = &self.score_profile
+            && (p.is_empty()
+                || !p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        {
+            return bad(&format!("score_profile {p:?} wants a profile name from data/score.toml"));
         }
         let tiers = [
             ("screen_seeds", &self.screen_seeds),
@@ -943,6 +971,7 @@ pub fn run(args: &[&str]) -> Result {
 
     let tracks_path = opts.tracks.clone().unwrap_or_else(|| repo.join("data/tracks.toml"));
     let track = load_track(&tracks_path, track_id)?;
+    track.use_score_profile();
     let strategy = read_strategy(champion)?;
     let threads = resolve_threads(opts.threads)?;
     let tiers = opts.tiers.clone().unwrap_or_else(|| Role::ALL.to_vec());
@@ -1052,6 +1081,25 @@ mod tests {
         assert!(bad("collapse_below = 50", "collapse_below = 0").contains("collapse_below"));
         let dup = format!("{}{}", src(""), src(""));
         assert!(parse_tracks(&dup).unwrap_err().contains("twice"));
+    }
+
+    /// `score_profile` (#1008) is optional, names a profile, and stays out of a ledger's track
+    /// when unset, so ledgers written before it still compare equal.
+    #[test]
+    fn score_profile_is_optional_and_left_out_when_unset() {
+        let plain = &parse_tracks(&src("")).unwrap()[0];
+        assert_eq!(plain.score_profile, None);
+        assert!(!serde_json::to_string(plain).unwrap().contains("score_profile"));
+        let named = &parse_tracks(&src("score_profile = \"stages\"\n")).unwrap()[0];
+        assert_eq!(named.score_profile.as_deref(), Some("stages"));
+        let back: Track = serde_json::from_str(&serde_json::to_string(named).unwrap()).unwrap();
+        assert_eq!(&back, named);
+        assert!(
+            parse_tracks(&src("score_profile = \"\"\n")).unwrap_err().contains("score_profile")
+        );
+        assert!(
+            parse_tracks(&src("score_profile = \"a b\"\n")).unwrap_err().contains("score_profile")
+        );
     }
 
     /// The tiers may not overlap, the gate and owner-only tiers may not touch the balance panel

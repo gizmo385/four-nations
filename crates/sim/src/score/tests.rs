@@ -499,3 +499,60 @@ fn compute_ignores_events_after_the_horizon() {
     let before = Scorecard::compute(&world, &defs, &score, &ScoreStart::default(), met_at - 1);
     assert_eq!(row(&before, "population").first_met, None);
 }
+
+#[test]
+fn the_default_profile_is_the_top_level_sections_and_scores_as_before() {
+    let defs = Defs::bundled();
+    let src = include_str!("../../../../data/score.toml");
+    let gate = ScoreDef::from_toml_profile(src, DEFAULT_PROFILE).unwrap();
+    let plain = ScoreDef::from_toml(src).unwrap();
+    assert_eq!(gate, plain);
+    assert_eq!(gate, ScoreDef::bundled());
+    assert_eq!(ScoreDef::bundled_profile(DEFAULT_PROFILE).unwrap(), gate);
+    assert_eq!(gate.profile, "gate");
+    assert_eq!(ScoreDef::profile_names(src).unwrap()[0], "gate");
+    // Every bundled profile loads and checks against the endeavor.
+    for name in ScoreDef::profile_names(src).unwrap() {
+        let def = ScoreDef::bundled_profile(&name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        def.check(&defs).unwrap_or_else(|e| panic!("{name}: {e}"));
+    }
+}
+
+#[test]
+fn a_profile_overrides_only_what_it_names_and_changes_the_score() {
+    let defs = Defs::bundled();
+    let good = include_str!("../../../../data/score.toml");
+    let src = format!(
+        "{good}\n[profile.stages]\nprogress.late_credit = 0.2\n\
+         [[profile.stages.progress.weight]]\nid = \"foundation\"\nweight = 5.0\n"
+    );
+    let gate = ScoreDef::from_toml(&src).unwrap();
+    let stages = ScoreDef::from_toml_profile(&src, "stages").unwrap();
+    assert_eq!(ScoreDef::profile_names(&src).unwrap(), ["gate", "stages"]);
+    assert_eq!(stages.profile, "stages");
+    assert_eq!(stages.progress.late_credit, 0.2);
+    assert_eq!(stages.progress.weight_of("foundation"), 5.0);
+    // Untouched keys come from the base.
+    assert_eq!(stages.progress.partial_credit, gate.progress.partial_credit);
+    assert_eq!(stages.care, gate.care);
+
+    let mut run = blank(&defs);
+    run.met("foundation", 50 * TURN, 1, 1);
+    let a = Scorecard::build(&gate, blank_with(&defs, &run));
+    let b = Scorecard::build(&stages, blank_with(&defs, &run));
+    assert!(b.score > a.score, "{} vs {}", b.score, a.score);
+}
+
+#[test]
+fn an_unknown_or_malformed_profile_is_refused() {
+    let good = include_str!("../../../../data/score.toml");
+    let e = ScoreDef::from_toml_profile(good, "nope").unwrap_err().to_string();
+    assert!(e.contains("nope") && e.contains("gate"), "{e}");
+    let named_gate = format!("{good}\n[profile.gate]\nprogress.late_credit = 0.2\n");
+    assert!(ScoreDef::from_toml(&named_gate).unwrap_err().to_string().contains("profile.gate"));
+    let strict = format!("{good}\n[profile.x]\nprogress.surprise = 1\n");
+    let e = ScoreDef::from_toml_profile(&strict, "x").unwrap_err().to_string();
+    assert!(e.contains("surprise") && e.contains("profile.x"), "{e}");
+    let range = format!("{good}\n[profile.x]\nprogress.late_credit = 3.0\n");
+    assert!(ScoreDef::from_toml_profile(&range, "x").is_err());
+}

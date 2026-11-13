@@ -57,9 +57,16 @@ impl std::fmt::Display for ScoreError {
 
 impl std::error::Error for ScoreError {}
 
-/// `data/score.toml`, validated. Loaded on its own, never as part of `Defs`.
+/// The profile `data/score.toml`'s top-level `[progress]` and `[care]` make: the default, and
+/// the one every track scores with unless it names another (#1008).
+pub const DEFAULT_PROFILE: &str = "gate";
+
+/// `data/score.toml`, validated, as one profile (#1008). Loaded on its own, never as part of
+/// `Defs`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoreDef {
+    /// Which profile this is: [`DEFAULT_PROFILE`], or a `[profile.NAME]` of the file.
+    pub profile: String,
     pub progress: ProgressDef,
     pub care: CareDef,
 }
@@ -97,6 +104,35 @@ struct ScoreFile {
     care: CareFile,
 }
 
+/// The file's raw tables, before a profile is picked: the base sections and the overrides.
+fn split_profiles(src: &str) -> Result<(toml::Table, toml::Table), ScoreError> {
+    let mut base: toml::Table =
+        toml::from_str(src).map_err(|e| ScoreError(format!("score.toml: {e}")))?;
+    let profiles = match base.remove("profile") {
+        None => toml::Table::new(),
+        Some(toml::Value::Table(t)) => t,
+        Some(_) => return Err(ScoreError("score.toml: `profile` must be a table".to_owned())),
+    };
+    if profiles.contains_key(DEFAULT_PROFILE) {
+        return Err(ScoreError(format!(
+            "[profile.{DEFAULT_PROFILE}]: the top-level sections are that profile; don't name it"
+        )));
+    }
+    Ok((base, profiles))
+}
+
+/// Lays `over` onto `base`: a table merges key by key, anything else (a number, a list) replaces.
+fn merge(base: &mut toml::Table, over: toml::Table) {
+    for (key, value) in over {
+        match (base.get_mut(&key), value) {
+            (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge(b, o),
+            (_, value) => {
+                base.insert(key, value);
+            }
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProgressFile {
@@ -130,11 +166,48 @@ impl ScoreDef {
             .expect("the bundled data/score.toml is valid")
     }
 
-    /// Parses and validates `src`: strict keys, numbers in range, known severe labels. Weight ids
-    /// are checked against the endeavor by `check`, which needs `Defs`.
+    /// The bundled file's profile `name` ([`DEFAULT_PROFILE`] or a `[profile.NAME]`).
+    pub fn bundled_profile(name: &str) -> Result<Self, ScoreError> {
+        Self::from_toml_profile(include_str!("../../../data/score.toml"), name)
+    }
+
+    /// The names of `src`'s profiles: [`DEFAULT_PROFILE`] first, then each `[profile.NAME]` in
+    /// name order.
+    pub fn profile_names(src: &str) -> Result<Vec<String>, ScoreError> {
+        let (_, profiles) = split_profiles(src)?;
+        Ok(std::iter::once(DEFAULT_PROFILE.to_owned()).chain(profiles.keys().cloned()).collect())
+    }
+
+    /// Parses and validates `src`'s default profile: strict keys, numbers in range, known severe
+    /// labels. Weight ids are checked against the endeavor by `check`, which needs `Defs`.
     pub fn from_toml(src: &str) -> Result<Self, ScoreError> {
-        let file: ScoreFile =
-            toml::from_str(src).map_err(|e| ScoreError(format!("score.toml: {e}")))?;
+        Self::from_toml_profile(src, DEFAULT_PROFILE)
+    }
+
+    /// As [`ScoreDef::from_toml`], for profile `name`. A `[profile.NAME]` table is laid over the
+    /// top-level sections: its tables merge key by key, and a key it gives (a number, or the whole
+    /// `weight` list) replaces the base's. So a profile names only what it changes.
+    pub fn from_toml_profile(src: &str, name: &str) -> Result<Self, ScoreError> {
+        let (mut table, mut profiles) = split_profiles(src)?;
+        if name != DEFAULT_PROFILE {
+            match profiles.remove(name) {
+                Some(toml::Value::Table(over)) => merge(&mut table, over),
+                Some(_) => {
+                    return Err(ScoreError(format!("[profile.{name}] must be a table")));
+                }
+                None => {
+                    let known = std::iter::once(DEFAULT_PROFILE)
+                        .chain(profiles.keys().map(String::as_str))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(ScoreError(format!("no score profile {name:?} (known: {known})")));
+                }
+            }
+        }
+        let file: ScoreFile = toml::Value::Table(table).try_into().map_err(|e| match name {
+            DEFAULT_PROFILE => ScoreError(format!("score.toml: {e}")),
+            _ => ScoreError(format!("score.toml [profile.{name}]: {e}")),
+        })?;
         let (p, c) = (file.progress, file.care);
         let unit = |name: &str, v: f64| {
             if v.is_finite() && (0.0..=1.0).contains(&v) {
@@ -181,6 +254,7 @@ impl ScoreDef {
             severe.push(flag);
         }
         Ok(Self {
+            profile: name.to_owned(),
             progress: ProgressDef {
                 late_credit: unit("late_credit", p.late_credit)?,
                 partial_credit: unit("partial_credit", p.partial_credit)?,

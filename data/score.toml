@@ -25,6 +25,17 @@
 #               overlap, and a settler showing two is one settler suffering.
 # - severe:     the flags the scorecard breaks the suffering down into (labels only; the share
 #               itself is `severe_any_minutes`). Any of starving, parched, exhausted, dying.
+#
+# Profiles (#1008): the sections above are the `gate` profile, the default. A `[profile.NAME]`
+# table is laid over them for another profile, and names only what it changes: its tables merge
+# key by key, and a key it gives replaces the base's (a `weight` list replaces the whole list). A
+# track picks one with `score_profile` in data/tracks.toml; `fn_agent` reads the `FN_SCORE_PROFILE`
+# environment variable, which the harness sets from the track. For example:
+#   [profile.stages]
+#   progress.late_credit = 0.4
+#   [[profile.stages.progress.weight]]
+#   id = "pillars"
+#   weight = 2.0
 
 [progress]
 late_credit = 0.6

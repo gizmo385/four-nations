@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 
 use fn_tui::scenario;
 pub use fn_tui::surface::referee::TurnSample;
-use fn_tui::surface::referee::score::{MilestoneKind, ScoreDef};
+use fn_tui::surface::referee::score::{DEFAULT_PROFILE, MilestoneKind, ScoreDef};
 use fn_tui::surface::referee::{self, MILD_WORDS, Replay};
 use fn_tui::surface::{LogLine, RunLogHeader};
 use serde_json::{Value, json};
@@ -46,11 +46,44 @@ pub struct Report {
     pub par: Option<Par>,
 }
 
+/// The environment variable that picks the score profile (`data/score.toml`, #1008). The harness
+/// sets it from the track's `score_profile`; unset or empty is the default profile.
+pub const PROFILE_ENV: &str = "FN_SCORE_PROFILE";
+
+/// The score profile this process scores with: `$FN_SCORE_PROFILE`, else the default.
+pub fn profile_name() -> String {
+    std::env::var(PROFILE_ENV)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map_or_else(|| DEFAULT_PROFILE.to_owned(), |v| v.trim().to_owned())
+}
+
+/// What a cache key adds for this process's profile: nothing for the default (so keys from
+/// before profiles still match), else `-score<name>`.
+pub fn profile_key_suffix() -> String {
+    match profile_name() {
+        p if p == DEFAULT_PROFILE => String::new(),
+        p => format!("-score{p}"),
+    }
+}
+
+/// The score data this process scores with: the bundled `data/score.toml`'s [`profile_name`]
+/// profile. `main` checks it once at start, so an unknown profile fails before anything runs.
+pub fn score_def() -> Result<ScoreDef, String> {
+    let name = profile_name();
+    ScoreDef::bundled_profile(&name).map_err(|e| format!("{PROFILE_ENV}={name}: {e}"))
+}
+
+/// [`score_def`], for the callers that run after `main` has checked it.
+fn active_def() -> ScoreDef {
+    score_def().expect("main checks the score profile before anything scores")
+}
+
 /// Plays the Economy opening on the start `header` describes to `horizon` turns and keeps its
 /// scorecard as a [`Par`]. This is the privileged read (the opening reads `World` directly),
 /// which only this file may name; [`par::get`] caches what it returns.
 pub fn compute_par(header: &RunLogHeader, horizon: u32) -> Result<Par, String> {
-    let run = referee::par(header, horizon, &ScoreDef::bundled())?;
+    let run = referee::par(header, horizon, &score_def()?)?;
     let card = &run.card;
     let milestones = card
         .milestones
@@ -81,13 +114,14 @@ pub fn compute_par(header: &RunLogHeader, horizon: u32) -> Result<Par, String> {
 }
 
 /// Replays `lines` (a log made against `header`) to `horizon` turns (`None`: the log's own last
-/// turn) and builds its scorecard under `data/score.toml`'s bundled weights.
+/// turn) and builds its scorecard under `data/score.toml`'s weights, in this process's profile
+/// ([`score_def`]).
 pub fn build(
     header: &RunLogHeader,
     lines: &[LogLine],
     horizon: Option<u32>,
 ) -> Result<Report, String> {
-    let replay = referee::score(header, lines, horizon, &ScoreDef::bundled())?;
+    let replay = referee::score(header, lines, horizon, &score_def()?)?;
     let churn = Churn::of(&lines[..replay.lines_used]);
     Ok(Report { header: header.clone(), replay, churn, par: None })
 }
@@ -559,6 +593,7 @@ impl Report {
         let one_shot: Vec<&ScriptUse> = ch.one_shot().collect();
         json!({
             "score": card.score,
+            "profile": profile_name(),
             "progress": card.progress,
             "care": c.value,
             "par": self.par.as_ref().map(|p| p.score),
@@ -691,9 +726,9 @@ pub fn score_rule(def: &ScoreDef) -> String {
     out
 }
 
-/// [`score_rule`] of the bundled `data/score.toml`.
+/// [`score_rule`] of the bundled `data/score.toml`, in this process's profile ([`score_def`]).
 pub fn bundled_score_rule() -> String {
-    score_rule(&ScoreDef::bundled())
+    score_rule(&active_def())
 }
 
 /// A weight or rate as short as it can be: "1", "0.15", "2".

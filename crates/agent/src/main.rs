@@ -132,6 +132,10 @@ nothing. The first run takes tens of seconds. `score` adds the par of the log's 
 horizon to its scorecard unless --no-par is given; `play --horizon` never computes one. The par
 is for the owner: no prompt gets it.
 
+Every score (play --horizon, score, par, the briefing's scoring rule, test runs) uses one profile of
+data/score.toml (#1008): $FN_SCORE_PROFILE, else the default `gate`. The harness sets it from the
+track's score_profile. An unknown profile is refused before anything runs.
+
 build-id prints the build this binary is: the last commit that touched the code or data, with
 `+HEX` for uncommitted changes to them, or `unknown` without git.
 
@@ -140,6 +144,10 @@ the log's own header matches a bundled preset, else SEED NATION --start ... --di
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
+    if let Err(e) = fn_agent::scorecard::score_def() {
+        eprintln!("fn_agent: {e}");
+        return ExitCode::FAILURE;
+    }
     let result = match args.next().as_deref() {
         Some("serve") => serve(args.collect()).map(|()| ExitCode::SUCCESS),
         Some("keys") => keys(args.collect()).map(|()| ExitCode::SUCCESS),

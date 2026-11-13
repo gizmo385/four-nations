@@ -27,6 +27,9 @@
 # - collapse_below:    a score under this is a collapse, the failure count the gate reports and
 #                      its second promotion condition reads. About a fifth of seeds scored under
 #                      120 for the review's governors, where a working run scores 250 to 400.
+# - score_profile:     optional, a profile from data/score.toml (#1008); `gate`, the default,
+#                      when left out. Every score of the track (evaluations, pars, the model's own
+#                      test runs) uses it.
 
 [[track]]
 id = "water-3h"
