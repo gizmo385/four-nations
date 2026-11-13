@@ -112,6 +112,15 @@ fn tab_indicator(current: Pane) -> String {
         .collect()
 }
 
+/// What [`Watcher::window_layout`] shows: the studio's split (the code pane on the left, the
+/// game column on the right with the feed under it, both in cells), or one pane full screen.
+/// Either way the agent strip takes the bottom row of the game column or of the pane.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowLayout {
+    Studio { code_cols: u16, game_cols: u16, feed_rows: u16 },
+    Pane(Pane),
+}
+
 /// Which strip [`Watcher::draw_strip`] draws: the split's own game column
 /// ([`Self::Minimal`], #499/#500 -- no `SCRIPT`/action text, a wider sparkline, no tab
 /// indicator) or a full-screen pane's ([`Self::Tab`], #501 -- today's full text, the tab
@@ -1164,6 +1173,52 @@ impl Watcher {
     // --------------------------------------------------------------------------------------
     // Drawing
     // --------------------------------------------------------------------------------------
+
+    /// How a window that draws the game itself (`fn_gui`'s replay, #997) lays out a frame of
+    /// `size` cells: the same choice [`Self::render`] makes, with the game column left for the
+    /// window to fill. Records `size` as [`Self::set_frame_size`] does.
+    pub fn window_layout(&mut self, palette: &Palette, size: (u16, u16)) -> WindowLayout {
+        self.set_frame_size(size.0, size.1);
+        if self.studio_fits() && !self.zoomed {
+            let game_cols = palette.glyphs.studio.game_width(size.0);
+            WindowLayout::Studio {
+                code_cols: size.0 - game_cols,
+                game_cols,
+                feed_rows: Self::feed_height(palette, size.1),
+            }
+        } else {
+            WindowLayout::Pane(self.tab)
+        }
+    }
+
+    /// The code pane alone at `size`, as the studio and its tab draw it.
+    pub fn render_code(&mut self, palette: &Palette, size: (u16, u16)) -> Buffer {
+        let area = Rect::new(0, 0, size.0, size.1);
+        let mut buf = Buffer::empty(area);
+        self.code_pane.render(&mut buf, area, palette);
+        buf
+    }
+
+    /// The feed alone at `size`, as the studio and its tab draw it.
+    pub fn render_feed(&self, palette: &Palette, size: (u16, u16)) -> Buffer {
+        let area = Rect::new(0, 0, size.0, size.1);
+        let mut buf = Buffer::empty(area);
+        self.feed.render(&mut buf, area, palette.ascii, self.turn);
+        buf
+    }
+
+    /// The agent strip alone, one row `width` cells wide: under the studio's game column
+    /// (`layout` is [`WindowLayout::Studio`]) or under a full-screen pane.
+    pub fn render_strip(&self, palette: &Palette, width: u16, layout: WindowLayout) -> Buffer {
+        let area = Rect::new(0, 0, width, 1);
+        let mut buf = Buffer::empty(area);
+        let mode = match layout {
+            WindowLayout::Studio { .. } => StripMode::Minimal,
+            WindowLayout::Pane(pane) => StripMode::Tab(pane),
+        };
+        self.draw_strip(&mut buf, area, mode, palette);
+        buf
+    }
 
     /// The frame for this watcher's session (#501, docs/design/agent-studio.md "The tab
     /// fallback": "there is one model, not two"): at or above `[studio] min_width` x

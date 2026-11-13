@@ -83,6 +83,18 @@ pub struct MapView {
     pub overview: Overview,
     /// Look but don't touch (#996): the pointer zooms, pans and hovers, and presses nothing.
     pub read_only: bool,
+    /// Rectangles outlined over the tiles, whatever the zoom: a replay's attention ghost (#997).
+    pub outlines: Vec<Outline>,
+}
+
+/// A rectangle of tiles outlined over the map ([`MapView::outlines`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Outline {
+    /// The top-left tile.
+    pub at: Pos,
+    pub w: u16,
+    pub h: u16,
+    pub color: Color32,
 }
 
 impl MapView {
@@ -96,6 +108,7 @@ impl MapView {
             gestures: Gestures::default(),
             overview: Overview::default(),
             read_only: false,
+            outlines: Vec::new(),
         }
     }
 
@@ -221,6 +234,23 @@ impl MapView {
             self.paint_overview(ui, rect, app, palette);
         }
         self.last_paint_ms = started.elapsed().as_secs_f32() * 1000.0;
+        let painter = ui.painter_at(rect);
+        for o in &self.outlines {
+            let area = Rect::from_min_max(
+                self.camera.tile_to_screen(rect, o.at.x as f32, o.at.y as f32),
+                self.camera.tile_to_screen(
+                    rect,
+                    o.at.x as f32 + f32::from(o.w),
+                    o.at.y as f32 + f32::from(o.h),
+                ),
+            );
+            painter.rect_stroke(
+                area,
+                0.0,
+                Stroke::new(2.0_f32, o.color),
+                egui::StrokeKind::Outside,
+            );
+        }
 
         if let Some(tile) = tip {
             show_tooltip(ui, &response, app, tile);

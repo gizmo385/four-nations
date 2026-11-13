@@ -22,6 +22,8 @@
 //! - **Boxes** ([`boxes`]): the game menu, the confirm boxes and embark's exit prompt as
 //!   `egui::Modal`s over whatever is showing (#879).
 //! - **Cells** ([`cells`]) paint a ratatui buffer as egui shapes: the unconverted screens.
+//! - **Replays** ([`replay`], #997): a run log replayed with the native map, read only, and the
+//!   watcher's code pane, feed and strip as cells.
 //!
 //! Nothing here reads the clock but [`app`]'s frame time.
 
@@ -43,6 +45,7 @@ pub mod mapview;
 pub mod notices;
 pub mod overview;
 pub mod page;
+pub mod replay;
 pub mod savefiles;
 pub mod screens;
 pub mod side;
