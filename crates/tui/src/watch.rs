@@ -345,6 +345,18 @@ struct Ghost {
     left: f32,
 }
 
+/// The attention ghost a window draws over its own map ([`Watcher::attention`]): the region the
+/// agent last looked at or the tile it inspected, in tiles, while it is still on screen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Attention {
+    /// The region's top-left tile.
+    pub at: fn_sim::Pos,
+    pub w: u16,
+    pub h: u16,
+    /// How much of its time on screen is left, from 1 (just reached) down to 0.
+    pub left: f32,
+}
+
 /// Replays a run log into a real [`Shell`], animated (docs/design/agent-play.md, "Watching").
 /// Does its own thing with time: [`Self::advance`] takes real seconds, the same shape
 /// `Shell::advance` does for a normal game, but spends them on *replay* pace instead of the
@@ -578,6 +590,29 @@ impl Watcher {
             self.finished = None;
         }
         self.pending.extend(events);
+    }
+
+    /// The replayed game, for a window that draws it itself (`fn_gui`'s replay, #996).
+    pub fn shell(&self) -> &Shell {
+        &self.shell
+    }
+
+    /// The replayed game, mutably: `fn_gui`'s frame takes `&mut Shell` to draw (it sizes the
+    /// shell and moves its camera hints). A caller must never press keys into it; the replay is
+    /// the only thing that plays it.
+    pub fn shell_mut(&mut self) -> &mut Shell {
+        &mut self.shell
+    }
+
+    /// The live attention ghost, if any (the terminal outlines it on its own map in
+    /// [`Self::render`]).
+    pub fn attention(&self) -> Option<Attention> {
+        self.ghost.map(|g| Attention {
+            at: fn_sim::Pos::new(g.x, g.y),
+            w: g.w,
+            h: g.h,
+            left: (g.left / GHOST_SECONDS).clamp(0.0, 1.0),
+        })
     }
 
     fn app(&self) -> &App {
@@ -2222,6 +2257,9 @@ mod tests {
         w.fast_forward_to_turn(1); // nothing to stop at turn 1, so this drains the queue
         assert!(w.caught_up());
         assert_eq!(w.ghost, Some(Ghost { x: 9, y: 9, w: 1, h: 1, left: GHOST_SECONDS }));
+        // A window drawing its own map sees the same ghost, in tiles, at full strength.
+        let seen = Attention { at: fn_sim::Pos::new(9, 9), w: 1, h: 1, left: 1.0 };
+        assert_eq!(w.attention(), Some(seen));
         let lines: Vec<&str> =
             w.app().ui.alerts.history().iter().map(|e| e.text.as_str()).collect();
         assert!(lines.iter().any(|l| l.contains("looked at (5, 5)")), "{lines:?}");

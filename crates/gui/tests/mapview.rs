@@ -479,3 +479,34 @@ fn two_fingers_pan_and_pinch() {
     assert_eq!((app.ui.cursor, app.ui.selected), (start, None), "no click, no cursor move");
     assert!(app.session.world.command_log().is_empty());
 }
+
+#[test]
+fn a_read_only_map_zooms_and_pans_but_presses_nothing() {
+    // A replay's map (#996): Harvest is up, as an agent mid-designation would leave it, and a
+    // drag and a click that would mark a rectangle and move the cursor do neither.
+    let mut app = game();
+    play(&mut app, "h");
+    let (cursor, tool) = (app.ui.cursor, app.ui.tool);
+    let (mut view, camera) = view_at(&app, cursor, 16.0);
+    view.read_only = true;
+    let (a, b) = (Pos::new(cursor.x - 6, cursor.y - 3), Pos::new(cursor.x - 1, cursor.y + 1));
+    let mut h = harness(&mut view, &mut app);
+    h.hover_at(at(&camera, a));
+    h.run_steps(1);
+    press(&mut h, at(&camera, a), PointerButton::Primary, true);
+    for p in [Pos::new(a.x + 1, a.y), Pos::new(a.x + 3, a.y + 1), b] {
+        h.hover_at(at(&camera, p));
+        h.run_steps(1);
+    }
+    press(&mut h, at(&camera, b), PointerButton::Primary, false);
+    click(&mut h, at(&camera, a), PointerButton::Primary);
+    click(&mut h, at(&camera, a), PointerButton::Secondary);
+    h.event(Event::Zoom(1.5));
+    h.run_steps(1);
+    drop(h);
+    assert!(app.session.world.command_log().is_empty());
+    assert_eq!((app.ui.cursor, app.ui.tool, app.ui.anchor), (cursor, tool, None));
+    // The drag panned the camera (the primary button pans when read only), and the pinch zoomed.
+    assert_ne!(view.camera.centre, camera.centre);
+    assert!(view.camera.cell > camera.cell, "{} > {}", view.camera.cell, camera.cell);
+}

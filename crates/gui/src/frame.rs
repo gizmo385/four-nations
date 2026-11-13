@@ -217,6 +217,10 @@ pub struct Frame {
     /// The screen's notch and home-bar insets (#974), in points: everything is laid out inside
     /// them. Zero on the desktop.
     pub safe: SafeArea,
+    /// Watching, not playing (#996): a replay drives the shell, so the window only looks. The map
+    /// zooms, pans and shows tooltips ([`MapView::read_only`]); the side panel, notices, pages
+    /// and boxes show but take no clicks, and no key leaves [`Frame::take_keys`].
+    pub watch_only: bool,
 }
 
 /// The insets a phone keeps clear of widgets (the CSS `safe-area-inset-*`), in points.
@@ -239,6 +243,11 @@ impl SafeArea {
 }
 
 impl Frame {
+    /// A frame for watching a replay ([`Frame::watch_only`]).
+    pub fn watching() -> Self {
+        Self { watch_only: true, ..Self::default() }
+    }
+
     /// Where the map widget looks, once a game has shown it.
     pub fn camera(&self) -> Option<&crate::camera::Camera> {
         self.map.as_ref().map(|m| &m.camera)
@@ -256,6 +265,13 @@ impl Frame {
 
     /// Lays out one frame of `shell` into `root`, the window's root [`Ui`].
     pub fn show(&mut self, root: &mut Ui, shell: &mut Shell, palette: &Palette) {
+        self.show_safe(root, shell, palette);
+        if self.watch_only {
+            self.keys.clear();
+        }
+    }
+
+    fn show_safe(&mut self, root: &mut Ui, shell: &mut Shell, palette: &Palette) {
         if self.safe == SafeArea::default() {
             return self.show_inside(root, shell, palette);
         }
@@ -287,7 +303,8 @@ impl Frame {
         self.modal = modal;
         match (&mut shell.mode, surface) {
             (Mode::Game(app), Surface::Native) => {
-                self.show_native(root, app, modal.is_none(), palette, &metrics, (cols, rows));
+                let live = modal.is_none() && !self.watch_only;
+                self.show_native(root, app, live, palette, &metrics, (cols, rows));
             }
             (Mode::Title(_), Surface::Title) => {
                 self.map = None;
@@ -500,7 +517,7 @@ impl Frame {
                 });
             self.keys.extend(clicks);
             // A toast's button (#945) is carried out at once, as a notice's is below.
-            for action in actions {
+            for action in actions.into_iter().filter(|_| live) {
                 app.do_notice_action(action);
             }
         }
@@ -541,6 +558,7 @@ impl Frame {
             }
             let first_cell = self.first_cell.take();
             let view = self.map.get_or_insert_with(|| MapView::new(app));
+            view.read_only = self.watch_only;
             if let Some(cell) = first_cell {
                 view.camera.cell = cell;
             }
@@ -567,7 +585,9 @@ impl Frame {
             }
             // The corner notices (#945), over the map's top right.
             let notice_clicks = notices::show(ui.ctx(), notices_at, app, palette, metrics, live);
-            notices::apply(app, &notice_clicks);
+            if live {
+                notices::apply(app, &notice_clicks);
+            }
         });
         if compact {
             if self.controls.drawer_open {
@@ -629,7 +649,7 @@ impl Frame {
             },
         );
         self.keys.extend(clicks);
-        for action in actions {
+        for action in actions.into_iter().filter(|_| live) {
             app.do_notice_action(action);
         }
         if close {

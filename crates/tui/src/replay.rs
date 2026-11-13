@@ -181,9 +181,15 @@ impl Replay {
         self.build.as_deref()
     }
 
-    /// The watcher itself, for tests.
+    /// The watcher itself, for tests and for a window that draws its game.
     pub fn watcher(&self) -> &Watcher {
         &self.watcher
+    }
+
+    /// The watcher, mutably, for a window that draws its game itself (`fn_gui`, #996): see
+    /// [`Watcher::shell_mut`]. Keys go through [`Self::key`], never into the shell.
+    pub fn watcher_mut(&mut self) -> &mut Watcher {
+        &mut self.watcher
     }
 
     fn snapshot_if_due(&mut self) {
