@@ -17,6 +17,7 @@ mod fast;
 mod footprints;
 mod frames;
 mod full_screen;
+mod fusions;
 mod hints;
 mod key_help;
 mod layout_properties;

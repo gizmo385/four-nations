@@ -62,6 +62,10 @@ pub enum Screen {
     /// `M` (#438): the caravan camped now, its deals, its request and what is under way. It
     /// moves a pointer ([`UiState::trade_cursor`]) over the offers; `Enter` takes, `X` cancels.
     Traders,
+    /// `Enter` on an Airship Dock in Select mode (#763, docs/design/horizons-phase-6.md): the
+    /// nation to sail to, its deals and how many times each, then the SEND THE AIRSHIP box. The
+    /// picks are [`UiState::airship`]; there is no key that opens it from anywhere else.
+    Airship,
 }
 
 /// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
@@ -226,6 +230,9 @@ pub struct UiState {
     pub ability_cursor: usize,
     /// The Traders screen's pointer: a slot of the visit camped now (`crate::trade`).
     pub trade_cursor: usize,
+    /// The Airship screen's picks (#763): the dock it is for, the nation and deal under the
+    /// pointer and the times each deal is taken. `Some` exactly while the screen is open.
+    pub airship: Option<crate::airship::Picks>,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
     /// changes them (`App::refresh_saves`), not on every frame.
     pub save_slots: Vec<Slot>,
@@ -293,6 +300,7 @@ impl UiState {
             nation_cursor: 0,
             ability_cursor: 0,
             trade_cursor: 0,
+            airship: None,
             save_slots: Vec::new(),
             save_cursor: 0,
             save_name: None,

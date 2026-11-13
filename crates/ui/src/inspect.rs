@@ -127,10 +127,15 @@ fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) ->
     if let Some(power) = world.power_def(anchor, defs).filter(|_| def.power.is_some()) {
         let reach = power.radius_for(world.modifiers().power_generation);
         let powering = powering_count(world, defs, anchor);
-        vec![
+        let mut lines = vec![
             format!("Reach: {reach} tiles"),
             format!("Powering: {powering} building{}", if powering == 1 { "" } else { "s" }),
-        ]
+        ];
+        // An engine on the bank burns nothing (`steam_power`, #757, #763).
+        if world.building_record(anchor).is_some_and(|b| world.on_bank(b, defs)) {
+            lines.push("On the bank: no fuel".to_owned());
+        }
+        lines
     } else if def.uses_power {
         let powered = world.footprint_at(anchor).and_then(|f| world.power_for(f, defs));
         let by_rail = world.footprint_at(anchor).is_some_and(|f| world.powered_by_rail(f, defs));
@@ -467,6 +472,12 @@ pub fn dock_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     lines
 }
 
+/// An Airship Dock's voyage (docs/design/horizons-phase-6.md, "`airships`", #763): `Docked`,
+/// `Loading for Earth Kingdom: 32/50` or `Away: back in 9 min`. Empty off a dock.
+pub fn airship_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    crate::airship::status_text(world, defs, anchor).into_iter().collect()
+}
+
 /// An Aqueduct tile's run (docs/design/horizons-phase-6.md, "`aqueducts`", #755): `Flowing: 20
 /// tiles from (40, 61)` or `Dry: no river upstream`. Empty for any other building.
 pub fn aqueduct_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
@@ -673,6 +684,7 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         lines.extend(dock_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(outpost_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(aqueduct_lines(world, defs, at).into_iter().map(Line::Detail));
+        lines.extend(airship_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(beast_lines(world, defs, at).into_iter().map(Line::Detail));
         return Some(lines);
     }

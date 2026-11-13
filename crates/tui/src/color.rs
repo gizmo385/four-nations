@@ -191,6 +191,10 @@ pub enum Tint {
     /// The reach of a finished power source under the cursor, or one the Build tool is placing
     /// (issue #428, #429).
     Powered,
+    /// The plots an aqueduct run irrigates, while the cursor is on it (#763).
+    Irrigated,
+    /// Call Rain's patch (#763): a cloud over the fields, or the one the Bend tool would call.
+    Rain,
 }
 
 impl Tint {
@@ -324,6 +328,8 @@ impl Palette {
             Tint::Wet => o.wet,
             Tint::Warm => o.warm,
             Tint::Powered => o.powered,
+            Tint::Irrigated => o.irrigated,
+            Tint::Rain => o.rain,
         }
     }
 
@@ -338,7 +344,17 @@ impl Palette {
             (ColorDepth::Ansi16, Tint::RepeatingHarvest) => self.solid[7],
             (ColorDepth::Ansi16, Tint::Clear) => self.solid[8],
             (_, Tint::Wet) => self.color(mix(base, self.tint_rgb(tint), 0.75)),
-            (ColorDepth::Indexed256, _) => Color::Indexed(self.designation_256(base, tint)),
+            // Only a designation takes a palette entry of its own on 256 colours; a reach is a
+            // plain mix like warmth, so it never reaches `designation_256`.
+            (
+                ColorDepth::Indexed256,
+                Tint::Harvest
+                | Tint::RepeatingHarvest
+                | Tint::Clear
+                | Tint::Stockpile
+                | Tint::Bend
+                | Tint::Build,
+            ) => Color::Indexed(self.designation_256(base, tint)),
             (_, _) => self.color(mix(base, self.tint_rgb(tint), TINT_STRENGTH)),
         }
     }

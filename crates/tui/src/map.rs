@@ -9,8 +9,8 @@
 //!   harvest's standing order a shade greener, #277, a Clear mark in its own hue, #411/#426,
 //!   bend, build, stockpile) and the cast highlight share that tint > wet patch > an aura
 //!   carrier's own warmth > the warmth of the flame or aura under the cursor > the reach of a
-//!   power source under the cursor, or one the Build tool is placing (#428, #429) > terrain or
-//!   biome.
+//!   power source under the cursor, or one the Build tool is placing (#428, #429) > the plots an
+//!   aqueduct under the cursor irrigates > Call Rain's patch (#763) > terrain or biome.
 //!
 //! **Beasts** (#699, docs/design/horizons-phase-2.md, "Beasts"): a beast is a unit that is not a
 //! person, so it draws as its own glyph and colour (`[beast.*]` in `data/tui.toml`, one entry per
@@ -225,6 +225,11 @@ pub struct Overlays {
     /// Every sheltered tile (#721), while the Build tool holds a ring wall (#730); empty
     /// otherwise.
     sheltered: BTreeSet<Pos>,
+    /// The tiles the aqueduct run under the cursor irrigates (#763, `fn_ui::patch`).
+    irrigated: BTreeSet<Pos>,
+    /// Call Rain's patches (#763, `fn_ui::patch`): the rain falling, while the Bend tool is up or
+    /// the cursor is inside it, and the patch the Bend tool would call around the cursor.
+    rain: BTreeSet<Pos>,
 }
 
 impl Overlays {
@@ -316,6 +321,8 @@ impl Overlays {
             link: link_tiles(session, ui),
             camp: world.caravan().map(|v| (v.camp, v.nation)),
             sheltered: sheltered_tiles(session, ui),
+            irrigated: fn_ui::patch::aqueduct_reach(session, cursor),
+            rain: fn_ui::patch::rain_tiles(session, ui.tool, cursor),
         }
     }
 
@@ -658,6 +665,10 @@ pub enum Mark {
     /// A tile inside a closed ring (#721), shown only while the Build tool holds a ring wall
     /// (#730): tinted like warmth.
     Sheltered,
+    /// A plot-watering reach (#763): the tiles the aqueduct run under the cursor irrigates.
+    Irrigated,
+    /// Call Rain's patch (#763): rain falling, or what the Bend tool would call.
+    Rain,
 }
 
 /// What `pos` shows: its `thing`, its `ground`, and every mark on it (#314, #313). The shared
@@ -801,6 +812,12 @@ pub fn cell_look(
     }
     if over.sheltered.contains(&pos) {
         marks.push(Mark::Sheltered);
+    }
+    if over.irrigated.contains(&pos) {
+        marks.push(Mark::Irrigated);
+    }
+    if over.rain.contains(&pos) {
+        marks.push(Mark::Rain);
     }
     if over.avatar == Some(pos) {
         marks.push(Mark::AvatarAccent);
@@ -1055,6 +1072,10 @@ pub fn style_cell(look: &CellLook, defs: &Defs, palette: &Palette) -> TileCell {
         palette.tinted(base_bg, Tint::Warm)
     } else if look.marks.contains(&Mark::Powered) || look.marks.contains(&Mark::FootReach) {
         palette.tinted(base_bg, Tint::Powered)
+    } else if look.marks.contains(&Mark::Irrigated) {
+        palette.tinted(base_bg, Tint::Irrigated)
+    } else if look.marks.contains(&Mark::Rain) {
+        palette.tinted(base_bg, Tint::Rain)
     } else if look.marks.contains(&Mark::AvatarAccent) {
         // The Avatar's own background (#237, #242): the nation's accent, not his tile's own, so
         // he reads as a guest wherever he stands.

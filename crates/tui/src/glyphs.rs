@@ -134,6 +134,10 @@ pub struct Overlays {
     /// A power source's reach (#428, #429): the cursor on a finished source, or the Build tool
     /// placing one, the way `warm` shows a flame's reach.
     pub powered: Rgb8,
+    /// The plots an aqueduct run irrigates, while the cursor is on it (#763).
+    pub irrigated: Rgb8,
+    /// Call Rain's patch (#763).
+    pub rain: Rgb8,
     pub flame: OverlayGlyph,
     /// A fruit tree an orchard planted that hasn't borne fruit yet (#142).
     pub sapling: OverlayGlyph,

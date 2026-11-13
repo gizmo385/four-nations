@@ -8,6 +8,7 @@ use crate::tools::{Order, apply_order, cycle_ability, switch_tool};
 use crate::{Session, Tool};
 use fn_sim::{Nation, Pos, World};
 
+use crate::airship;
 use crate::ask::Answer;
 use crate::input::{Action, map_key};
 use crate::menu::{MenuPage, MenuRow};
@@ -393,6 +394,9 @@ impl App {
                 _ => {}
             }
         }
+        if self.ui.screen == Some(Screen::Airship) && self.airship_key(action) {
+            return;
+        }
         match action {
             // `Tab` flips the key help between its keys and its legend (#662).
             Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Help) => {
@@ -471,6 +475,59 @@ impl App {
                 self.ui.trade_cursor = 0;
             }
         }
+    }
+
+    /// What a key does in the Airship screen (#763); whether it was one the screen took. The
+    /// arrows move the pointer (Left and Right between SAIL TO and DEALS), `+` and `-` change the
+    /// times the deal under it is taken, `Enter` asks for the SEND THE AIRSHIP box and, in it,
+    /// sends, `X` cancels the voyage being loaded and `Esc` goes back a step. The clock keys
+    /// work throughout. The outcome of anything the sim decides goes to the status line.
+    fn airship_key(&mut self, action: Action) -> bool {
+        let Some(mut picks) = self.ui.airship.take() else { return false };
+        airship::settle(&self.session, &mut picks);
+        let mut handled = true;
+        let say = |ui: &mut crate::state::UiState, outcome: Result<String, String>| {
+            ui.status = outcome.unwrap_or_else(|why| why);
+            ui.status_badge = Some(" AIRSHIP ");
+        };
+        if picks.confirm {
+            match action {
+                Action::Confirm => {
+                    let outcome = airship::send(&mut self.session, &mut picks);
+                    say(&mut self.ui, outcome);
+                }
+                Action::Cancel => picks.confirm = false,
+                Action::Move { .. }
+                | Action::Jump { .. }
+                | Action::PickTool(_)
+                | Action::NextUnit
+                | Action::PrevUnit => {}
+                _ => handled = false,
+            }
+        } else {
+            match action {
+                Action::Move { dx, dy, .. } => airship::step(&self.session, &mut picks, dx, dy),
+                Action::Faster | Action::Slower => {
+                    let delta = if action == Action::Faster { 1 } else { -1 };
+                    if let Err(why) = airship::adjust(&self.session, &mut picks, delta) {
+                        say(&mut self.ui, Err(why));
+                    }
+                }
+                Action::Confirm => {
+                    if let Err(why) = airship::ask(&self.session, &mut picks) {
+                        say(&mut self.ui, Err(why));
+                    }
+                }
+                Action::PickTool(Tool::CancelHarvest) => {
+                    let outcome = airship::cancel(&mut self.session, picks.dock);
+                    say(&mut self.ui, outcome);
+                }
+                Action::Jump { .. } => {}
+                _ => handled = false,
+            }
+        }
+        self.ui.airship = Some(picks);
+        handled
     }
 
     /// `Enter` (or, with `cancel`, `X`) in the Traders screen (#438): takes the offer under the
@@ -562,7 +619,14 @@ impl App {
     /// Scrolls the open screen `lines` down (negative: up), within its text.
     fn scroll_by(&mut self, lines: i32) {
         let Some(screen) = self.ui.screen.filter(|s| {
-            !matches!(s, Screen::Research | Screen::Saves | Screen::Abilities | Screen::Traders)
+            !matches!(
+                s,
+                Screen::Research
+                    | Screen::Saves
+                    | Screen::Abilities
+                    | Screen::Traders
+                    | Screen::Airship
+            )
         }) else {
             return;
         };
@@ -1154,6 +1218,16 @@ impl App {
             return self.set_foot(head);
         }
         if self.ui.tool == Tool::Select {
+            // A dock with nobody on it opens its screen (#763) where a unit would be selected.
+            if self.ui.selectable_here(&self.session).is_empty()
+                && let Some(picks) = airship::open(&self.session, self.ui.cursor)
+            {
+                self.ui.tool_list = None;
+                self.ui.scroll = 0;
+                self.ui.airship = Some(picks);
+                self.ui.screen = Some(Screen::Airship);
+                return;
+            }
             self.ui.select_here(&self.session);
             return;
         }

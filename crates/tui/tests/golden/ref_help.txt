@@ -7,7 +7,7 @@
 │ PgUp/PgDn       Jump a quarter screen                      - or _  Slower                                            │
 │                                                            .       One tick, while paused                            │
 │ SETTLERS                                                                                                             │
-│ Enter      Select what is under the cursor                 SCREENS AND GAME                                          │
+│ Enter      Select a unit, or open a dock                   SCREENS AND GAME                                          │
 │ Tab        Next settler                                    N       Nation                                            │
 │ Shift+Tab  Previous settler                                T       Research                                          │
 │ F          Follow the selected settler                     G       Endeavor                                          │
