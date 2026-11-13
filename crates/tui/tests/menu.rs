@@ -236,7 +236,7 @@ fn help_opens_the_key_help_screen() {
 
 #[test]
 fn r_1_to_4_and_q_do_nothing_on_the_map_or_in_a_tool() {
-    for prelude in ["", "h", "x", "b", "u <esc>"] {
+    for prelude in ["", "h", "x", "b <enter>", "u <esc>"] {
         let mut a = app(None);
         run(&mut a, prelude);
         let before = (a.ui.clone(), text(&mut a, SIZE));

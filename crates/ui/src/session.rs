@@ -16,8 +16,8 @@ pub struct Session {
     pub defs: Defs,
     pub clock: Clock,
     /// The ability the Bend tool channels, when the nation can use more than one (Fire's Inner
-    /// Fire, #123): `B` again moves on to the next (`tools::cycle_ability`). `tools::bend_ability`
-    /// reads it, and falls back to the nation's first usable ability if it isn't usable (yet).
+    /// Fire, #123): the one last picked on the abilities screen (`B`, `App::pick_ability`).
+    /// `tools::bend_ability` reads it, and falls back to the nation's first usable ability if it isn't usable (yet).
     pub bend_choice: Option<AbilityId>,
 }
 

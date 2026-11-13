@@ -24,8 +24,9 @@
 //! (the cursor, the open screen or modal, and the active tool) and presses exactly the keys a
 //! player would, closing any open screen or modal first where the step needs the plain map, and
 //! leaving the active tool's own key to switch tools (it already does that unconditionally,
-//! except `designate {tool: "bend", ability}`, #333: that presses the bend key however many
-//! times moves it from whatever ability is active now to the one named, including zero). A
+//! except `designate {tool: "bend"}`, #333, #952: `B` opens the abilities list, so that presses
+//! it, moves the pointer from the ability the Bend tool channels now to the one named (none
+//! named: it stays), and presses `Enter`, as `build` does with `U`). A
 //! step whose plan can't be made (an unknown tech, a building the Build modal doesn't offer, a
 //! tile off the map, an unknown or locked bend ability, ...) presses nothing and the steps
 //! after it don't run either.
@@ -980,10 +981,10 @@ impl Host {
         BuildScreenView { rows }
     }
 
-    /// `fn_ui::bend::view`, the Bend tool banner's own content (#586): the abilities `B` cycles
-    /// through, each as the banner and the Tool row draw it, the one the banner names now
-    /// flagged. Readable whichever tool is active, the way `build_screen` is: `b` shows the
-    /// same from any tool, at no cost.
+    /// `fn_ui::bend::view`, the Bend tool banner's own content (#586): the abilities the
+    /// Bend tool can channel, each as the banner and the Tool row draw it, the one the banner
+    /// names now flagged. Readable whichever tool is active, the way `build_screen` is, at no
+    /// cost.
     fn bend_screen(&self) -> BendScreenView {
         let view = fn_ui::bend::view(&self.app().session);
         BendScreenView {
@@ -1157,8 +1158,8 @@ impl Host {
     }
 
     /// `designate`: Esc to close any open screen or modal (the tool's letter and `o` wouldn't
-    /// reach the game otherwise), the tool's letter (or, for `tool: "bend"` with an `ability`,
-    /// however many `B` presses that ability needs, [`Self::bend_ability_keys`]), `o` for a
+    /// reach the game otherwise), the tool's letter (or, for `tool: "bend"`, `B` and the arrows
+    /// that reach the ability's row and `Enter`, [`Self::bend_ability_keys`]), `o` for a
     /// standing order or (#335) a teardown cancel, a cursor walk to `from` (Shift for runs of
     /// 10), Enter, a walk to `to`, Enter.
     fn plan_designate(
@@ -1186,27 +1187,26 @@ impl Host {
             return Err("ability is only for the bend tool".into());
         }
         let mut keys = self.close_overlay_keys();
-        match ability {
-            Some(name) => keys.extend(self.bend_ability_keys(name)?),
-            None => {
-                let letter = tool
-                    .tool()
-                    .letter()
-                    .expect("every designate tool has a letter")
-                    .to_ascii_lowercase();
-                // `E` toggles the Clear tool between ground and buildings (#342), so press it as
-                // many times as it takes from the tool active now. Every other tool's key only
-                // ever picks that tool.
-                // Like every tool key, the last press re-picks the tool, dropping a corner left
-                // set: from the mode already active that takes two (there and back).
-                let presses = match (tool, self.app().ui.tool) {
-                    (DesignateTool::Clear, Tool::Clear) => 2,
-                    (DesignateTool::Deconstruct, Tool::Clear) => 1,
-                    (DesignateTool::Deconstruct, _) => 2,
-                    _ => 1,
-                };
-                keys.extend(std::iter::repeat_n(char_key(letter), presses));
-            }
+        if tool == DesignateTool::Bend {
+            keys.extend(self.bend_ability_keys(ability)?);
+        } else {
+            let letter = tool
+                .tool()
+                .letter()
+                .expect("every designate tool has a letter")
+                .to_ascii_lowercase();
+            // `E` toggles the Clear tool between ground and buildings (#342), so press it as
+            // many times as it takes from the tool active now. Every other tool's key only
+            // ever picks that tool.
+            // Like every tool key, the last press re-picks the tool, dropping a corner left
+            // set: from the mode already active that takes two (there and back).
+            let presses = match (tool, self.app().ui.tool) {
+                (DesignateTool::Clear, Tool::Clear) => 2,
+                (DesignateTool::Deconstruct, Tool::Clear) => 1,
+                (DesignateTool::Deconstruct, _) => 2,
+                _ => 1,
+            };
+            keys.extend(std::iter::repeat_n(char_key(letter), presses));
         }
         if standing || teardown {
             keys.push(char_key('o'));
@@ -1218,37 +1218,33 @@ impl Host {
         Ok(keys)
     }
 
-    /// How many `B` presses move the Bend tool from whatever ability is active now to `name`
-    /// (the ability's own display name, as the Bend tool's banner shows it, listed by
-    /// `screen {"bend"}`),
-    /// for `plan_designate`'s own `tool: "bend"` with an `ability` (#333): one press switches
-    /// into the Bend tool without changing which ability is chosen
-    /// (`fn_ui::tools::cycle_ability`'s own rule), so that press is only included if the Bend
-    /// tool isn't already active; every press after that moves on to the next ability
-    /// `fn_ui::tools::usable_abilities` lists, wrapping, so the count is exactly the distance (in
-    /// that order) from the one active now. An unknown name, or one the settlement can't use yet
-    /// (not researched, or the wrong rank), is a planning error: nothing is pressed for it, same
-    /// as any other step that can't be planned.
-    fn bend_ability_keys(&self, name: &str) -> Result<Vec<KeyEvent>, String> {
+    /// The keys that arm the Bend tool with `name` (the ability's own display name, as the Bend
+    /// tool's banner shows it, listed by `screen {"bend"}`), for `plan_designate`'s own
+    /// `tool: "bend"` (#333, #952): `B` opens the abilities list with the pointer on the ability
+    /// the tool channels now, the arrows move it to the named one's row and `Enter` arms the
+    /// tool, as `plan_build` does for `U`. With no name the pointer stays, so `Enter` re-arms the
+    /// ability channelled now. An unknown name, or one the settlement can't use yet (not
+    /// researched, or the wrong rank), is a planning error: nothing is pressed for it, same as
+    /// any other step that can't be planned.
+    fn bend_ability_keys(&self, name: Option<&str>) -> Result<Vec<KeyEvent>, String> {
         let session = &self.app().session;
-        let id = session
-            .defs
-            .abilities
-            .iter()
-            .position(|a| a.name == name)
-            .map(|i| fn_sim::bending::AbilityId(i as u16))
-            .ok_or_else(|| format!("no such ability {name:?}"))?;
-        let usable = fn_ui::tools::usable_abilities(session);
-        let target = usable
-            .iter()
-            .position(|&a| a == id)
-            .ok_or_else(|| format!("{name} isn't usable yet"))?;
-        let start = fn_ui::tools::bend_ability(session)
-            .and_then(|a| usable.iter().position(|&u| u == a))
-            .unwrap_or(0);
-        let distance = (target + usable.len() - start) % usable.len();
-        let switch = usize::from(self.app().ui.tool != Tool::Bend);
-        Ok(std::iter::repeat_n(char_key('b'), switch + distance).collect())
+        let rows = fn_ui::bend::abilities(session);
+        let start = fn_ui::screens::abilities::initial_cursor(&rows);
+        let target = match name {
+            None => start,
+            Some(name) => rows
+                .iter()
+                .position(|r| r.name == name)
+                .ok_or_else(|| format!("no such ability {name:?}"))?,
+        };
+        let row = rows.get(target).ok_or("the nation has no ability to bend")?;
+        if !row.usable() {
+            return Err(format!("{} isn't usable yet", row.name));
+        }
+        let mut keys = vec![char_key('b')];
+        keys.extend(step_rows(start, target));
+        keys.push(enter_key());
+        Ok(keys)
     }
 
     /// `build`: as `plan_designate`, but `u` and the Build modal's own navigation (arrows/`W`/
@@ -1639,10 +1635,10 @@ pub enum ActionStep {
     /// only for `tool: "cancel"` -- without it, a cancel withdraws only job designations (a
     /// harvest, a bend, a Sow or a Clear mark) and leaves a build site or a stockpile tile
     /// alone; with it, those go too. `ability` (#333) is only for `tool: "bend"`: the ability's
-    /// own name (as the Bend tool's own banner shows it, listed by `screen {"bend"}`), lowered to however
-    /// many `B` presses move the Bend tool from whatever ability is active now to that one
-    /// (wrapping through every ability the settlement can currently use, `B`'s own order); with
-    /// none given, the Bend tool is picked (or kept) without changing which ability is active.
+    /// own name (as the Bend tool's own banner shows it, listed by `screen {"bend"}`), lowered to `B`
+    /// (which opens the abilities list on the ability the tool channels now), as many arrow
+    /// presses as it takes to reach that one's row, and `Enter` (#952); with none given, `B`
+    /// `Enter` re-arms the ability active now.
     /// Any of these three flags set on the wrong tool, or an `ability` that's unknown or not yet
     /// usable, fails to plan.
     Designate {
@@ -4339,15 +4335,14 @@ mod tests {
         assert!(!sown.notices[0].notice.contains("not a farm plot"), "{sown:?}");
     }
 
-    /// `designate {tool: bend, ability}` (#333) lowers to however many `B` presses move the
-    /// Bend tool from whatever ability is active now to the one named -- including a different
-    /// one than the last `designate {tool: bend}` call picked, and including none at all when
-    /// it's already the active one. A Fire settlement with an Earth newcomer (`Unit::nation`,
-    /// #248's own trick) can use two abilities with no research at all, so this doesn't need to
-    /// wait on one.
+    /// `designate {tool: bend, ability}` (#333, #952) lowers to `B` (which opens the abilities
+    /// list on the ability the Bend tool channels now), as many arrow presses as it takes to
+    /// reach the named one's row, and `Enter` -- including a different one than the last
+    /// `designate {tool: bend}` call picked, and no arrow at all when it's already the active
+    /// one. A Fire settlement with an Earth newcomer (`Unit::nation`, #248's own trick) can use
+    /// two abilities with no research at all, so this doesn't need to wait on one.
     #[test]
-    fn act_designate_bend_ability_presses_the_right_number_of_bend_keys_from_whatever_was_active_last()
-     {
+    fn act_designate_bend_ability_opens_the_list_and_walks_to_the_named_row() {
         let mut h = host(Nation::Fire);
         h.app_mut().session.world.units[1].nation = Some(Nation::Earth);
         let hearth = ability_for_nation(&h.app().session.defs, Nation::Fire).unwrap();
@@ -4363,35 +4358,41 @@ mod tests {
             "the first usable, with no choice yet"
         );
         let pos = h.app().ui.cursor;
-        let step = |ability: &str| {
+        let step = |ability: Option<&str>| {
             vec![ActionStep::Designate {
                 tool: DesignateTool::Bend,
                 from: Coord { x: pos.x, y: pos.y },
                 to: Coord { x: pos.x, y: pos.y },
                 standing: false,
                 teardown: false,
-                ability: Some(ability.to_owned()),
+                ability: ability.map(str::to_owned),
             }]
         };
 
-        // Nothing is active yet (the tool itself isn't Bend): one press switches the tool, one
-        // more cycles past Raise Earth onto Hearthflame.
-        let to_hearth = h.act(&step(&h.app().session.defs.ability(hearth).name.clone()), None);
+        // The pointer opens on Raise Earth, the ability channelled now: one row down is
+        // Hearthflame.
+        let to_hearth =
+            h.act(&step(Some(&h.app().session.defs.ability(hearth).name.clone())), None);
         assert!(to_hearth.error.is_none(), "{to_hearth:?}");
-        assert_eq!(to_hearth.keys, ["b", "b", "<enter>", "<enter>"]);
+        assert_eq!(to_hearth.keys, ["b", "<down>", "<enter>", "<enter>", "<enter>"]);
         assert_eq!(fn_ui::tools::bend_ability(&h.app().session), Some(hearth));
 
-        // The Bend tool is already active and on Hearthflame: one press cycles back round to
-        // Raise Earth, a different ability than the one just used.
-        let to_raise = h.act(&step(&h.app().session.defs.ability(raise_earth).name.clone()), None);
+        // The list now opens on Hearthflame: Raise Earth is one row up.
+        let to_raise =
+            h.act(&step(Some(&h.app().session.defs.ability(raise_earth).name.clone())), None);
         assert!(to_raise.error.is_none(), "{to_raise:?}");
-        assert_eq!(to_raise.keys, ["b", "<enter>", "<enter>"]);
+        assert_eq!(to_raise.keys, ["b", "<up>", "<enter>", "<enter>", "<enter>"]);
         assert_eq!(fn_ui::tools::bend_ability(&h.app().session), Some(raise_earth));
 
-        // Asking for the ability that's already active presses no bend key at all.
-        let repeat = h.act(&step(&h.app().session.defs.ability(raise_earth).name.clone()), None);
+        // Asking for the ability that's already active presses no arrow, and none at all
+        // re-arms it.
+        let repeat =
+            h.act(&step(Some(&h.app().session.defs.ability(raise_earth).name.clone())), None);
         assert!(repeat.error.is_none(), "{repeat:?}");
-        assert_eq!(repeat.keys, ["<enter>", "<enter>"]);
+        assert_eq!(repeat.keys, ["b", "<enter>", "<enter>", "<enter>"]);
+        let rearm = h.act(&step(None), None);
+        assert!(rearm.error.is_none(), "{rearm:?}");
+        assert_eq!(rearm.keys, ["b", "<enter>", "<enter>", "<enter>"]);
         assert_eq!(fn_ui::tools::bend_ability(&h.app().session), Some(raise_earth));
     }
 

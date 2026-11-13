@@ -101,9 +101,7 @@ pub fn segments(session: &Session, ui: &UiState) -> Vec<String> {
             Tool::Build => segs.push("U: pick another".to_owned()),
             Tool::Clear => segs.push("E: buildings".to_owned()),
             Tool::Deconstruct => segs.push("E: ground".to_owned()),
-            Tool::Bend if bend::view(session).offers_next() => {
-                segs.push("B: next ability".to_owned());
-            }
+            Tool::Bend => segs.push("B: abilities".to_owned()),
             _ => {}
         }
     }

@@ -74,7 +74,7 @@ pub fn list() -> Vec<Value> {
                              or unlocked), the same text the modal shows, without opening it. \
                              `bend` is the Bend tool banner's own content, readable whichever \
                              tool is active: the abilities this settlement can use now, in the \
-                             order the bend key cycles them (name, caster count, and which \
+                             order the abilities list shows them (name, caster count, and which \
                              one the banner names now). An ability it can't use yet isn't \
                              listed, as the banner never shows one. `research` also has \
                              `teachings` once a teaching scroll has been read: the drafts \
@@ -122,9 +122,10 @@ pub fn list() -> Vec<Value> {
                              and leaves those alone. `ability` (bend only) is the ability's own \
                              name as the Bend tool's own banner shows it, taken from \
                              screen bend's list (each nation's abilities are its own, so \
-                             never a name from memory); it's lowered to however many presses \
-                             of the bend key move it there from whichever ability is active now, so a repeated designate with \
-                             the same ability never presses a key at all. A step that can't be \
+                             never a name from memory); it's lowered to the bend key (which \
+                             opens the abilities list on the ability active now), as many \
+                             arrow presses as reach its row, and Enter; with none given, the \
+                             bend key and Enter re-arm the ability active now. A step that can't be \
                              planned (an unknown tech, a building the Build modal doesn't \
                              offer, a tile off the map, standing or teardown on the wrong \
                              tool, an ability that's unknown, locked or not for the bend tool, \

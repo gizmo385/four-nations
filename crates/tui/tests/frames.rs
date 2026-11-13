@@ -614,7 +614,7 @@ fn the_result_notice_fits_on_the_smallest_terminal() {
 fn bend_names_the_nations_ability_in_the_panel_and_badges_the_status_line() {
     for nation in Nation::ALL {
         let mut app = App::new(new_session(3, nation), SIZE);
-        app.play(&keys::parse("B").unwrap());
+        app.play(&keys::parse("B <enter>").unwrap());
         assert_eq!(app.ui.tool, Tool::Bend, "{nation:?}");
         let id = fn_ui::tools::ability_for_nation(&app.session.defs, nation).unwrap();
         let name = app.session.defs.ability(id).name.clone();
@@ -796,7 +796,7 @@ fn a_script_never_reads_time_so_the_same_script_is_the_same_game() {
 fn the_command_log_of_a_script_replays_into_the_same_frame() {
     let script = format!(
         "{HARVEST_SCRIPT} <tick 300> p <left*8> <enter> <left*2> <enter> <tick 200> \
-         x <left> <enter> <enter> <tick 100> b <enter> <enter> <tick 50> h <up*6>"
+         x <left> <enter> <enter> <tick 100> b <enter> <enter> <enter> <tick 50> h <up*6>"
     );
     let mut app = play(&script);
     let log = app.session.world.command_log().to_vec();
@@ -925,7 +925,7 @@ fn the_build_modal_lists_buildings_and_details_the_locked_ones() {
     assert!(text.contains("▸ Bed "), "the first row is chosen:\n{text}");
     assert!(text.contains("Size 1x1."), "the detail strip:\n{text}");
     let status = text.lines().last().unwrap();
-    assert!(status.contains("Up/Down choose · Enter build · Esc or U close"), "{status}");
+    assert!(status.contains("Up/Down choose · 1-9 row · Enter build · Esc or U close"), "{status}");
 
     let rows = fn_ui::build::picker_rows(&app.session);
     let locked = rows.iter().position(|r| r.locked()).expect("Earth has a locked building");
@@ -942,6 +942,27 @@ fn the_build_modal_lists_buildings_and_details_the_locked_ones() {
     assert_eq!((app.ui.tool, app.ui.choice), (Tool::Select, None));
     let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
     assert!(text.contains(&format!("Needs {tech}.")), "{text}");
+}
+
+/// `1` to `9` put the Build list's highlight on that row (#952), locked rows included; a number
+/// past the list's end does nothing, and `Enter` still decides.
+#[test]
+fn number_keys_put_the_build_highlight_on_a_row() {
+    let mut app = play("u");
+    let rows = fn_ui::build::picker_rows(&app.session);
+    assert!(rows.len() > 3, "{}", rows.len());
+    app.play(&keys::parse("3").unwrap());
+    assert_eq!(app.ui.build_cursor, 2);
+    let text = to_text(&frame(&mut app, ColorDepth::TrueColor, false, SIZE));
+    assert!(text.contains(&format!("▸ {}", rows[2].name)), "{text}");
+    app.play(&keys::parse("1").unwrap());
+    assert_eq!(app.ui.build_cursor, 0);
+    if rows.len() < 9 {
+        app.play(&keys::parse("9").unwrap());
+        assert_eq!(app.ui.build_cursor, 0, "past the end of the list");
+    }
+    app.play(&keys::parse("2 <enter>").unwrap());
+    assert_eq!((app.ui.modal, app.ui.tool, app.ui.choice), (None, Tool::Build, Some(rows[1].id)));
 }
 
 /// A Fire picker row whose stone cost names brick as a stand-in (issue #371): "N Stone (or
@@ -1055,9 +1076,12 @@ fn the_here_section_names_a_powered_and_an_unpowered_workshop_and_the_source_its
 /// its own colour, and tiles outside the rectangle are untouched.
 #[test]
 fn the_dragged_rectangle_is_tinted_between_the_cursor_and_the_designations() {
-    for (keys, tint) in
-        [("h", Tint::Harvest), ("x", Tint::Harvest), ("p", Tint::Stockpile), ("b", Tint::Bend)]
-    {
+    for (keys, tint) in [
+        ("h", Tint::Harvest),
+        ("x", Tint::Harvest),
+        ("p", Tint::Stockpile),
+        ("b <enter>", Tint::Bend),
+    ] {
         for depth in [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16] {
             let mut app = play(&format!("{keys} <left*4> <up*2> <enter> <right*2> <down>"));
             let p = palette(&app.session, depth, false);

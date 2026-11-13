@@ -496,7 +496,7 @@ fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
              same text that screen shows, without opening it. screen(\"bend\") is the Bend \
              tool banner's own content, readable whatever tool is active: #{abilities: \
              [#{name, casters, current}]}, the abilities this settlement can use now in the \
-             order the bend key cycles them (casters is the count the tool row shows, \
+             order the abilities list shows them (casters is the count the tool row shows, \
              \"20 benders\" or \"no master\"; current marks the one the banner names). A \
              bend ability not listed is not usable yet, so designate won't take it. The \
              names are what designate's ability field takes.",

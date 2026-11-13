@@ -251,9 +251,12 @@ forager or hauler eats cooked food in the field, which Hearthflame can't do.
   light under their feet, drawn from `World::glows()` (position, radius and time left, as
   `flames()` does for flames). Hovering the carrier outlined its reach, and its tooltip line
   gained "Warm 12m 03s".
-- **Picking it:** `B` selects the Bend tool, and `B` again cycles through the abilities the
-  settlement can use (`fn_ui::tools::cycle_ability`, `Session::bend_choice`), so Inner Fire
-  appears once Dancing Dragon is known. This is the "small picker" the Client section promised.
+- **Picking it:** `B` opens the Abilities screen (#719, #952), on the ability the Bend tool
+  channels now; `Enter` there arms the tool with the highlighted ability
+  (`Session::bend_choice`), so Inner Fire appears once Dancing Dragon is known. This is the
+  "small picker" the Client section promised. Before #952 `B` selected the tool and pressed
+  again cycled the abilities (#123); a tool's key no longer changes what it does by being
+  pressed again (docs/design/tool-pickers.md).
 - **Saves:** `auras` is part of world state with `#[serde(default)]`, so a save from before
   #123 loads with none.
 

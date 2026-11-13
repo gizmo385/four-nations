@@ -180,7 +180,7 @@ Nation screen's header line and the Esc menu.
 
 - The Tool section keeps its tinted heading, but every tool is **one row**: Build shows the
   chosen building and cost (as today), Bend shows the current ability and its bender count
-  (`▸Hearthflame 20 benders`). `B` already cycles, and the banner already says `B: next ability`.
+  (`▸Hearthflame 20 benders`). `B` opens the abilities list (#952), and the banner says `B: abilities`.
   Then the last result, as today.
 - **The Tool section says more (#657, `fn_ui::toolpanel`).** Under the heading: what the tool
   does in a sentence or two (`Tool::about`, which the hint bar no longer carries), the Build
@@ -251,7 +251,7 @@ above would produce.
 **120x40, Bend tool:**
 
 ```
-━ BEND Hearthflame ━ Enter: set a corner  ·  B: next ability  ·  Esc: leave ━━━━━━━━━━━━┏────── ◆ FIRE NATION ◆ ───────┓
+━ BEND Hearthflame ━ Enter: set a corner  ·  B: abilities  ·  Esc: leave ━━━━━━━━━━━━┏────── ◆ FIRE NATION ◆ ───────┓
 ♠♠"♠♠♠♠♠♠""""♣♣♣,,♣,,,,,,,,,··♣♣♣,♣♣,♣♣,,,·,,,,,,...≈...,,...≈≈.≈≈≈≈≈≈≈≈≈≈..."♠♠♠♠♠""♠♠♠│ ▶ x1     Autumn Y4 4:57 left │
 ♠♠¥♠...♠"♠♠""",,,♣,,,,♣,,,♣····▲♣♣♣,,♣♣♣,,τ♣,,,,..≈≈≈ƒ≈.,,,,...≈≈≈≈≈≈≈≈≈..."""♠""♠♠"♠♠♠♠├─ SETTLEMENT ─────────── [N] ─┤
 ♠♠♠♠.≈.♠""""""",♣,,τ,,,,,,,,···▲▲•▲▲▲,,♣♣♣♣,¥,,,.≈≈≈≈≈..,♣,,,,..≈≈≈≈≈≈≈..♠♠"""""""""♠"♠♠│ People 20            Idle 11 │

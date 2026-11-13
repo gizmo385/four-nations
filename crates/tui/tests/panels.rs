@@ -539,7 +539,7 @@ fn materials_appear_once_something_is_stockpiled() {
 #[test]
 fn the_sections_come_in_ui_md_order() {
     let mut a = bending_game();
-    run(&mut a, "b");
+    run(&mut a, "b <enter>");
     let frame = text(&mut a, SIZE);
     let at = |s: &str| frame.find(s).unwrap_or_else(|| panic!("{s} in\n{frame}"));
     // Zone 1 (SETTLEMENT, #416) is never trimmed, so it always shows; ALERTS may give way to
@@ -564,7 +564,7 @@ fn the_sections_come_in_ui_md_order() {
 fn a_small_terminal_keeps_the_cursor_and_settlement_glance_with_every_section_on() {
     for nation in Nation::ALL {
         let mut a = bending_game_for(nation);
-        run(&mut a, "b <enter>");
+        run(&mut a, "b <enter> <enter>");
         let frame = text(&mut a, SMALL);
         inspector_heading(&frame, "[B]");
         assert!(frame.contains("Enter: bend"), "{nation:?}\n{frame}");
@@ -699,7 +699,7 @@ fn alerts_keep_the_heading_and_the_newest_row_at_80x24() {
     let mut a = bending_game();
     a.session.world.set_difficulty(Some("normal".to_owned()));
     a.resize(SMALL.0, SMALL.1);
-    run(&mut a, "b <enter> <enter>");
+    run(&mut a, "b <enter> <enter> <enter>");
     assert!(!a.ui.alerts.toasts().is_empty(), "there should be a live toast");
     assert_eq!(a.ui.tool, Tool::Bend, "the Bend tool should be active");
     let newest = a.ui.alerts.toasts().last().unwrap().text.clone();
@@ -1417,7 +1417,7 @@ fn every_tool_section_says_what_the_tool_does_and_the_hint_bar_does_not() {
         ("x", Tool::CancelHarvest),
         ("e", Tool::Clear),
         ("p", Tool::Stockpile),
-        ("b", Tool::Bend),
+        ("b <enter>", Tool::Bend),
         // `U` opens the picker; `Enter` there chooses and leaves the tool active.
         ("u <enter>", Tool::Build),
         ("c", Tool::Sow),

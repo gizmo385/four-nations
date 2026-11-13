@@ -10,8 +10,7 @@
 //! those are left alone. `E` clear the ground (docs/design/clearing.md, #411/#426: uproots a
 //! plant or works a resource's ordinary harvest, removing it for good); `E` again switches it to
 //! buildings mode, which marks finished buildings to be taken down (#342), and back. `P` stockpile, `B` the
-//! nation's bending ability (pressed again it cycles through the abilities the settlement can
-//! use), `U` the build tool (pressed again it cycles through the buildings the nation can
+//! abilities list (it opens the Abilities screen, where `Enter` arms the bending tool, #952), `U` the build tool (pressed again it cycles through the buildings the nation can
 //! place), `C` sow an empty farm plot (issue #198; a ripe one is reaped on its own, with no
 //! tool) and `Esc` back to selecting.
 
@@ -43,7 +42,7 @@ pub enum Tool {
     Deconstruct,
     Stockpile,
     /// Channel one of the nation's abilities (docs/design/bending.md): its signature one, or
-    /// the next the settlement can use after `B` again (`Session::bend_choice`).
+    /// the one picked on the abilities screen, which `B` opens (`Session::bend_choice`, #952).
     Bend,
     /// Place the building picked in the picker (#111).
     Build,
@@ -199,8 +198,7 @@ impl Tool {
             && let Some(id) = bend_ability(session)
         {
             let def = session.defs.ability(id);
-            let more = if usable_abilities(session).len() > 1 { " (B: next ability)" } else { "" };
-            return format!("{}: {}{more}", def.verb, def.description);
+            return format!("{}: {}", def.verb, def.description);
         }
         if self == Self::Gate {
             return format!("place {}: Enter at the cursor", session.defs.endeavor.name);
@@ -308,8 +306,8 @@ pub fn usable_abilities(session: &Session) -> Vec<AbilityId> {
         .collect()
 }
 
-/// The ability the Bend tool channels: the one picked with `B` while it is still usable, else the
-/// first usable (the signature ability).
+/// The ability the Bend tool channels: the one last picked on the abilities screen (`B` or `I`,
+/// `App::pick_ability`) while it is still usable, else the first usable (the signature ability).
 pub fn bend_ability(session: &Session) -> Option<AbilityId> {
     let usable = usable_abilities(session);
     session
@@ -317,18 +315,6 @@ pub fn bend_ability(session: &Session) -> Option<AbilityId> {
         .filter(|c| usable.contains(c))
         .or_else(|| usable.first().copied())
         .or_else(|| ability_for_nation(&session.defs, session.world.nation))
-}
-
-/// `B` pressed while the Bend tool is already active moves on to the next usable ability,
-/// wrapping round. Any other key leaves the choice alone, so coming back to `B` returns to it.
-pub fn cycle_ability(session: &mut Session, current: Tool, requested: Tool) {
-    if current != Tool::Bend || requested != Tool::Bend {
-        return;
-    }
-    let usable = usable_abilities(session);
-    let now = bend_ability(session);
-    let next = now.and_then(|n| usable.iter().position(|&a| a == n)).map_or(0, |i| i + 1);
-    session.bend_choice = usable.get(next % usable.len().max(1)).copied();
 }
 
 /// Every tile in the rectangle spanned by two corners, row by row.
@@ -971,20 +957,18 @@ mod tests {
     }
 
     #[test]
-    fn a_new_game_can_use_only_the_signature_ability_so_b_has_nothing_to_cycle() {
+    fn a_new_game_can_use_only_the_signature_ability() {
         for nation in Nation::ALL {
-            let mut s = Session::new(1, nation, 48, 32);
+            let s = Session::new(1, nation, 48, 32);
             let signature = ability_for_nation(&s.defs, nation).unwrap();
             assert_eq!(usable_abilities(&s), [signature], "{nation:?}");
             assert_eq!(bend_ability(&s), Some(signature));
-            cycle_ability(&mut s, Tool::Bend, Tool::Bend);
-            assert_eq!(bend_ability(&s), Some(signature), "{nation:?}");
             assert!(!Tool::Bend.hint(&s).contains("next ability"));
         }
     }
 
     #[test]
-    fn b_again_cycles_through_what_research_has_unlocked() {
+    fn research_unlocks_more_abilities_and_the_choice_decides_which_the_tool_channels() {
         // Fire's Inner Fire needs Dancing Dragon; research it the slow way, with the settlers
         // kept fed so the passive trickle has time to pay for it. Forging, a prereq on the way
         // (through Smelting), also unlocks Weld (#363), so it comes along for the ride.
@@ -1005,28 +989,22 @@ mod tests {
         }
         assert!(s.world.research().is_known(dragon), "researched");
         assert_eq!(usable_abilities(&s), [hearth, inner, weld]);
-        assert!(Tool::Bend.hint(&s).contains("B: next ability"));
+        // The hint names the ability it channels and no longer talks of moving on (#952: `B`
+        // opens the abilities list instead).
+        assert!(!Tool::Bend.hint(&s).contains("next ability"));
 
-        // Picking the tool leaves the choice; B again moves on, wrapping round.
-        cycle_ability(&mut s, Tool::Select, Tool::Bend);
-        assert_eq!(bend_ability(&s), Some(hearth));
-        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        // Picking one (the abilities screen's `Enter`) sets it; the tool then issues that one.
+        s.bend_choice = Some(inner);
         assert_eq!(bend_ability(&s), Some(inner));
         assert!(Tool::Bend.hint(&s).starts_with(&s.defs.ability(inner).verb));
-        // Another tool and back keeps it; the tool then issues that ability.
-        cycle_ability(&mut s, Tool::Bend, Tool::Harvest);
-        cycle_ability(&mut s, Tool::Harvest, Tool::Bend);
-        assert_eq!(bend_ability(&s), Some(inner));
-        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        s.bend_choice = Some(weld);
         assert_eq!(bend_ability(&s), Some(weld));
-        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
-        assert_eq!(bend_ability(&s), Some(hearth));
     }
 
-    /// #248: in a mixed-nation settlement (#240) `B` also cycles onto a newcomer's signature
-    /// ability, not just the settlement's own nation's.
+    /// #248: in a mixed-nation settlement (#240) a newcomer's signature ability is usable too,
+    /// not just the settlement's own nation's.
     #[test]
-    fn b_also_cycles_onto_a_newcomers_nation() {
+    fn a_newcomers_nation_adds_its_signature_ability() {
         let mut s = Session::new(1, Nation::Fire, 48, 32);
         let hearth = ability_for_nation(&s.defs, Nation::Fire).unwrap();
         let raise_earth = ability_for_nation(&s.defs, Nation::Earth).unwrap();
@@ -1035,13 +1013,9 @@ mod tests {
         s.world.units[1].nation = Some(Nation::Earth);
         let usable = usable_abilities(&s);
         assert_eq!(usable, [raise_earth, hearth], "data order, not which nation founded it");
-        assert!(Tool::Bend.hint(&s).contains("B: next ability"));
-
         assert_eq!(bend_ability(&s), Some(raise_earth), "the first usable, with no choice yet");
-        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
+        s.bend_choice = Some(hearth);
         assert_eq!(bend_ability(&s), Some(hearth));
-        cycle_ability(&mut s, Tool::Bend, Tool::Bend);
-        assert_eq!(bend_ability(&s), Some(raise_earth), "wraps round");
     }
 
     #[test]

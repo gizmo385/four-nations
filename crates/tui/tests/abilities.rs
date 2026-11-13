@@ -1,4 +1,4 @@
-//! The abilities screen (`I`, #719): every bending ability on a full screen in the shared frame,
+//! The abilities screen (`B` or `I`, #719, #952): every bending ability on a full screen in the shared frame,
 //! what each does and whether it can be used now, and `Enter` to pick one for the Bend tool.
 //! The list's drawing is unit-tested in `crates/tui/src/abilities.rs`; this drives it through
 //! the keys.
@@ -40,7 +40,7 @@ fn fire_with_forms() -> App {
 }
 
 #[test]
-fn i_opens_the_screen_and_i_or_esc_close_it_over_the_side_panel() {
+fn i_opens_the_screen_and_i_b_or_esc_close_it_over_the_side_panel() {
     let mut a = App::new(new_session(7, Nation::Earth), SIZE);
     run(&mut a, "i");
     assert_eq!(a.ui.screen, Some(Screen::Abilities));
@@ -54,12 +54,16 @@ fn i_opens_the_screen_and_i_or_esc_close_it_over_the_side_panel() {
     assert!(!frame.contains("SETTLEMENT"), "{frame}");
     let status = frame.lines().last().unwrap();
     assert!(status.contains("ABILITIES"), "{status}");
-    assert!(status.contains("Esc or I close"), "{status}");
+    assert!(status.contains("Esc, B or I close"), "{status}");
+    assert!(status.contains("1-9 row"), "{status}");
 
     run(&mut a, "i");
     assert_eq!(a.ui.screen, None);
     run(&mut a, "i <esc>");
     assert_eq!(a.ui.screen, None);
+    run(&mut a, "i b");
+    assert_eq!(a.ui.screen, None, "B closes it too");
+    assert_eq!(a.ui.tool, Tool::Select, "and leaves the tool as it was");
     run(&mut a, "I");
     assert_eq!(a.ui.screen, Some(Screen::Abilities));
 }
@@ -71,7 +75,8 @@ fn the_key_is_in_the_hint_bar_and_not_in_the_key_help() {
     let frame = text(&mut a, (160, 40));
     assert!(frame.lines().last().unwrap().contains("I abilities"), "{frame}");
     // With the Bend tool up, and not with another.
-    run(&mut a, "b");
+    run(&mut a, "b <enter>");
+    assert_eq!(a.ui.tool, Tool::Bend);
     assert!(text(&mut a, (160, 40)).lines().last().unwrap().contains("I abilities"));
     run(&mut a, "h");
     assert!(!text(&mut a, (160, 40)).lines().last().unwrap().contains("I abilities"));
@@ -82,7 +87,7 @@ fn the_key_is_in_the_hint_bar_and_not_in_the_key_help() {
 fn the_map_keys_wait_while_it_is_open() {
     let mut a = App::new(new_session(7, Nation::Earth), SIZE);
     let (cursor, view) = (a.ui.cursor, a.ui.view);
-    run(&mut a, "i h x p b <pgdn> <tab> f");
+    run(&mut a, "i h x p u <pgdn> <tab> f");
     assert_eq!(a.ui.cursor, cursor);
     assert_eq!(a.ui.view, view);
     assert_eq!(a.ui.tool, Tool::Select, "no tool was picked");
@@ -116,11 +121,49 @@ fn enter_picks_the_highlighted_ability_for_the_bend_tool() {
     assert_eq!(bend_ability(&a.session), Some(inner));
     assert_eq!(a.ui.tool, Tool::Bend);
 
-    // B still picks the tool directly, and moves on to the next ability as before.
-    run(&mut a, "<esc> b");
+    // B opens the same screen from the map (#952) on the ability last channelled, so B Enter
+    // re-arms it; pressing B again never moves on to the next one.
+    run(&mut a, "h b");
+    assert_eq!(a.ui.screen, Some(Screen::Abilities));
+    assert_eq!(a.ui.tool, Tool::Harvest, "opening it leaves the tool as it was");
+    assert_eq!(a.ui.ability_cursor, 1);
+    run(&mut a, "<enter>");
+    assert_eq!((a.ui.screen, a.ui.tool), (None, Tool::Bend));
+    assert_eq!(bend_ability(&a.session), Some(inner));
+    run(&mut a, "b <esc> b <enter>");
+    assert_eq!(bend_ability(&a.session), Some(inner));
     assert_eq!(a.ui.tool, Tool::Bend);
-    run(&mut a, "b");
-    assert_eq!(bend_ability(&a.session), Some(ids[2]));
+}
+
+/// `1` to `9` put the pointer on that row, locked ones included; a row past the list's end does
+/// nothing, and `Enter` still decides.
+#[test]
+fn number_keys_put_the_pointer_on_a_row() {
+    let mut a = fire_with_forms();
+    let rows = fn_ui::bend::abilities(&a.session);
+    assert!(rows.len() >= 3 && rows.len() < 9, "{}", rows.len());
+    run(&mut a, "b 3");
+    assert_eq!(a.ui.ability_cursor, 2);
+    run(&mut a, "1");
+    assert_eq!(a.ui.ability_cursor, 0);
+    run(&mut a, "9");
+    assert_eq!(a.ui.ability_cursor, 0, "past the end of the list");
+    run(&mut a, "2 <enter>");
+    assert_eq!((a.ui.screen, a.ui.tool), (None, Tool::Bend));
+    assert_eq!(bend_ability(&a.session), Some(rows[1].id));
+}
+
+/// `B` then `Enter` on a locked row does nothing: the screen stays and the strip says why.
+#[test]
+fn b_then_enter_on_a_locked_row_picks_nothing() {
+    let mut a = App::new(new_session(7, Nation::Fire), SIZE);
+    let rows = fn_ui::bend::abilities(&a.session);
+    let first_locked = rows.iter().position(|r| !r.usable()).unwrap();
+    run(&mut a, &format!("b {} <enter>", first_locked + 1));
+    assert_eq!(a.ui.screen, Some(Screen::Abilities));
+    assert_eq!(a.ui.tool, Tool::Select);
+    let why = rows[first_locked].unusable.clone().unwrap();
+    assert!(text(&mut a, SIZE).contains(&format!("{why}: Enter picks nothing until then.")));
 }
 
 /// `Enter` on an ability that can't be used yet does nothing: the screen stays and the strip

@@ -365,7 +365,7 @@ letter (question 1).
 ━ HARVEST ━ Enter: designate 5x3  ·  Esc: drop the corner ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━ HARVEST · REPEATING ━ Enter: set a corner  ·  O: one-shot  ·  Esc: leave ━━━━━━━━━━━━━
 ━ BUILD Bed ━ Enter: build 1x1  ·  U: pick another  ·  Esc: leave ━━━━━━━━━━━━━━━━━━━━━━
-━ BEND Raise Earth ━ Enter: set a corner  ·  B: next ability  ·  Esc: leave ━━━━━━━━━━━━
+━ BEND Raise Earth ━ Enter: set a corner  ·  B: abilities  ·  Esc: leave ━━━━━━━━━━━━
 = HARVEST = Enter: set a corner - Esc: leave =========   (--ascii)
 ```
 

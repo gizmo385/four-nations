@@ -36,7 +36,7 @@ const ACTION_STEP_DOCS: &[ActionStepDoc] = &[
                  Bend tool's own banner shows it, as screen(\"bend\") lists them -- each nation's \
                  abilities are its own, so read the list rather than guessing a name); with \
                  none given, the \
-                 Bend tool is picked (or kept) without changing which ability is active. Any \
+                 Bend tool is armed with the ability that is active now. Any \
                  of these three set on the wrong tool, or an ability that's unknown or not yet \
                  usable, fails to plan.",
         example: "act([#{step: \"designate\", tool: \"sow\", from: #{x: 10, y: 10}, \

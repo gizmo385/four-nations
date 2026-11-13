@@ -166,16 +166,19 @@ fn reachable_text(h: &mut Host) -> String {
     }
     h.press_keys("<esc>", None, None).unwrap();
     // The Bend tool's banner and Tool row (#586: `screen {"bend"}`'s own leaves), once per
-    // ability `B` cycles through.
-    let abilities = bend_rows(h).len();
-    h.press_keys("b", None, None).unwrap();
-    push(&h.frame(SIZE.0, SIZE.1), &mut text);
-    for _ in 1..abilities {
-        h.press_keys("b", None, None).unwrap();
+    // ability the abilities list can arm.
+    for at in 0..bend_rows(h).len() {
+        arm_ability(h, at);
         push(&h.frame(SIZE.0, SIZE.1), &mut text);
     }
     h.press_keys("<esc>", None, None).unwrap();
     text
+}
+
+/// Arms the Bend tool with the `at`th usable ability (the list is usable-first): `B` opens the
+/// list, its number key puts the pointer on the row, `Enter` picks it (#952).
+fn arm_ability(h: &mut Host, at: usize) {
+    h.press_keys(&format!("b {} <enter>", at + 1), None, None).unwrap();
 }
 
 /// `screen {"bend"}`'s rows, as `(name, casters, current)`.
@@ -233,9 +236,9 @@ fn midgame(nation: Nation) -> Host {
 }
 
 /// #586: `screen {"bend"}` is the Bend tool banner. For every nation, in a new game and at
-/// midgame, with any tool active: each press of `B` puts the next listed ability on the banner
-/// badge and its count on the Tool row, in the order `screen` lists them; `B: next ability` is
-/// on the banner exactly when there is more than one; and nothing the banner never names (any
+/// midgame, with any tool active: arming each listed ability from the abilities list (`B`, the
+/// row, `Enter`) puts it on the banner badge and its count on the Tool row, in the order
+/// `screen` lists them; `B: abilities` is on the banner; and nothing the banner never names (any
 /// other nation's ability) is listed.
 #[test]
 fn the_bend_screen_matches_the_banner_for_every_nation() {
@@ -253,11 +256,14 @@ fn the_bend_screen_matches_the_banner_for_every_nation() {
                 multi += 1;
             }
 
-            // `b` picks the tool without moving the choice; every `b` after that moves on.
+            // `B` opens the list on the ability channelled now, so `B` `Enter` re-arms it
+            // without moving the choice.
             let start = listed.iter().position(|r| r.2).unwrap();
-            for press in 0..listed.len() {
-                h.press_keys("b", None, None).unwrap();
-                let at = (start + press) % listed.len();
+            h.press_keys("b <enter>", None, None).unwrap();
+            assert_eq!(bend_rows(&h).iter().position(|r| r.2), Some(start), "{nation:?} {when}");
+            for at in 0..listed.len() {
+                let press = at;
+                arm_ability(&mut h, at);
                 let (name, casters, _) = &listed[at];
                 let frame = fold(&h.frame(220, 50));
                 assert!(
@@ -265,13 +271,13 @@ fn the_bend_screen_matches_the_banner_for_every_nation() {
                     "{nation:?} {when}: banner should name {name:?} on press {press}:\n{frame}"
                 );
                 assert!(frame.contains(&fold(casters)), "{nation:?} {when}: {casters:?}");
-                assert_eq!(frame.contains("b: next ability"), listed.len() > 1, "{nation:?}");
+                assert!(frame.contains("b: abilities"), "{nation:?}:\n{frame}");
                 let now = bend_rows(&h);
                 assert_eq!(now.iter().position(|r| r.2), Some(at), "{nation:?} {when}");
                 let names = |rows: &[(String, String, bool)]| {
                     rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>()
                 };
-                assert_eq!(names(&now), names(&listed), "{nation:?} {when}: B keeps the list");
+                assert_eq!(names(&now), names(&listed), "{nation:?} {when}: the list stays");
             }
 
             // Nothing the banner can't show: every listed name is this nation's own ability.

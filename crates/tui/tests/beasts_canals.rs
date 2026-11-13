@@ -262,7 +262,7 @@ fn hovering_a_canal_says_what_it_does() {
 #[test]
 fn the_bend_tool_and_the_abilities_screen_say_what_carve_canal_does() {
     let mut app = water_with(&["=.....", "......"]);
-    play(&mut app, "b");
+    play(&mut app, "b <enter>");
     assert_eq!(app.ui.tool, Tool::Bend);
     let text = frame_text(&mut app);
     for line in
@@ -283,14 +283,14 @@ fn the_bend_tool_and_the_abilities_screen_say_what_carve_canal_does() {
 fn carve_canal_says_why_a_tile_has_no_fresh_water() {
     let mut app = water_with(&["=.....", "......"]);
     app.ui.cursor = Pos::new(PATCH.x + 3, PATCH.y + 1);
-    play(&mut app, "b <enter>");
+    play(&mut app, "b <enter> <enter>");
     let text = frame_text(&mut app);
     assert!(text.contains("Needs fresh water beside it"), "{text}");
     assert!(!text.contains("needs fresh water beside it"), "{text}");
     // Beside the river it is accepted.
     app.ui.cursor = Pos::new(PATCH.x + 1, PATCH.y);
     play(&mut app, "<esc>");
-    play(&mut app, "b <enter>");
+    play(&mut app, "b <enter> <enter>");
     let text = frame_text(&mut app);
     assert!(!text.contains("Needs fresh water"), "{text}");
 }
@@ -300,12 +300,12 @@ fn carve_canal_says_why_a_tile_has_no_fresh_water() {
 fn carve_canal_says_why_a_cut_would_split_the_land() {
     let mut app = water_with(&["=======", "~.....~", "~~~~~~~"]);
     app.ui.cursor = Pos::new(PATCH.x + 3, PATCH.y + 1);
-    play(&mut app, "b <enter>");
+    play(&mut app, "b <enter> <enter>");
     let text = frame_text(&mut app);
     assert!(text.contains("Would cut the land in two"), "{text}");
     // The end of the causeway is safe.
     play(&mut app, "<esc> <left*2>");
-    play(&mut app, "b <enter>");
+    play(&mut app, "b <enter> <enter>");
     let text = frame_text(&mut app);
     assert!(!text.contains("Would cut the land in two"), "{text}");
 }
