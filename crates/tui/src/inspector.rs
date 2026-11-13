@@ -200,6 +200,8 @@ fn rows_of(parts: &[Part], width: usize, marks: &Marks) -> Vec<Row> {
                     .map(|l| Row::text(l, *tone)),
             ),
             Part::Line(text, tone) => rows.push(Row::text(text.clone(), *tone)),
+            // No buttons in cells: the key's own hint ("Press K to keep it").
+            Part::Action(action) => rows.push(Row::text(action.hint(), Tone::Dim)),
             Part::Standing { text, tail } => rows.extend(
                 wrap_with_tail(text, tail, width, marks.ellipsis)
                     .into_iter()
@@ -351,6 +353,27 @@ mod tests {
         let rows: Vec<String> = i.all_rows().iter().map(Row::plain).collect();
         assert!(rows.iter().any(|r| r.starts_with("Elevation ")), "{rows:?}");
         assert!(rows.iter().all(|r| !r.contains(&at)), "{rows:?}");
+    }
+
+    /// A building marked to be taken down says so and names the key that keeps it (#967); an
+    /// unmarked one says neither.
+    #[test]
+    fn a_marked_building_names_the_key_that_keeps_it() {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let bed = s.defs.building_id("bed").unwrap();
+        let at = Pos::new(2, 2);
+        let defs = s.defs.clone();
+        s.world.put_building(fn_sim::geom::Footprint::single(at), bed, &defs);
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.cursor = at;
+        let rows = |s: &Session, ui: &UiState| -> Vec<String> {
+            inspect(s, ui, None, 40, &Marks::new(false)).all_rows().iter().map(Row::plain).collect()
+        };
+        assert!(rows(&s, &ui).iter().all(|r| !r.contains("Marked") && !r.contains("Press K")));
+        s.apply(fn_sim::world::Command::Deconstruct { pos: at }).unwrap();
+        let marked = rows(&s, &ui);
+        assert!(marked.contains(&"Marked to be taken down".to_owned()), "{marked:?}");
+        assert!(marked.contains(&"Press K to keep it".to_owned()), "{marked:?}");
     }
 
     /// A heading too narrow for its value gives the value to the first row, and one too narrow

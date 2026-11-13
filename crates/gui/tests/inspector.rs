@@ -112,3 +112,62 @@ fn a_short_panel_scrolls_the_inspector_instead_of_trimming_it() {
     let seed = h.get_by_label("seed 7").rect();
     assert!(seed.max.y <= 260.0, "the seed line is in the window: {seed:?}");
 }
+
+/// A game with a bed standing on a free tile, the cursor on it, and `marked` or not for take-down.
+fn game_with_bed(marked: bool) -> (Shell, fn_sim::Pos) {
+    let mut shell = game();
+    let Mode::Game(game) = &mut shell.mode else { panic!("not in a game") };
+    let defs = game.session.defs.clone();
+    let bed = defs.building_id("bed").unwrap();
+    let at = game
+        .session
+        .world
+        .map
+        .iter()
+        .find(|(p, t)| {
+            t.terrain == fn_sim::Terrain::Land
+                && t.resource.is_none()
+                && !game.session.world.units.iter().any(|u| u.pos == *p)
+                && game.session.world.check_build(*p, bed, &defs).is_ok()
+        })
+        .map(|(p, _)| p)
+        .expect("a free land tile");
+    game.session.world.put_building(fn_sim::geom::Footprint::single(at), bed, &defs);
+    if marked {
+        game.session.apply(fn_sim::world::Command::Deconstruct { pos: at }).unwrap();
+    }
+    game.ui.cursor = at;
+    (shell, at)
+}
+
+/// A building marked to be taken down says so and has a "Keep it" button; clicking it takes the
+/// mark back and the building stays (#967).
+#[test]
+fn keep_it_is_a_button_on_a_marked_building_and_clicking_it_keeps_the_building() {
+    let (shell, at) = game_with_bed(true);
+    let mut app = GuiApp::with_shell(shell);
+    let mut h = harness(&mut app, egui::vec2(1600.0, 960.0));
+    assert!(h.query_by_label("Marked to be taken down").is_some());
+    assert!(h.query_by_label_contains("Press K").is_none(), "a button, not the key's hint");
+    h.get_by_label("Keep it").click();
+    h.run_steps(4);
+    drop(h);
+    let world = &state(&app).session.world;
+    assert!(!world.is_marked_for_deconstruct(at), "the mark is gone");
+    assert_eq!(world.deconstruct_designations().count(), 0);
+    assert!(world.building_at(at).is_some(), "the building stays");
+
+    let h = harness(&mut app, egui::vec2(1600.0, 960.0));
+    assert!(h.query_by_label("Keep it").is_none());
+    assert!(h.query_by_label("Marked to be taken down").is_none());
+}
+
+/// An unmarked building has no button and no marked line.
+#[test]
+fn an_unmarked_building_has_no_keep_it_button() {
+    let (shell, _) = game_with_bed(false);
+    let mut app = GuiApp::with_shell(shell);
+    let h = harness(&mut app, egui::vec2(1600.0, 960.0));
+    assert!(h.query_by_label("Keep it").is_none());
+    assert!(h.query_by_label("Marked to be taken down").is_none());
+}

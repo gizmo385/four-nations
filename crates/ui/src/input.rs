@@ -134,6 +134,7 @@ fn build_table() -> Vec<Binding> {
     }
     add(Key::ch('o'), Action::ToggleRepeat);
     add(Key::ch('r'), Action::NextRecipe);
+    add(Key::ch('k'), Action::KeepIt);
     // The tool list (#664). `/` is free in every mode: no screen reads text, the save names are
     // made for the player.
     add(Key::ch('/'), Action::ShowTools);
@@ -195,7 +196,7 @@ pub fn spectator_allowed(action: Action) -> bool {
         Action::Move { .. } | Action::Jump { .. } => true,
         Action::PickTool(Tool::Build) => true,
         Action::PickTool(_) => false,
-        Action::ToggleRepeat | Action::NextRecipe => false,
+        Action::ToggleRepeat | Action::NextRecipe | Action::KeepIt => false,
         Action::Confirm => true,
         Action::Cancel => false,
         Action::NextUnit | Action::PrevUnit | Action::Follow => true,
@@ -527,7 +528,9 @@ mod tests {
             // The abilities key is shown in the hint bar only (#719), by design.
             // `Del` (#945, #962) is in neither: the key help is full at 120 by 40 and every
             // notice names the key itself ("Del ✕").
-            let hint_only = matches!(b.action, Action::ShowAbilities | Action::DismissNotice);
+            // `K` (#967) is named by the inspector's own line.
+            let hint_only =
+                matches!(b.action, Action::ShowAbilities | Action::DismissNotice | Action::KeepIt);
             let listed = table.iter().any(|e| {
                 (e.help.is_some() || hint_only)
                     && e.actions.iter().any(|a| a.same_kind(b.action))

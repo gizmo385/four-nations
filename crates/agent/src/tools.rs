@@ -121,7 +121,9 @@ pub fn list() -> Vec<Value> {
                              unfinished build sites, stockpile tiles (their goods drop to be \
                              hauled) and finished buildings (marked to be taken down), skipping \
                              landmarks; it has no flags, and an empty rectangle removes \
-                             nothing. `clear` is the ground only (trees, rock, plants). \
+                             nothing. A building marked to be taken down says so in `inspect` \
+                             (\"Press K to keep it\"): `cursor` onto it and `keys` \"k\" takes \
+                             the mark back. `clear` is the ground only (trees, rock, plants). \
                              `ability` (bend only) is the ability's own \
                              name as the Bend tool's own banner shows it, taken from \
                              screen bend's list (each nation's abilities are its own, so \

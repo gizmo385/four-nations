@@ -50,6 +50,9 @@ pub enum Action {
     /// `R`: in Select mode with the cursor on a building that has another recipe (the Workshop),
     /// switches it to the next one (`Command::SetRecipe`, #712).
     NextRecipe,
+    /// `K`: with the cursor on a building marked to be taken down, keeps it
+    /// (`Command::CancelDeconstruct`, #967): the inspector's "Keep it".
+    KeepIt,
     /// `Enter`: in Select mode, select the unit under the cursor (again: the next one there); in
     /// a tool, set a corner or apply the rectangle.
     Confirm,
@@ -582,6 +585,9 @@ fn build() -> Vec<Entry> {
         "recipe",
         help(units, "Switch a Workshop's recipe (Select)"),
     );
+    // `K` on a building marked to be taken down (#967): in no hint bar and not in the key help
+    // (full at 120 by 40); the inspector's own line names the key ("Press K to keep it").
+    add(&[], &[Action::KeepIt], "K", "keep it", None);
     // Select mode's `O` on a chute (#683): in no hint bar, only in the key help.
     add(&[], &[], "O", "link", help(in_tool, "Move a chute foot or partner (Select)"));
     // Select mode's `O` on a building in a Lightning Station's yard (#725, #730).
