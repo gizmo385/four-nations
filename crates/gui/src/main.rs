@@ -1,6 +1,7 @@
 //! `cargo run -p fn_gui [-- SEED NATION ...]`: the game in a window (#842's spike). Takes
 //! `fn_tui`'s own arguments (no arguments for the title screen) plus `--keys SCRIPT` to play
-//! before the window opens; `F12` shows the dev timing overlay.
+//! before the window opens; `F12` shows the dev timing overlay. `--replay LOG` replays a run log
+//! (`run.jsonl`) instead (#997).
 //!
 //! Built for wasm32 (#843's check of egui in the browser), the same app runs on a page's canvas
 //! instead (`web/play/index.html`, published at `/play/`, #866): the title screen, as the desktop
@@ -88,6 +89,13 @@ mod web {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
+    // `--replay LOG` (#997): a run log replayed in the window instead of a game.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [flag, path] = args.as_slice()
+        && flag == "--replay"
+    {
+        return replay(path);
+    }
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Four Nations")
@@ -104,6 +112,33 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             fn_gui::setup(&cc.egui_ctx);
             Ok(Box::new(fn_gui::app::GuiApp::new(saves, seed_hint)))
+        }),
+    )
+}
+
+/// `--replay LOG`: the window replays `path`, a `run.jsonl`.
+#[cfg(not(target_arch = "wasm32"))]
+fn replay(path: &str) -> eframe::Result {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!("fn_gui: {path}: {e}");
+        std::process::exit(2)
+    });
+    let app = fn_gui::replay::ReplayApp::open(&text).unwrap_or_else(|e| {
+        eprintln!("fn_gui: {path}: {e}");
+        std::process::exit(2)
+    });
+    let options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_title("Four Nations replay")
+            .with_inner_size([1600.0, 960.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "Four Nations replay",
+        options,
+        Box::new(move |cc| {
+            fn_gui::setup(&cc.egui_ctx);
+            Ok(Box::new(app))
         }),
     )
 }

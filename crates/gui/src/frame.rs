@@ -221,6 +221,9 @@ pub struct Frame {
     /// zooms, pans and shows tooltips ([`MapView::read_only`]); the side panel, notices, pages
     /// and boxes show but take no clicks, and no key leaves [`Frame::take_keys`].
     pub watch_only: bool,
+    /// Outlines a replay draws over the map this frame (the agent's attention, #997); see
+    /// [`MapView::outlines`].
+    pub outlines: Vec<crate::mapview::Outline>,
 }
 
 /// The insets a phone keeps clear of widgets (the CSS `safe-area-inset-*`), in points.
@@ -398,7 +401,9 @@ impl Frame {
         metrics: &Metrics,
         cols: u16,
     ) {
-        self.show_bar(root, &hints::bar(app, palette, cols), metrics);
+        if !self.watch_only {
+            self.show_bar(root, &hints::bar(app, palette, cols), metrics);
+        }
         let started = Instant::now();
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
             let clicks = match kind {
@@ -480,7 +485,8 @@ impl Frame {
         // under the map alone.
         let window = root.available_rect_before_wrap();
         let touch = crate::controls::touch_device(root.ctx());
-        let rail = crate::controls::rail_shown(root.ctx(), &self.controls);
+        // Watching (#997) shows neither: the replay's own controls and strip take their place.
+        let rail = !self.watch_only && crate::controls::rail_shown(root.ctx(), &self.controls);
         let bar = hints::bar(app, palette, cols);
         if rail {
             let wide = crate::controls::wide(window);
@@ -495,7 +501,7 @@ impl Frame {
                     keys = crate::controls::rail(ui, app, palette, wide, live);
                 });
             self.keys.extend(keys);
-        } else {
+        } else if !self.watch_only {
             self.show_bar(root, &bar, metrics);
         }
 
@@ -559,6 +565,7 @@ impl Frame {
             let first_cell = self.first_cell.take();
             let view = self.map.get_or_insert_with(|| MapView::new(app));
             view.read_only = self.watch_only;
+            view.outlines.clone_from(&self.outlines);
             if let Some(cell) = first_cell {
                 view.camera.cell = cell;
             }
@@ -568,7 +575,9 @@ impl Frame {
             // drawer is closed, and More with them; otherwise More has its corner when the rail
             // (and its bar) is off.
             let mut notices_at = map_rect;
-            if compact && !self.controls.drawer_open {
+            if self.watch_only {
+                // A replay has its own pace controls; the game's would only look like them.
+            } else if compact && !self.controls.drawer_open {
                 let keys = crate::controls::float_time(
                     ui.ctx(),
                     map_rect,

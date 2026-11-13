@@ -19,6 +19,7 @@ mod mapview;
 mod nation;
 mod notices;
 mod page;
+mod replay;
 mod research;
 mod safe;
 mod saves;
