@@ -30,7 +30,9 @@
 //!   caravan deal that fits the hold and that stores can spare, preferring the one whose goods
 //!   (stone, ore) the gate wanted and the city holds least of.
 //! - **Cloudbending** (`call_rain`): each spring, Call Rain on the farm plot with the most plots
-//!   within the patch of it, while no rain is falling.
+//!   within the patch of it, while no rain is falling and an adept of each of its two nations
+//!   lives here. Today that never holds (#958): a newcomer has one form and never ranks up, so
+//!   the opening designates nothing rather than park a caster on a slot nobody can fill.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -442,6 +444,12 @@ pub(super) fn call_rain(world: &mut World, defs: &Defs) {
         || world.bend_designations().any(|(a, _)| a == ability)
         || world.check_ability(ability, defs).is_err()
     {
+        return;
+    }
+    // A joint bend with no adept of one of its nations would park the other nation's caster on
+    // the plot for the whole year: a newcomer has only its signature, one form, so it never
+    // ranks up (`world/bending/joint_tests.rs`, #958). Wait until both could cast it.
+    if world.joint_caster_counts(ability, defs).is_none_or(|c| c.iter().any(|&(_, n)| n == 0)) {
         return;
     }
     let radius = match &defs.ability(ability).effect {

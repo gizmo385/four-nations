@@ -124,3 +124,46 @@ fn a_united_fire_city_borrows_fuses_and_uses_what_it_learns() {
     );
     assert!(w.population() > 30, "newcomers kept coming: {}", w.population());
 }
+
+/// Call Rain is a joint bend whose second nation is always a newcomer, and a newcomer never
+/// ranks up to adept (`world/bending/joint_tests.rs`, #958). The opening used to designate it
+/// each spring anyway, and the Air caster that took the first slot stood on the plot for the
+/// whole year; now it designates nothing while a nation has no caster.
+#[test]
+fn call_rain_is_not_designated_while_a_nation_has_no_caster() {
+    let (mut w, defs) = found(Nation::Air, 1);
+    let economy = steady();
+    play(&mut w, &defs, &economy, 0, 241, 240);
+    assert!(w.united());
+    w.grant_tech(defs.tech_id("cloudbending").unwrap());
+    let rain = defs.ability_id("call_rain").unwrap();
+    assert_eq!(w.season_index(&defs), 0, "spring");
+    assert!(w.check_ability(rain, &defs).is_ok());
+    let counts = w.joint_caster_counts(rain, &defs).unwrap();
+    assert!(counts[1].1 > 0, "Air adepts: {counts:?}");
+    assert_eq!(counts[0], (Nation::Water, 0), "no Water adept");
+    call_rain(&mut w, &defs);
+    assert!(w.bend_designations().all(|(a, _)| a != rain));
+}
+
+/// Why an Earth city that learns the Steelworks makes no steel (#958): the recipe idles once
+/// stores hold its `stock_limit` (8) of metal, and Earth's Metalbend has piled up far more than
+/// that and nothing spends it, while a Fire city's stores sit under the limit. Seed 17 learns it
+/// at minute 364. The same Metalbend also draws the ore stores down to a handful.
+#[test]
+fn an_earth_steelworks_idles_on_the_metal_metalbend_piled_up() {
+    let (mut w, defs) = found(Nation::Earth, 17);
+    let economy = steady();
+    play(&mut w, &defs, &economy, 0, 420, 240);
+    let steelworks = defs.building_id("steelworks").unwrap();
+    let anchor = w
+        .buildings()
+        .find(|b| b.id == steelworks)
+        .map(|b| b.anchor)
+        .expect("the sweep raised the Steelworks");
+    let metal = defs.item_id("metal").unwrap();
+    let limit = defs.building(steelworks).recipe.as_ref().unwrap().stock_limit;
+    assert!(w.stored_total(metal) >= limit, "{} metal in stores", w.stored_total(metal));
+    assert!(w.craft_idle(anchor, &defs), "idle at the stock limit");
+    assert_eq!(w.tallies().school("steel_made"), 0);
+}

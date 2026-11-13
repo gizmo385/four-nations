@@ -215,6 +215,37 @@ fn only_an_adept_of_either_nation_can_cast_it() {
     assert_eq!(w.joint_caster_counts(defs.ability_id("hearthflame").unwrap(), &defs), None);
 }
 
+/// Why the scripted United City never casts Call Rain (#958). A newcomer casts only its own
+/// nation's signature ability (`can_cast`: a branch ability needs the settlement's own nation),
+/// and each nation has one, so a newcomer has one form however many bends it finishes, while an
+/// adept needs `adept_forms`. A joint bend wants an adept of each of its two nations, so a city
+/// has one slot it can never fill: its own nation fills one, and the other is always a newcomer.
+/// If a decision gives newcomers a second form (or relaxes the rank), this test changes with it.
+#[test]
+fn a_newcomer_has_one_form_so_it_never_ranks_up_to_call_rain() {
+    let defs = Defs::bundled();
+    let spawns = [at(1, 2), at(2, 2)];
+    let mut w = World::with_map(5, arena(25), Nation::Fire, &spawns, &defs);
+    for t in 0..defs.techs.len() {
+        w.research.grant(TechId(t as u16));
+    }
+    w.refresh_modifiers(&defs);
+    w.units[0].nation = Some(Nation::Water);
+    w.units[1].nation = Some(Nation::Air);
+    for i in 0..2 {
+        let forms: Vec<AbilityId> = (0..defs.abilities.len() as u16)
+            .map(AbilityId)
+            .filter(|&a| !defs.ability(a).is_joint() && w.can_cast(&w.units[i], a, &defs))
+            .collect();
+        assert_eq!(forms.len(), 1, "{:?}: only its signature", w.nation_of(&w.units[i]));
+        assert!(defs.mastery.adept_forms as usize > forms.len());
+        w.units[i].bends = 1000;
+        w.units[i].bends_by = forms.into_iter().map(|a| (a, 1000)).collect();
+        assert_eq!(w.rank_of(&w.units[i], &defs).rank, Rank::Novice);
+        assert!(!w.can_cast(&w.units[i], rain(&defs), &defs));
+    }
+}
+
 /// A 13x13 patch of plots needs one plot in it; the target is walkable ground.
 #[test]
 fn it_needs_a_farm_plot_in_the_patch() {
