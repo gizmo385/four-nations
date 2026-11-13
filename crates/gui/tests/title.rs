@@ -236,3 +236,51 @@ fn clicks_map_to_the_keys_the_step_answers() {
     assert_eq!(load_click(0, 1, false), [key(Down)]);
     assert_eq!(load_click(1, 0, true), [key(Up), key(Enter)]);
 }
+
+/// The Continue and Load rows' lines stay inside their row (#943): a save with a longest-allowed
+/// name and a clock-derived 19-digit seed says "Water Tribes · Day 1" (no seed, no tick, no
+/// nation repeated as a slot id), and `fitted` cuts whatever is still too wide with an ellipsis.
+#[test]
+fn a_long_save_name_and_seed_stay_inside_the_continue_row() {
+    let dir = std::env::temp_dir().join(format!("fn_gui_title_long_{}", std::process::id()));
+    let store = fn_ui::saves::DiskStore::shared(&dir);
+    let session = fn_tui::new_session(1_794_509_133_825_000_000, Nation::Water);
+    let name = "water-tribe_".repeat(4)[..fn_ui::saves::MAX_NAME].to_owned();
+    fn_ui::saves::save(store.as_ref(), &name, &session).unwrap();
+
+    // The line itself is short and says no seed.
+    let defs = fn_sim::Defs::bundled();
+    let slots = fn_ui::saves::list(store.as_ref()).unwrap();
+    let said = slots[0].summary(&defs, "·");
+    assert_eq!(said, "Water Tribes · Day 1");
+
+    for width in [1280.0_f32, 420.0, 300.0] {
+        let mut app = GuiApp::with_shell(Shell::new_title(SIZE, Some(store.clone()), 1));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(width, 800.0))
+            .with_context_setup(fn_gui::setup)
+            .build_ui(|ui| {
+                let paint = |text: &str, size: f32, max: f32| {
+                    let g = fn_gui::title::fitted(
+                        ui.painter(),
+                        text,
+                        egui::FontId::new(size, egui::FontFamily::Monospace),
+                        egui::Color32::WHITE,
+                        max,
+                    );
+                    assert!(g.size().x <= max, "{text:?} is {} wide in {max}", g.size().x);
+                    g.text().to_owned()
+                };
+                let raw = format!("{name}: Water Tribes, seed 1794509133825000000, Spring Y4 - 4:54 left (tick 114060)");
+                let row = (width - 32.0).clamp(240.0, 560.0) - 2.0 * 22.0;
+                let cut = paint(&raw, 12.0, row - 24.0);
+                assert!(cut.ends_with('…') && cut.len() < raw.len(), "{cut:?}");
+                assert_eq!(paint("Water Tribes · Spring Y4", 12.0, 1000.0), "Water Tribes · Spring Y4");
+                app.show(ui);
+            });
+        h.run_steps(2);
+        let rect = h.get_by_label("Continue").rect();
+        assert!(rect.left() >= 0.0 && rect.right() <= width, "{width}: {rect:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

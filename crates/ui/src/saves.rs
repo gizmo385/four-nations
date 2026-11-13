@@ -35,7 +35,7 @@ use fn_sim::save::{SaveInfo, inspect};
 use fn_sim::{Defs, World};
 
 use crate::Session;
-use crate::time::clock_text_at;
+use crate::time::{clock_text_at, game_time};
 
 /// The slot the quicksave and quickload keys use.
 pub const QUICKSAVE: &str = "quicksave";
@@ -253,6 +253,19 @@ impl Slot {
                 clock_text_at(defs, info.tick, info.seasons.unwrap_or(true)),
                 info.tick
             ),
+            SlotState::Unloadable(why) => format!("can't load: {why}"),
+        }
+    }
+
+    /// The short, player-facing line (#943): "Water Tribes · Spring Y4", joined with `dot`. No
+    /// seed, tick or time left, which a title row has no room for and a player doesn't read; an
+    /// unloadable slot says why, as [`Slot::describe`] does.
+    pub fn summary(&self, defs: &Defs, dot: &str) -> String {
+        match &self.state {
+            SlotState::Ready(info) => {
+                let when = game_time(defs, info.tick, info.seasons.unwrap_or(true)).label();
+                format!("{} {dot} {when}", defs.nation(info.nation).name)
+            }
             SlotState::Unloadable(why) => format!("can't load: {why}"),
         }
     }
@@ -516,6 +529,10 @@ mod tests {
         assert_eq!(said("off"), "Water Tribes, seed 3, Day 1 - 4:56 left (tick 40)");
         assert_eq!(said("on"), "Water Tribes, seed 3, Spring Y1 - 14:56 left (tick 40)");
         assert_eq!(said("old"), said("on"));
+        // The short line a title row shows (#943): the nation and the season, nothing else.
+        let short = |n: &str| slots.iter().find(|s| s.name == n).unwrap().summary(&defs, "·");
+        assert_eq!(short("off"), "Water Tribes · Day 1");
+        assert_eq!(short("on"), "Water Tribes · Spring Y1");
         // And the same words as the game's own clock, bar the ASCII separator.
         let game = crate::time::clock_text(&session()).replace('·', "-");
         assert!(said("off").contains(&game), "{game}");
