@@ -1,0 +1,27 @@
+# The app icon (#974): Four Nations' four quadrants (air, water, earth, fire, as the nations'
+# colours in data/nations.toml) inside a gold ring, on the game's background. Pixel art on the
+# 16-pixel grid; `node web/play/icons/make-icons.cjs` renders it to the PNGs next to this file.
+# A palette line is `X = #rrggbb`; the grid is 16 rows of 16 of those letters.
+. = #121212
+o = #d6b25e
+A = #ecc45c
+W = #4682d2
+E = #5aa050
+F = #cd4632
+
+......oooo......
+....oo....oo....
+...o........o...
+..o..AA..WW..o..
+.o..AAA..WWW..o.
+.o.AAAA..WWWW.o.
+o..AAAA..WWWW..o
+o......oo......o
+o......oo......o
+o..EEEE..FFFF..o
+.o.EEEE..FFFF.o.
+.o..EEE..FFF..o.
+..o..EE..FF..o..
+...o........o...
+....oo....oo....
+......oooo......

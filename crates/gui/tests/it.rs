@@ -19,6 +19,7 @@ mod nation;
 mod notices;
 mod page;
 mod research;
+mod safe;
 mod saves;
 mod scroll;
 mod semantic;

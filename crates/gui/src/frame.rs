@@ -214,6 +214,28 @@ pub struct Frame {
     keys: Vec<KeyEvent>,
     /// The touch controls' state (#978): the rail's switch, the More sheet.
     pub controls: crate::controls::Controls,
+    /// The screen's notch and home-bar insets (#974), in points: everything is laid out inside
+    /// them. Zero on the desktop.
+    pub safe: SafeArea,
+}
+
+/// The insets a phone keeps clear of widgets (the CSS `safe-area-inset-*`), in points.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SafeArea {
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub left: f32,
+}
+
+impl SafeArea {
+    /// `rect` less the insets.
+    pub fn inside(&self, rect: egui::Rect) -> egui::Rect {
+        egui::Rect::from_min_max(
+            rect.min + vec2(self.left, self.top),
+            rect.max - vec2(self.right, self.bottom),
+        )
+    }
 }
 
 impl Frame {
@@ -234,6 +256,21 @@ impl Frame {
 
     /// Lays out one frame of `shell` into `root`, the window's root [`Ui`].
     pub fn show(&mut self, root: &mut Ui, shell: &mut Shell, palette: &Palette) {
+        if self.safe == SafeArea::default() {
+            return self.show_inside(root, shell, palette);
+        }
+        // The insets show the game's background, as the TUI's does around the frame.
+        let fill = to_egui(palette.token(palette.theme.panel), Color32::BLACK);
+        let whole = root.max_rect();
+        root.painter().rect_filled(whole, 0.0, fill);
+        let inner = self.safe.inside(whole);
+        root.scope_builder(UiBuilder::new().max_rect(inner), |ui| {
+            ui.set_clip_rect(inner);
+            self.show_inside(ui, shell, palette);
+        });
+    }
+
+    fn show_inside(&mut self, root: &mut Ui, shell: &mut Shell, palette: &Palette) {
         let metrics = Metrics::new(root.ctx());
         let window = root.available_rect_before_wrap();
         let (cols, rows) = metrics.grid_in(window.size());

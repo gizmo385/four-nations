@@ -178,13 +178,41 @@ pub fn build_gui(fast: bool) -> Result<PathBuf> {
     if !status.success() {
         return Err("wasm-bindgen failed".into());
     }
-    copy(&root.join("web/play/index.html"), &out.join("index.html"))?;
-    for name in ["fn_gui.js", "fn_gui_bg.wasm", "index.html"] {
+    // The installable app's files (#974). The page and the service worker get the build's hash
+    // for `__FN_BUILD__`: the page asks for the glue and the wasm by it, and the worker caches
+    // under it, so a new build is fetched fresh and an old cache is dropped.
+    let mut bytes = fs::read(out.join("fn_gui.js")).map_err(|e| format!("fn_gui.js: {e}"))?;
+    bytes.extend(fs::read(out.join("fn_gui_bg.wasm")).map_err(|e| format!("fn_gui_bg.wasm: {e}"))?);
+    let build = build_hash(&bytes);
+    for name in ["index.html", "sw.js"] {
+        let from = root.join("web/play").join(name);
+        let text = fs::read_to_string(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+        fs::write(out.join(name), text.replace("__FN_BUILD__", &build))
+            .map_err(|e| format!("{name}: {e}"))?;
+    }
+    copy(&root.join("web/play/manifest.webmanifest"), &out.join("manifest.webmanifest"))?;
+    fs::create_dir_all(out.join("icons")).map_err(|e| format!("icons: {e}"))?;
+    for name in PLAY_ICONS {
+        copy(&root.join("web/play/icons").join(name), &out.join("icons").join(name))?;
+    }
+    for name in ["fn_gui.js", "fn_gui_bg.wasm", "index.html", "sw.js", "manifest.webmanifest"] {
         if !out.join(name).is_file() {
             return Err(format!("{} should hold {name} and doesn't", out.display()));
         }
     }
     Ok(out)
+}
+
+/// The icons the page and the manifest name (#974), in web/play/icons/.
+const PLAY_ICONS: [&str; 4] =
+    ["icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png"];
+
+/// A short name for a build: 16 hex digits of FNV-1a over `bytes`.
+fn build_hash(bytes: &[u8]) -> String {
+    let hash = bytes
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3));
+    format!("{hash:016x}")
 }
 
 /// The version of the `wasm-bindgen` crate in a `Cargo.lock`'s text.
@@ -368,6 +396,36 @@ fn content_type(file: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_build_hash_is_sixteen_hex_digits_and_follows_the_bytes() {
+        let a = build_hash(b"fn_gui");
+        assert_eq!(a.len(), 16);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(a, build_hash(b"fn_gui"));
+        assert_ne!(a, build_hash(b"fn_gui2"));
+    }
+
+    /// The installable app's files (#974) are all there, and the page and the worker carry the
+    /// placeholder the build fills in.
+    #[test]
+    fn the_play_page_names_its_icons_and_carries_the_build_placeholder() {
+        let play = root().join("web/play");
+        for name in PLAY_ICONS {
+            assert!(play.join("icons").join(name).is_file(), "web/play/icons/{name}");
+        }
+        let manifest = fs::read_to_string(play.join("manifest.webmanifest")).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(manifest["orientation"], "landscape");
+        for icon in manifest["icons"].as_array().unwrap() {
+            let src = icon["src"].as_str().unwrap();
+            assert!(play.join(src).is_file(), "the manifest's {src}");
+        }
+        for name in ["index.html", "sw.js"] {
+            let text = fs::read_to_string(play.join(name)).unwrap();
+            assert!(text.contains("__FN_BUILD__"), "{name} has the build placeholder");
+        }
+    }
 
     #[test]
     fn the_locked_wasm_bindgen_version_is_read_from_cargo_lock() {
