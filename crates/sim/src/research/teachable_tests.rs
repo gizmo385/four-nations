@@ -32,7 +32,7 @@ fn edited(from: &str, to: &str) -> Result<Defs, DefsError> {
     Defs::from_files(files)
 }
 
-const TEACHABLE: [(&str, Nation, u32); 16] = [
+const TEACHABLE: [(&str, Nation, u32); 19] = [
     ("earthen_walls", Nation::Earth, 120),
     ("earth_rail", Nation::Earth, 250),
     ("omashu_chutes", Nation::Earth, 250),
@@ -49,7 +49,14 @@ const TEACHABLE: [(&str, Nation, u32); 16] = [
     ("wind_turbines", Nation::Air, 250),
     ("lemur_keeping", Nation::Air, 120),
     ("wind_gates", Nation::Air, 250),
+    // The leaf bends (#969): a newcomer of the teaching nation casts them in the borrower's city.
+    ("canals", Nation::Water, 250),
+    ("plantbending", Nation::Water, 250),
+    ("spirit_projection", Nation::Air, 250),
 ];
+
+/// The teachable techs that unlock an ability, and so are leaves of the tree (#969).
+const LEAF_BENDS: [&str; 3] = ["canals", "plantbending", "spirit_projection"];
 
 #[test]
 fn the_documented_techs_are_teachable_and_no_others() {
@@ -58,7 +65,11 @@ fn the_documented_techs_are_teachable_and_no_others() {
         let t = defs.tech(defs.tech_id(id).unwrap());
         assert!(t.teachable, "{id}");
         assert_eq!((t.nation, t.cost), (Some(nation), cost), "{id}");
-        assert!(t.unlocks.abilities.is_empty() && t.school.is_none() && t.fusion.is_none(), "{id}");
+        assert!(t.school.is_none() && t.fusion.is_none(), "{id}");
+        // Only the leaf bends unlock an ability, and of them `plantbending` and
+        // `spirit_projection` are phase 5's teachings (borrowed without finding the scroll).
+        assert_eq!(!t.unlocks.abilities.is_empty(), LEAF_BENDS.contains(&id), "{id}");
+        assert_eq!(t.teaching.is_some(), id != "canals" && LEAF_BENDS.contains(&id), "{id}");
         assert!(t.cost_items.is_empty(), "{id}: a borrowed tech has no item bill");
         // Borrowed by every other nation, never by its own.
         for n in Nation::ALL {
@@ -72,7 +83,7 @@ fn the_documented_techs_are_teachable_and_no_others() {
     flagged.iter().for_each(|f| assert!(want.contains(f), "{f} is flagged but not documented"));
     want.sort_unstable();
     assert_eq!(flagged.len(), want.len());
-    // The capstones, the abilities' techs and `herding` stay home.
+    // The capstones, the other bends' techs and `herding` stay home.
     for kept in ["lightning_generation", "spirit_oasis", "sky_bison", "forging", "herding"] {
         let t = defs.tech(defs.tech_id(kept).unwrap());
         assert!(!t.teachable && t.borrowed_from(Nation::Water).is_none(), "{kept}");
@@ -95,7 +106,7 @@ fn the_settings_carry_the_provisional_borrow_numbers() {
 }
 
 #[test]
-fn teachable_needs_a_single_nation_and_unlocks_no_ability_school_or_fusion() {
+fn teachable_needs_a_single_nation_and_no_school_or_fusion() {
     assert_err(
         with_techs(&[("t", "teachable = true")]),
         "`teachable` needs a single `nation`, not a shared tech",
@@ -104,17 +115,16 @@ fn teachable_needs_a_single_nation_and_unlocks_no_ability_school_or_fusion() {
         with_techs(&[("t", "teachable = true\nnations = ['earth', 'fire']")]),
         "can't be combined with `nations`",
     );
-    assert_err(
-        with_techs(&[(
-            "t",
-            "teachable = true\nnation = 'fire'\n[tech.unlocks]\nabilities = ['weld']",
-        )]),
-        "can't unlock abilities",
-    );
-    // `forging` unlocks Weld: flagging it fails the same way in the bundled file.
+    // A teachable tech may unlock an ability (#969), but then nothing may require it: `forging`
+    // unlocks Weld and `brickmaking` requires it, `irrigation` unlocks Draw Water and `canals`
+    // requires it.
     assert_err(
         edited("id = \"forging\"", "id = \"forging\"\nteachable = true"),
-        "can't unlock abilities",
+        "is a teachable bend, which no other tech can require",
+    );
+    assert_err(
+        edited("id = \"irrigation\"", "id = \"irrigation\"\nteachable = true"),
+        "is a teachable bend, which no other tech can require",
     );
     assert_err(
         edited("id = \"herding\"", "id = \"herding\"\nteachable = true"),

@@ -31,8 +31,10 @@
 //!   (stone, ore) the gate wanted and the city holds least of.
 //! - **Cloudbending** (`call_rain`): each spring, Call Rain on the farm plot with the most plots
 //!   within the patch of it, while no rain is falling and an adept of each of its two nations
-//!   lives here. Today that never holds (#958): a newcomer has one form and never ranks up, so
-//!   the opening designates nothing rather than park a caster on a slot nobody can fill.
+//!   lives here. A newcomer ranks up only on forms the city has learned the tech for (#958), so
+//!   it holds once the opening has borrowed a leaf bend (`canals`, `plantbending`,
+//!   `spirit_projection`, #969); until then it designates nothing rather than park a caster on a
+//!   slot nobody can fill.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -448,7 +450,7 @@ pub(super) fn call_rain(world: &mut World, defs: &Defs) {
     }
     // A joint bend with no adept of one of its nations would park the other nation's caster on
     // the plot for the whole year. A newcomer ranks up only on forms the city has learned the
-    // tech for (`World::can_cast`, #958), and no borrowable tech unlocks a bend today, so a
+    // tech for (`World::can_cast`, #958): until the city has borrowed a leaf bend (#969) a
     // newcomer has one form and the slot stays empty. Wait until both could cast it.
     if world.joint_caster_counts(ability, defs).is_none_or(|c| c.iter().any(|&(_, n)| n == 0)) {
         return;

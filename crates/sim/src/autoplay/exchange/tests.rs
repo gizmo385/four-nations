@@ -100,12 +100,14 @@ fn an_aqueduct_line_runs_from_the_water_to_a_plot() {
     assert!(sited <= AQUEDUCT_TILES as u32, "{sited} tiles");
 }
 
-/// A Fire city (seed 2) played 420 minutes with the gate stood at 240 borrows techs, learns
+/// A Fire city (seed 8) played 420 minutes with the gate stood at 240 borrows techs, learns
 /// fusions, builds on the bank, makes steel and sends an airship (#764). One long run, so the
-/// checks that need a settled city share it.
+/// checks that need a settled city share it. Seed 2 was the seed until the leaf bends became
+/// borrowable (#969): the opening then borrows three more techs first, and whether a given city
+/// loads its first airship by minute 420 is luck of the seed (most seeds don't, before or after).
 #[test]
 fn a_united_fire_city_borrows_fuses_and_uses_what_it_learns() {
-    let (mut w, defs) = found(Nation::Fire, 2);
+    let (mut w, defs) = found(Nation::Fire, 8);
     let economy = steady();
     play(&mut w, &defs, &economy, 0, 420, 240);
     let nation = w.nation;
@@ -127,10 +129,10 @@ fn a_united_fire_city_borrows_fuses_and_uses_what_it_learns() {
 
 /// Call Rain is a joint bend whose second nation is always a newcomer, and a newcomer ranks up
 /// only through forms the city has learned the tech for (`world/bending/joint_tests.rs`, #958).
-/// No borrowable tech unlocks a bend, so a newcomer here has one form and never ranks up. The
-/// opening used to designate it each spring anyway, and the Air caster that took the first slot
-/// stood on the plot for the whole year; now it designates nothing while a nation has no
-/// caster.
+/// A newcomer has one form, so is no adept, until the city borrows a leaf bend (#969); this city
+/// is a minute past the gate and has borrowed nothing. The opening used to designate it each
+/// spring anyway, and the Air caster that took the first slot stood on the plot for the whole
+/// year; now it designates nothing while a nation has no caster.
 #[test]
 fn call_rain_is_not_designated_while_a_nation_has_no_caster() {
     let (mut w, defs) = found(Nation::Air, 1);

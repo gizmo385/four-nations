@@ -220,17 +220,17 @@ fn the_exchange_lists_the_other_nations_teachable_techs_then_the_fusions() {
     let defs = Defs::bundled();
     let mut w = united_water(&defs);
     let ex = w.exchange(&defs);
-    // 4 Earth + 5 Fire + 4 Air teachable techs, Water's own are not listed, then every fusion
+    // 3 Earth + 5 Fire + 5 Air teachable techs, Water's own are not listed, then every fusion
     // in the data (counted, so each new fusion doesn't edit this test).
     let count = |n| ex.borrowed_from(n).count();
     assert_eq!(
         (count(Nation::Earth), count(Nation::Fire), count(Nation::Water), count(Nation::Air)),
-        (3, 5, 0, 4)
+        (3, 5, 0, 5)
     );
     let fusions = defs.techs.iter().filter(|t| t.is_fusion()).count();
     assert!(fusions >= 2, "Steelworks and the Aqueduct at least");
     assert_eq!(ex.fusions().count(), fusions);
-    assert_eq!(ex.entries.len(), 3 + 5 + 4 + fusions);
+    assert_eq!(ex.entries.len(), 3 + 5 + 5 + fusions);
     // Nations in `Nation::ALL` order, each in file order, fusions last.
     let kinds: Vec<_> = ex.entries.iter().map(|e| e.kind).collect();
     assert!(matches!(kinds.last(), Some(ExchangeKind::Fusion { .. })));
@@ -289,4 +289,36 @@ fn a_nation_s_own_teachable_techs_are_not_borrowed() {
     w.apply(Command::SetResearch { tech: brick }, &defs).unwrap();
     assert!(w.research().queue().contains(&id(&defs, "forging")));
     assert!(w.exchange(&defs).borrowed_from(Nation::Fire).next().is_none());
+}
+
+/// The leaf bends are borrowable (#969): `spirit_projection` is Air's, a phase 5 teaching, and the
+/// Water city borrows it without a scroll, its Air newcomers cast Project once it is known, and
+/// its home settlers never do.
+#[test]
+fn a_leaf_bend_is_borrowed_without_its_scroll_and_its_teachers_cast_it() {
+    let defs = Defs::bundled();
+    let mut w = united_water(&defs);
+    let project = defs.ability_id("project").unwrap();
+    let tech = id(&defs, "spirit_projection");
+    assert!(w.is_hidden_teaching(tech, &defs), "no scroll was read here");
+    let entry = w.exchange(&defs).entries.into_iter().find(|e| e.tech == tech).unwrap();
+    assert_eq!(entry.kind, ExchangeKind::Borrowed { from: Nation::Air });
+    assert_eq!(entry.cost, 500);
+    // Air's meditation is waived, and three Air residents live here.
+    assert_eq!(entry.standing, ExchangeStanding::Available);
+    w.apply(Command::SetResearch { tech }, &defs).unwrap();
+    assert_eq!(w.research().queue(), [tech]);
+    let (air, home) = (w.units[5].clone(), w.units[9].clone());
+    assert!(!w.can_cast(&air, project, &defs), "not known yet");
+    w.research.grant(tech);
+    assert!(w.can_cast(&air, project, &defs), "an Air newcomer casts it");
+    assert!(!w.can_cast(&home, project, &defs), "a Water settler never casts Air's bend");
+    // Its own nation's draft is untouched: an Air city still has to find the scroll.
+    let mut air_city = united_water(&defs);
+    air_city.nation = Nation::Air;
+    assert!(air_city.is_hidden_teaching(tech, &defs));
+    assert_eq!(
+        air_city.apply(Command::SetResearch { tech }, &defs),
+        Err(CommandError::Research(ResearchError::Hidden))
+    );
 }

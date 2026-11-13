@@ -583,8 +583,8 @@ pub struct TechDef {
     /// Set by `teachable = true`: a settlement of another nation can learn this tech once the
     /// gate stands, at `[settings] borrow_cost` times its cost while `borrow_residents` people of
     /// this tech's nation live there (docs/design/horizons-phase-6.md, "Borrowed techs"). Only a
-    /// tech of a single `nation` that unlocks no ability, and is neither a school option nor a
-    /// fusion, can be. Ask `borrowed_from`.
+    /// tech of a single `nation` that is neither a school option nor a fusion can be. One that
+    /// unlocks an ability is a leaf of the tree (#969). Ask `borrowed_from`.
     pub teachable: bool,
 }
 
@@ -722,9 +722,11 @@ fn nation_label(n: Option<Nation>) -> &'static str {
 }
 
 /// Validates a tech's `teachable = true` (docs/design/horizons-phase-6.md, "Borrowed techs:
-/// `teachable`"): a single `nation` (not shared, not `nations`, so not `herding`), no abilities,
-/// no school, no fusion, and no `cost_items`, because a borrowed tech has no item bill. The
-/// message is the tech's error, without its id.
+/// `teachable`"): a single `nation` (not shared, not `nations`, so not `herding`), no school, no
+/// fusion, and no `cost_items`, because a borrowed tech has no item bill. It may unlock
+/// abilities (#969: the leaf bends), and then no tech may require it (checked where prereqs
+/// resolve), so a borrowed bend never drags a chain of borrowed bends behind it. The message is
+/// the tech's error, without its id.
 fn check_teachable(raw: &RawTech) -> Result<(), String> {
     if !raw.nations.is_empty() {
         return Err("`teachable` can't be combined with `nations`".into());
@@ -740,9 +742,6 @@ fn check_teachable(raw: &RawTech) -> Result<(), String> {
         if set {
             return Err(format!("a teachable tech can't be combined with `{what}`"));
         }
-    }
-    if !raw.unlocks.abilities.is_empty() {
-        return Err("a teachable tech can't unlock abilities: borrowing is not bending".into());
     }
     Ok(())
 }
@@ -989,6 +988,11 @@ impl ResearchFile {
                 if techs[i].teaching.is_some() {
                     return Err(err(format!(
                         "{p:?} is a teaching, which no other tech can require"
+                    )));
+                }
+                if techs[i].teachable && !techs[i].unlocks.abilities.is_empty() {
+                    return Err(err(format!(
+                        "{p:?} is a teachable bend, which no other tech can require"
                     )));
                 }
                 prereqs.push(id);
@@ -1432,8 +1436,10 @@ impl Research {
         {
             return Err(ResearchError::GateFirst);
         }
-        // No tech requires a teaching (load refuses it), so only the target itself can be one.
-        if def.teaching.is_some() {
+        // No tech requires a teaching (load refuses it), so only the target itself can be one. A
+        // teaching is hidden and lost for its own nation's draft (`world/teachings.rs`); another
+        // nation's city borrows a teachable one from its newcomers without finding the scroll.
+        if def.teaching.is_some() && def.borrowed_from(nation).is_none() {
             if facts.lost.contains(&tech) {
                 return Err(ResearchError::Lost);
             }
