@@ -20,7 +20,7 @@
 │ X  Cancel a mark                                           F9      Quickload (asks first)                            │
 │ E  Clear the ground                                        F6      Saves                                             │
 │ P  Stockpile                                               Esc     Game menu: save, load, new map, quit              │
-│ B  Bend: channel the nation's ability                      Ctrl+C  Quit at once, without asking                      │
+│ B  Bend: pick an ability to channel                        Ctrl+C  Quit at once, without asking                      │
 │ U  Build                                                                                                             │
 │ C  Sow a farm plot                                         IN A TOOL                                                 │
 │                                                            Enter  Set a corner, then apply                           │

@@ -37,4 +37,4 @@
 │ Raise the riverbed into stepping stones.                                                                             │
 │ The Bend tool channels it now.                                                                                       │
 ┗──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┛
- ABILITIES  Up/Down choose · Enter bend · Esc or I close · PgUp/PgDn page                                 PAUSED ? keys
+ ABILITIES  Up/Down choose · 1-9 row · Enter bend · Esc, B or I close · PgUp/PgDn page                    PAUSED ? keys
