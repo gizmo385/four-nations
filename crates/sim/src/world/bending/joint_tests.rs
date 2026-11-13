@@ -215,35 +215,54 @@ fn only_an_adept_of_either_nation_can_cast_it() {
     assert_eq!(w.joint_caster_counts(defs.ability_id("hearthflame").unwrap(), &defs), None);
 }
 
-/// Why the scripted United City never casts Call Rain (#958). A newcomer casts only its own
-/// nation's signature ability (`can_cast`: a branch ability needs the settlement's own nation),
-/// and each nation has one, so a newcomer has one form however many bends it finishes, while an
-/// adept needs `adept_forms`. A joint bend wants an adept of each of its two nations, so a city
-/// has one slot it can never fill: its own nation fills one, and the other is always a newcomer.
-/// If a decision gives newcomers a second form (or relaxes the rank), this test changes with it.
+/// Newcomers are the teachers (#958, Chris's decision): a newcomer casts its own nation's
+/// branch abilities once the city has learned the tech, so it has more than one form, can rank
+/// up to adept, and fills a joint bend's slot. Until the city has borrowed anything it has only
+/// its signature (one form, so never an adept), and a home settler never casts a borrowed
+/// foreign-nation ability.
 #[test]
-fn a_newcomer_has_one_form_so_it_never_ranks_up_to_call_rain() {
+fn a_newcomer_with_borrowed_techs_gains_forms_and_ranks_up_to_call_rain() {
     let defs = Defs::bundled();
-    let spawns = [at(1, 2), at(2, 2)];
+    let spawns = [at(1, 2), at(2, 2), at(3, 2)];
     let mut w = World::with_map(5, arena(25), Nation::Fire, &spawns, &defs);
+    w.research.grant(cloudbending(&defs));
+    w.units[0].nation = Some(Nation::Water);
+    w.units[1].nation = Some(Nation::Air);
+    let castable = |w: &World, i: usize| -> Vec<AbilityId> {
+        (0..defs.abilities.len() as u16)
+            .map(AbilityId)
+            .filter(|&a| !defs.ability(a).is_joint() && w.can_cast(&w.units[i], a, &defs))
+            .collect()
+    };
+    // Nothing borrowed yet: only the signature, one form, so no adept.
+    for i in 0..2 {
+        let forms = castable(&w, i);
+        assert_eq!(forms.len(), 1, "{:?}: only its signature", w.nation_of(&w.units[i]));
+        assert!(defs.mastery.adept_forms as usize > forms.len());
+    }
+    // The city learns every tech: the newcomers' own branches open to them, and only to them.
     for t in 0..defs.techs.len() {
         w.research.grant(TechId(t as u16));
     }
     w.refresh_modifiers(&defs);
-    w.units[0].nation = Some(Nation::Water);
-    w.units[1].nation = Some(Nation::Air);
     for i in 0..2 {
-        let forms: Vec<AbilityId> = (0..defs.abilities.len() as u16)
-            .map(AbilityId)
-            .filter(|&a| !defs.ability(a).is_joint() && w.can_cast(&w.units[i], a, &defs))
-            .collect();
-        assert_eq!(forms.len(), 1, "{:?}: only its signature", w.nation_of(&w.units[i]));
-        assert!(defs.mastery.adept_forms as usize > forms.len());
-        w.units[i].bends = 1000;
-        w.units[i].bends_by = forms.into_iter().map(|a| (a, 1000)).collect();
-        assert_eq!(w.rank_of(&w.units[i], &defs).rank, Rank::Novice);
-        assert!(!w.can_cast(&w.units[i], rain(&defs), &defs));
+        let nation = w.nation_of(&w.units[i]);
+        let forms = castable(&w, i);
+        assert!(forms.len() > 1, "{nation:?}: {forms:?}");
+        assert!(forms.iter().all(|&a| defs.ability(a).nation == nation));
+        assert!(!w.can_cast(&w.units[i], rain(&defs), &defs), "a novice until it has bent");
+        w.units[i].bends = defs.mastery.adept_bends_for(nation);
+        w.units[i].bends_by = forms.iter().take(2).map(|&a| (a, 1)).collect();
+        assert_eq!(w.rank_of(&w.units[i], &defs).rank, Rank::Adept);
+        assert!(w.can_cast(&w.units[i], rain(&defs), &defs), "{nation:?} adept casts Call Rain");
     }
+    // The Fire settler keeps to Fire's abilities: the Water and Air branches are not its own.
+    let home = castable(&w, 2);
+    assert!(!home.is_empty());
+    assert!(home.iter().all(|&a| defs.ability(a).nation == Nation::Fire), "{home:?}");
+    let draw = defs.ability_id("draw_water").unwrap();
+    assert!(w.can_cast(&w.units[0], draw, &defs));
+    assert!(!w.can_cast(&w.units[2], draw, &defs));
 }
 
 /// A 13x13 patch of plots needs one plot in it; the target is walkable ground.

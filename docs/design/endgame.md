@@ -234,7 +234,8 @@ complete. People of all four nations will come to settle here."
    each other 20%). A newcomer is drawn with their own nation's characters and names. **They
    work with their own nation's modifiers**: an Earth newcomer quarries at earthworks 2.5 in a
    Water settlement, and an Air newcomer walks at 1.6. **They bend their own nation's signature
-   ability.** The bend picker (`B`) lists every ability someone in the settlement can cast, with
+   ability, and their own nation's branch abilities once the city has learned the tech that
+   unlocks them (#958: newcomers are the teachers).** The bend picker (`B`) lists every ability someone in the settlement can cast, with
    a count ("Raise Earth: 14 benders"). Daily play changes: a Fire settlement can now ford
    rivers, Air hauls get Wind Carry *and* strong Earth backs, and who you have decides which
    plans work.
