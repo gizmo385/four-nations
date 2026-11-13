@@ -12,6 +12,7 @@ Keep this list in step when you add a doc or change a status.
 - [save-compat.md](save-compat.md): saves that survive content changes
 - [tui.md](tui.md): the terminal frontend
 - [egui-frontend.md](egui-frontend.md): the egui window for desktop and browser play, and the order its screens convert in (proposed)
+- [touch-pwa.md](touch-pwa.md): touch play on landscape phones and tablets, and the installable web app
 - [text-voice.md](text-voice.md): how player-facing text talks
 - [side-panel-v2.md](side-panel-v2.md): the side panel (glance, feed, here)
 - [bending.md](bending.md), [research.md](research.md), [research-horizons.md](research-horizons.md), [horizons-phase-1.md](horizons-phase-1.md), [power.md](power.md): abilities, tech tree, the long-term research spec and its first phase, power
