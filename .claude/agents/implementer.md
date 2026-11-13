@@ -24,8 +24,8 @@ colony sim in Rust. You are in your own git worktree. You own one issue from cla
   `fn_sim`, and is the only crate that reads `data/harness.toml`.
 - `crates/agent` (`fn_agent`): the MCP agent surface (`fn_agent serve`), run logs, scorecards.
   Depends on `fn_tui` and `fn_ui`; never names `fn_sim`.
-- `crates/web` (`fn_web`): the web replayer, `fn_tui`'s run-log watcher compiled to wasm32.
-  Depends on `fn_sim` and `fn_tui`.
+- `crates/gui` (`fn_gui`): the egui window, the game natively and in the browser, and the web
+  replayer (`fn_gui::replay`). Depends on `fn_sim`, `fn_ui` and `fn_tui`.
 - `data/*.toml`: balance and content, loaded by `fn_sim::Defs` (strict validation at load).
 - `xtask`: `cargo xtask check` checks what you touched (fmt, clippy, tests for the changed
   crates and their dependents, goldens skipped). `cargo xtask ci --fast` is the whole gate, as

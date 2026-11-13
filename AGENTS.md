@@ -21,7 +21,7 @@ gets in your way, stop and say so in the work item's Notes instead of working ar
 | `crates/runfmt` (`fn_runfmt`) | The file formats the agent tooling passes around: the run log's header and lines, the handoff, the campaign ledger (#606) | Depends on `serde` and `serde_json` only (builds for wasm32), so `xtask` can share them without `fn_sim` or `fn_tui`. Game types in them are type parameters or strings; `fn_tui` fixes the typed ones |
 | `crates/harness` (`fn_harness`) | The balance harness (docs/design/balance-harness.md): play styles so far; reads `data/harness.toml` | Depends on `fn_sim`. The only crate that reads `data/harness.toml`; `fn_sim` never does |
 | `crates/agent` (`fn_agent`) | The agent surface: an MCP server over stdio (`fn_agent serve`), run logs and scorecards (docs/design/agent-play.md) | Depends on `fn_tui` and `fn_ui`; never names `fn_sim`, so an agent sees only what a player sees |
-| `crates/web` (`fn_web`) | The web replayer: `fn_tui`'s run-log watcher compiled to wasm32 (#595) | Depends on `fn_sim` and `fn_tui`. No clock or file reads: the page hands it the log text |
+| `crates/gui` (`fn_gui`) | The egui window: the game natively and in the browser (`/play/`), and the web replayer (`fn_gui::replay`, #994) | Depends on `fn_sim`, `fn_ui` and `fn_tui`. Drives the game only through `fn_tui`'s `Shell`, as the terminal does |
 | `data/*.toml` | Nations, biomes, resources, ... | Balance numbers go here, not in code |
 | `xtask/` | Repo tooling (`cargo xtask`; also drives agent runs) | `cargo xtask ci --fast` is the gate |
 | `scripts/` | Dev helpers | |
