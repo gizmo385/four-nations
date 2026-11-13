@@ -45,6 +45,7 @@ pub mod overview;
 pub mod page;
 pub mod screens;
 pub mod side;
+pub mod sideways;
 pub mod style;
 pub mod theme;
 pub mod title;

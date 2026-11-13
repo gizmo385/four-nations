@@ -25,6 +25,7 @@ mod saves;
 mod scroll;
 mod semantic;
 mod side;
+mod sideways;
 #[cfg(feature = "shots")]
 mod snapshot;
 mod style;

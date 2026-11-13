@@ -26,6 +26,11 @@ pub struct GuiApp {
     /// The nation the egui style (`crate::style`) was last built for.
     styled: Option<Nation>,
     frame: Frame,
+    /// The turn-sideways screen's state (#975).
+    sideways: crate::sideways::Sideways,
+    /// Whether an upright window shows the turn-sideways screen: on the web, where it is a
+    /// phone held the wrong way; never for a desktop window ([`GuiApp::with_upright_screen`]).
+    upright_screen: bool,
     last_frame: Instant,
     /// The state last written onto the page (`crate::webpage::publish`).
     #[cfg(target_arch = "wasm32")]
@@ -77,12 +82,20 @@ impl GuiApp {
             nation,
             styled: None,
             frame: Frame::default(),
+            sideways: crate::sideways::Sideways::default(),
+            upright_screen: cfg!(target_arch = "wasm32"),
             last_frame: Instant::now(),
             #[cfg(target_arch = "wasm32")]
             published: String::new(),
             #[cfg(target_arch = "wasm32")]
             safe_read: None,
         }
+    }
+
+    /// Turns the turn-sideways screen on or off (tests: it is the web's alone).
+    pub fn with_upright_screen(mut self, on: bool) -> Self {
+        self.upright_screen = on;
+        self
     }
 
     pub fn shell(&self) -> &Shell {
@@ -159,6 +172,18 @@ impl GuiApp {
     pub fn show(&mut self, root: &mut egui::Ui) {
         let frame_start = Instant::now();
         let ctx = root.ctx().clone();
+        // An upright phone (#975): the turn-sideways screen, the game paused under it and deaf
+        // to keys until the phone turns back.
+        let window = root.max_rect();
+        let upright = self.upright_screen && window.height() > window.width();
+        if self.sideways.update(upright, &mut self.shell) {
+            self.last_frame = Instant::now();
+            ctx.input(crate::keys::frame_keys);
+            let in_game = matches!(self.shell.mode, Mode::Game(_));
+            crate::sideways::show(root, &self.palette, in_game);
+            // No repaint asked for: the turn back is a resize, which repaints by itself.
+            return;
+        }
         self.step(&ctx);
         // The Seal style follows the nation: built on the first frame and when the nation
         // changes, and handed to the root `Ui` now, which took its copy before this frame's step.
