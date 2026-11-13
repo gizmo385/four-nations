@@ -221,3 +221,41 @@ fn f12_toggles_the_timing_overlay() {
     drop(h);
     assert!(!app.frame().overlay);
 }
+
+/// Watching a replay (#996): the side panel's keys and the map's clicks reach nothing. The frame
+/// hands back no keys, and the game the frame shows is left as it was.
+#[test]
+fn a_watch_only_frame_takes_no_clicks() {
+    use fn_gui::frame::Frame;
+    use fn_tui::color::{ColorDepth, Palette};
+
+    let mut shell = game("h");
+    let palette = Palette::new(shell.defs(), Nation::Earth, ColorDepth::TrueColor, false);
+    let mut frame = Frame::watching();
+    let (cursor, log) = match &shell.mode {
+        fn_tui::shell::Mode::Game(app) => (app.ui.cursor, app.session.world.command_log().len()),
+        _ => unreachable!("a game"),
+    };
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 800.0))
+        .with_context_setup(fn_gui::setup)
+        .build_ui(|ui| frame.show(ui, &mut shell, &palette));
+    h.run_steps(2);
+    h.get_by_label("[T]").click();
+    h.run_steps(2);
+    let middle = egui::pos2(500.0, 400.0);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos: middle,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    drop(h);
+    assert!(frame.take_keys().is_empty());
+    assert_eq!(frame.surface, Some(Surface::Native));
+    let fn_tui::shell::Mode::Game(app) = &shell.mode else { unreachable!("a game") };
+    assert_eq!((app.ui.cursor, app.session.world.command_log().len()), (cursor, log));
+}

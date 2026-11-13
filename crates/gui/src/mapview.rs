@@ -14,6 +14,10 @@
 //! the wheel zooms about the pointer. Resting the pointer on a tile for [`Hover::DELAY`] seconds
 //! shows its tooltip (`fn_ui::inspect::tooltip_lines`) without moving the cursor.
 //!
+//! Read only (#996, [`MapView::read_only`]): for watching a replay. Zoom, pan and tooltips work
+//! as ever, with the primary button panning too, but no click, drag or right click reaches the
+//! game: the replay is the only thing that moves it.
+//!
 //! Touch (#977, [`crate::touch`]): a tap is a click and one finger drags as the left button
 //! does. Two fingers pan and pinch-zoom about their midpoint, and a rectangle in progress is
 //! dropped when the second lands. A long press shows the tile's tooltip until the finger lifts,
@@ -77,6 +81,8 @@ pub struct MapView {
     gestures: Gestures,
     /// The overview texture, below the glyph size.
     pub overview: Overview,
+    /// Look but don't touch (#996): the pointer zooms, pans and hovers, and presses nothing.
+    pub read_only: bool,
 }
 
 impl MapView {
@@ -89,6 +95,7 @@ impl MapView {
             hover: Hover::default(),
             gestures: Gestures::default(),
             overview: Overview::default(),
+            read_only: false,
         }
     }
 
@@ -97,7 +104,10 @@ impl MapView {
     /// (`fn_ui::pointer::map_has_pointer`).
     pub fn show(&mut self, ui: &mut Ui, rect: Rect, app: &mut App, palette: &Palette) {
         let (w, h) = (app.session.world.map.width(), app.session.world.map.height());
-        let live = pointer::map_has_pointer(app);
+        // `live`: the pointer looks around (zoom, pan, tooltips). `acts`: it also presses keys.
+        // Read only, the map always looks and never acts; a replay's open screen hides the map.
+        let acts = !self.read_only && pointer::map_has_pointer(app);
+        let live = acts || self.read_only;
         let sense = if live { Sense::click_and_drag() } else { Sense::hover() };
         let response = ui.interact(rect, ui.scope_id().with("map"), sense);
 
@@ -119,7 +129,7 @@ impl MapView {
             (touching, fingers, i.pointer.latest_pos(), mt)
         });
         let touch = self.gestures.update(touching, at, fingers, ui.input(|i| i.time));
-        if live && touch.cancel {
+        if acts && touch.cancel {
             self.pointer.abandon(app);
         }
         // Two fingers pan and zoom about their midpoint; one-finger rules are off till they lift.
@@ -145,8 +155,7 @@ impl MapView {
             }
         }
 
-        let rectangle_tool =
-            !matches!(app.ui.tool, Tool::Select | Tool::Gate) && pointer::map_has_pointer(app);
+        let rectangle_tool = acts && !matches!(app.ui.tool, Tool::Select | Tool::Gate);
         let primary_pans = !rectangle_tool;
         if live
             && one_finger
@@ -156,7 +165,7 @@ impl MapView {
         {
             self.camera.pan(response.drag_delta());
         }
-        if live
+        if acts
             && one_finger
             && rectangle_tool
             && let Some(p) = response.interact_pointer_pos()
@@ -174,7 +183,7 @@ impl MapView {
                 self.pointer.up(app, tile);
             }
         }
-        if live
+        if acts
             && one_finger
             && let Some(p) = response.interact_pointer_pos()
         {
