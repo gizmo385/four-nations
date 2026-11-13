@@ -951,6 +951,147 @@ The balance follow-up records the measured numbers in a "Measured" section here.
 levers are all data: `borrow_residents`, `borrow_cost`, each fusion's `requires` and tool count,
 the post-gate newcomer weights (question 1), and each celestial day's `minutes` and `refill`.
 
+### Measured
+
+The phase-6 run (#764), with the playtest numbers (#752). **This is the scripted economy
+opening, not a human or an MCP agent.** It is the `united` style (`gate_at = 240`, so the
+gate is stood by `World::complete_endeavor`) and `united_branch_first`, its other research order:
+seeds 1 to 32, all four nations, Normal, 420 minutes, so **180 minutes of United City** per run.
+That is 128 runs per order, through `balance verdict` on the full tier, 1,472 runs in all.
+`crates/harness/baseline.json` is re-blessed from the run. Post-gate targets count only the
+flags a run raised from the gate on, so a flag before the gate doesn't leave it out of them.
+What the scripted opening cannot tell us is how a person would play: it learns every borrowed
+tech before any fusion, never drains a bender's meter on purpose, and never decides to wait.
+
+**Nothing before the gate moved.** `--against crates/harness/baseline.json` reads 0 of 62
+readings moved past their noise floor. A few runs moved by a minute or two (for example
+`tally.temple_study` reads later on 13 of 128 `school_first` runs). The baseline was made before
+`star_charts` and the other phase-6 data landed, and the doc expects `star_charts`' place in the
+research order to move those, so the run can't tell the two apart. The opening's phase-6 play and
+the probe's changes all sit behind `World::united`. The one change outside it, the airship
+bunker top-up, needs a loaded airship.
+
+**The session** (population, `united`, median of 128): 20 at the gate, 28 an hour on, 36 two
+hours on, 45 three hours on. The minimum is 6 to 9, on seed 3, a dead site for every nation.
+Growth is about 8 people an hour, from the city's draw and the steered caravans. Two things the
+opening needed in order to grow at all: it cuts the far trees when wood is short (the trees near
+the stockpile are gone by the gate, and a bed costs wood), and the bed ceiling lifts once the
+city is united. Without both it stopped at 20 to 24 people.
+
+| Per run, mean residents of | +60 | +120 | +180 |
+|---|---|---|---|
+| Air (in the other three nations' cities) | 3.1 | 5.4 | 7.8 |
+| Water | 2.5 | 5.1 | 7.7 |
+| Earth | 1.9 | 4.1 | 6.5 |
+| Fire | 1.7 | 3.5 | 5.2 |
+
+Fire's people arrive slowest and Air's fastest. Of the 128 runs, 120 (94%) have 3 of some other
+nation by gate + 75 (114 by + 60, 123 by + 90). The target is 85%, and it passes on every
+nation. `borrow_residents = 3` is confirmed.
+
+**Research.** Median points a minute: 26.2 in the hour before the gate, 30.9 in the first hour
+after it and 39.8 over the 180 minutes (Air 45.6, Earth 40.5, Fire 38.9, Water 38.1). A
+1,000-point fusion therefore takes about 25 minutes of a city's research, and a borrowed tech at
+`borrow_cost = 2.0` takes 10 to 40. The opening learns 10.6 borrowed techs and 1.8 fusions per
+run in the 180 minutes. `borrow_cost = 2.0` is confirmed. It could be lowered to bring fusions
+sooner, but the opening's order (all borrowed techs first) is the main reason they are late.
+
+**Chi.** The mean chi share of the settlers' meters is 0.6 from 120 to 240 and 0.9 after the
+gate. A celestial rise refills a median of 14.7 chi per bender (Air 15.5, Water 11.1, Earth 17.3,
+Fire 15.1). The target is 50.
+
+| Target (`united`, 85% of runs) | Air | Water | Earth | Fire |
+|---|---|---|---|---|
+| 3 of another nation by gate + 75 | 29/31 pass | 29/31 pass | 30/31 pass | 28/31 pass |
+| First borrowed tech by gate + 90 | 29/31 pass | 29/31 pass | 30/31 pass | 25/31 FAIL |
+| First fusion by gate + 150 | 28/31 pass | 20/29 FAIL | 20/30 FAIL | 23/30 FAIL |
+| Aqueduct tiles above 0 | | 19/22 pass | 15/16 pass | |
+| Steel made above 0 | | | 0/8 FAIL | 18/22 FAIL |
+| Lift rides above 0 | 11/26 FAIL | | 9/15 FAIL | |
+| Steam Engine on the bank | | 6/8 FAIL | | 20/24 FAIL |
+| Airship voyages above 0 | 17/23 FAIL | | | 16/21 FAIL |
+| Rains above 0 | 0/29 FAIL | 0/15 FAIL | | |
+| Celestial chi per bender 50 | 0/31 FAIL | 0/25 FAIL | 0/26 FAIL | 1/22 FAIL |
+| No gap over 15 minutes | 0/31 FAIL | 0/29 FAIL | 0/30 FAIL | 0/30 FAIL |
+
+An empty cell means no run of that nation learned the fusion. The median first borrowed tech
+comes at gate + 39 and the median first fusion at gate + 86. On `united_branch_first` the same
+targets read the same way but a little later (borrowed by 90: 104 of 113 runs that borrowed;
+fusion by 150: 51 of 60 that learned one). Three of its use targets pass: Water's aqueducts
+(7 of 8), Fire's steel (10 of 10) and Fire's voyages (9 of 10). The targets are in
+`data/harness.toml`, ids `united_*`.
+
+**What the numbers say.**
+
+- **Residents and borrowed techs fit the session.** The first borrowed tech comes at a median of
+  gate + 39 and 91% of runs have one by + 90 (Fire is the exception, 25 of 31).
+- **Each city learns only the fusions that include its home nation.** Air learns `cloudbending`
+  (29 of 32 runs), `airships` (23) and `sky_lifts` (26) and none of the other three. Earth
+  learns `steelworks` (8), `aqueducts` (16) and `sky_lifts` (15), Water `aqueducts` (22),
+  `steam_power` (8) and `cloudbending` (15), Fire `steelworks` (23), `steam_power` (25) and
+  `airships` (21). The other three fusions of every nation reach 0 of 32 runs. They stay locked
+  on `masters` (1 of the pair's nations), and no newcomer is a master in 180 minutes. The doc
+  says "A Fire city can still learn `aqueducts` once Earth and Water people live there."
+  Measured, it can't in this session. This is a taste call (#955).
+- **A fusion nobody learns can't be used.** Call Rain is cast by 0 of 44 cities that learned
+  Cloudbending, in both orders. The opening designates the bend each spring, and the joint job
+  sits for the whole year with the status's two casters never both in place (a check on Air
+  seed 1 shows `check_ability` passing and the designation held for 50 minutes). The cause is
+  not yet found, and might be the opening's (#958).
+- **Fusions come after the borrowed techs.** In the scripted order each fusion waits for every
+  borrowed tech first, so 92 of 128 `united` runs (72%) learn a fusion by + 150, below the 85% the
+  target wants. Several home fusions are still `Available` at minute 420 on Water and Earth
+  seeds. A person would research a fusion first.
+- **Steel is capped by the stock limit, and Earth makes none.** The opening makes metal and
+  never spends it, so the Steelworks stops at `stock_limit = 8` in stores. 18 of the 23 Fire
+  cities that learned it made steel. 0 of the 8 Earth cities did, and the cause is not found
+  (#958).
+- **Lifts and engines are placed where the map allows.** A lift pair is sited only across a
+  range that splits the work from the stores, and a Steam Engine moves to the bank only if
+  water is within 3 tiles of a place one can stand. The city's inland engine stays standing
+  where it is. Lift rides are above 0 for 42% of the Air runs that learned `sky_lifts`.
+- **The airship fits only some deals.** A voyage's hold is 60 and `united_scale = 1.5` scales
+  a wood-for-ore deal to 75 wood, so the opening takes the stone and ore deals that fit. That
+  still gives a voyage on 17 of 23 (Air) and 16 of 21 (Fire) cities that learned `airships`.
+- **Celestial days refill little.** Benders' meters sit near full (0.9), and the opening
+  never drains them before a rise, so a rise refills 15 chi where the target asks for 50.
+  A person who drains the meters first would see more. The measurement can't tell whether
+  50 is right (#956).
+- **Decision gaps are long.** The longest stretch with no decision after the gate has a median
+  of 46 minutes (Air 55, Water 45, Earth 32, Fire 64) and the shortest run's is 18. No run is
+  under 15. A tech takes 25 to 40 minutes at about 40 points a minute, and techs are the
+  opening's decisions, so 15 can't hold. This is a taste call (#957).
+
+**Provisional numbers.**
+
+| Number | Value | Result |
+|---|---|---|
+| `borrow_residents` | 3 | Confirmed: 94% have 3 by + 75 |
+| `borrow_cost` | 2.0 | Confirmed: first borrowed tech at + 39 |
+| Fusion `residents` | 3 each | Confirmed for the home fusions |
+| Fusion `masters` | 1 of the pair | Not met for the other three fusions of any nation (#955) |
+| Fusion tool counts | 4 to 8 | Confirmed: no wait on tools was seen in the end states checked (not measured per run) |
+| `population` (`airships`) | 24 | Confirmed: the city has 28 an hour in |
+| Airship `away_minutes` | 15 | Confirmed |
+| Airship `hold` | 60 | Doesn't fit `united_scale`d wood deals, which are 75 |
+| Celestial `minutes` and `refill` | 5, 1.0 | Confirmed: the refill is what's left of the meter |
+| `own_weight`, `other_weight` | 0.1, 0.3 | Confirmed: all three other nations arrive |
+
+No data changed. **Rechecked against what shipped.** `arrival_minutes` is 12, not the doc's 10,
+so a newcomer arrives every 12 minutes at 100% draw (5 an hour, and 1 of each other nation
+every 2.4 hours at the original 0.3 weights). The measured 8 an hour is the draw above 100% and
+steered caravan requests. The Steelworks' `stock_limit` is 8 and the Airship Dock's hold is 60.
+The United City's milestones at 24, 32 and every 8 after were not measured.
+
+**What changed in the opening.** Past the gate it targets each other nation's teachable techs
+cheapest first, then each fusion in file order, and plays each fusion's simplest use
+(`autoplay/exchange.rs`): an aqueduct of up to 24 tiles from the water to the plots, the
+Steelworks, a Sky Lift pair, a Steam Engine on the bank, one airship voyage at a time and Call
+Rain. The probe's `research_idle` counts what the From newcomers page lists as available, and
+the Population sign no longer asks anything of a United City. The run also found a bug, fixed in
+the commit: a planned voyage never topped up a bunker above half full, so a dock left with 15 of
+the 20 fuel it burns waited for ever.
+
 ## Risks
 
 - **The United City ships different from its spec.** If #442 drops caravans from all four
