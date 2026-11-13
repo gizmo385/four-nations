@@ -17,9 +17,7 @@
 //! The list scrolls with the wheel, and to the cursor's line when it moves. The frame's bottom
 //! edge says which lines are in view ("lines 1-14 of 80") once not all are.
 
-use eframe::egui::{
-    self, Button, CursorIcon, Rect, RichText, ScrollArea, Sense, Ui, WidgetInfo, pos2, vec2,
-};
+use eframe::egui::{self, Button, CursorIcon, Rect, RichText, Sense, Ui, WidgetInfo, pos2, vec2};
 use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone};
 use fn_ui::app::App;
@@ -92,7 +90,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
             ui.data_mut(|d| d.insert_temp(seen, cursor));
 
             let (mut first, mut visible) = (None, 0);
-            ScrollArea::vertical().id_salt("log lines").auto_shrink([false, false]).show(
+            crate::style::scroll_vertical().id_salt("log lines").auto_shrink([false, false]).show(
                 ui,
                 |ui| {
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);

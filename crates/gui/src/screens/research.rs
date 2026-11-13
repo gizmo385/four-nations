@@ -16,8 +16,8 @@
 //! terminal-box surfaces have nothing to say about it.
 
 use eframe::egui::{
-    self, Button, CursorIcon, Frame as Panel, Modal, Rect, RichText, ScrollArea, Sense, Stroke, Ui,
-    UiBuilder, WidgetInfo, pos2, vec2,
+    self, Button, CursorIcon, Frame as Panel, Modal, Rect, RichText, Sense, Stroke, Ui, UiBuilder,
+    WidgetInfo, pos2, vec2,
 };
 use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone, window_start};
@@ -223,7 +223,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
 
             let below = Rect::from_min_max(pos2(body.left(), head.bottom()), body.max);
             ui.scope_builder(UiBuilder::new().max_rect(below), |ui| {
-                let scroll = ScrollArea::vertical()
+                let scroll = crate::style::scroll_vertical()
                     .id_salt(("research cards", app.ui.research_page == ResearchPage::Newcomers))
                     .auto_shrink([false, false]);
                 scroll.show(ui, |ui| {

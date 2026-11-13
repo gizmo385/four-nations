@@ -24,13 +24,18 @@
 //! `◇` headings are `side`'s; the page frame's seal is `page`'s.)
 //!
 //! The window rebuilds the style when the nation changes ([`install`], from `GuiApp`).
+//!
+//! Every vertical list scrolls through [`scroll_vertical`] (#973, docs/design/touch-pwa.md):
+//! by wheel, by its bar, and by dragging its content with a finger *or* a mouse. egui's default
+//! drags only once it has seen a touch, so a phone's first swipe did nothing.
 
 use std::collections::BTreeMap;
 
+use eframe::egui::containers::scroll_area::{DragScroll, ScrollSource};
 use eframe::egui::style::{HandleShape, Selection, TextCursorStyle, WidgetVisuals, Widgets};
 use eframe::egui::{
-    self, Color32, CornerRadius, FontFamily, FontId, Margin, Painter, Rect, Shadow, Stroke, Style,
-    TextStyle, Theme as EguiTheme, Visuals, vec2,
+    self, Color32, CornerRadius, FontFamily, FontId, Margin, Painter, Rect, ScrollArea, Shadow,
+    Stroke, Style, TextStyle, Theme as EguiTheme, Visuals, vec2,
 };
 use fn_ui::theme::{Rgb, Theme};
 
@@ -153,6 +158,14 @@ pub fn style(theme: &Theme) -> Style {
 }
 
 /// Makes `theme` the dark style of `ctx`. Called again whenever the nation changes.
+/// A vertical [`ScrollArea`] that also scrolls when its content is dragged, from the first
+/// touch on (egui's default, [`DragScroll::OnTouch`], waits until it has seen one) and with a
+/// mouse. A click on a row is still a click: egui tells a press from a drag by distance.
+pub fn scroll_vertical() -> ScrollArea {
+    ScrollArea::vertical()
+        .scroll_source(ScrollSource { drag: DragScroll::Always, ..ScrollSource::default() })
+}
+
 pub fn install(ctx: &egui::Context, theme: &Theme) {
     ctx.set_style_of(EguiTheme::Dark, style(theme));
 }

@@ -12,9 +12,7 @@
 //! An offer is one widget over all its rows (the deal and what the stores hold of what it asks;
 //! the request and what it gives too), highlighted whole.
 
-use eframe::egui::{
-    self, CursorIcon, Rect, Response, ScrollArea, Sense, Ui, WidgetInfo, pos2, vec2,
-};
+use eframe::egui::{self, CursorIcon, Rect, Response, Sense, Ui, WidgetInfo, pos2, vec2};
 use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row};
 use fn_ui::app::App;
@@ -83,7 +81,8 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
         &look,
         &spec,
         |ui| {
-            let list = ScrollArea::vertical().id_salt("traders list").auto_shrink([false, false]);
+            let list =
+                crate::style::scroll_vertical().id_salt("traders list").auto_shrink([false, false]);
             list.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 let mut i = 0;

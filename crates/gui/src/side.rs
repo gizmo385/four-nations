@@ -22,8 +22,8 @@ use std::cell::Cell;
 
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
-    self, Align, Button, Color32, CursorIcon, FontId, Id, Label, Layout, Margin, RichText,
-    ScrollArea, Sense, Stroke, Ui, UiBuilder, vec2,
+    self, Align, Button, Color32, CursorIcon, FontId, Id, Label, Layout, Margin, RichText, Sense,
+    Stroke, Ui, UiBuilder, vec2,
 };
 use fn_tui::color::Palette;
 use fn_tui::panel::tool_tint;
@@ -181,7 +181,7 @@ pub fn show(
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 inspector::title(ui, &look, &inspected);
-                ScrollArea::vertical()
+                crate::style::scroll_vertical()
                     .id_salt("side-inspector")
                     .max_height(cap)
                     .auto_shrink([false, true])
@@ -191,7 +191,7 @@ pub fn show(
                     ui.add(Label::new(seed).selectable(false));
                 });
             });
-        ScrollArea::vertical().id_salt("side-sections").auto_shrink([false, false]).show(
+        crate::style::scroll_vertical().id_salt("side-sections").auto_shrink([false, false]).show(
             ui,
             |ui| {
                 title(ui, &look, &model.title);

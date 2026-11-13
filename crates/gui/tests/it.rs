@@ -19,6 +19,7 @@ mod notices;
 mod page;
 mod research;
 mod saves;
+mod scroll;
 mod semantic;
 mod side;
 #[cfg(feature = "shots")]

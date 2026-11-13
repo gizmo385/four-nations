@@ -11,7 +11,7 @@
 //! The list scrolls (wheel, or the highlight moving past an edge); the position of the window
 //! over it ("abilities 1-9 of 12") is on the frame's bottom edge once it does.
 
-use eframe::egui::{ScrollArea, Sense, Ui, vec2};
+use eframe::egui::{Sense, Ui, vec2};
 use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone};
 use fn_ui::app::App;
@@ -84,7 +84,9 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
         |ui| {
             let header = columns.header(width, marks.ellipsis);
             page::text_row(ui, &look, &header, false, Sense::hover());
-            let list = ScrollArea::vertical().id_salt("abilities list").auto_shrink([false, false]);
+            let list = crate::style::scroll_vertical()
+                .id_salt("abilities list")
+                .auto_shrink([false, false]);
             let shown = list.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                 for (i, row) in rows.iter().enumerate() {

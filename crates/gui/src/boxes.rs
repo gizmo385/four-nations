@@ -96,7 +96,16 @@ fn modal(
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             heading(ui, look, title);
             ui.add_space(look.cell.y);
-            body(ui)
+            // The body scrolls when the window is too short for it (#973): a phone held
+            // sideways is about 22 rows tall. The heading, the margins and a row of air
+            // around the box stay out of it.
+            let room = ctx.content_rect().height() - look.cell.y * 5.0;
+            crate::style::scroll_vertical()
+                .id_salt("fn_gui box body")
+                .max_height(room.max(look.cell.y * 3.0))
+                .auto_shrink([false, true])
+                .show(ui, body)
+                .inner
         });
     // The Seal theme's accent brackets at the box's corners (#874), as on the page frame.
     crate::style::corner_brackets(
