@@ -1010,7 +1010,7 @@ mod tests {
             card.care.deaths,
             card.care.close_calls,
         );
-        assert_eq!(got, (181.318, 0.1813, 0, 0), "{card:#?}");
+        assert_eq!(got, (169.175, 0.1692, 0, 0), "{card:#?}");
     }
 
     /// `par` is the same run `run_economy_scored` makes for the same start and length.

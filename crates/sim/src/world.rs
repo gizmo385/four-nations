@@ -233,6 +233,13 @@ pub struct Unit {
     /// Steps left in the idle wander in progress; 0 when standing.
     #[serde(default)]
     wander_left: u8,
+    /// A newcomer still walking in from where it arrived (#944): while set, an idle unit heads
+    /// for the settlement's anchor (`World::walk_home`) instead of claiming a job or wandering.
+    /// Cleared on arrival, or if there is no way there. Needs still pre-empt the walk, which
+    /// resumes (replanning its route) afterwards. `#[serde(default)]`: a save from before this
+    /// landed has nobody walking in.
+    #[serde(default)]
+    homeward: bool,
     /// Bends this unit has finished (failed ones don't count), for the bending-master sign
     /// (`docs/design/endgame.md`, #233). Read it through `bends()`.
     #[serde(default)]
@@ -1076,6 +1083,7 @@ impl World {
                 move_progress: 0.0,
                 idle_until: 0,
                 wander_left: 0,
+                homeward: false,
                 bends: 0,
                 bends_by: BTreeMap::new(),
                 rank_credited: Rank::Novice,

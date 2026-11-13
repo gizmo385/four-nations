@@ -111,6 +111,7 @@ impl World {
             move_progress: 0.0,
             idle_until: 0,
             wander_left: 0,
+            homeward: false,
             bends: 0,
             bends_by: BTreeMap::new(),
             rank_credited: Rank::Novice,

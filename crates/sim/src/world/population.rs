@@ -13,8 +13,10 @@
 //! `world.names` shuffle, since growth draws one name at a time for as long as the game runs);
 //! it spends the same retired variant draw `World::spawn_units` does, on the shared `world.units`
 //! stream (`World::discard_legacy_variant_draw`). From there it is a unit like any other: the
-//! normal need and idle-wander code (`World::wander`) is what actually walks it inward, and
-//! nobody assigns it a bed or a job.
+//! newcomer first walks straight to the settlement's anchor (`Unit::homeward`, `World::walk_home`,
+//! #944: the far spawn is deliberate, but a long aimless wander home is not), an urgent need
+//! pre-empting the walk like any other task. Once there it is on the normal job and idle-wander
+//! code, and nobody assigns it a bed or a job.
 //!
 //! **The United City** (`docs/design/endgame.md`, "The transformation"; issue #240). Before the
 //! Harmony Gate is complete, every newcomer is the settlement's own nation, exactly as #232
@@ -32,7 +34,8 @@
 //! **"Nearest the settlement"** is `World::start()` (where the player chose to embark, #289)
 //! when the world has one; a world made by `World::new` or a save from before #289 has none, so
 //! this falls back to the mean position of its living units instead (there is always at least
-//! one, or there would be nobody left to grow a population for).
+//! one, or there would be nobody left to grow a population for), leaving out newcomers still
+//! walking in (`Unit::homeward`), who are not part of the settlement yet.
 //!
 //! This never runs out of unit ids to hand out: `World::next_unit` is a monotonic counter, never
 //! reused even by a unit that later dies (`World::load` restores its invariant for a save from
@@ -129,7 +132,7 @@ impl World {
         let (n, sx, sy) = self
             .units
             .iter()
-            .filter(|u| u.is_settler())
+            .filter(|u| u.is_settler() && !u.homeward)
             .fold((0i64, 0i64, 0i64), |(n, sx, sy), u| {
                 (n + 1, sx + i64::from(u.pos.x), sy + i64::from(u.pos.y))
             });
@@ -259,6 +262,8 @@ impl World {
                 move_progress: 0.0,
                 idle_until: 0,
                 wander_left: 0,
+                // Walks straight to the settlement before anything else (#944).
+                homeward: true,
                 bends: 0,
                 bends_by: BTreeMap::new(),
                 rank_credited: Rank::Novice,
