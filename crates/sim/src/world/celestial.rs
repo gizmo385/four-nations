@@ -148,6 +148,7 @@ impl World {
             }
             if into == start {
                 let mut units = 0;
+                let mut refilled = 0.0_f32;
                 for j in 0..self.units.len() {
                     let u = &self.units[j];
                     if !(u.is_settler() && self.nation_of(u) == day.nation) {
@@ -155,9 +156,14 @@ impl World {
                     }
                     let to = day.refill * self.chi_max_for(u, defs);
                     let u = &mut self.units[j];
+                    refilled += (to - u.chi).max(0.0);
                     u.chi = u.chi.max(to);
                     units += 1;
                 }
+                // The balance harness's `celestial_chi` metric (#764): the chi the rise gave, and
+                // how many benders it reached, whole points summed over the run.
+                self.tallies.count_school("celestial_chi", refilled.round() as u32);
+                self.tallies.count_school("celestial_benders", units);
                 self.log_event(SeasonEvent {
                     tick: self.tick,
                     kind: SeasonEventKind::CelestialRise { day: id, units },

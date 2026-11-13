@@ -26,14 +26,24 @@
 //! | `empty_scrolls` | teaching scrolls read with nothing left to offer (#745) |
 //! | `gate_minute` | the minute the gate stood (built, or stood by a `united` style's `gate_at`, #751) |
 //! | `after_gate.NAME` | a minute metric `NAME` counted from `gate_minute`: `after_gate.first_offer_minute` is the first draft's wait after the gate (#751) |
+//! | `residents_at.M`, `residents_at.M.NATION` | residents of the most numerous other nation, or of `NATION`, at the season boundary `M` minutes after `gate_minute` (#764) |
+//! | `borrowed_minute`, `fusion_minute` | the minute the first borrowed tech, or the first fusion, was learned (`after_gate.` counts them from the gate, #764) |
+//! | `tally.NAME` | one of the school tallies (#731), or a fusion's (`aqueduct_tiles`, `steel_made`, `lift_rides`, `bank_engines`, `voyages`, `rains`, #764), the last read only on runs that learned its fusion |
+//! | `celestial_chi` | chi a celestial day refills per bender, averaged over the run's rises (#764) |
+//! | `longest_gap.after_gate` | the longest stretch with no decision event from the gate to the run's end (#764) |
 
-use fn_sim::Defs;
 use fn_sim::balance::RunRecord;
+use fn_sim::{Defs, Nation};
 
 use crate::config::Bar;
 
 /// How close a season row's minute has to be to the one asked for.
 const ROW_SLACK: f32 = 0.5;
+
+/// The season row at `minute`, if the run has one there.
+fn row_at_minute(rec: &RunRecord, minute: f32) -> Option<&fn_sim::balance::EconomySeason> {
+    rec.seasons.iter().find(|s| (s.minute - minute).abs() < ROW_SLACK)
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Metric {
@@ -70,6 +80,22 @@ pub enum Metric {
     EmptyScrolls,
     /// The minute the gate stood (#751): never is infinity.
     GateMinute,
+    /// Residents `after` minutes past the gate: of `nation` if named, else of the other nation
+    /// with the most (#764).
+    ResidentsAt {
+        after: u32,
+        nation: Option<Nation>,
+    },
+    /// The minute the first borrowed tech was learned (#764): never is infinity.
+    BorrowedMinute,
+    /// The minute the first fusion was learned (#764): never is infinity.
+    FusionMinute,
+    /// Chi a celestial day refilled per bender, over the run's rises (#764). No reading when none
+    /// rose.
+    CelestialChi,
+    /// The longest stretch with no decision event (`RunRecord::timeline`) from the gate to the
+    /// end of the run (#764), in minutes. No reading when the gate never stood.
+    LongestGapAfterGate,
     /// A minute metric counted from `gate_minute` (#751): its reading less the gate's minute, so
     /// 0 is the moment the gate stood and an event before it reads negative. Never is infinity;
     /// a run whose gate never stood has no reading.
@@ -108,6 +134,23 @@ impl Metric {
                 None => return Err(format!("metric {name:?}: expected food_per_head.winter.N")),
             },
             ("longest_gap", None) => Metric::LongestGap,
+            ("longest_gap", Some("after_gate")) => Metric::LongestGapAfterGate,
+            ("residents_at", Some(rest)) => {
+                let (m, nation) = match rest.split_once('.') {
+                    Some((m, n)) => {
+                        let nation = Nation::ALL
+                            .into_iter()
+                            .find(|x| x.as_str() == n)
+                            .ok_or_else(|| format!("metric {name:?}: no nation {n:?}"))?;
+                        (m, Some(nation))
+                    }
+                    None => (rest, None),
+                };
+                Metric::ResidentsAt { after: number(m)?, nation }
+            }
+            ("borrowed_minute", None) => Metric::BorrowedMinute,
+            ("fusion_minute", None) => Metric::FusionMinute,
+            ("celestial_chi", None) => Metric::CelestialChi,
             ("gaps_over_15", None) => Metric::GapsOver15,
             ("care", Some("close_calls")) => Metric::CloseCalls,
             ("care", Some("close_calls_per_10ph")) => Metric::CloseCallsPer10ph,
@@ -122,7 +165,9 @@ impl Metric {
             }
             ("school_minute", None) => Metric::SchoolMinute,
             ("tally", Some(t)) => {
-                if !fn_sim::balance::SCHOOL_TALLIES.contains(&t) {
+                if !fn_sim::balance::SCHOOL_TALLIES.contains(&t)
+                    && !fn_sim::balance::FUSION_TALLIES.iter().any(|&(n, _)| n == t)
+                {
                     return Err(format!("metric {name:?}: no tally {t:?}"));
                 }
                 Metric::Tally(t.to_owned())
@@ -159,6 +204,14 @@ impl Metric {
             Metric::CopiesBy(m) => format!("copies_by.{m}"),
             Metric::FoodPerHeadWinter(y) => format!("food_per_head.winter.{y}"),
             Metric::LongestGap => "longest_gap".to_owned(),
+            Metric::LongestGapAfterGate => "longest_gap.after_gate".to_owned(),
+            Metric::ResidentsAt { after, nation: None } => format!("residents_at.{after}"),
+            Metric::ResidentsAt { after, nation: Some(n) } => {
+                format!("residents_at.{after}.{}", n.as_str())
+            }
+            Metric::BorrowedMinute => "borrowed_minute".to_owned(),
+            Metric::FusionMinute => "fusion_minute".to_owned(),
+            Metric::CelestialChi => "celestial_chi".to_owned(),
             Metric::GapsOver15 => "gaps_over_15".to_owned(),
             Metric::CloseCalls => "care.close_calls".to_owned(),
             Metric::CloseCallsPer10ph => "care.close_calls_per_10ph".to_owned(),
@@ -188,6 +241,8 @@ impl Metric {
                 | Metric::SchoolMinute
                 | Metric::FirstOfferMinute
                 | Metric::GateMinute
+                | Metric::BorrowedMinute
+                | Metric::FusionMinute
         )
     }
 
@@ -283,8 +338,65 @@ impl Metric {
                     .fold(f64::INFINITY, f64::min),
             ),
             Metric::Tally(t) => {
+                if let Some(&(_, tech)) =
+                    fn_sim::balance::FUSION_TALLIES.iter().find(|&&(n, _)| n == t)
+                {
+                    // A fusion's tally is read only where the fusion was learned.
+                    if tech.is_some_and(|tech| !rec.techs.iter().any(|(id, _)| id == tech)) {
+                        return None;
+                    }
+                    let (_, n) = rec.fusion_tallies.iter().find(|(id, _)| id == t)?;
+                    return Some(f64::from(*n));
+                }
                 let (_, n) = rec.school_tallies.iter().find(|(id, _)| id == t)?;
                 Some(f64::from(*n))
+            }
+            Metric::BorrowedMinute | Metric::FusionMinute => {
+                let wanted = |id: &str| {
+                    defs.tech_id(id).is_some_and(|t| match self {
+                        Metric::FusionMinute => defs.tech(t).is_fusion(),
+                        _ => defs.tech(t).borrowed_from(rec.nation).is_some(),
+                    })
+                };
+                Some(
+                    rec.techs
+                        .iter()
+                        .filter(|(id, _)| wanted(id))
+                        .map(|&(_, m)| f64::from(m))
+                        .fold(f64::INFINITY, f64::min),
+                )
+            }
+            Metric::CelestialChi => {
+                let get = |name: &str| {
+                    rec.fusion_tallies.iter().find(|(id, _)| id == name).map_or(0, |&(_, n)| n)
+                };
+                let benders = get("celestial_benders");
+                (benders > 0).then(|| f64::from(get("celestial_chi")) / f64::from(benders))
+            }
+            Metric::ResidentsAt { after, nation } => {
+                let at = rec.gate_minute? + *after as f32;
+                let row = row_at_minute(rec, at)?;
+                let counts = row.residents;
+                let of = |n: Nation| f64::from(counts[n.index()]);
+                Some(match nation {
+                    Some(n) => of(*n),
+                    None => Nation::ALL
+                        .into_iter()
+                        .filter(|&n| n != rec.nation)
+                        .map(of)
+                        .fold(0.0, f64::max),
+                })
+            }
+            Metric::LongestGapAfterGate => {
+                let gate = rec.gate_minute?;
+                let mut last = gate;
+                let mut longest = 0.0_f32;
+                for e in rec.timeline.iter().filter(|e| e.minute > gate && e.minute < rec.minutes) {
+                    longest = longest.max(e.minute - last);
+                    last = e.minute;
+                }
+                longest = longest.max(rec.minutes - last);
+                Some(f64::from(longest))
             }
             Metric::GreatRuinsFoundBy(m) => {
                 let t = &rec.teachings.great_ruins_found;
@@ -306,6 +418,23 @@ impl Metric {
         }
     }
 
+    /// The minute from which a flag counts against a run for this target: the gate for a reading
+    /// of the United City (what the opening did before it stood is the steady targets' business,
+    /// and a pre-gate `chi_idle` says nothing about the exchange), 0 for every other metric.
+    pub fn flags_from(&self, rec: &RunRecord) -> f32 {
+        let after = match self {
+            Metric::AfterGate(_)
+            | Metric::ResidentsAt { .. }
+            | Metric::BorrowedMinute
+            | Metric::FusionMinute
+            | Metric::CelestialChi
+            | Metric::LongestGapAfterGate => true,
+            Metric::Tally(t) => fn_sim::balance::FUSION_TALLIES.iter().any(|&(n, _)| n == t),
+            _ => false,
+        };
+        if after { rec.gate_minute.unwrap_or(0.0) } else { 0.0 }
+    }
+
     /// The minute by which a run must have shown what the target asks for: a sign's deadline, the
     /// minute a reading is taken at, or the end of the run. A flag raised after it doesn't touch
     /// the target.
@@ -318,7 +447,9 @@ impl Metric {
             | Metric::StageMinute(_)
             | Metric::SchoolMinute
             | Metric::FirstOfferMinute
-            | Metric::GateMinute => bar.at_most.map_or(end, |m| m as f32).min(end),
+            | Metric::GateMinute
+            | Metric::BorrowedMinute
+            | Metric::FusionMinute => bar.at_most.map_or(end, |m| m as f32).min(end),
             // The bar counts from the gate: the deadline is that long after it.
             Metric::AfterGate(_) => match (rec.gate_minute, bar.at_most) {
                 (Some(gate), Some(m)) => (gate + m as f32).min(end),
@@ -332,6 +463,10 @@ impl Metric {
             | Metric::CopiesBy(m)
             | Metric::GreatRuinsFoundBy(m)
             | Metric::TeachingsKeptBy(m) => (*m as f32).min(end),
+            // Read that long after the gate.
+            Metric::ResidentsAt { after, .. } => {
+                rec.gate_minute.map_or(end, |gate| (gate + *after as f32).min(end))
+            }
             Metric::FoodPerHeadWinter(year) => rec
                 .seasons
                 .iter()

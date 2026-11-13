@@ -417,6 +417,8 @@ pub(super) fn own_bends(world: &World, defs: &Defs) -> Vec<AbilityId> {
     {
         own.push(bore);
     }
+    // Call Rain is cast on the biggest patch of plots each spring (`exchange::call_rain`, #764).
+    own.extend(super::exchange::rain_ability(world, defs));
     own
 }
 

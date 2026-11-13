@@ -170,6 +170,10 @@ pub struct RunRecord {
     /// an older record.
     #[serde(default)]
     pub teachings: TeachingRecord,
+    /// What each fusion did and what the celestial days gave (`FUSION_TALLIES`' order): absent
+    /// from an older record (docs/design/horizons-phase-6.md, "Measuring it", #764).
+    #[serde(default)]
+    pub fusion_tallies: Vec<(String, u32)>,
 }
 
 /// What a run did with phase 5's great ruins and teaching drafts (#745), read off the world's
@@ -255,6 +259,56 @@ pub const SCHOOL_TALLIES: [&str; 8] = [
     "temple_study",
     "packed_refund",
 ];
+
+/// The tallies phase 6 adds (docs/design/horizons-phase-6.md, "Measuring it", #764): one per
+/// fusion, with the fusion tech each is "learned" by (the target reads only runs that learned
+/// it), then the two celestial counts. `aqueduct_tiles` is the flowing aqueduct tiles at the end,
+/// `steel_made` the metal the Steelworks has made, `lift_rides` the rides Sky Lifts carried (a
+/// ride counts at both ends), `bank_engines` the Steam Engines on the bank at the end, `voyages`
+/// the airships that sailed and `rains` the Call Rains cast. `celestial_chi` is the chi the rises
+/// gave in whole points and `celestial_benders` how many benders they reached.
+pub const FUSION_TALLIES: [(&str, Option<&str>); 8] = [
+    ("aqueduct_tiles", Some("aqueducts")),
+    ("steel_made", Some("steelworks")),
+    ("lift_rides", Some("sky_lifts")),
+    ("bank_engines", Some("steam_power")),
+    ("voyages", Some("airships")),
+    ("rains", Some("cloudbending")),
+    ("celestial_chi", None),
+    ("celestial_benders", None),
+];
+
+/// `RunRecord::fusion_tallies` for a finished run.
+fn fusion_tallies(world: &World, defs: &Defs) -> Vec<(String, u32)> {
+    FUSION_TALLIES
+        .iter()
+        .map(|&(name, _)| {
+            let n = match name {
+                "aqueduct_tiles" => world
+                    .buildings()
+                    .filter(|b| defs.building(b.id).aqueduct.is_some())
+                    .filter(|b| world.is_flowing(b.anchor, defs))
+                    .count() as u32,
+                "lift_rides" => {
+                    let ends: u32 = world
+                        .buildings()
+                        .filter(|b| defs.building(b.id).glide.is_some_and(|g| g.loads))
+                        .map(|b| b.crossings)
+                        .sum();
+                    ends / 2
+                }
+                "bank_engines" => world
+                    .buildings()
+                    .filter(|b| {
+                        defs.building(b.id).bank_upgrade.is_some() && world.on_bank(b, defs)
+                    })
+                    .count() as u32,
+                other => world.tallies().school(other),
+            };
+            (name.to_owned(), n)
+        })
+        .collect()
+}
 
 /// The sampled school tallies of one probe minute: settlers inside a heat aura (`aura_heal`) and
 /// scholars seated under a study aura (`temple_study`).
@@ -562,6 +616,7 @@ fn run_world_observed(
             .collect(),
         school_tallies: school_tallies(&world, defs, warmed, studying),
         teachings: teaching_record(&world, defs),
+        fusion_tallies: fusion_tallies(&world, defs),
     };
     (record, world)
 }

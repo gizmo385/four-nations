@@ -69,6 +69,12 @@ id = "united"
 inherits = "steady"
 gate_at = 240
 
+# The same United City, researching branch first (the panel's second research order, #764).
+[[style]]
+id = "united_branch_first"
+inherits = "united"
+research = "branch_first"
+
 # difficulty.md's no-input row.
 [[style]]
 id = "idle"
@@ -447,8 +453,7 @@ first_seeds = 12
 
 # --- The United City (horizons-phase-6.md, "Measuring it", #751) ---
 # The `united` style stands the gate at minute 240 and plays on to 420 (`gate_minute` is that
-# minute; `after_gate.NAME` counts a minute metric from it). Phase 6's own targets come with the
-# balance run (#764); this one keeps the 420-minute United City runs in the panel.
+# minute; `after_gate.NAME` counts a minute metric from it). Phase 6's own targets (#764) follow.
 [[target]]
 id = "united_city_stands"
 doc = "horizons-phase-6.md#measuring-it"
@@ -456,6 +461,194 @@ style = "united"
 metric = "gate_minute"
 at_most = 240
 minutes = 420
+
+# --- The United City, phase 6 (horizons-phase-6.md, "Measuring it", #764) ---
+# Both research orders, `united` (shared tier first) and `united_branch_first`, over the whole panel,
+# 420 minutes, the gate stood at 240. The bars are the doc's, set by the playtest (#752) and
+# recorded in its "Measured" section. A fusion's tally is read only on runs that learned it, so
+# "above zero on 85% of the runs that learned it" is the target's own share.
+[[target]]
+id = "united_residents_75"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "residents_at.75"
+at_least = 3
+minutes = 420
+# 3 of some other nation by gate + 75
+
+[[target]]
+id = "united_borrowed_by_90"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "after_gate.borrowed_minute"
+at_most = 90
+minutes = 420
+
+[[target]]
+id = "united_fusion_by_150"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "after_gate.fusion_minute"
+at_most = 150
+minutes = 420
+
+[[target]]
+id = "united_aqueduct_tiles"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "tally.aqueduct_tiles"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_steel_made"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "tally.steel_made"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_lift_rides"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "tally.lift_rides"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_bank_engines"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "tally.bank_engines"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_voyages"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "tally.voyages"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_rains"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "tally.rains"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_celestial_chi"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "celestial_chi"
+at_least = 50
+minutes = 420
+# half a meter per bender
+
+[[target]]
+id = "united_decision_gap"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united"
+metric = "longest_gap.after_gate"
+at_most = 15
+minutes = 420
+share = 0.875               # 7 of 8 seeds per nation
+first_seeds = 8
+
+[[target]]
+id = "united_residents_75_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "residents_at.75"
+at_least = 3
+minutes = 420
+# 3 of some other nation by gate + 75
+
+[[target]]
+id = "united_borrowed_by_90_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "after_gate.borrowed_minute"
+at_most = 90
+minutes = 420
+
+[[target]]
+id = "united_fusion_by_150_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "after_gate.fusion_minute"
+at_most = 150
+minutes = 420
+
+[[target]]
+id = "united_aqueduct_tiles_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "tally.aqueduct_tiles"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_steel_made_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "tally.steel_made"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_lift_rides_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "tally.lift_rides"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_bank_engines_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "tally.bank_engines"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_voyages_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "tally.voyages"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_rains_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "tally.rains"
+at_least = 1
+minutes = 420
+
+[[target]]
+id = "united_celestial_chi_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "celestial_chi"
+at_least = 50
+minutes = 420
+# half a meter per bender
+
+[[target]]
+id = "united_decision_gap_branch_first"
+doc = "horizons-phase-6.md#measuring-it"
+style = "united_branch_first"
+metric = "longest_gap.after_gate"
+at_most = 15
+minutes = 420
+share = 0.875               # 7 of 8 seeds per nation
 first_seeds = 8
 
 # --- Forks (horizons-phase-4.md, "Measuring it", #731) ---

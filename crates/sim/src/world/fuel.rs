@@ -117,7 +117,13 @@ impl World {
             if bunker.count > 0 && fuel.micros_per_tick > 0 && self.fuel_in_use(b, def, defs) {
                 burning.push(b.anchor);
             }
-            if bunker.count * 2 <= fuel.bunker {
+            // An airship that is loaded waits for `fuel_per_voyage`, which a bunker above half
+            // full would never be topped up to (#764: a partial first haul left a dock waiting
+            // 150 minutes).
+            let waiting = def.airship.is_some_and(|a| {
+                b.voyage.is_some() && bunker.count < a.fuel_per_voyage.min(fuel.bunker)
+            });
+            if bunker.count * 2 <= fuel.bunker || waiting {
                 low.push(b.anchor);
             }
         }

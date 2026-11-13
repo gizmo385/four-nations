@@ -323,10 +323,18 @@ impl World {
                 self.leave_building(i);
                 self.units[i].route = None;
                 self.place_ground(pos, Stack { item: output.item, count: output.count });
+                // The balance harness's `steel_made` tally (#764): what the Steelworks makes.
+                if def.id == STEELWORKS {
+                    self.tallies.count_school("steel_made", output.count);
+                }
             }
         }
     }
 }
+
+/// The Steelworks' building id (`data/buildings.toml`, #754), which the balance harness's
+/// `steel_made` tally counts the output of.
+pub(super) const STEELWORKS: &str = "steelworks";
 
 #[cfg(test)]
 mod tests;

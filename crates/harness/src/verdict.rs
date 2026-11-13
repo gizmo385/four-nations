@@ -228,11 +228,21 @@ impl Verdict {
 }
 
 /// The flags of `rec` that count against a run of `style`, those of the given class.
-fn flags_of(rec: &RunRecord, class: FlagClass, deadline: f32, idle_style: bool) -> Vec<Raised> {
+fn flags_of(
+    rec: &RunRecord,
+    class: FlagClass,
+    from: f32,
+    deadline: f32,
+    idle_style: bool,
+) -> Vec<Raised> {
     if idle_style && class == FlagClass::HarnessGap {
         return Vec::new();
     }
-    rec.flags.iter().filter(|r| r.flag.class() == class && r.minute <= deadline).copied().collect()
+    rec.flags
+        .iter()
+        .filter(|r| r.flag.class() == class && r.minute >= from && r.minute <= deadline)
+        .copied()
+        .collect()
 }
 
 fn is_idle(config: &Config, style: &str) -> bool {
@@ -295,8 +305,9 @@ fn judge_target(config: &Config, target: &Target, runs: &[Run], defs: &Defs) -> 
             _ => target.bar,
         };
         let deadline = target.metric.deadline(&bar, rec, defs);
-        let sim = flags_of(rec, FlagClass::SimLock, deadline, idle_style);
-        let gap = flags_of(rec, FlagClass::HarnessGap, deadline, idle_style);
+        let from = target.metric.flags_from(rec);
+        let sim = flags_of(rec, FlagClass::SimLock, from, deadline, idle_style);
+        let gap = flags_of(rec, FlagClass::HarnessGap, from, deadline, idle_style);
         let reading = target.metric.read(rec, defs);
 
         let (bucket, flags) = if !sim.is_empty() {
@@ -393,8 +404,10 @@ fn judge_pair(config: &Config, pair: &Pair, runs: &[Run], defs: &Defs) -> PairVe
         runs.iter()
             .filter(|r| r.style == style && r.preset == preset)
             .filter(|r| {
-                let sim = flags_of(&r.record, FlagClass::SimLock, r.record.minutes, idle_style);
-                let gap = flags_of(&r.record, FlagClass::HarnessGap, r.record.minutes, idle_style);
+                let sim =
+                    flags_of(&r.record, FlagClass::SimLock, 0.0, r.record.minutes, idle_style);
+                let gap =
+                    flags_of(&r.record, FlagClass::HarnessGap, 0.0, r.record.minutes, idle_style);
                 sim.is_empty() && gap.is_empty()
             })
             .filter_map(|r| {
@@ -444,8 +457,10 @@ fn judge_fork(config: &Config, fork: &Fork, runs: &[Run], defs: &Defs) -> ForkVe
         runs.iter()
             .filter(|r| r.style == style && r.preset == preset)
             .filter(|r| {
-                let sim = flags_of(&r.record, FlagClass::SimLock, r.record.minutes, idle_style);
-                let gap = flags_of(&r.record, FlagClass::HarnessGap, r.record.minutes, idle_style);
+                let sim =
+                    flags_of(&r.record, FlagClass::SimLock, 0.0, r.record.minutes, idle_style);
+                let gap =
+                    flags_of(&r.record, FlagClass::HarnessGap, 0.0, r.record.minutes, idle_style);
                 sim.is_empty() && gap.is_empty()
             })
             .filter_map(|r| {

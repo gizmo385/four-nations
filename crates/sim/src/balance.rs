@@ -34,7 +34,8 @@ mod site;
 pub use autopsy::Autopsy;
 pub use probe::{Detectors, Flag, FlagClass, Occupation, Probe, Raised, Sample, Watch};
 pub use record::{
-    CareSummary, Minute, RunRecord, RunSpec, SCHOOL_TALLIES, run as run_record, run_observed,
+    CareSummary, FUSION_TALLIES, Minute, RunRecord, RunSpec, SCHOOL_TALLIES, run as run_record,
+    run_observed,
 };
 pub use site::{BORE_LIMIT, OPEN_RADIUS, SiteProfile};
 
@@ -250,6 +251,19 @@ pub struct EconomySeason {
     pub scrolls_copied: u32,
     pub food_per_head: f32,
     pub population: u32,
+    /// Residents by `Nation::index` of their own nation, the home nation included (`World::facts`,
+    /// `residents_at.M`, #764). Absent from a record written before it existed.
+    #[serde(default)]
+    pub residents: [u16; 4],
+    /// Knowledge points earned so far: the cost of every tech learned (a borrowed one at its
+    /// borrowed cost) plus what the pool holds, so the difference of two rows over their minutes
+    /// is the city's research rate (#752). Absent from a record written before it existed.
+    #[serde(default)]
+    pub research_points: u32,
+    /// The mean chi of the settlers as a share of the meter, 0 to 1 (#752's chi use: the lower,
+    /// the more is spent). Absent from a record written before it existed.
+    #[serde(default)]
+    pub chi_mean: f32,
     /// Ids of every sign met by this point, in `data/endeavor.toml`'s order.
     pub signs_met: Vec<String>,
 }
@@ -488,8 +502,34 @@ fn economy_season(
             0.0
         },
         population,
+        residents: world.facts().residents,
+        research_points: research_points(world, defs),
+        chi_mean: chi_mean(world, defs),
         signs_met,
     }
+}
+
+/// Knowledge points the settlement has earned so far (`EconomySeason::research_points`): what
+/// every learned tech cost it, the difficulty preset's `research_cost` and a borrowed tech's
+/// `borrow_cost` included, plus the pool.
+fn research_points(world: &World, defs: &Defs) -> u32 {
+    let scale = f64::from(world.knobs(defs).research_cost);
+    let spent: f64 = world
+        .research()
+        .known_techs()
+        .filter(|&t| !defs.nation(world.nation).starting_techs.contains(&t))
+        .map(|t| f64::from(defs.tech(t).cost_for(world.nation, defs.research.borrow_cost)) * scale)
+        .sum();
+    (spent + world.research().pool_millis() as f64 / 1000.0).round() as u32
+}
+
+/// The mean chi of the settlers as a share of the meter (`EconomySeason::chi_mean`); 0 with no
+/// settlers.
+fn chi_mean(world: &World, defs: &Defs) -> f32 {
+    let (sum, n) = world.residents().fold((0.0_f32, 0_u32), |(sum, n), u| {
+        (sum + (u.chi / defs.chi.max).clamp(0.0, 1.0), n + 1)
+    });
+    if n > 0 { sum / n as f32 } else { 0.0 }
 }
 
 /// Which `autoplay` opening a [`ParPrelude`] runs: the same two a scenario's prelude can name

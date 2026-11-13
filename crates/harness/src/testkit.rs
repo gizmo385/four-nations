@@ -72,6 +72,7 @@ pub fn record(nation: Nation, seed: u64) -> RunRecord {
         gate_stood: false,
         school_tallies: Vec::new(),
         teachings: Default::default(),
+        fusion_tallies: Vec::new(),
     }
 }
 
@@ -99,4 +100,9 @@ pub fn panel(
         }
     }
     runs
+}
+
+/// A decision event at `minute`.
+pub fn event(minute: f32, label: &str) -> fn_sim::balance::DecisionEvent {
+    fn_sim::balance::DecisionEvent { minute, label: label.to_owned() }
 }
