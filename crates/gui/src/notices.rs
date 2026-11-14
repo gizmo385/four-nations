@@ -16,7 +16,7 @@ use eframe::egui::{
 use fn_tui::color::Palette;
 use fn_ui::alerts::Kind;
 use fn_ui::app::App;
-use fn_ui::notice::{Notice, NoticeAction};
+use fn_ui::notice::{Notice, NoticeAction, Notices};
 
 use crate::cells::Metrics;
 use crate::color::to_egui;
@@ -49,18 +49,17 @@ pub fn apply(app: &mut App, clicks: &[Click]) {
     }
 }
 
-/// Draws the notices over the map in `area` and returns what was clicked. With `live` false (a
+/// Draws `notices` over the map in `area` and returns what was clicked. With `live` false (a
 /// box is open over the window) they show but take no click.
 pub fn show(
     ctx: &egui::Context,
     area: Rect,
-    app: &App,
+    notices: &Notices,
     palette: &Palette,
     metrics: &Metrics,
     live: bool,
 ) -> Vec<Click> {
     let mut clicks = Vec::new();
-    let notices = app.ui.alerts.notices();
     if !notices.any() {
         return clicks;
     }

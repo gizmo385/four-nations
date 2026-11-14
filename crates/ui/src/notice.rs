@@ -239,6 +239,18 @@ impl Notices {
     pub fn dismiss_newest(&mut self) -> bool {
         self.items.pop().is_some()
     }
+
+    /// The newest notice's id, if any is up. Ids only grow, so every notice up has one at most
+    /// this.
+    pub fn newest_id(&self) -> Option<u64> {
+        self.items.last().map(|n| n.id)
+    }
+
+    /// Takes down every notice with an id of at most `id`: the ones up when [`Self::newest_id`]
+    /// said `id`.
+    pub fn dismiss_through(&mut self, id: u64) {
+        self.items.retain(|n| n.id > id);
+    }
 }
 
 #[cfg(test)]
