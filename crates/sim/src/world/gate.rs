@@ -218,14 +218,14 @@ impl World {
         matches!(&self.endeavor, EndeavorState::Building(g) if g.anchor == anchor)
     }
 
-    fn gate(&self) -> Option<&GateSite> {
+    pub(super) fn gate(&self) -> Option<&GateSite> {
         match &self.endeavor {
             EndeavorState::Building(g) => Some(g),
             _ => None,
         }
     }
 
-    fn gate_mut(&mut self) -> Option<&mut GateSite> {
+    pub(super) fn gate_mut(&mut self) -> Option<&mut GateSite> {
         match &mut self.endeavor {
             EndeavorState::Building(g) => Some(g),
             _ => None,
@@ -395,6 +395,29 @@ impl World {
         let (_, stage) = defs.endeavor.stage(&g.stage)?;
         let state = g.tasks.get(usize::from(task)).filter(|t| !t.done)?;
         Some((task_def(stage, state)?, g.anchor))
+    }
+
+    /// The chi the Avatar keeps back for the gate (#1011): the most that any undone task of the
+    /// current stage costs, among those only he can do here (an Avatar task, or a nation's task
+    /// with no living settler of that nation). 0 with no stage under way. `unit_can_bend` holds
+    /// it back from his other bends, so a governor that keeps designating bends only he can
+    /// cast can't drain the chi a pillar or the beam lift needs.
+    pub(super) fn avatar_chi_reserve(&self, defs: &Defs) -> f32 {
+        let (Some((_, stage)), Some(g)) = (self.gate_stage(defs), self.gate()) else {
+            return 0.0;
+        };
+        g.tasks
+            .iter()
+            .filter(|t| !t.done)
+            .filter_map(|t| task_def(stage, t))
+            .filter(|d| match d.element {
+                TaskWho::Avatar => true,
+                TaskWho::Nation(n) => {
+                    !self.units.iter().any(|u| u.is_settler() && self.nation_of(u) == n)
+                }
+            })
+            .map(|d| d.chi)
+            .fold(0.0, f32::max)
     }
 
     /// Whether unit `i` may take `task`: it is allowed to (its own nation, or the Avatar for any

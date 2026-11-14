@@ -769,7 +769,8 @@ impl World {
     }
 
     /// Whether unit `i` may take a bend job for `ability` right now: its chi covers the cost
-    /// (a master's own discount, #360), `can_cast` allows it, and (Inner Fire's restoke rule,
+    /// (a master's own discount, #360) and, for the Avatar, still leaves the chi the gate's
+    /// next task needs from him (`avatar_chi_reserve`, #1011), `can_cast` allows it, and (Inner Fire's restoke rule,
     /// #359) its own aura, if it has one from a prior cast, isn't still too fresh to recast. The
     /// aura check is per-unit because the aura belongs to a unit, not a tile (`validate_effect`'s
     /// `HeatAura` arm is the settlement-wide feasibility half of the same rule).
@@ -780,7 +781,9 @@ impl World {
         if u.is_beast() {
             return self.beast_bend(u, defs).is_some_and(|(own, _)| own == ability);
         }
-        u.chi >= self.chi_cost(u, def, defs)
+        // The Avatar keeps back what the gate's next task needs from him (#1011).
+        let reserve = if u.is_avatar() { self.avatar_chi_reserve(defs) } else { 0.0 };
+        u.chi >= self.chi_cost(u, def, defs) + reserve
             && self.can_cast(u, ability, defs)
             && self.unit_can_restoke(u.id, def)
     }
