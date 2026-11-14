@@ -70,6 +70,8 @@ severe = ["starving", "parched", "exhausted", "dying"]
 # right and it moves into the gate profile itself.
 [profile.flourishing.flourish]
 cap = 0.15
+# From the 2026-11-13 water-7h ledgers, rescored: runs that reached Ready completed 6 to 20
+# caravan deals and gained 13 to 30 newcomers before the horizon, so 4 of each filled at once.
 research = 6
-trade = 4
-newcomers = 4
+trade = 16
+newcomers = 20
