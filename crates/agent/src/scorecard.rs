@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 
 use fn_tui::scenario;
 pub use fn_tui::surface::referee::TurnSample;
-use fn_tui::surface::referee::score::{DEFAULT_PROFILE, MilestoneKind, ScoreDef};
+use fn_tui::surface::referee::score::{DEFAULT_PROFILE, FlourishMeasure, MilestoneKind, ScoreDef};
 use fn_tui::surface::referee::{self, MILD_WORDS, Replay};
 use fn_tui::surface::{LogLine, RunLogHeader};
 use serde_json::{Value, json};
@@ -58,13 +58,20 @@ pub fn profile_name() -> String {
         .map_or_else(|| DEFAULT_PROFILE.to_owned(), |v| v.trim().to_owned())
 }
 
-/// What a cache key adds for this process's profile: nothing for the default (so keys from
-/// before profiles still match), else `-score<name>`.
+/// What a cache key adds for the score data this process scores with: `-score` and a hash of
+/// its profile (name and every weight). A par is a score, so a cached one is only good for the
+/// weights it was scored under, and a build id alone doesn't say: CI pins one build id for every
+/// commit, and a weight can change without the code that reads it changing.
 pub fn profile_key_suffix() -> String {
-    match profile_name() {
-        p if p == DEFAULT_PROFILE => String::new(),
-        p => format!("-score{p}"),
-    }
+    format!("-score{:016x}", score_hash(&active_def()))
+}
+
+/// FNV-1a over `def`'s `Debug` text: stable across runs and builds (std's hasher is free to
+/// change), and different for any change of profile or weight.
+fn score_hash(def: &ScoreDef) -> u64 {
+    format!("{def:?}")
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
 /// The score data this process scores with: the bundled `data/score.toml`'s [`profile_name`]
@@ -95,6 +102,7 @@ pub fn compute_par(header: &RunLogHeader, horizon: u32) -> Result<Par, String> {
                 MilestoneKind::Sign => "sign",
                 MilestoneKind::Ready => "ready",
                 MilestoneKind::Stage => "stage",
+                MilestoneKind::Avatar => "avatar",
             }
             .to_owned(),
             met_turn: m.first_met.map(|t| run.turn_of(t)),
@@ -325,9 +333,10 @@ impl Report {
 
         let par =
             self.par.as_ref().map_or(String::new(), |p| format!("        par {:.0}", p.score));
+        let bonus = card.flourish.as_ref().map_or(String::new(), |f| format!(" + {:.3}", f.bonus));
         let _ = writeln!(
             out,
-            "SCORE {:.0}        progress {:.3} \u{d7} care {:.2}{par}\n",
+            "SCORE {:.0}        progress {:.3}{bonus} \u{d7} care {:.2}{par}\n",
             card.score, card.progress, card.care.value
         );
 
@@ -356,8 +365,11 @@ impl Report {
         for m in rows {
             let mark = if m.first_met.is_some() && m.met_now { '+' } else { ' ' };
             let met = m.first_met.map_or(String::new(), |t| format!("t{}", r.turn_of(t)));
+            let tasks_done = m.tasks.iter().filter(|t| t.done.is_some()).count();
             let at = if m.kind == MilestoneKind::Sign {
                 format!("{}/{}", m.value, m.target)
+            } else if !m.tasks.is_empty() && m.first_met.is_none() {
+                format!("{tasks_done}/{} tasks", m.tasks.len())
             } else {
                 String::new()
             };
@@ -369,6 +381,16 @@ impl Report {
                 }
                 (MilestoneKind::Sign, false) if !m.met_now && short == 1 => "one short".to_owned(),
                 (MilestoneKind::Sign, false) if !m.met_now => format!("{short} short"),
+                // A stage under way: the tasks still to do (#1009).
+                (MilestoneKind::Stage, _) if m.first_met.is_none() && tasks_done > 0 => {
+                    let left: Vec<&str> = m
+                        .tasks
+                        .iter()
+                        .filter(|t| t.done.is_none())
+                        .map(|t| t.name.as_str())
+                        .collect();
+                    format!("to do: {}", left.join(", "))
+                }
                 _ => String::new(),
             };
             let par_cell = if par_col { format!("  {:>7}", par_met(&m.id)) } else { String::new() };
@@ -386,6 +408,19 @@ impl Report {
             card.credit_total,
             fmt_weight(card.weight_total)
         );
+
+        // FLOURISHING (#1010): only with a profile that has it.
+        if let Some(f) = &card.flourish {
+            let rows: Vec<String> =
+                f.rows.iter().map(|(m, n, target)| format!("{} {n}/{target}", m.id())).collect();
+            let _ = writeln!(
+                out,
+                "FLOURISHING after Ready  +{:.3} of {:.2}  {}\n",
+                f.bonus,
+                f.cap,
+                rows.join(" \u{b7} ")
+            );
+        }
 
         // PAR.
         if let Some(p) = &self.par {
@@ -526,6 +561,7 @@ impl Report {
                         MilestoneKind::Sign => "sign",
                         MilestoneKind::Ready => "ready",
                         MilestoneKind::Stage => "stage",
+                        MilestoneKind::Avatar => "avatar",
                     },
                     "name": m.name,
                     "met_turn": m.first_met.map(|t| r.turn_of(t)),
@@ -535,6 +571,11 @@ impl Report {
                     "slipped": m.slipped,
                     "weight": m.weight,
                     "credit": m.credit,
+                    "tasks": m.tasks.iter().map(|t| json!({
+                        "id": t.id,
+                        "name": t.name,
+                        "done_turn": t.done.map(|d| r.turn_of(d)),
+                    })).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -595,6 +636,14 @@ impl Report {
             "score": card.score,
             "profile": profile_name(),
             "progress": card.progress,
+            "flourish": card.flourish.as_ref().map(|f| json!({
+                "cap": f.cap,
+                "value": f.value,
+                "bonus": f.bonus,
+                "measures": f.rows.iter().map(|(m, n, target)| json!({
+                    "id": m.id(), "count": n, "target": target,
+                })).collect::<Vec<_>>(),
+            })),
             "care": c.value,
             "par": self.par.as_ref().map(|p| p.score),
             "par_detail": self.par.as_ref().map(|p| json!({
@@ -707,21 +756,58 @@ pub fn score_rule(def: &ScoreDef) -> String {
             .collect();
         let _ = write!(out, " unless noted ({}).", notes.join("; "));
     }
+    if p.avatar_arrival > 0.0 {
+        let _ = write!(
+            out,
+            " The Avatar's arrival is a milestone too, weighing {}.",
+            rule_num(p.avatar_arrival)
+        );
+    }
     let _ = write!(
         out,
         " A milestone first reached at the very start earns full credit and one first reached at \
          the end of the run earns {} of it, falling in a straight line between, so sooner is \
          better. A sign not met at the end (never met, or met and since lost) earns {} of its \
-         progress toward its target. Care multiplies progress. It starts at 1 and loses {} per \
+         progress toward its target.{} Care multiplies progress. It starts at 1 and loses {} per \
          death, {} per close call (a settler's health dipping dangerously low and recovering, or \
          the Avatar leaving), and {} times the share of settler-time that anyone spends {}. So a \
-         death or lasting suffering costs score however far the settlement gets.",
+         death or lasting suffering costs score however far the settlement gets.{}",
         rule_pct(p.late_credit),
         rule_pct(p.partial_credit),
+        if p.task_credit > 0.0 {
+            format!(
+                " A stage not yet done earns {} of its tasks' credit (a task done earns as a \
+                 milestone would; one not done earns nothing), so each pillar raised counts.",
+                rule_pct(p.task_credit)
+            )
+        } else {
+            String::new()
+        },
         rule_num(c.death),
         rule_num(c.close_call),
         rule_num(c.suffering),
         rule_list(c.severe.iter().map(|f| f.name().to_lowercase())),
+        def.flourish.as_ref().map_or(String::new(), |f| {
+            let measures: Vec<String> = f
+                .measures
+                .iter()
+                .map(|(m, target)| {
+                    let what = match m {
+                        FlourishMeasure::Research => "techs learned",
+                        FlourishMeasure::Trade => "caravan deals and requests completed",
+                        FlourishMeasure::Newcomers => "newcomers who join",
+                    };
+                    format!("{target} {what}")
+                })
+                .collect();
+            format!(
+                " Once Ready, progress gains a bonus of up to {} for what the settlement does \
+                 from then on, split evenly between {}, each share earned in full at that count. \
+                 Nothing before Ready counts.",
+                rule_num(f.cap),
+                rule_list(measures.into_iter())
+            )
+        }),
     );
     out
 }
@@ -754,6 +840,19 @@ fn rule_list(items: impl Iterator<Item = String>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A cached par is keyed by the score data it was scored under (#1009's CI: one pinned build
+    /// id kept a par scored under the old weights): another profile or weight is another key.
+    #[test]
+    fn the_score_hash_follows_the_profile_and_every_weight() {
+        let gate = ScoreDef::bundled();
+        assert_eq!(score_hash(&gate), score_hash(&ScoreDef::bundled()), "stable");
+        let other = ScoreDef::bundled_profile("flourishing").unwrap();
+        assert_ne!(score_hash(&gate), score_hash(&other));
+        let mut nudged = gate.clone();
+        nudged.progress.task_credit += 0.01;
+        assert_ne!(score_hash(&gate), score_hash(&nudged));
+    }
 
     #[test]
     fn score_rule_states_the_bundled_weights() {

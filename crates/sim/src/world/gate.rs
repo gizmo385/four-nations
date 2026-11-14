@@ -218,14 +218,14 @@ impl World {
         matches!(&self.endeavor, EndeavorState::Building(g) if g.anchor == anchor)
     }
 
-    fn gate(&self) -> Option<&GateSite> {
+    pub(super) fn gate(&self) -> Option<&GateSite> {
         match &self.endeavor {
             EndeavorState::Building(g) => Some(g),
             _ => None,
         }
     }
 
-    fn gate_mut(&mut self) -> Option<&mut GateSite> {
+    pub(super) fn gate_mut(&mut self) -> Option<&mut GateSite> {
         match &mut self.endeavor {
             EndeavorState::Building(g) => Some(g),
             _ => None,
@@ -357,6 +357,25 @@ impl World {
         true
     }
 
+    /// Starts stage `id` of a gate under way at once, skipping the stages before it unplayed (no
+    /// `StageDone` for them, as `complete_endeavor` skips them), and returns whether it did: not
+    /// without a site, nor for a stage that isn't later than the current one. A debug and test
+    /// aid (#1012), for a frontend's view of a stage that a test can't afford to play up to.
+    pub fn skip_to_gate_stage(&mut self, id: &str, defs: &Defs) -> bool {
+        let (Some((now, _)), Some(anchor)) = (self.gate_stage(defs), self.gate().map(|g| g.anchor))
+        else {
+            return false;
+        };
+        let Some((n, stage)) = defs.endeavor.stage(id) else { return false };
+        if n <= now {
+            return false;
+        }
+        self.drop_gate_jobs(anchor);
+        self.gate_mut().expect("checked above").begin(stage);
+        self.gate_progressed(defs);
+        true
+    }
+
     /// Withdraws the site, if no work on it has started: materials delivered drop beside it and
     /// the endeavor is Ready again.
     pub(super) fn cancel_endeavor(&mut self, defs: &Defs) -> Result<(), EndeavorError> {
@@ -395,6 +414,29 @@ impl World {
         let (_, stage) = defs.endeavor.stage(&g.stage)?;
         let state = g.tasks.get(usize::from(task)).filter(|t| !t.done)?;
         Some((task_def(stage, state)?, g.anchor))
+    }
+
+    /// The chi the Avatar keeps back for the gate (#1011): the most that any undone task of the
+    /// current stage costs, among those only he can do here (an Avatar task, or a nation's task
+    /// with no living settler of that nation). 0 with no stage under way. `unit_can_bend` holds
+    /// it back from his other bends, so a governor that keeps designating bends only he can
+    /// cast can't drain the chi a pillar or the beam lift needs.
+    pub(super) fn avatar_chi_reserve(&self, defs: &Defs) -> f32 {
+        let (Some((_, stage)), Some(g)) = (self.gate_stage(defs), self.gate()) else {
+            return 0.0;
+        };
+        g.tasks
+            .iter()
+            .filter(|t| !t.done)
+            .filter_map(|t| task_def(stage, t))
+            .filter(|d| match d.element {
+                TaskWho::Avatar => true,
+                TaskWho::Nation(n) => {
+                    !self.units.iter().any(|u| u.is_settler() && self.nation_of(u) == n)
+                }
+            })
+            .map(|d| d.chi)
+            .fold(0.0, f32::max)
     }
 
     /// Whether unit `i` may take `task`: it is allowed to (its own nation, or the Avatar for any
@@ -624,7 +666,10 @@ impl World {
         u.chi = (u.chi - def.chi).max(0.0);
         u.bends += 1;
         self.note_rank_up(i, defs);
-        self.gate_mut().expect("checked above").tasks[usize::from(task)].done = true;
+        let state = &mut self.gate_mut().expect("checked above").tasks[usize::from(task)];
+        state.done = true;
+        let task_id = state.id.clone();
+        self.endeavor_event(EndeavorEventKind::TaskDone(task_id));
         self.gate_progressed(defs);
     }
 }

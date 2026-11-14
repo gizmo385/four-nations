@@ -243,3 +243,86 @@ fn he_skips_fish() {
         None => assert!(matches!(w.avatar, AvatarState::Away { .. })),
     }
 }
+
+/// `defs_with_avatar`, whose last stage's task is `element`'s and costs `chi` (#1011).
+fn defs_with_task(element: &str, chi: f32) -> Defs {
+    Defs::bundled()
+        .with_endeavor(&format!(
+            "[endeavor]\nname = \"Gate\"\nbuilding = \"harmony_gate\"\n\
+             [[stage]]\nid = \"foundation\"\nname = \"F\"\n\
+             cost = [{{ item = \"stone\", count = 4 }}]\nwork = 2.0\n\
+             [[stage]]\nid = \"pillars\"\nname = \"P\"\nwork = 1000000.0\n\
+             [[stage.task]]\nid = \"t\"\nname = \"T\"\nelement = \"{element}\"\n\
+             chi = {chi:.1}\nwork = 1.0\n{AVATAR}"
+        ))
+        .expect("test data is valid")
+}
+
+#[test]
+fn he_keeps_the_chi_a_task_only_he_can_do_needs() {
+    let raise_earth = Defs::bundled().ability_id("raise_earth").unwrap();
+    let cost = Defs::bundled().ability(raise_earth).chi;
+    // (task's element, the world's nation, whether he must keep the task's chi back)
+    for (element, nation, keeps) in [
+        ("avatar", Nation::Fire, true),
+        ("earth", Nation::Fire, true),
+        ("earth", Nation::Earth, false),
+    ] {
+        let defs = defs_with_task(element, 100.0);
+        let mut w = world(nation, 1, &defs);
+        begin(&mut w, &defs);
+        run_until(&mut w, &defs, 5_000, |w| avatar_unit(w).is_some());
+        let i = w.units.iter().position(Unit::is_avatar).unwrap();
+        let reserve = if keeps { 100.0 } else { 0.0 };
+        assert_eq!(w.avatar_chi_reserve(&defs), reserve, "{element} task, {nation:?} world");
+        w.units[i].chi = cost + reserve - 1.0;
+        assert!(!w.unit_can_bend(i, raise_earth, &defs), "{element}, {nation:?}: below");
+        w.units[i].chi = cost + reserve;
+        assert!(w.unit_can_bend(i, raise_earth, &defs), "{element}, {nation:?}: enough");
+        // Once the task is done, nothing is held back.
+        w.gate_mut().unwrap().tasks[0].done = true;
+        assert_eq!(w.avatar_chi_reserve(&defs), 0.0);
+    }
+}
+
+#[test]
+fn he_never_spends_the_pillars_chi_on_bends_only_he_can_cast() {
+    // A Fire world with an Earth task: only he can raise it. Its stone isn't in stores yet, so
+    // it can't open; a raise_earth is designated meanwhile.
+    let defs = Defs::bundled()
+        .with_endeavor(&format!(
+            "[endeavor]\nname = \"Gate\"\nbuilding = \"harmony_gate\"\n\
+             [[stage]]\nid = \"foundation\"\nname = \"F\"\n\
+             cost = [{{ item = \"stone\", count = 4 }}]\nwork = 2.0\n\
+             [[stage]]\nid = \"pillars\"\nname = \"P\"\nwork = 2.0\n\
+             [[stage.task]]\nid = \"earth_pillar\"\nname = \"E\"\nelement = \"earth\"\n\
+             cost = [{{ item = \"stone\", count = 60 }}]\nchi = 100.0\nwork = 1.0\n\
+             [[stage]]\nid = \"arch\"\nname = \"A\"\nwork = 1000000.0\n{AVATAR}"
+        ))
+        .expect("test data is valid");
+    let mut w = world(Nation::Fire, 1, &defs);
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 5_000, |w| avatar_unit(w).is_some());
+    let river = at(5, 2);
+    w.map[river].terrain = Terrain::River;
+    w.map_changed();
+    let raise_earth = defs.ability_id("raise_earth").unwrap();
+    w.apply(Command::Bend { ability: raise_earth, pos: river }, &defs).expect("designated");
+    let i = w.units.iter().position(Unit::is_avatar).unwrap();
+    // Enough for the bend alone, not for the bend and the pillar after it.
+    w.units[i].chi = 140.0;
+    for _ in 0..3_000 {
+        let chi = avatar_unit(&w).map_or(200.0, |u| u.chi);
+        assert!(chi >= 100.0, "he spent the pillar's chi: {chi} at tick {}", w.tick);
+        w.tick(&defs);
+    }
+    // His chi came back past 150 and he did cast it, still keeping the pillar's 100.
+    assert_eq!(w.map[river].terrain, Terrain::Ford, "he bends once he can spare it");
+    // The stone comes in, and he raises the pillar.
+    let stone = defs.item_id("stone").unwrap();
+    w.stored.insert(at(2, 8), Stack { item: stone, count: 60 });
+    w.zones.insert(at(2, 8));
+    run_until(&mut w, &defs, 20_000, |w| {
+        w.endeavor_events().any(|e| e.kind == EndeavorEventKind::StageDone("pillars".into()))
+    });
+}

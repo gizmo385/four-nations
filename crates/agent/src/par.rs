@@ -108,7 +108,7 @@ pub fn key(header: &RunLogHeader, horizon: u32) -> String {
         Some(p) => format!("{p:?}"),
         None => "none".to_owned(),
     };
-    // The default profile adds nothing, so caches from before profiles (#1008) still match.
+    // The score data's own hash: a par cached under other weights is another file.
     let profile = crate::scorecard::profile_key_suffix();
     let raw = format!(
         "seed{}-{}-{}-{}-site{site}-prelude{prelude}-turn{}-h{horizon}{profile}",

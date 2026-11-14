@@ -502,7 +502,9 @@ fn plumbing_docs() -> &'static [(&'static str, &'static str)] {
              names are what designate's ability field takes. Once the Harmony Gate stands, \
              screen(\"research\") also has newcomers: [#{title, cards}], the From newcomers \
              page (a column per other nation, then FUSIONS), whose techs the research step \
-             sets by name.",
+             sets by name. While a gate stage with tasks is under way, screen(\"endeavor\") has \
+             tasks: [#{name, who, materials, chi, done, status}], each pillar (or the beam \
+             lift) with materials delivered of its cost and where it stands.",
         ),
         (
             "can_build",

@@ -65,6 +65,10 @@ pub enum EndeavorEventKind {
     Ready,
     /// The stage with this id was finished (`gate.rs`).
     StageDone(String),
+    /// The stage task with this id (unique across every stage) was finished: its bend is done
+    /// (`gate.rs`, #1009). Once per task. The score credits a stage's done tasks before the stage
+    /// itself is done.
+    TaskDone(String),
     /// The Avatar landed on Appa (`world/avatar.rs`, #237).
     AvatarArrived,
     /// The Avatar left, unfed or exhausted, for the reason given.

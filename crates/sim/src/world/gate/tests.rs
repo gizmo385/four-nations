@@ -178,6 +178,15 @@ fn an_earth_settlement_raises_its_own_pillar_but_not_the_fire_one() {
     assert_eq!(job.claimed_by, None);
     assert_eq!(stage_id(&w), Some("pillars"), "the stage waits for the Fire pillar");
     assert!(stages_done(&w) == ["base"]);
+    // The Earth pillar is logged once, as its own event (#1009); the Fire pillar isn't.
+    let tasks: Vec<&str> = w
+        .endeavor_events()
+        .filter_map(|e| match &e.kind {
+            EndeavorEventKind::TaskDone(id) => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tasks, ["earth_pillar"]);
 }
 
 #[test]
@@ -489,4 +498,22 @@ fn the_dev_hook_is_deterministic() {
         w.buildings().map(|b| b.footprint()).collect::<Vec<_>>()
     };
     assert_eq!(stand(), stand());
+}
+
+/// #1012: the debug aid starts a later stage at once, unplayed stages logging nothing, and
+/// refuses one that isn't later.
+#[test]
+fn skip_to_gate_stage_starts_a_later_stage_and_nothing_else() {
+    let defs = earth_and_fire();
+    let mut w = world(Nation::Earth, 2, &defs);
+    assert!(!w.skip_to_gate_stage("pillars", &defs), "no site yet");
+    begin(&mut w, &defs);
+    assert!(!w.skip_to_gate_stage("base", &defs), "not later");
+    assert!(!w.skip_to_gate_stage("nope", &defs));
+    assert!(w.skip_to_gate_stage("pillars", &defs));
+    assert_eq!(stage_id(&w), Some("pillars"));
+    assert!(stages_done(&w).is_empty(), "skipped stages log nothing");
+    let g = w.gate().unwrap();
+    assert!(g.tasks.iter().all(|t| !t.done) && !g.tasks.is_empty());
+    assert!(!w.skip_to_gate_stage("pillars", &defs), "already there");
 }
