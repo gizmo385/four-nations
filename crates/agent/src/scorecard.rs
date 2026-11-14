@@ -58,13 +58,20 @@ pub fn profile_name() -> String {
         .map_or_else(|| DEFAULT_PROFILE.to_owned(), |v| v.trim().to_owned())
 }
 
-/// What a cache key adds for this process's profile: nothing for the default (so keys from
-/// before profiles still match), else `-score<name>`.
+/// What a cache key adds for the score data this process scores with: `-score` and a hash of
+/// its profile (name and every weight). A par is a score, so a cached one is only good for the
+/// weights it was scored under, and a build id alone doesn't say: CI pins one build id for every
+/// commit, and a weight can change without the code that reads it changing.
 pub fn profile_key_suffix() -> String {
-    match profile_name() {
-        p if p == DEFAULT_PROFILE => String::new(),
-        p => format!("-score{p}"),
-    }
+    format!("-score{:016x}", score_hash(&active_def()))
+}
+
+/// FNV-1a over `def`'s `Debug` text: stable across runs and builds (std's hasher is free to
+/// change), and different for any change of profile or weight.
+fn score_hash(def: &ScoreDef) -> u64 {
+    format!("{def:?}")
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
 /// The score data this process scores with: the bundled `data/score.toml`'s [`profile_name`]
@@ -833,6 +840,19 @@ fn rule_list(items: impl Iterator<Item = String>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A cached par is keyed by the score data it was scored under (#1009's CI: one pinned build
+    /// id kept a par scored under the old weights): another profile or weight is another key.
+    #[test]
+    fn the_score_hash_follows_the_profile_and_every_weight() {
+        let gate = ScoreDef::bundled();
+        assert_eq!(score_hash(&gate), score_hash(&ScoreDef::bundled()), "stable");
+        let other = ScoreDef::bundled_profile("flourishing").unwrap();
+        assert_ne!(score_hash(&gate), score_hash(&other));
+        let mut nudged = gate.clone();
+        nudged.progress.task_credit += 0.01;
+        assert_ne!(score_hash(&gate), score_hash(&nudged));
+    }
 
     #[test]
     fn score_rule_states_the_bundled_weights() {

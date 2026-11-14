@@ -331,6 +331,14 @@ pub(crate) fn par_many(
 // Controls, cached per build and tier
 // -------------------------------------------------------------------------------------------
 
+/// What decides the controls' scores besides the build and the run: `data/score.toml` as this
+/// xtask was built with, and the profile `fn_agent` is told to use (`FN_SCORE_PROFILE`, set from
+/// the track before anything is spawned).
+static SCORE_DATA_KEY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let profile = std::env::var(agent_eval::SCORE_PROFILE_ENV).unwrap_or_default();
+    format!("{:016x}:{profile}", fnv(include_str!("../../data/score.toml").as_bytes()))
+});
+
 /// FNV-1a over `bytes`: a stable hash for a file name (std's hasher is free to change).
 fn fnv(bytes: &[u8]) -> u64 {
     bytes
@@ -349,8 +357,11 @@ pub(crate) fn control_path(
     control: &Control,
 ) -> PathBuf {
     let plan = control.strategy.plan.as_ref().map_or(String::new(), Value::to_string);
+    // The score data too: a control's results are scores, so another weight or profile is
+    // another file even on the same build id (CI pins one for every commit).
     let what = format!(
-        "{}|{}|{}|{}|{:?}|{}|{:?}|{}|{}",
+        "{}|{}|{}|{}|{}|{:?}|{}|{:?}|{}|{}",
+        SCORE_DATA_KEY.as_str(),
         track.nation,
         track.difficulty,
         track.map_size,
