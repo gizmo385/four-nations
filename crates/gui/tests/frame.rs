@@ -222,10 +222,11 @@ fn f12_toggles_the_timing_overlay() {
     assert!(!app.frame().overlay);
 }
 
-/// Watching a replay (#996): the side panel's keys and the map's clicks reach nothing. The frame
-/// hands back no keys, and the game the frame shows is left as it was.
+/// Watching a replay (#996): the side panel's clicks come back as keys, for the replay's free
+/// look, but the frame never gives them to the game; the map's clicks press nothing. The game
+/// the frame shows is left as it was.
 #[test]
-fn a_watch_only_frame_takes_no_clicks() {
+fn a_watch_only_frame_hands_clicks_back_and_leaves_the_game() {
     use fn_gui::frame::Frame;
     use fn_tui::color::{ColorDepth, Palette};
 
@@ -254,7 +255,8 @@ fn a_watch_only_frame_takes_no_clicks() {
         h.run_steps(1);
     }
     drop(h);
-    assert!(frame.take_keys().is_empty());
+    let keys = frame.take_keys();
+    assert_eq!(keys.len(), 1, "the [T] button's key, not the map's click: {keys:?}");
     assert_eq!(frame.surface, Some(Surface::Native));
     let fn_tui::shell::Mode::Game(app) = &shell.mode else { unreachable!("a game") };
     assert_eq!((app.ui.cursor, app.session.world.command_log().len()), (cursor, log));

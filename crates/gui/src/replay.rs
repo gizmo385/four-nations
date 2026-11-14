@@ -7,15 +7,21 @@
 //! The agent strip takes the bottom row of the game column or of the pane, as in the terminal.
 //!
 //! - **The game** is [`Frame`] in watch-only mode (#996): the native map, with zoom, pan and
-//!   tooltips, the native side panel and the native pages, none of them taking a click. The
-//!   agent's attention ghost is outlined on the map, and, since the window's camera is its own,
-//!   zooming or panning never moves the agent's cursor; that camera is the free look.
+//!   tooltips, the native side panel and the native pages. The agent's attention ghost is
+//!   outlined on the map, and, since the window's camera is its own, zooming or panning never
+//!   moves the agent's cursor.
+//! - **Free look** (#330) is the terminal watcher's: the game's keys, and the side panel's,
+//!   pages' and notices' clicks, go to the spectator's own view of the game
+//!   ([`Watcher::free_look_key`](fn_tui::watch::Watcher::free_look_key)), never to the game, and
+//!   the window draws that view until `V` (or "Follow agent") goes back to the agent's. A
+//!   notice's close button only hides it from this window, since the agent's notices are part of
+//!   what is replayed.
 //! - **The code pane, the feed and the strip** stay cells (decision #871), painted by
 //!   [`crate::cells`].
 //!
-//! Keys are the watcher's controls only (`Space`, `+`/`-`, `.`, `]`/`}`, `[`/`{`, `>`, `0`-`3`,
-//! and `j`/`k`/`J`/`K` for the code pane); the terminal's free-look keys have the map instead.
-//! Nothing here reads the clock but the frame time.
+//! Keys go as the terminal watcher's do (`fn_tui::watch::control_key`): its controls first
+//! (`Space`, `+`/`-`, `.`, `]`/`}`, `[`/`{`, `>`, `0`-`3`, and `j`/`k`/`J`/`K` for the code
+//! pane), then free look. Nothing here reads the clock but the frame time.
 
 use web_time::Instant;
 
@@ -88,31 +94,11 @@ fn gunzip(bytes: &[u8]) -> Result<Vec<u8>, String> {
     miniz_oxide::inflate::decompress_to_vec_with_limit(body, INFLATE_LIMIT).map_err(|_| bad())
 }
 
-/// Whether `key` is one of the watcher's controls ([`ReplayApp`]'s module note).
-pub fn is_watch_key(key: &KeyEvent) -> bool {
-    matches!(
-        key.code,
-        KeyCode::Char(
-            ' ' | '+'
-                | '='
-                | '-'
-                | '_'
-                | '.'
-                | ']'
-                | '}'
-                | '['
-                | '{'
-                | '>'
-                | '0'
-                | '1'
-                | '2'
-                | '3'
-                | 'j'
-                | 'k'
-                | 'J'
-                | 'K'
-        )
-    )
+/// Whether a click's `key` is one of the replay's pace keys (`Space`, `+`/`-`, `.`): the side
+/// panel's clock buttons press these, and they drive the replay. Any other key a click presses is
+/// free look's, even one that is a watcher control when typed.
+pub fn is_pace_key(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char(' ' | '+' | '=' | '-' | '_' | '.'))
 }
 
 impl ReplayApp {
@@ -199,10 +185,17 @@ impl ReplayApp {
         }
     }
 
-    /// One key: a watcher control goes to the replay; anything else does nothing.
+    /// One typed key, as the terminal watcher takes it: a watcher control, else free look.
     pub fn key(&mut self, key: KeyEvent) {
-        if is_watch_key(&key) {
+        self.replay.key(key);
+    }
+
+    /// One key a click in the game pressed: the clock's go to the replay, the rest to free look.
+    fn click_key(&mut self, key: KeyEvent) {
+        if is_pace_key(&key) {
             self.replay.key(key);
+        } else {
+            self.replay.watcher_mut().free_look_key(key);
         }
     }
 
@@ -321,10 +314,22 @@ impl ReplayApp {
                 Color32::from_rgba_unmultiplied(ATTENTION.r(), ATTENTION.g(), ATTENTION.b(), alpha);
             self.frame.outlines.push(Outline { at: a.at, w: a.w, h: a.h, color });
         }
+        // In free look the agent's cursor is marked, so the watcher can find it again.
+        if !watcher.following() {
+            let at = watcher.agent_cursor();
+            self.frame.outlines.push(Outline { at, w: 1, h: 1, color: ATTENTION });
+        }
         let mut ui = root.new_child(UiBuilder::new().max_rect(rect));
         ui.set_clip_rect(rect.intersect(root.clip_rect()));
-        let palette = &self.palette;
-        self.frame.show(&mut ui, self.replay.watcher_mut().shell_mut(), palette);
+        let (palette, frame) = (&self.palette, &mut self.frame);
+        let watcher = self.replay.watcher_mut();
+        watcher.with_viewed_shell(|shell| frame.show(&mut ui, shell, palette));
+        for key in self.frame.take_keys() {
+            self.click_key(key);
+        }
+        for action in self.frame.take_view_actions() {
+            self.replay.watcher_mut().spectator_notice_action(action);
+        }
     }
 }
 

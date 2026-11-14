@@ -46,7 +46,7 @@ pub fn color(kind: MarkerKind) -> Color32 {
 /// What a click on the controls asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// The watcher key it stands for (`Space`, `+`, `-`, `.`, `]`, `0`-`3`).
+    /// The watcher key it stands for (`Space`, `+`, `-`, `.`, `]`, `0`-`3`, `V`).
     Key(char),
     /// Go to the end of this turn.
     Seek(u32),
@@ -144,6 +144,12 @@ impl Timeline {
             }
             if ui.button("Next turn").on_hover_text("]").clicked() {
                 actions.push(Action::Key(']'));
+            }
+            // Free look (#330) shows the watcher's own view; this goes back to the agent's.
+            if !replay.watcher().following()
+                && ui.button("Follow agent").on_hover_text("V").clicked()
+            {
+                actions.push(Action::Key('v'));
             }
             ui.separator();
             for (key, label) in [('1', "Code"), ('2', "Game"), ('3', "Feed"), ('0', "Studio")] {

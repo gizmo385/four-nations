@@ -624,6 +624,12 @@ impl Watcher {
         })
     }
 
+    /// Where the agent's own cursor is (Free look marks it, as [`Self::render`] does).
+    pub fn agent_cursor(&self) -> fn_sim::Pos {
+        let c = self.app().ui.cursor;
+        fn_sim::Pos::new(c.x, c.y)
+    }
+
     fn app(&self) -> &App {
         match &self.shell.mode {
             Mode::Game(app) => app,
@@ -763,6 +769,36 @@ impl Watcher {
         if crate::spectate::key(&mut self.spectator, session, key) {
             self.follow = false;
         }
+    }
+
+    /// A notice's or toast's button clicked while watching (fn_gui's replay): carried out on
+    /// the spectator's own `UiState`, as [`Self::spectator_key`] does a key, so it switches to
+    /// Free look when it does anything.
+    pub fn spectator_notice_action(&mut self, action: fn_ui::notice::NoticeAction) {
+        let session = match &self.shell.mode {
+            Mode::Game(app) => &app.session,
+            _ => unreachable!("Watcher::new always builds a game"),
+        };
+        if crate::spectate::notice_action(&mut self.spectator, session, action) {
+            self.follow = false;
+        }
+    }
+
+    /// Runs `f` on the shell as the viewer sees it, for a frontend that draws a [`Shell`]
+    /// itself (fn_gui's replay): the agent's own in Follow; in Free look, the same shell with
+    /// [`Self::spectator`]'s `UiState` in the game's place for the call, swapped back after. `f`
+    /// may change that `UiState` (a resize does), never the session.
+    pub fn with_viewed_shell<R>(&mut self, f: impl FnOnce(&mut Shell) -> R) -> R {
+        if self.follow {
+            return f(&mut self.shell);
+        }
+        let Mode::Game(app) = &mut self.shell.mode else { return f(&mut self.shell) };
+        std::mem::swap(&mut app.ui, &mut self.spectator);
+        let out = f(&mut self.shell);
+        if let Mode::Game(app) = &mut self.shell.mode {
+            std::mem::swap(&mut app.ui, &mut self.spectator);
+        }
+        out
     }
 
     /// The agent studio's own keys (docs/design/agent-studio.md "Keys"): `1`/`2`/`3` zoom or tab

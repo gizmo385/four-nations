@@ -15,6 +15,7 @@
 
 use crate::keyev::{KeyCode, KeyEvent};
 use fn_ui::Session;
+use fn_ui::notice::NoticeAction;
 
 use crate::input::{self, Action};
 use crate::state::{Modal, Screen, UiState};
@@ -40,6 +41,12 @@ pub fn key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
         return true;
     }
     let Some(action) = input::map_key(key) else { return false };
+    // `Esc` closes a screen the spectator opened (a page's close button presses it): its own
+    // view only, where elsewhere `Esc` would cancel the agent's tool or selection.
+    if action == Action::Cancel && ui.screen.is_some() {
+        ui.screen = None;
+        return true;
+    }
     if !input::spectator_allowed(action) {
         return false;
     }
@@ -246,6 +253,27 @@ fn scroll_by(ui: &mut UiState, session: &Session, screen: Screen, lines: i32) {
     let now = ui.scroll.min(max) as i64;
     let to = (now + i64::from(lines)).clamp(0, max as i64) as usize;
     ui.scroll = to;
+}
+
+/// A notice's or toast's button (#945), for the spectator's own `ui`, as
+/// `App::do_notice_action` does for the game: jumps to the place, shows the settler, opens the
+/// screen. Does nothing while a screen is open over the map. Returns whether it did anything.
+pub fn notice_action(ui: &mut UiState, session: &Session, action: NoticeAction) -> bool {
+    if ui.screen.is_some() {
+        return false;
+    }
+    match action {
+        NoticeAction::JumpToCaravan(place) | NoticeAction::JumpTo(place) => ui.go_to(place),
+        NoticeAction::SelectSettler(id) => {
+            ui.select_unit(session, id);
+            if let Some(unit) = session.world.unit(id) {
+                ui.go_to(unit.pos);
+            }
+        }
+        NoticeAction::OpenResearch => return open_screen(ui, session, Screen::Research),
+        NoticeAction::OpenTraders => return open_screen(ui, session, Screen::Traders),
+    }
+    true
 }
 
 /// Opens `screen`, or closes it if it is the one already open, as `App::open` does (minus the

@@ -1,10 +1,10 @@
 //! A run log replayed in the window (#997): the watcher's layout, the native game read only,
-//! the code pane, feed and strip as cells, and only the watcher's own keys.
+//! the code pane, feed and strip as cells, the watcher's own keys, and free look.
 
 use eframe::egui::{self, Event};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use fn_gui::frame::Surface;
+use fn_gui::frame::{PageKind, Surface};
 use fn_gui::replay::ReplayApp;
 use fn_sim::Nation;
 use fn_tui::surface::Host;
@@ -71,7 +71,7 @@ fn a_small_window_shows_one_pane_and_the_digits_switch_it() {
 }
 
 #[test]
-fn the_watchers_keys_step_the_replay_and_others_do_nothing() {
+fn the_watchers_keys_step_the_replay_and_others_are_free_look() {
     let mut app = ReplayApp::open(&log(4)).unwrap();
     let mut h = harness(&mut app, STUDIO);
     // Pause first, so frame time plays nothing; `]` then ends one turn at a time.
@@ -79,10 +79,14 @@ fn the_watchers_keys_step_the_replay_and_others_do_nothing() {
     drop(h);
     assert!(app.replay().paused());
     assert_eq!(app.replay().turn(), 2);
-    // A free-look key in the terminal: here the map is the free look, so it is ignored.
+    // Any other key is free look's (#330), as in the terminal: the arrow moves the watcher's
+    // own cursor, and `v` goes back to the agent's view.
     let mut h = harness(&mut app, STUDIO);
     h.key_press(egui::Key::ArrowLeft);
     h.run_steps(2);
+    drop(h);
+    assert!(!app.replay().watcher().following());
+    let mut h = harness(&mut app, STUDIO);
     typed(&mut h, "v");
     drop(h);
     assert!(app.replay().watcher().following());
@@ -214,4 +218,56 @@ fn the_page_opens_the_log_it_is_handed_and_says_why_it_cannot() {
     drop(h);
     assert_eq!(page.app().map(|a| a.replay().total_turns()), Some(2));
     assert_eq!(page.status(), None);
+}
+
+/// The agent's own screen, whatever the window shows.
+fn agents_screen(app: &ReplayApp) -> Option<fn_ui::state::Screen> {
+    match &app.replay().watcher().shell().mode {
+        fn_tui::shell::Mode::Game(game) => game.ui.screen,
+        _ => None,
+    }
+}
+
+#[test]
+fn a_screen_opens_in_free_look_and_never_in_the_agents_view() {
+    let mut app = ReplayApp::open(&log(3)).unwrap();
+    let mut h = harness(&mut app, STUDIO);
+    // `g` is the endeavor screen's key: free look's, so the watcher's own view shows it.
+    typed(&mut h, " g");
+    drop(h);
+    assert!(!app.replay().watcher().following());
+    assert_eq!(app.frame().surface, Some(Surface::Page(PageKind::Endeavor)));
+    assert_eq!(agents_screen(&app), None);
+    // `Esc` (the page's close button) closes it; "Follow agent" goes back to the agent's view.
+    let mut h = harness(&mut app, STUDIO);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.get_by_label("Follow agent").click();
+    h.run_steps(2);
+    drop(h);
+    assert_eq!(app.frame().surface, Some(Surface::Native));
+    assert!(app.replay().watcher().following());
+}
+
+#[test]
+fn closing_a_notice_hides_it_here_and_leaves_the_agents() {
+    let mut app = ReplayApp::open(&research_log(40)).unwrap();
+    let notices = |app: &ReplayApp| match &app.replay().watcher().shell().mode {
+        fn_tui::shell::Mode::Game(game) => game.ui.alerts.notices().shown().count(),
+        _ => 0,
+    };
+    app.replay_mut().seek(40);
+    while app.replay_mut().seek_step() {}
+    assert!(notices(&app) > 0, "the research notice is up");
+    let before = notices(&app);
+    let mut h = harness(&mut app, STUDIO);
+    // Paused, so the replay stands still while the notice is closed.
+    typed(&mut h, " ");
+    let shown = h.query_all_by_label("✕").count();
+    assert!(shown > 0, "a close button");
+    h.get_all_by_label("✕").next().unwrap().click();
+    h.run_steps(2);
+    assert_eq!(h.query_all_by_label("✕").count(), shown - 1);
+    drop(h);
+    assert_eq!(notices(&app), before, "the agent's notice stays up");
 }

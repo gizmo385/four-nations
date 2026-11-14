@@ -372,9 +372,11 @@ the log exactly as the terminal does, so the page needs only the `run.jsonl` (a 
 LOG`.
 
 The terminal watcher's keys work there too (Space, `+`/`-`, `.`, `]`/`}`, `[`/`{`, `>`, `0`-`3`,
-`j`/`k`), with buttons for them and a scrubber over turns. The terminal's free-look keys are
-not used: the map's own camera is the free look, and zooming or panning never moves the agent's
-cursor. Seeking forwards replays a turn at a time between frames; seeking backwards restores the
+`j`/`k`), with buttons for them and a scrubber over turns. Zooming or panning the map never
+moves the agent's cursor. Free look is the terminal's too: the game's other keys, and clicks on
+the side panel, a page or a notice's button, open screens and move the cursor in the watcher's
+own view, never the agent's, and `V` or "Follow agent" goes back. Closing a corner notice only
+hides it from the watcher, since the agent's notices are part of what is replayed. Seeking forwards replays a turn at a time between frames; seeking backwards restores the
 nearest snapshot (one is kept every 20 turns, as the replay first reaches it) and replays from
 there, so it costs at most 20 turns, well under a second. A log made against other data is
 refused with the build it was made on.

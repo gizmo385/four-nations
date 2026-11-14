@@ -37,6 +37,7 @@ use fn_tui::shell::{self, Mode, Shell};
 use fn_tui::{banner, title};
 use fn_ui::app::App;
 use fn_ui::keyev::KeyEvent;
+use fn_ui::notice::{NoticeAction, Notices};
 use fn_ui::state::{BANNER_HEIGHT, Modal, Prompt, Screen, UiState};
 use ratatui::buffer::Buffer;
 
@@ -218,9 +219,19 @@ pub struct Frame {
     /// them. Zero on the desktop.
     pub safe: SafeArea,
     /// Watching, not playing (#996): a replay drives the shell, so the window only looks. The map
-    /// zooms, pans and shows tooltips ([`MapView::read_only`]); the side panel, notices, pages
-    /// and boxes show but take no clicks, and no key leaves [`Frame::take_keys`].
+    /// zooms, pans and shows tooltips ([`MapView::read_only`]). The side panel, pages and boxes
+    /// still take clicks, and their keys still leave [`Frame::take_keys`], but they are the
+    /// watcher's to give to free look (`fn_tui::watch::Watcher::free_look_key`), never the game.
+    /// A notice's close button only hides it from this window, and its
+    /// other buttons wait in [`Frame::take_view_actions`].
     pub watch_only: bool,
+    /// The notices a watcher closed, by id, and every one up to `dismissed_through` ("Dismiss
+    /// all"). The agent's notices are part of what is replayed (its `Enter` answers the top
+    /// one), so watching hides them instead of taking them down.
+    dismissed: Vec<u64>,
+    dismissed_through: u64,
+    /// The notice and toast buttons a watcher clicked, not yet carried out.
+    view_actions: Vec<NoticeAction>,
     /// Outlines a replay draws over the map this frame (the agent's attention, #997); see
     /// [`MapView::outlines`].
     pub outlines: Vec<crate::mapview::Outline>,
@@ -266,11 +277,48 @@ impl Frame {
         std::mem::take(&mut self.keys)
     }
 
+    /// The notice and toast buttons clicked while watching, oldest first ([`Frame::watch_only`]),
+    /// for the replay to carry out in free look.
+    pub fn take_view_actions(&mut self) -> Vec<NoticeAction> {
+        std::mem::take(&mut self.view_actions)
+    }
+
     /// Lays out one frame of `shell` into `root`, the window's root [`Ui`].
     pub fn show(&mut self, root: &mut Ui, shell: &mut Shell, palette: &Palette) {
         self.show_safe(root, shell, palette);
+    }
+
+    /// A notice or toast button: carried out on `app`, or kept for the replay while watching.
+    fn notice_action(&mut self, app: &mut App, action: NoticeAction) {
         if self.watch_only {
-            self.keys.clear();
+            self.view_actions.push(action);
+        } else {
+            app.do_notice_action(action);
+        }
+    }
+
+    /// `notices` less the ones this watcher closed.
+    fn watched_notices(&self, notices: &Notices) -> Notices {
+        let mut shown = notices.clone();
+        shown.dismiss_through(self.dismissed_through);
+        for &id in &self.dismissed {
+            shown.dismiss(id);
+        }
+        shown
+    }
+
+    /// A watcher's clicks on the notices it was shown, whose newest was `newest`.
+    fn watch_notice_clicks(&mut self, clicks: &[notices::Click], newest: Option<u64>) {
+        for click in clicks {
+            match *click {
+                notices::Click::Dismiss(id) => self.dismissed.push(id),
+                notices::Click::DismissAll => {
+                    self.dismissed_through = newest.unwrap_or(0).max(self.dismissed_through);
+                    let through = self.dismissed_through;
+                    self.dismissed.retain(|&id| id > through);
+                }
+                notices::Click::Act(action) => self.view_actions.push(action),
+            }
         }
     }
 
@@ -306,7 +354,7 @@ impl Frame {
         self.modal = modal;
         match (&mut shell.mode, surface) {
             (Mode::Game(app), Surface::Native) => {
-                let live = modal.is_none() && !self.watch_only;
+                let live = modal.is_none();
                 self.show_native(root, app, live, palette, &metrics, (cols, rows));
             }
             (Mode::Title(_), Surface::Title) => {
@@ -524,7 +572,7 @@ impl Frame {
             self.keys.extend(clicks);
             // A toast's button (#945) is carried out at once, as a notice's is below.
             for action in actions.into_iter().filter(|_| live) {
-                app.do_notice_action(action);
+                self.notice_action(app, action);
             }
         }
 
@@ -593,8 +641,18 @@ impl Frame {
                 crate::controls::corner_more(ui.ctx(), map_rect, palette, &mut self.controls);
             }
             // The corner notices (#945), over the map's top right.
-            let notice_clicks = notices::show(ui.ctx(), notices_at, app, palette, metrics, live);
-            if live {
+            let watched;
+            let shown = if self.watch_only {
+                watched = self.watched_notices(app.ui.alerts.notices());
+                &watched
+            } else {
+                app.ui.alerts.notices()
+            };
+            let newest = shown.newest_id();
+            let notice_clicks = notices::show(ui.ctx(), notices_at, shown, palette, metrics, live);
+            if self.watch_only {
+                self.watch_notice_clicks(&notice_clicks, newest);
+            } else if live {
                 notices::apply(app, &notice_clicks);
             }
         });
@@ -659,7 +717,7 @@ impl Frame {
         );
         self.keys.extend(clicks);
         for action in actions.into_iter().filter(|_| live) {
-            app.do_notice_action(action);
+            self.notice_action(app, action);
         }
         if close {
             self.controls.drawer_open = false;
