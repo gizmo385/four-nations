@@ -40,7 +40,7 @@
 use serde::Deserialize;
 
 use crate::defs::Defs;
-use crate::world::{CareTally, EndeavorEventKind, Severe, World};
+use crate::world::{CaravanEventKind, CareTally, EndeavorEventKind, Severe, World};
 
 /// What a perfect run (all milestones, care 1.0) scores.
 pub const SCORE_SCALE: f64 = 1000.0;
@@ -76,6 +76,42 @@ pub struct ScoreDef {
     pub profile: String,
     pub progress: ProgressDef,
     pub care: CareDef,
+    /// `[flourish]` (#1010): `None` when the profile has none, or its cap is 0.
+    pub flourish: Option<FlourishDef>,
+}
+
+/// `[flourish]` (#1010): what a run does after Ready, as a capped bonus on progress.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FlourishDef {
+    /// The most the bonus adds to progress, in 0..=1.
+    pub cap: f64,
+    /// Each measure with its target: the count after Ready that earns it in full. A measure with
+    /// target 0 is left out.
+    pub measures: Vec<(FlourishMeasure, u32)>,
+}
+
+/// What `[flourish]` counts, from the Ready tick to the horizon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlourishMeasure {
+    /// Techs learned (`World::tech_completions`).
+    Research,
+    /// Caravan deals and requests completed (`World::caravan_events`).
+    Trade,
+    /// Newcomers who joined (`World::arrivals`).
+    Newcomers,
+}
+
+impl FlourishMeasure {
+    pub const ALL: [Self; 3] = [Self::Research, Self::Trade, Self::Newcomers];
+
+    /// Its key in `[flourish]`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Research => "research",
+            Self::Trade => "trade",
+            Self::Newcomers => "newcomers",
+        }
+    }
 }
 
 /// `[progress]`.
@@ -114,6 +150,20 @@ pub struct CareDef {
 struct ScoreFile {
     progress: ProgressFile,
     care: CareFile,
+    #[serde(default)]
+    flourish: Option<FlourishFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FlourishFile {
+    cap: f64,
+    #[serde(default)]
+    research: u32,
+    #[serde(default)]
+    trade: u32,
+    #[serde(default)]
+    newcomers: u32,
 }
 
 /// The file's raw tables, before a profile is picked: the base sections and the overrides.
@@ -225,6 +275,28 @@ impl ScoreDef {
             _ => ScoreError(format!("score.toml [profile.{name}]: {e}")),
         })?;
         let (p, c) = (file.progress, file.care);
+        let flourish = match file.flourish {
+            None => None,
+            Some(f) => {
+                if !(f.cap.is_finite() && (0.0..=1.0).contains(&f.cap)) {
+                    return Err(ScoreError(format!("[flourish] cap = {} must be in 0..=1", f.cap)));
+                }
+                let measures: Vec<(FlourishMeasure, u32)> = [
+                    (FlourishMeasure::Research, f.research),
+                    (FlourishMeasure::Trade, f.trade),
+                    (FlourishMeasure::Newcomers, f.newcomers),
+                ]
+                .into_iter()
+                .filter(|&(_, target)| target > 0)
+                .collect();
+                if f.cap > 0.0 && measures.is_empty() {
+                    return Err(ScoreError(
+                        "[flourish] has a cap but no measure with a target above 0".to_owned(),
+                    ));
+                }
+                (f.cap > 0.0).then_some(FlourishDef { cap: f.cap, measures })
+            }
+        };
         let unit = |name: &str, v: f64| {
             if v.is_finite() && (0.0..=1.0).contains(&v) {
                 Ok(v)
@@ -271,6 +343,7 @@ impl ScoreDef {
         }
         Ok(Self {
             profile: name.to_owned(),
+            flourish,
             progress: ProgressDef {
                 late_credit: unit("late_credit", p.late_credit)?,
                 partial_credit: unit("partial_credit", p.partial_credit)?,
@@ -426,6 +499,19 @@ pub struct CareScore {
     pub severe_minutes: Vec<(Severe, f64)>,
 }
 
+/// The flourishing bonus (#1010): what the run did between Ready and the horizon.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FlourishScore {
+    /// `[flourish] cap`.
+    pub cap: f64,
+    /// The mean of the measures' shares of their targets, in 0..=1 (0 without Ready).
+    pub value: f64,
+    /// `cap × value`: what is added to progress (before the sum is capped at 1).
+    pub bonus: f64,
+    /// Each measure: its count after Ready, within the horizon, and its target.
+    pub rows: Vec<(FlourishMeasure, u32, u32)>,
+}
+
 /// A run's score, with everything it was computed from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scorecard {
@@ -437,7 +523,7 @@ pub struct Scorecard {
     /// The world had already run past the horizon, so the care tally and the unmet-sign values
     /// describe a later moment than the horizon (module doc).
     pub past_horizon: bool,
-    /// `SCORE_SCALE × progress × care.value`.
+    /// `SCORE_SCALE × min(1, progress + flourish bonus) × care.value`.
     pub score: f64,
     /// Weighted credits ÷ weights, in 0..=1.
     pub progress: f64,
@@ -446,6 +532,8 @@ pub struct Scorecard {
     /// Weights summed (14 by default).
     pub weight_total: f64,
     pub care: CareScore,
+    /// The flourishing bonus, when the profile has one (#1010).
+    pub flourish: Option<FlourishScore>,
     /// One row per milestone, in `data/endeavor.toml` order: signs, Ready, stages.
     pub milestones: Vec<MilestoneRow>,
 }
@@ -469,6 +557,8 @@ struct Inputs {
     person_minutes: f64,
     severe_any_minutes: f64,
     severe_minutes: Vec<(Severe, f64)>,
+    /// Each flourish measure's count after Ready, within the horizon (#1010).
+    flourish_counts: Vec<(FlourishMeasure, u32)>,
 }
 
 struct Milestone {
@@ -564,6 +654,32 @@ impl Scorecard {
             });
         }
 
+        let after_ready = |tick: u64| ready.is_some_and(|r| tick > r) && within(tick);
+        let flourish_counts = FlourishMeasure::ALL
+            .into_iter()
+            .map(|m| {
+                let n = match m {
+                    FlourishMeasure::Research => {
+                        world.tech_completions().filter(|e| after_ready(e.tick)).count()
+                    }
+                    FlourishMeasure::Trade => world
+                        .caravan_events()
+                        .filter(|e| {
+                            after_ready(e.tick)
+                                && matches!(
+                                    e.kind,
+                                    CaravanEventKind::DealDone { .. }
+                                        | CaravanEventKind::RequestDone { .. }
+                                )
+                        })
+                        .count(),
+                    FlourishMeasure::Newcomers => {
+                        world.arrivals().filter(|a| after_ready(a.tick)).count()
+                    }
+                };
+                (m, n as u32)
+            })
+            .collect();
         let care = world.care().since(&start.care);
         let severe_minutes = score.care.severe.iter().map(|&s| (s, care.severe_minutes(s)));
         let deaths = world.deaths().filter(|d| d.tick > start.tick && within(d.tick)).count();
@@ -580,6 +696,7 @@ impl Scorecard {
                 person_minutes: care.person_minutes(),
                 severe_any_minutes: care.severe_any_minutes(),
                 severe_minutes: severe_minutes.collect(),
+                flourish_counts,
             },
         )
     }
@@ -631,6 +748,24 @@ impl Scorecard {
         let weight_total: f64 = rows.iter().map(|r| r.weight).sum();
         let credit_total: f64 = rows.iter().map(|r| r.weight * r.credit).sum();
         let progress = if weight_total > 0.0 { credit_total / weight_total } else { 0.0 };
+        let flourish = score.flourish.as_ref().map(|f| {
+            let rows: Vec<(FlourishMeasure, u32, u32)> = f
+                .measures
+                .iter()
+                .map(|&(m, target)| {
+                    let n =
+                        inputs.flourish_counts.iter().find(|(c, _)| *c == m).map_or(0, |&(_, n)| n);
+                    (m, n, target)
+                })
+                .collect();
+            let value = rows
+                .iter()
+                .map(|&(_, n, target)| (f64::from(n) / f64::from(target)).min(1.0))
+                .sum::<f64>()
+                / rows.len().max(1) as f64;
+            FlourishScore { cap: f.cap, value, bonus: f.cap * value, rows }
+        });
+        let bonus = flourish.as_ref().map_or(0.0, |f| f.bonus);
 
         let suffering = if inputs.person_minutes > 0.0 {
             inputs.severe_any_minutes / inputs.person_minutes
@@ -648,7 +783,7 @@ impl Scorecard {
             horizon_ticks: inputs.horizon,
             world_tick: inputs.world_tick,
             past_horizon: inputs.world_tick > inputs.horizon,
-            score: SCORE_SCALE * progress * value,
+            score: SCORE_SCALE * (progress + bonus).min(1.0) * value,
             progress,
             credit_total,
             weight_total,
@@ -661,6 +796,7 @@ impl Scorecard {
                 severe_any_minutes: inputs.severe_any_minutes,
                 severe_minutes: inputs.severe_minutes,
             },
+            flourish,
             milestones: rows,
         }
     }

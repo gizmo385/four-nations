@@ -32,6 +32,16 @@
 # - severe:     the flags the scorecard breaks the suffering down into (labels only; the share
 #               itself is `severe_any_minutes`). Any of starving, parched, exhausted, dying.
 #
+# [flourish] (#1010, optional): a bonus for what a run does between Ready and the horizon, so the
+# hours after Ready aren't dead time. Nothing before Ready counts, so it never pulls a governor off
+# the push to Ready. score = 1000 × min(1, progress + cap × flourish) × care, where flourish is the
+# mean, over the measures with a target above 0, of min(1, count / target).
+# - cap:       the most the bonus adds to progress, in 0..=1. 0 turns it off.
+# - research:  techs learned after Ready for full marks on this measure.
+# - trade:     caravan deals and requests completed after Ready.
+# - newcomers: newcomers who joined after Ready.
+# The gate profile has none yet; the `flourishing` profile below tries it.
+#
 # Profiles (#1008): the sections above are the `gate` profile, the default. A `[profile.NAME]`
 # table is laid over them for another profile, and names only what it changes: its tables merge
 # key by key, and a key it gives replaces the base's (a `weight` list replaces the whole list). A
@@ -55,3 +65,11 @@ death = 0.15
 close_call = 0.03
 suffering = 2.0
 severe = ["starving", "parched", "exhausted", "dying"]
+
+# The gate profile plus the flourishing bonus (#1010), until rescored ledgers say the targets are
+# right and it moves into the gate profile itself.
+[profile.flourishing.flourish]
+cap = 0.15
+research = 6
+trade = 4
+newcomers = 4

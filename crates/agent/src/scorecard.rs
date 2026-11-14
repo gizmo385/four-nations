@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 
 use fn_tui::scenario;
 pub use fn_tui::surface::referee::TurnSample;
-use fn_tui::surface::referee::score::{DEFAULT_PROFILE, MilestoneKind, ScoreDef};
+use fn_tui::surface::referee::score::{DEFAULT_PROFILE, FlourishMeasure, MilestoneKind, ScoreDef};
 use fn_tui::surface::referee::{self, MILD_WORDS, Replay};
 use fn_tui::surface::{LogLine, RunLogHeader};
 use serde_json::{Value, json};
@@ -326,9 +326,10 @@ impl Report {
 
         let par =
             self.par.as_ref().map_or(String::new(), |p| format!("        par {:.0}", p.score));
+        let bonus = card.flourish.as_ref().map_or(String::new(), |f| format!(" + {:.3}", f.bonus));
         let _ = writeln!(
             out,
-            "SCORE {:.0}        progress {:.3} \u{d7} care {:.2}{par}\n",
+            "SCORE {:.0}        progress {:.3}{bonus} \u{d7} care {:.2}{par}\n",
             card.score, card.progress, card.care.value
         );
 
@@ -400,6 +401,19 @@ impl Report {
             card.credit_total,
             fmt_weight(card.weight_total)
         );
+
+        // FLOURISHING (#1010): only with a profile that has it.
+        if let Some(f) = &card.flourish {
+            let rows: Vec<String> =
+                f.rows.iter().map(|(m, n, target)| format!("{} {n}/{target}", m.id())).collect();
+            let _ = writeln!(
+                out,
+                "FLOURISHING after Ready  +{:.3} of {:.2}  {}\n",
+                f.bonus,
+                f.cap,
+                rows.join(" \u{b7} ")
+            );
+        }
 
         // PAR.
         if let Some(p) = &self.par {
@@ -615,6 +629,14 @@ impl Report {
             "score": card.score,
             "profile": profile_name(),
             "progress": card.progress,
+            "flourish": card.flourish.as_ref().map(|f| json!({
+                "cap": f.cap,
+                "value": f.value,
+                "bonus": f.bonus,
+                "measures": f.rows.iter().map(|(m, n, target)| json!({
+                    "id": m.id(), "count": n, "target": target,
+                })).collect::<Vec<_>>(),
+            })),
             "care": c.value,
             "par": self.par.as_ref().map(|p| p.score),
             "par_detail": self.par.as_ref().map(|p| json!({
@@ -742,7 +764,7 @@ pub fn score_rule(def: &ScoreDef) -> String {
          progress toward its target.{} Care multiplies progress. It starts at 1 and loses {} per \
          death, {} per close call (a settler's health dipping dangerously low and recovering, or \
          the Avatar leaving), and {} times the share of settler-time that anyone spends {}. So a \
-         death or lasting suffering costs score however far the settlement gets.",
+         death or lasting suffering costs score however far the settlement gets.{}",
         rule_pct(p.late_credit),
         rule_pct(p.partial_credit),
         if p.task_credit > 0.0 {
@@ -758,6 +780,27 @@ pub fn score_rule(def: &ScoreDef) -> String {
         rule_num(c.close_call),
         rule_num(c.suffering),
         rule_list(c.severe.iter().map(|f| f.name().to_lowercase())),
+        def.flourish.as_ref().map_or(String::new(), |f| {
+            let measures: Vec<String> = f
+                .measures
+                .iter()
+                .map(|(m, target)| {
+                    let what = match m {
+                        FlourishMeasure::Research => "techs learned",
+                        FlourishMeasure::Trade => "caravan deals and requests completed",
+                        FlourishMeasure::Newcomers => "newcomers who join",
+                    };
+                    format!("{target} {what}")
+                })
+                .collect();
+            format!(
+                " Once Ready, progress gains a bonus of up to {} for what the settlement does \
+                 from then on, split evenly between {}, each share earned in full at that count. \
+                 Nothing before Ready counts.",
+                rule_num(f.cap),
+                rule_list(measures.into_iter())
+            )
+        }),
     );
     out
 }

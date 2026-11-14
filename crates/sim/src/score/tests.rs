@@ -41,6 +41,7 @@ fn blank(defs: &Defs) -> Inputs {
         person_minutes: 1000.0,
         severe_any_minutes: 0.0,
         severe_minutes: Vec::new(),
+        flourish_counts: Vec::new(),
     }
 }
 
@@ -530,7 +531,9 @@ fn a_profile_overrides_only_what_it_names_and_changes_the_score() {
     );
     let gate = ScoreDef::from_toml(&src).unwrap();
     let stages = ScoreDef::from_toml_profile(&src, "stages").unwrap();
-    assert_eq!(ScoreDef::profile_names(&src).unwrap(), ["gate", "stages"]);
+    let names = ScoreDef::profile_names(&src).unwrap();
+    assert_eq!(names.first().map(String::as_str), Some("gate"));
+    assert!(names.iter().any(|n| n == "stages"), "{names:?}");
     assert_eq!(stages.profile, "stages");
     assert_eq!(stages.progress.late_credit, 0.2);
     assert_eq!(stages.progress.weight_of("foundation"), 5.0);
@@ -634,4 +637,94 @@ fn the_avatars_arrival_is_a_milestone_only_when_weighed() {
     let card = Scorecard::compute(&world, &defs, &off, &ScoreStart::default(), 10_000);
     assert!(card.milestones.iter().all(|m| m.id != AVATAR_ID));
     near(card.weight_total, 14.0);
+}
+
+fn flourishing() -> ScoreDef {
+    ScoreDef::bundled_profile("flourishing").expect("a bundled profile")
+}
+
+#[test]
+fn the_flourishing_bonus_adds_a_capped_share_after_ready_only() {
+    let (defs, gate) = setup();
+    let flourish = flourishing();
+    let f = flourish.flourish.as_ref().expect("the profile has [flourish]");
+    near(f.cap, 0.15);
+    assert!(gate.flourish.is_none(), "the gate profile has no bonus yet");
+    let research_target =
+        f.measures.iter().find(|(m, _)| *m == FlourishMeasure::Research).unwrap().1;
+
+    let card = |def: &ScoreDef, research: u32| {
+        let mut run = blank(&defs);
+        run.met("population", 0, 6, 6);
+        run.flourish_counts = vec![(FlourishMeasure::Research, research)];
+        Scorecard::build(def, run)
+    };
+    // Without the block the counts mean nothing.
+    near(card(&gate, 99).score, card(&gate, 0).score);
+    // With it, more research after Ready scores more, up to the target.
+    let (none, half, full, over) = (
+        card(&flourish, 0),
+        card(&flourish, research_target / 2),
+        card(&flourish, research_target),
+        card(&flourish, research_target * 3),
+    );
+    assert!(none.score < half.score && half.score < full.score, "{none:?}");
+    near(full.score, over.score);
+    let measures = f.measures.len() as f64;
+    near(full.flourish.as_ref().unwrap().bonus, 0.15 / measures);
+    near(full.score, SCORE_SCALE * (none.progress + 0.15 / measures));
+}
+
+#[test]
+fn a_perfect_run_with_the_bonus_still_scores_1000() {
+    let (defs, _) = setup();
+    let mut run = blank(&defs);
+    for m in &mut run.milestones {
+        (m.first_met, m.value, m.met_now) = (Some(0), m.target, true);
+    }
+    run.ready_latched = true;
+    run.flourish_counts = FlourishMeasure::ALL.into_iter().map(|m| (m, 1000)).collect();
+    near(Scorecard::build(&flourishing(), run).score, SCORE_SCALE);
+}
+
+#[test]
+fn compute_counts_flourishing_only_between_ready_and_the_horizon() {
+    let defs = Defs::bundled();
+    let cfg = MapGenConfig { seed: 7, width: 64, height: 64, ..MapGenConfig::default() };
+    let mut world = World::new(&cfg, Nation::Water, 5, &defs);
+    for _ in 0..10 {
+        world.tick(&defs);
+    }
+    let joined =
+        |tick: u64| crate::world::Arrival { tick, unit: world.units[0].id, name: "New".to_owned() };
+    let (before, after, late) = (joined(3), joined(7), joined(20_000));
+    world.insert_event_for_test(before);
+    world.insert_event_for_test(after);
+    world.insert_event_for_test(late);
+    let def = flourishing();
+    let newcomers = |card: &Scorecard| {
+        let f = card.flourish.as_ref().unwrap();
+        f.rows.iter().find(|r| r.0 == FlourishMeasure::Newcomers).map(|r| r.1)
+    };
+    // No Ready: nothing counts.
+    let card = Scorecard::compute(&world, &defs, &def, &ScoreStart::default(), 10_000);
+    assert_eq!(newcomers(&card), Some(0));
+    near(card.flourish.as_ref().unwrap().bonus, 0.0);
+    // Ready at tick 5: the one at tick 7 counts; tick 3 is before it and 20,000 past the horizon.
+    let ready = crate::world::EndeavorEvent { tick: 5, kind: EndeavorEventKind::Ready };
+    world.insert_event_for_test(ready);
+    let card = Scorecard::compute(&world, &defs, &def, &ScoreStart::default(), 10_000);
+    assert_eq!(newcomers(&card), Some(1));
+    assert!(card.flourish.as_ref().unwrap().bonus > 0.0);
+}
+
+#[test]
+fn flourish_data_is_strict() {
+    let good = include_str!("../../../../data/score.toml");
+    let with = |block: &str| ScoreDef::from_toml(&format!("{good}\n[flourish]\n{block}\n"));
+    assert!(with("cap = 0.1\nresearch = 4").unwrap().flourish.is_some());
+    assert!(with("cap = 0.0\nresearch = 4").unwrap().flourish.is_none());
+    assert!(with("cap = 1.5\nresearch = 4").unwrap_err().to_string().contains("cap"));
+    assert!(with("cap = 0.1").unwrap_err().to_string().contains("target"));
+    assert!(with("cap = 0.1\nfarms = 2").unwrap_err().to_string().contains("farms"));
 }
