@@ -108,8 +108,10 @@ pub fn key(header: &RunLogHeader, horizon: u32) -> String {
         Some(p) => format!("{p:?}"),
         None => "none".to_owned(),
     };
+    // The default profile adds nothing, so caches from before profiles (#1008) still match.
+    let profile = crate::scorecard::profile_key_suffix();
     let raw = format!(
-        "seed{}-{}-{}-{}-site{site}-prelude{prelude}-turn{}-h{horizon}",
+        "seed{}-{}-{}-{}-site{site}-prelude{prelude}-turn{}-h{horizon}{profile}",
         header.seed,
         header.nation.as_str(),
         header.difficulty.as_deref().unwrap_or("none"),

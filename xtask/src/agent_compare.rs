@@ -519,6 +519,7 @@ pub fn run(args: &[&str]) -> Result {
     };
     let tracks_path = opts.tracks.clone().unwrap_or_else(|| repo.join("data/tracks.toml"));
     let track = agent_eval::load_track(&tracks_path, &track_id)?;
+    track.use_score_profile();
     let tier = opts.tier.unwrap_or(Role::Owner);
     let threads = agent_eval::resolve_threads(opts.threads)?;
     let fn_agent = agent_eval::fn_agent_binary(&repo)?;
