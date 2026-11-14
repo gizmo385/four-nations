@@ -83,7 +83,12 @@ pub fn list() -> Vec<Value> {
                              find. Once the Harmony Gate stands it also has `newcomers`, the From \
                              newcomers page: a column per other nation (title with its residents \
                              here) of techs to borrow, then FUSIONS, each card as on the tree. \
-                             The `research` step sets them by name.",
+                             The `research` step sets them by name. `endeavor` has `tasks` \
+                             while a gate stage with tasks is under way (the Four Pillars, the \
+                             Arch's beam lift): each task's name, who may do it, materials \
+                             delivered of its cost, the chi it needs, and where it stands \
+                             (waits for the stage's work, needs materials, open and waiting \
+                             for a bender with the chi, under way, done).",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {

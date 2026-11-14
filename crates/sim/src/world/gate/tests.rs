@@ -499,3 +499,21 @@ fn the_dev_hook_is_deterministic() {
     };
     assert_eq!(stand(), stand());
 }
+
+/// #1012: the debug aid starts a later stage at once, unplayed stages logging nothing, and
+/// refuses one that isn't later.
+#[test]
+fn skip_to_gate_stage_starts_a_later_stage_and_nothing_else() {
+    let defs = earth_and_fire();
+    let mut w = world(Nation::Earth, 2, &defs);
+    assert!(!w.skip_to_gate_stage("pillars", &defs), "no site yet");
+    begin(&mut w, &defs);
+    assert!(!w.skip_to_gate_stage("base", &defs), "not later");
+    assert!(!w.skip_to_gate_stage("nope", &defs));
+    assert!(w.skip_to_gate_stage("pillars", &defs));
+    assert_eq!(stage_id(&w), Some("pillars"));
+    assert!(stages_done(&w).is_empty(), "skipped stages log nothing");
+    let g = w.gate().unwrap();
+    assert!(g.tasks.iter().all(|t| !t.done) && !g.tasks.is_empty());
+    assert!(!w.skip_to_gate_stage("pillars", &defs), "already there");
+}

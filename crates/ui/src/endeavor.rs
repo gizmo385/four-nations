@@ -4,7 +4,8 @@
 //! there are, and when the endeavor is Ready, are the sim's.
 
 use fn_sim::bending::Rank;
-use fn_sim::endeavor::{ChapterDef, SignDef, SignGroup, SignKind, Tally};
+use fn_sim::endeavor::{ChapterDef, SignDef, SignGroup, SignKind, Tally, TaskWho};
+use fn_sim::jobs::JobKind;
 use fn_sim::world::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
@@ -48,6 +49,85 @@ pub struct ScreenView {
     /// The United City (#442, docs/design/endgame.md "The transformation"): once the gate stands,
     /// the screen shows this in place of the chapter and the signs.
     pub united: Option<UnitedView>,
+    /// The tasks of the stage under way (#1012), in data order; empty when no stage with tasks
+    /// is under way. Read by the agent surface; the screen doesn't draw them yet.
+    pub tasks: Vec<StageTaskRow>,
+}
+
+/// One task of the gate's stage under way (#1012): a pillar, or the Arch's beam lift.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct StageTaskRow {
+    pub name: String,
+    /// Who may do it: "Earth Kingdom or Aang", "only Aang".
+    pub who: String,
+    /// What it needs hauled to the site, as delivered of the cost: "12/20 Stone".
+    pub materials: Vec<String>,
+    /// The chi its bend needs, and spends.
+    pub chi: u32,
+    pub done: bool,
+    /// Where it stands: "done", "waits for the stage's work", "needs materials", "open: waits
+    /// for a bender with 100 chi", "under way".
+    pub status: String,
+}
+
+/// The rows of [`StageTaskRow`] for the stage under way (#1012).
+pub fn stage_tasks(world: &World, defs: &Defs) -> Vec<StageTaskRow> {
+    let EndeavorState::Building(g) = world.endeavor() else { return Vec::new() };
+    let Some((_, stage)) = world.gate_stage(defs) else { return Vec::new() };
+    let avatar = defs.endeavor.avatar.as_ref().map_or("the Avatar", |a| a.name.as_str());
+    g.tasks
+        .iter()
+        .enumerate()
+        .filter_map(|(k, state)| {
+            let def = stage.tasks.iter().find(|t| t.id == state.id)?;
+            let who = match def.element {
+                TaskWho::Nation(n) => format!("{} or {avatar}", defs.nation(n).name),
+                TaskWho::Avatar => format!("only {avatar}"),
+            };
+            let mut short = false;
+            let materials = def
+                .cost
+                .iter()
+                .map(|c| {
+                    let have = state
+                        .delivered
+                        .iter()
+                        .filter(|s| s.item == c.item)
+                        .map(|s| s.count)
+                        .sum::<u32>()
+                        .min(c.count);
+                    short |= have < c.count;
+                    format!("{have}/{} {}", c.count, defs.item(c.item).name)
+                })
+                .collect();
+            let job =
+                world.jobs().iter().find(|j| j.kind == JobKind::EndeavorTask { task: k as u8 });
+            let status = if state.done {
+                "done".to_owned()
+            } else if let Some(job) = job {
+                if job.claimed_by.is_some() {
+                    "under way".to_owned()
+                } else {
+                    format!("open: waits for a bender with {:.0} chi", def.chi)
+                }
+            } else if g.progress < stage.work {
+                "waits for the stage's work".to_owned()
+            } else if short {
+                "needs materials".to_owned()
+            } else {
+                "waits for the stage's work".to_owned()
+            };
+            Some(StageTaskRow {
+                name: def.name.clone(),
+                who,
+                materials,
+                chi: def.chi.round() as u32,
+                done: state.done,
+                status,
+            })
+        })
+        .collect()
 }
 
 /// The Endeavor screen's United City view (#442): who lives there and the next population
@@ -575,6 +655,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
             chapter: None,
             groups: Vec::new(),
             united: Some(united),
+            tasks: Vec::new(),
         };
     }
     let signs = signs(world, defs);
@@ -601,6 +682,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         chapter: chapter_view(world, defs),
         groups,
         united: None,
+        tasks: stage_tasks(world, defs),
     }
 }
 

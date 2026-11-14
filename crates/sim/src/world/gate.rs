@@ -357,6 +357,25 @@ impl World {
         true
     }
 
+    /// Starts stage `id` of a gate under way at once, skipping the stages before it unplayed (no
+    /// `StageDone` for them, as `complete_endeavor` skips them), and returns whether it did: not
+    /// without a site, nor for a stage that isn't later than the current one. A debug and test
+    /// aid (#1012), for a frontend's view of a stage that a test can't afford to play up to.
+    pub fn skip_to_gate_stage(&mut self, id: &str, defs: &Defs) -> bool {
+        let (Some((now, _)), Some(anchor)) = (self.gate_stage(defs), self.gate().map(|g| g.anchor))
+        else {
+            return false;
+        };
+        let Some((n, stage)) = defs.endeavor.stage(id) else { return false };
+        if n <= now {
+            return false;
+        }
+        self.drop_gate_jobs(anchor);
+        self.gate_mut().expect("checked above").begin(stage);
+        self.gate_progressed(defs);
+        true
+    }
+
     /// Withdraws the site, if no work on it has started: materials delivered drop beside it and
     /// the endeavor is Ready again.
     pub(super) fn cancel_endeavor(&mut self, defs: &Defs) -> Result<(), EndeavorError> {

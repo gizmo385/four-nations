@@ -444,7 +444,11 @@ fn score_adds_the_par_of_the_logs_own_start_and_no_par_leaves_it_out() {
     let par = json["par"].as_f64().expect("a par");
     assert_eq!(json["par_detail"]["horizon"], 12);
     assert!(json["par_detail"]["what"].as_str().unwrap().contains("reading the world directly"));
-    assert_eq!(json["par_detail"]["milestones"].as_array().unwrap().len(), 14);
+    assert_eq!(
+        json["par_detail"]["milestones"].as_array().unwrap().len(),
+        15,
+        "14, and the Avatar arriving (#1009)"
+    );
 
     // Kept: the second run reads it back, and says nothing about computing.
     let again = score(&["--json"]);

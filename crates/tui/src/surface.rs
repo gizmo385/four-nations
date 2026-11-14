@@ -945,6 +945,18 @@ impl Host {
                         .collect(),
                 })
                 .collect(),
+            tasks: v
+                .tasks
+                .into_iter()
+                .map(|t| StageTaskView {
+                    name: t.name,
+                    who: t.who,
+                    materials: t.materials,
+                    chi: t.chi,
+                    done: t.done,
+                    status: t.status,
+                })
+                .collect(),
         }
     }
 
@@ -2321,6 +2333,26 @@ pub struct EndeavorScreenView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub united: Option<UnitedCityView>,
     pub groups: Vec<EndeavorGroupView>,
+    /// The tasks of the gate stage under way (#1012, `fn_ui::endeavor::stage_tasks`): the Four
+    /// Pillars, the Arch's beam lift. Absent when no stage with tasks is under way.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<StageTaskView>,
+}
+
+/// One task of the gate stage under way (#1012).
+#[derive(Clone, Debug, Serialize)]
+pub struct StageTaskView {
+    pub name: String,
+    /// Who may do it: "Earth Kingdom or Aang", "only Aang".
+    pub who: String,
+    /// Delivered of its cost, per item: "12/20 Stone".
+    pub materials: Vec<String>,
+    /// The chi its bend needs, and spends.
+    pub chi: u32,
+    pub done: bool,
+    /// "done", "waits for the stage's work", "needs materials", "open: waits for a bender with
+    /// 100 chi", "under way".
+    pub status: String,
 }
 
 /// `screen {"endeavor"}` in the United City (#442).
@@ -4672,6 +4704,28 @@ mod tests {
 
     /// A Host whose Harmony Gate stands (the dev hook the `economy_united` prelude uses), so the
     /// Research screen has its From newcomers page.
+    /// #1012: `screen {"endeavor"}` lists the stage's tasks while one with tasks is under way,
+    /// and nothing before.
+    #[test]
+    fn screen_endeavor_lists_the_pillars_tasks() {
+        let mut h = host(Nation::Earth);
+        let json = serde_json::to_value(h.screen("endeavor").unwrap()).unwrap();
+        assert!(json.get("tasks").is_none(), "{json}");
+        make_ready(&mut h);
+        let anchor = free_gate_anchor(&h);
+        let s = &mut h.app_mut().session;
+        s.world.apply(fn_sim::world::Command::BeginEndeavor { anchor }, &s.defs).unwrap();
+        assert!(s.world.skip_to_gate_stage("pillars", &s.defs));
+        let ScreenView::Endeavor(v) = h.screen("endeavor").unwrap() else { panic!("endeavor") };
+        let names: Vec<&str> = v.tasks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["Air pillar", "Water pillar", "Earth pillar", "Fire pillar"]);
+        let earth = &v.tasks[2];
+        assert!(earth.who.starts_with("Earth"), "{}", earth.who);
+        assert_eq!((earth.chi, earth.done), (100, false));
+        assert_eq!(earth.materials, ["0/40 Stone"]);
+        assert!(!earth.status.is_empty());
+    }
+
     fn united_host(nation: Nation) -> Host {
         let mut h = host(nation);
         let session = &mut h.app_mut().session;
