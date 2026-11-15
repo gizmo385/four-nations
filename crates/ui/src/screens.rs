@@ -47,6 +47,9 @@ pub fn row_count(
     if screen == Screen::Help && ui.help_tab == HelpTab::Legend {
         return legend(session, ui, width);
     }
+    if screen == Screen::Endeavor {
+        return endeavor::tab_lines(session, ui, width, &Marks::new(false)).len();
+    }
     line_count(screen, session, width)
 }
 

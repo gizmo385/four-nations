@@ -4,8 +4,9 @@
 //! there are, and when the endeavor is Ready, are the sim's.
 
 use fn_sim::bending::Rank;
+use fn_sim::building::RecipeDef;
 use fn_sim::endeavor::{ChapterDef, SignDef, SignGroup, SignKind, Tally, TaskWho};
-use fn_sim::jobs::JobKind;
+use fn_sim::jobs::{ItemId, JobKind};
 use fn_sim::world::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
@@ -168,9 +169,114 @@ pub struct GoodFlowRow {
     pub short: bool,
 }
 
+/// One row of the Goods tab (#1028, docs/design/factory-endgame.md "The Goods screen"): a good
+/// residents want, or one made on the way to it, with its rates, stores, what makes it here and
+/// who wants it.
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct LedgerRow {
+    pub name: String,
+    pub made: f32,
+    pub used: f32,
+    pub stores: u32,
+    /// "Forge x2, Steelworks": the standing buildings set to make it, or "nothing" with none.
+    pub made_at: String,
+    /// "14 Fire Nation" for a wanted good; empty for a good made only on the way to one.
+    pub wanted_by: String,
+    /// None in stores and none being made, while someone wants it or a wanted good needs it.
+    pub short: bool,
+}
+
+/// Whether any building's recipe (its first or an alt) makes `item`.
+fn is_made(defs: &Defs, item: ItemId) -> bool {
+    recipes_making(defs, item).next().is_some()
+}
+
+/// Every recipe in the data that makes `item`.
+fn recipes_making(defs: &Defs, item: ItemId) -> impl Iterator<Item = &RecipeDef> + '_ {
+    defs.buildings
+        .iter()
+        .flat_map(|b| b.recipe.iter().chain(b.alt_recipes.iter().map(|a| &a.recipe)))
+        .filter(move |r| r.output.item == item)
+}
+
+/// The Goods tab's rows: each good residents want (as on the City tab), then every made good
+/// those need on the way, in item order (steel for fittings, metal for steel). A raw good
+/// (wood, fish, ore) is left out: what makes it is a harvest, not a batch, so its rates would
+/// read as nothing made.
+pub fn goods_ledger(world: &World, defs: &Defs) -> Vec<LedgerRow> {
+    let (items, wanted): (Vec<ItemId>, Vec<GoodFlowRow>) =
+        wanted_goods(world, defs).into_iter().unzip();
+    let mut needed: Vec<ItemId> = Vec::new();
+    let mut frontier = items.clone();
+    while let Some(item) = frontier.pop() {
+        for recipe in recipes_making(defs, item) {
+            for cost in &recipe.inputs {
+                let new = !items.contains(&cost.item) && !needed.contains(&cost.item);
+                if new && is_made(defs, cost.item) {
+                    needed.push(cost.item);
+                    frontier.push(cost.item);
+                }
+            }
+        }
+    }
+    needed.sort();
+    let made_at = |item: ItemId| {
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for b in world.buildings() {
+            if world.recipe_at(b.anchor, defs).is_some_and(|r| r.output.item == item) {
+                let name = defs.building(b.id).display_name(world.nation).to_owned();
+                match counts.iter_mut().find(|(n, _)| *n == name) {
+                    Some((_, c)) => *c += 1,
+                    None => counts.push((name, 1)),
+                }
+            }
+        }
+        if counts.is_empty() {
+            return "nothing".to_owned();
+        }
+        let named: Vec<String> =
+            counts.into_iter().map(|(n, c)| if c > 1 { format!("{n} x{c}") } else { n }).collect();
+        named.join(", ")
+    };
+    let mut rows: Vec<LedgerRow> = wanted
+        .into_iter()
+        .zip(items.iter())
+        .map(|(w, &item)| LedgerRow {
+            made_at: made_at(item),
+            short: w.short,
+            name: w.name,
+            made: w.made,
+            used: w.used,
+            stores: w.stores,
+            wanted_by: w.wanted_by,
+        })
+        .collect();
+    for item in needed {
+        let (made, used) = world.goods_rate(item);
+        let stores = world.stored_total(item);
+        let at = made_at(item);
+        rows.push(LedgerRow {
+            name: defs.item(item).name.clone(),
+            made,
+            used,
+            stores,
+            short: stores == 0 && at == "nothing",
+            made_at: at,
+            wanted_by: String::new(),
+        });
+    }
+    rows
+}
+
 /// The rows of [`GoodFlowRow`], one per wanted good in data order.
 fn goods_rows(world: &World, defs: &Defs) -> Vec<GoodFlowRow> {
-    let mut rows: Vec<GoodFlowRow> = Vec::new();
+    wanted_goods(world, defs).into_iter().map(|(_, row)| row).collect()
+}
+
+/// [`goods_rows`] with each row's item.
+fn wanted_goods(world: &World, defs: &Defs) -> Vec<(ItemId, GoodFlowRow)> {
+    let mut rows: Vec<(ItemId, GoodFlowRow)> = Vec::new();
     let mut seen = Vec::new();
     for want in &defs.standing.wants {
         if seen.contains(&want.item) {
@@ -188,14 +294,17 @@ fn goods_rows(world: &World, defs: &Defs) -> Vec<GoodFlowRow> {
         if wanting == 0 && stores == 0 && made == 0.0 && used == 0.0 {
             continue;
         }
-        rows.push(GoodFlowRow {
-            name: defs.item(want.item).name.clone(),
-            made,
-            used,
-            stores,
-            wanted_by: format!("{wanting} {}", want.nation.title()),
-            short: stores == 0 && wanting > 0,
-        });
+        rows.push((
+            want.item,
+            GoodFlowRow {
+                name: defs.item(want.item).name.clone(),
+                made,
+                used,
+                stores,
+                wanted_by: format!("{wanting} {}", want.nation.title()),
+                short: stores == 0 && wanting > 0,
+            },
+        ));
     }
     rows
 }

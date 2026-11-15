@@ -174,6 +174,9 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
     match action {
         // `Tab` flips the key help between its keys and its legend (#662).
         Action::NextUnit | Action::PrevUnit if screen == Screen::Help => ui.switch_help_tab(),
+        Action::NextUnit | Action::PrevUnit if screen == Screen::Endeavor => {
+            ui.switch_city_tab(session);
+        }
         Action::Move { dy, tiles, .. } => scroll_by(ui, session, screen, dy * tiles),
         Action::Jump { dy, .. } => {
             let page = screen_rows(ui);
@@ -288,6 +291,7 @@ fn open_screen(ui: &mut UiState, session: &Session, screen: Screen) -> bool {
             msglog::reset(ui);
         }
         ui.help_tab = crate::state::HelpTab::default();
+        ui.city_tab = crate::state::CityTab::default();
         if screen == Screen::Research {
             ui.research_page = fn_ui::research::ResearchPage::default();
             let view = fn_ui::research::screen_view(session);
