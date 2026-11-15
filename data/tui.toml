@@ -213,6 +213,12 @@ glyph = "♁"
 ascii = "!"
 fg = [150, 210, 255]
 
+# Steel from the Steelworks (#1023): a bluer, darker bar than metal's.
+[item.steel]
+glyph = "▰"
+ascii = "#"
+fg = [150, 170, 200]
+
 # --- Fire production (#124) ---
 [item.metal]
 glyph = "▬"

@@ -274,6 +274,42 @@ fn a_workshop_makes_tools_from_wood_and_stops_at_its_stock_limit() {
     assert!(wood_spent <= wood_count * ceiling, "never spends more wood than the limit allows");
 }
 
+/// The Steelworks works metal into steel (#1023, docs/design/factory-endgame.md, "Steel and other
+/// goods"): with metal and wood in stores it makes steel, counts it on the `steel_made` tally,
+/// and stops at its stock limit of steel however much metal is left (#968: before steel was its
+/// own item, an Earth city's metal glut held it idle).
+#[test]
+fn a_steelworks_makes_steel_from_metal_and_stops_at_its_stock_limit() {
+    let (mut w, defs) = setup(&grid(), &[at(1, 1), at(2, 1)]);
+    let works = defs.building_id("steelworks").unwrap();
+    let recipe = defs.building(works).recipe.clone().unwrap();
+    let steel = defs.item_id("steel").unwrap();
+    let metal = defs.item_id("metal").unwrap();
+    assert_eq!(recipe.output.item, steel);
+    place_building(&mut w, &defs, works, at(4, 4));
+    for (n, input) in recipe.inputs.iter().enumerate() {
+        let zone = at(n as i32, 0);
+        w.designate_stockpile(zone).unwrap();
+        w.stored.insert(zone, Stack { item: input.item, count: input.count * 20 });
+    }
+    w.designate_stockpile(at(5, 0)).unwrap();
+
+    run_until(&mut w, &defs, 60_000, |w| w.stored_total(steel) >= recipe.stock_limit);
+    for _ in 0..4000 {
+        w.tick(&defs);
+    }
+    let settled = w.stored_total(steel);
+    assert!(settled <= recipe.stock_limit + recipe.output.count, "got {settled}");
+    let metal_left = w.stored_total(metal);
+    for _ in 0..4000 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.stored_total(steel), settled, "settled at the limit");
+    assert_eq!(w.stored_total(metal), metal_left, "no metal spent once settled");
+    assert!(metal_left > recipe.stock_limit, "idle with metal to spare: {metal_left}");
+    assert_eq!(w.tallies().school("steel_made"), settled);
+}
+
 /// Earth's Mine Shaft (issue #373): a source recipe (`input = []`) still needs a worker inside,
 /// and still takes `work` seconds -- it just has nothing to fetch first.
 #[test]

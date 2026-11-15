@@ -150,24 +150,17 @@ fn call_rain_is_not_designated_while_a_nation_has_no_caster() {
     assert!(w.bend_designations().all(|(a, _)| a != rain));
 }
 
-/// Why an Earth city that learns the Steelworks makes no steel (#958): the recipe idles once
-/// stores hold its `stock_limit` (8) of metal, and Earth's Metalbend has piled up far more than
-/// that and nothing spends it, while a Fire city's stores sit under the limit. Seed 17 learns it
-/// at minute 364. The same Metalbend also draws the ore stores down to a handful.
+/// An Earth city that learns the Steelworks makes steel (#958, #968, #1023). Before steel was its
+/// own item the recipe made metal and idled once stores held its `stock_limit` of it, which
+/// Earth's Metalbend always had. Now it eats that metal and its limit counts steel. Seed 17
+/// learns it at minute 364.
 #[test]
-fn an_earth_steelworks_idles_on_the_metal_metalbend_piled_up() {
+fn an_earth_steelworks_turns_the_metalbent_metal_into_steel() {
     let (mut w, defs) = found(Nation::Earth, 17);
     let economy = steady();
     play(&mut w, &defs, &economy, 0, 420, 240);
     let steelworks = defs.building_id("steelworks").unwrap();
-    let anchor = w
-        .buildings()
-        .find(|b| b.id == steelworks)
-        .map(|b| b.anchor)
-        .expect("the sweep raised the Steelworks");
-    let metal = defs.item_id("metal").unwrap();
-    let limit = defs.building(steelworks).recipe.as_ref().unwrap().stock_limit;
-    assert!(w.stored_total(metal) >= limit, "{} metal in stores", w.stored_total(metal));
-    assert!(w.craft_idle(anchor, &defs), "idle at the stock limit");
-    assert_eq!(w.tallies().school("steel_made"), 0);
+    assert!(w.buildings().any(|b| b.id == steelworks), "the sweep raised the Steelworks");
+    assert!(w.tallies().school("steel_made") > 0);
+    assert!(w.stored_total(defs.item_id("steel").unwrap()) > 0);
 }
