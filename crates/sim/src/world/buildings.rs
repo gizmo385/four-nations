@@ -106,6 +106,9 @@ pub struct Building {
     /// (`Command::SetRoute`, #1038); off, the default, hands each across.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) to_stores: bool,
+    /// Automated batches since it was last tended (`JobSettings::tend_every`, #1039).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub(super) wear: u32,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -411,6 +414,7 @@ impl World {
             free: false,
             manual: false,
             to_stores: false,
+            wear: 0,
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -662,6 +666,7 @@ impl World {
                     free: false,
                     manual: false,
                     to_stores: false,
+                    wear: 0,
                 },
             );
         }

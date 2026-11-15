@@ -46,6 +46,10 @@ strain_kill_at = 3.0
 # input (issue #371: `brick` stands for `stone`, the kiln's purpose). Validated: not itself, no
 # chains (the named item can't itself stand in for something), and at most one item may stand in
 # for a given target.
+# Wear (docs/design/factory-endgame.md, #1039): in a United City an automated machine stops after
+# this many batches until a settler brings it a tool. 0 turns wear off.
+tend_every = 20
+
 [[item]]
 id = "wood"
 name = "Wood"
