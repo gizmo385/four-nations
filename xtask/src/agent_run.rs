@@ -941,6 +941,8 @@ keys inside the watcher:
   p              show the script raw, as the agent wrote it, or formatted for reading (the
                  default: one statement per line, so a change of layout alone isn't a change)
   x              show or hide the lines the latest revision deleted
+  (  )           step the code pane to the script's previous or next revision and pin it
+                 there (a new run doesn't take it over); back at the running one, it unpins
   q              quit (a run started by `agent-run` stops its agent too; `watch` never does;
                  from the run browser, back to the list)
 
@@ -3452,6 +3454,7 @@ mod tests {
             "  c  ",
             "  p  ",
             "  x  ",
+            "(  )",
             "  q  ",
             "free look",
             "four-nations/runs",
@@ -3491,6 +3494,8 @@ mod tests {
         for scroll in ["'j'", "'k'", "'J'", "'K'"] {
             assert!(studio_rs.contains(&format!("KeyCode::Char({scroll}) => self.scroll_by")));
         }
+        assert!(studio_rs.contains("KeyCode::Char('(') => self.step_revision(-1)"));
+        assert!(studio_rs.contains("KeyCode::Char(')') => self.step_revision(1)"));
         for toggle in ["'c'", "'p'", "'x'"] {
             assert!(studio_rs.contains(&format!("KeyCode::Char({toggle}) => {{")), "{toggle}");
         }

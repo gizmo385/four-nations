@@ -158,6 +158,10 @@ pub struct CodePane {
     last_pane_rows: u16,
     /// The shown revision as text, highlighted and diffed, kept until it or the mode changes.
     view: Option<View>,
+    /// `(`/`)` (#502): the revision of the shown script the viewer stepped to, when it isn't
+    /// the one [`Self::shown`] says is running. A new run doesn't take a pinned pane over;
+    /// stepping back to the running revision unpins it.
+    pinned: Option<u32>,
 }
 
 /// What a row of the pane shows: a line of the shown revision (0-based), or a deleted line of
@@ -249,7 +253,15 @@ impl CodePane {
         } else {
             Shown::Saved { name: name.to_owned(), number }
         });
-        if changed {
+        if changed && self.pinned.is_some() {
+            // A pinned pane stays on its revision (#502), unless the new one is it, or is
+            // another script altogether.
+            let same_name = self.view.as_ref().is_none_or(|v| v.key.0 == name);
+            if self.pinned == Some(number) || !same_name {
+                self.pinned = None;
+            }
+        }
+        if changed && self.pinned.is_none() {
             self.want_autoscroll = true;
         }
         number
@@ -302,6 +314,8 @@ impl CodePane {
                 self.hide_deleted = !self.hide_deleted;
                 self.want_autoscroll |= !self.scrolled;
             }
+            KeyCode::Char('(') => self.step_revision(-1),
+            KeyCode::Char(')') => self.step_revision(1),
             _ => return false,
         }
         true
@@ -315,19 +329,44 @@ impl CodePane {
         self.top = None;
     }
 
+    /// `(` (`delta` -1) or `)` (+1), #502: steps the pane to the shown script's previous or
+    /// next revision, in the order they were fed, and pins it there; reaching the running
+    /// revision unpins. The pane then scrolls to the revision's first change.
+    fn step_revision(&mut self, delta: i64) {
+        let Some((name, running)) = self.shown.as_ref().map(|s| (s.key().0.to_owned(), s.key().1))
+        else {
+            return;
+        };
+        let Some(track) = self.tracks.get(&name) else { return };
+        let at = self.pinned.unwrap_or(running);
+        let Some(idx) = track.revisions.iter().position(|(n, _)| *n == at) else { return };
+        let next = (idx as i64 + delta).clamp(0, track.revisions.len() as i64 - 1) as usize;
+        let number = track.revisions[next].0;
+        self.pinned = (number != running).then_some(number);
+        self.scrolled = false;
+        self.want_autoscroll = true;
+    }
+
+    /// The script name and revision number the pane draws: the pinned one (#502), or the one
+    /// running.
+    fn displayed(&self) -> Option<(&str, u32)> {
+        let (name, running) = self.shown.as_ref()?.key();
+        Some((name, self.pinned.unwrap_or(running)))
+    }
+
     fn shown_code(&self) -> Option<&str> {
-        let (name, number) = self.shown.as_ref()?.key();
+        let (name, number) = self.displayed()?;
         self.tracks.get(name).and_then(|t| t.code(number))
     }
 
     fn previous_code(&self) -> Option<&str> {
-        let (name, number) = self.shown.as_ref()?.key();
+        let (name, number) = self.displayed()?;
         self.tracks.get(name).and_then(|t| t.previous(number))
     }
 
     /// The shown revision, ready to draw, or `None` with nothing shown yet.
     fn build_view(&self) -> Option<View> {
-        let (name, number) = self.shown.as_ref()?.key();
+        let (name, number) = self.displayed()?;
         let code = self.shown_code()?;
         let old = self.previous_code().unwrap_or("");
         let (text, formatted) = display_text(code, self.raw);
@@ -345,10 +384,7 @@ impl CodePane {
 
     /// [`Self::view`], rebuilt only when the shown revision or the mode changed.
     fn current_view(&mut self) -> Option<&View> {
-        let key = self.shown.as_ref().map(|s| {
-            let (name, number) = s.key();
-            (name.to_owned(), number, self.raw)
-        });
+        let key = self.displayed().map(|(name, number)| (name.to_owned(), number, self.raw));
         if self.view.as_ref().map(|v| &v.key) != key.as_ref() {
             self.view = self.build_view();
         }
@@ -356,16 +392,22 @@ impl CodePane {
     }
 
     /// `name.rhai -- rev N/M -- run Nt/woke Nt/saved -- +A -D` (docs/design/agent-studio.md,
-    /// "The header"); `None` with no script replayed yet.
+    /// "The header"), or, pinned to an older revision (#502), `rev N/M · pinned -- running vK`;
+    /// `None` with no script replayed yet.
     fn header_text(&self, ascii: bool) -> Option<String> {
         let shown = self.shown.as_ref()?;
-        let (name, number) = shown.key();
+        let (name, running) = shown.key();
+        let number = self.pinned.unwrap_or(running);
         let max = self.tracks.get(name).map_or(number, Track::latest);
-        let run_part = match shown {
-            Shown::Saved { .. } => "saved".to_owned(),
-            Shown::Running { run_turns, .. } => format!("run {run_turns}t"),
-            Shown::Woke { woke_turns, .. } => format!("woke {woke_turns}t"),
+        let dot = if ascii { '.' } else { '·' };
+        let run_part = match (shown, self.pinned) {
+            (Shown::Saved { .. }, Some(_)) => format!("saved v{running}"),
+            (_, Some(_)) => format!("running v{running}"),
+            (Shown::Saved { .. }, None) => "saved".to_owned(),
+            (Shown::Running { run_turns, .. }, None) => format!("run {run_turns}t"),
+            (Shown::Woke { woke_turns, .. }, None) => format!("woke {woke_turns}t"),
         };
+        let pin = if self.pinned.is_some() { format!(" {dot} pinned") } else { String::new() };
         let dash = if ascii { "--" } else { "──" };
         let minus = if ascii { '-' } else { '−' };
         let diff_part = if number <= 1 {
@@ -382,7 +424,9 @@ impl CodePane {
             };
             format!("+{added} {minus}{deleted}")
         };
-        Some(format!("{name}.rhai {dash} rev {number}/{max} {dash} {run_part} {dash} {diff_part}"))
+        Some(format!(
+            "{name}.rhai {dash} rev {number}/{max}{pin} {dash} {run_part} {dash} {diff_part}"
+        ))
     }
 
     /// Draws the pane's border, header, footer and (if a revision is shown) its highlighted,
@@ -1178,5 +1222,73 @@ mod tests {
         assert!(row.contains("- let v3"), "{row}");
         assert!(text.is_ascii(), "{text}");
         let _ = code_rows(&text, 5);
+    }
+
+    // --- #502: stepping through revisions ---
+
+    fn three_revisions() -> CodePane {
+        let mut pane = CodePane::new();
+        pane.feed([
+            &script("governor", 1, "let a = 1;\n", 0),
+            &script("governor", 2, "let a = 2;\n", 0),
+            &script("governor", 3, "let a = 3;\nlet b = 1;\n", 0),
+        ]);
+        pane.on_script("governor", 3, "let a = 3;\nlet b = 1;\n", 20);
+        pane
+    }
+
+    /// `(` pins the pane to the previous revision, diffed against its own predecessor; `)`
+    /// steps forward, and reaching the running revision unpins.
+    #[test]
+    fn parens_step_through_revisions_and_pin() {
+        let mut pane = three_revisions();
+        assert!(pane.key(key('(')));
+        let text = render_text(&mut pane, 160, 45, &palette());
+        let header = text.lines().next().unwrap();
+        assert!(header.contains("rev 2/3 · pinned"), "{header}");
+        assert!(header.contains("running v3"), "{header}");
+        assert!(header.contains("+1 −1"), "diffed against rev 1: {header}");
+        assert!(text.contains("let a = 2;"), "{text}");
+        assert!(!text.contains("let b = 1;"), "{text}");
+
+        pane.key(key('('));
+        pane.key(key('('));
+        let header = render_text(&mut pane, 160, 45, &palette()).lines().next().unwrap().to_owned();
+        assert!(header.contains("rev 1/3 · pinned"), "stops at the first: {header}");
+
+        pane.key(key(')'));
+        pane.key(key(')'));
+        let text = render_text(&mut pane, 160, 45, &palette());
+        let header = text.lines().next().unwrap();
+        assert!(header.contains("rev 3/3 ── run 20t"), "unpinned: {header}");
+        assert!(!header.contains("pinned"), "{header}");
+        assert!(text.contains("let b = 1;"), "{text}");
+    }
+
+    /// While pinned, a new run changes only the header's `running vK`.
+    #[test]
+    fn a_new_run_does_not_take_a_pinned_pane() {
+        let mut pane = three_revisions();
+        pane.key(key('('));
+        pane.on_script("governor", 4, "let a = 4;\n", 20);
+        let text = render_text(&mut pane, 160, 45, &palette());
+        let header = text.lines().next().unwrap();
+        assert!(header.contains("rev 2/4 · pinned") && header.contains("running v4"), "{header}");
+        assert!(text.contains("let a = 2;"), "{text}");
+        // Stepping forward to the new running revision unpins.
+        pane.key(key(')'));
+        pane.key(key(')'));
+        let header = render_text(&mut pane, 160, 45, &palette()).lines().next().unwrap().to_owned();
+        assert!(header.contains("rev 4/4 ── run 20t"), "{header}");
+    }
+
+    /// `--ascii` marks the pin with `.`.
+    #[test]
+    fn pinned_header_in_ascii() {
+        let ascii = Palette::new(&Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, true);
+        let mut pane = three_revisions();
+        pane.key(key('('));
+        let text = render_text(&mut pane, 160, 45, &ascii);
+        assert!(text.lines().next().unwrap().contains("rev 2/3 . pinned -- running v3"), "{text}");
     }
 }
