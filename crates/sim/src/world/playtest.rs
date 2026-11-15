@@ -13,13 +13,27 @@ use crate::jobs::Stack;
 
 use super::World;
 
-/// Techs a Republic start knows: the Steelworks (#1023), so steel can be made from the start.
-pub const REPUBLIC_TECHS: &[&str] = &["steelworks"];
+/// Techs a Republic start knows: the Steelworks (#1023), so steel can be made from the start,
+/// and every nation's goods techs (#1027), so each good can be made by hand.
+pub const REPUBLIC_TECHS: &[&str] =
+    &["steelworks", "lanterncraft", "smokehouses", "joinery", "tea_works"];
 
-/// Items a Republic start adds to stores, by id and count: steel to spend, and metal and wood
-/// for the Steelworks to make more.
-pub const REPUBLIC_ITEMS: &[(&str, u32)] =
-    &[("steel", 20), ("metal", 30), ("wood", 80), ("tool", 10)];
+/// Items a Republic start adds to stores, by id and count: steel to spend, metal and wood for the
+/// Steelworks to make more, fittings, fish and herbs for the goods (#1027), and some of each
+/// nation's Citizen good, so residents start climbing at once (#1026).
+pub const REPUBLIC_ITEMS: &[(&str, u32)] = &[
+    ("steel", 20),
+    ("metal", 30),
+    ("wood", 80),
+    ("tool", 10),
+    ("fittings", 10),
+    ("fish", 20),
+    ("herbs", 20),
+    ("lantern", 10),
+    ("smoked_fish", 10),
+    ("furniture", 10),
+    ("tea", 10),
+];
 
 impl World {
     /// Stands the gate if it isn't already, learns [`REPUBLIC_TECHS`] and puts [`REPUBLIC_ITEMS`]
@@ -41,7 +55,7 @@ impl World {
 
     /// Puts `stack` on stockpile tiles with room, in tile order, and drops the rest beside the
     /// first stockpile tile (or the map's centre with none).
-    fn add_to_stores(&mut self, stack: Stack, defs: &Defs) {
+    pub(super) fn add_to_stores(&mut self, stack: Stack, defs: &Defs) {
         let zones: Vec<_> = self.zones.iter().copied().collect();
         let mut left = stack.count;
         for z in &zones {

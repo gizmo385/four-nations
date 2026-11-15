@@ -931,6 +931,9 @@ pub fn condition_lines(
         let have = u32::from(facts.residents[nation.index()]);
         all.push(Condition::Residents { nation, need, have });
     }
+    if r.united {
+        all.push(Condition::United);
+    }
     if let Some(nation) = def.borrowed_from(home) {
         let need = defs.research.borrow_residents;
         let asked = r.residents.get(&nation).is_some_and(|&n| n >= need);

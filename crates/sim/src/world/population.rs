@@ -276,6 +276,7 @@ impl World {
                 sick_until: None,
                 remedy_retry_at: 0,
                 glider: Glider::default(),
+                standing: Default::default(),
             },
         );
         self.log_event(Arrival { tick: self.tick, unit: id, name });

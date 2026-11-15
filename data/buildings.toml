@@ -400,6 +400,15 @@ work = 25.0
 modifier = "heating"
 input = [{ item = "metal", count = 1 }]
 stock_limit = 6
+# Lanterns for Fire's Citizens (#1027, docs/design/factory-endgame.md): `lanterncraft`, after the gate.
+[[building.alt_recipe]]
+id = "lanterns"
+output = "lantern"
+output_count = 1
+work = 20.0
+modifier = "heating"
+input = [{ item = "metal", count = 1 }, { item = "wood", count = 1 }]
+stock_limit = 10
 
 [[building]]
 id = "brick_kiln"
@@ -639,6 +648,34 @@ work = 30.0
 modifier = "construction"
 input = [{ item = "wood", count = 4 }]
 stock_limit = 30
+# Furniture for Earth's Citizens (#1027): `joinery`, after the gate.
+[[building.alt_recipe]]
+id = "furniture"
+output = "furniture"
+output_count = 1
+work = 25.0
+modifier = "construction"
+input = [{ item = "wood", count = 2 }, { item = "fittings", count = 1 }]
+stock_limit = 10
+# Jewellery for Earth's Notables (#1027): `joinery`. Metal and cut stone, not the design's glow
+# crystal, which only Earth's hidden Crystal Grotto teaching grows.
+[[building.alt_recipe]]
+id = "jewellery"
+output = "jewellery"
+output_count = 1
+work = 30.0
+modifier = "construction"
+input = [{ item = "metal", count = 1 }, { item = "stone", count = 1 }]
+stock_limit = 6
+# Parkas for Water's Notables (#1027): `smokehouses`, after the gate.
+[[building.alt_recipe]]
+id = "parkas"
+output = "parka"
+output_count = 1
+work = 30.0
+modifier = "construction"
+input = [{ item = "hide", count = 1 }, { item = "fittings", count = 1 }]
+stock_limit = 6
 
 # --- Earth: mining (issue #373) ---
 # Earth runs out of things to raise halfway up its tree (docs/design/nation-buildings.md,
@@ -1372,6 +1409,26 @@ work = 20.0
 modifier = "heating"
 input = [{ item = "metal", count = 2 }, { item = "wood", count = 2 }]
 stock_limit = 8
+# Fittings (#1027): steel worked into hinges and brackets for furniture and parkas. Unlocked with
+# the Steelworks itself.
+[[building.alt_recipe]]
+id = "fittings"
+output = "fittings"
+output_count = 2
+work = 15.0
+modifier = "heating"
+input = [{ item = "steel", count = 1 }, { item = "wood", count = 1 }]
+stock_limit = 12
+# Fine steelware for Fire's Notables (#1027): `lanterncraft`. The design's glow crystal input is
+# left out: only Earth's hidden Crystal Grotto teaching grows them.
+[[building.alt_recipe]]
+id = "steelware"
+output = "fine_steelware"
+output_count = 1
+work = 30.0
+modifier = "heating"
+input = [{ item = "steel", count = 1 }, { item = "wood", count = 1 }]
+stock_limit = 6
 
 # --- #755 (research horizons phase 6: `aqueducts`) -----------------------------------------------
 
@@ -1469,3 +1526,72 @@ count = 1
 [[building.cost]]
 item = "steel"     # #1023, provisional
 count = 1
+
+# --- #1027 (the Republic era: goods by hand) -----------------------------------------------------
+
+# Water's Smokehouse (docs/design/factory-endgame.md, "Wants"): fish and wood smoked into a good
+# Water's Citizens want, and its second recipe tans fish skins into hide for parkas. Unlocked by
+# `smokehouses` after the gate. Numbers provisional.
+[[building]]
+id = "smokehouse"
+name = "Smokehouse"
+verb = "Build"
+work = 60.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+[[building.cost]]
+item = "wood"
+count = 16
+[[building.cost]]
+item = "stone"
+count = 6
+[building.recipe]
+output = "smoked_fish"
+output_count = 2
+work = 20.0
+modifier = "water_work"
+input = [{ item = "fish", count = 2 }, { item = "wood", count = 1 }]
+stock_limit = 12
+# Fish skins tanned into hide, for parkas.
+[[building.alt_recipe]]
+id = "hide"
+output = "hide"
+output_count = 1
+work = 20.0
+modifier = "water_work"
+input = [{ item = "fish", count = 2 }]
+stock_limit = 6
+
+# Air's Tea Works: herbs dried into tea for Air's Citizens, and herbs and fruit into incense for
+# its Notables. Unlocked by `tea_works` after the gate. Numbers provisional.
+[[building]]
+id = "tea_works"
+name = "Tea Works"
+verb = "Build"
+work = 60.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+[[building.cost]]
+item = "wood"
+count = 14
+[[building.cost]]
+item = "stone"
+count = 4
+[building.recipe]
+output = "tea"
+output_count = 2
+work = 20.0
+modifier = "construction"
+input = [{ item = "herbs", count = 2 }]
+stock_limit = 12
+# Incense for Air's Notables.
+[[building.alt_recipe]]
+id = "incense"
+output = "incense"
+output_count = 1
+work = 25.0
+modifier = "construction"
+input = [{ item = "herbs", count = 1 }, { item = "fruit", count = 1 }]
+stock_limit = 6

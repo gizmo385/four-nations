@@ -908,12 +908,15 @@ mod tests {
         // A new Earth game knows none of its branch yet.
         let s = session(Nation::Earth);
         let left = missing_techs(&s.world, &s.defs);
-        // Hidden teachings (#738 on) aren't on the tree, so they aren't left either.
+        // Hidden teachings (#738 on) aren't on the tree, so they aren't left either, and nor
+        // are the Republic goods techs (#1027) until the gate stands.
         let branch = s
             .defs
             .techs
             .iter()
-            .filter(|t| t.nation == Some(Nation::Earth) && t.teaching.is_none())
+            .filter(|t| {
+                t.nation == Some(Nation::Earth) && t.teaching.is_none() && !t.requires.united
+            })
             .count();
         assert_eq!(left.len(), branch);
     }

@@ -219,6 +219,57 @@ glyph = "▰"
 ascii = "#"
 fg = [150, 170, 200]
 
+# The Republic era's goods (#1027).
+[item.fittings]
+glyph = "⌐"
+ascii = "f"
+fg = [170, 180, 200]
+
+[item.hide]
+glyph = "ʬ"
+ascii = "h"
+fg = [190, 150, 110]
+
+[item.lantern]
+glyph = "ł"
+ascii = "l"
+fg = [250, 200, 90]
+
+[item.fine_steelware]
+glyph = "♅"
+ascii = "v"
+fg = [180, 200, 230]
+
+[item.smoked_fish]
+glyph = "ϡ"
+ascii = "k"
+fg = [200, 130, 90]
+
+[item.parka]
+glyph = "ʘ"
+ascii = "p"
+fg = [150, 190, 220]
+
+[item.furniture]
+glyph = "π"
+ascii = "u"
+fg = [170, 120, 70]
+
+[item.jewellery]
+glyph = "◊"
+ascii = "j"
+fg = [120, 220, 170]
+
+[item.tea]
+glyph = "ẗ"
+ascii = "t"
+fg = [140, 200, 110]
+
+[item.incense]
+glyph = "ʃ"
+ascii = "i"
+fg = [210, 170, 210]
+
 # --- Fire production (#124) ---
 [item.metal]
 glyph = "▬"
@@ -461,6 +512,17 @@ fg = [240, 130, 50]
 glyph = "Ξ"
 ascii = "X"
 fg = [225, 175, 120]
+
+# The Republic era's goods buildings (#1027).
+[building.smokehouse]
+glyph = "ϡ"
+ascii = "K"
+fg = [200, 120, 80]
+
+[building.tea_works]
+glyph = "ŧ"
+ascii = "T"
+fg = [120, 200, 110]
 
 [building.steam_engine]
 glyph = "Φ"

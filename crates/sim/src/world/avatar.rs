@@ -137,6 +137,7 @@ impl World {
             sick_until: None,
             remedy_retry_at: 0,
             glider: Glider::default(),
+            standing: Default::default(),
         });
     }
 

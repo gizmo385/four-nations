@@ -220,24 +220,35 @@ fn the_exchange_lists_the_other_nations_teachable_techs_then_the_fusions() {
     let defs = Defs::bundled();
     let mut w = united_water(&defs);
     let ex = w.exchange(&defs);
-    // 3 Earth + 5 Fire + 5 Air teachable techs, Water's own are not listed, then every fusion
+    // 4 Earth + 6 Fire + 6 Air teachable techs (each with its goods tech, #1027), Water's own are
+    // not listed, then every fusion
     // in the data (counted, so each new fusion doesn't edit this test).
     let count = |n| ex.borrowed_from(n).count();
     assert_eq!(
         (count(Nation::Earth), count(Nation::Fire), count(Nation::Water), count(Nation::Air)),
-        (3, 5, 0, 5)
+        (4, 6, 0, 6)
     );
     let fusions = defs.techs.iter().filter(|t| t.is_fusion()).count();
     assert!(fusions >= 2, "Steelworks and the Aqueduct at least");
     assert_eq!(ex.fusions().count(), fusions);
-    assert_eq!(ex.entries.len(), 3 + 5 + 5 + fusions);
+    assert_eq!(ex.entries.len(), 4 + 6 + 6 + fusions);
     // Nations in `Nation::ALL` order, each in file order, fusions last.
     let kinds: Vec<_> = ex.entries.iter().map(|e| e.kind).collect();
     assert!(matches!(kinds.last(), Some(ExchangeKind::Fusion { .. })));
     let fire: Vec<_> = ex.borrowed_from(Nation::Fire).map(|e| e.tech).collect();
     assert_eq!(
         fire,
-        ids(&defs, &["brickmaking", "smelting", "steam_engines", "hothouses", "cargo_balloons"])
+        ids(
+            &defs,
+            &[
+                "brickmaking",
+                "smelting",
+                "steam_engines",
+                "hothouses",
+                "cargo_balloons",
+                "lanterncraft"
+            ]
+        )
     );
     let get = |ex: &Exchange, t: &str| {
         ex.entries.iter().find(|e| e.tech == id(&defs, t)).unwrap().clone()

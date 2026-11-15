@@ -97,9 +97,11 @@ fn search_minute(world: &World) -> bool {
 }
 
 /// Whether `tech` is one the exchange page lists for this settlement.
+/// The Republic era's goods techs (`requires.united`, #1027) are left out: the opening doesn't
+/// play the factory endgame yet, and borrowing them would hold up the fusions it measures.
 fn is_exchange(defs: &Defs, nation: Nation, tech: TechId) -> bool {
     let t = defs.tech(tech);
-    t.is_fusion() || t.borrowed_from(nation).is_some()
+    !t.requires.united && (t.is_fusion() || t.borrowed_from(nation).is_some())
 }
 
 /// Sets the next exchange tech as the research target (module doc, "Research"). With

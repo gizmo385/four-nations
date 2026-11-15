@@ -3310,12 +3310,14 @@ mod tests {
     fn the_workshops_wares_are_unlocked_by_trade_wares() {
         let defs = Defs::bundled();
         let workshop = defs.building(defs.building_id("workshop").unwrap());
-        let [wares] = workshop.alt_recipes.as_slice() else { panic!("one alt recipe") };
-        assert_eq!(wares.id, "wares");
+        let wares = &workshop.alt_recipes[0];
+        assert_eq!(wares.id, "wares", "wares stays the first alt recipe");
         assert_eq!(wares.unlocked_by, defs.tech_id("trade_wares"));
         assert_eq!(defs.item(wares.recipe.output.item).id, "wares");
+        // The Republic era's goods (#1027) added alt recipes to the Forge, the Steelworks, the
+        // Smokehouse and the Tea Works too.
         let others = defs.buildings.iter().filter(|b| !b.alt_recipes.is_empty()).count();
-        assert_eq!(others, 1, "only the Workshop has one");
+        assert_eq!(others, 5);
         assert!(!defs.tech(defs.tech_id("trade_wares").unwrap()).core);
     }
 

@@ -78,6 +78,11 @@ fn footer_rows(view: &NationView, width: usize) -> Vec<Row> {
         rows.push(Row::text("ALMANAC", Tone::Title));
         rows.extend(view.almanac.iter().map(|l| Row::text(l.clone(), Tone::Text)));
     }
+    if !view.republic.is_empty() {
+        rows.push(Row::default());
+        rows.push(Row::text("THE REPUBLIC", Tone::Title));
+        rows.extend(view.republic.iter().map(|l| Row::text(l.clone(), Tone::Text)));
+    }
     if !traits.is_empty() {
         rows.push(Row::default());
         rows.push(Row::text("TRAITS", Tone::Title));

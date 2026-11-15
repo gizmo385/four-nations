@@ -288,6 +288,10 @@ pub struct Requires {
     /// 1 to `MAX_RESIDENTS_REQUIRED`. Can fall.
     #[serde(default)]
     pub residents: std::collections::BTreeMap<Nation, u32>,
+    /// The Harmony Gate stands (`Facts::united`): the Republic era's goods techs
+    /// (docs/design/factory-endgame.md, #1027) open only in a United City. The gate never falls.
+    #[serde(default)]
+    pub united: bool,
 }
 
 /// What the world knows that `Requires` asks about: filled by `World::facts`, so `research`
@@ -330,6 +334,8 @@ pub enum Condition {
     Masters { count: u32, of: Vec<Nation> },
     /// At least `need` residents of `nation`, `have` of them living here now.
     Residents { nation: Nation, need: u32, have: u32 },
+    /// The Harmony Gate stands.
+    United,
 }
 
 impl std::fmt::Display for Condition {
@@ -357,6 +363,7 @@ impl std::fmt::Display for Condition {
                 let verb = if *have == 1 { "lives" } else { "live" };
                 write!(f, "{need} {} {noun} ({have} {verb} here)", nation.title())
             }
+            Self::United => f.write_str("the Harmony Gate standing"),
         }
     }
 }
@@ -370,12 +377,13 @@ impl Requires {
             && self.masters.is_none()
             && self.masters_of.is_none()
             && self.residents.is_empty()
+            && !self.united
     }
 
     /// The keys `facts` doesn't meet yet, in a fixed order (scrolls, chapter, population,
-    /// masters, then residents in nation order). Empty once they are all met, and always for a
-    /// tech with no `requires`. A chapter reads as its name from `defs.endeavor`, or its id if
-    /// the endeavor isn't loaded.
+    /// masters, residents in nation order, then the gate). Empty once they are all met, and always
+    /// for a tech with no `requires`. A chapter reads as its name from `defs.endeavor`, or its id
+    /// if the endeavor isn't loaded.
     pub fn unmet(&self, facts: &Facts<'_>, defs: &Defs) -> Vec<Condition> {
         let mut out = Vec::new();
         if let Some(n) = self.scrolls_read.filter(|&n| facts.scrolls_read < n) {
@@ -404,6 +412,9 @@ impl Requires {
             if have < need {
                 out.push(Condition::Residents { nation, need, have });
             }
+        }
+        if self.united && !facts.united {
+            out.push(Condition::United);
         }
         out
     }
@@ -639,11 +650,12 @@ impl TechDef {
         self.fusion.is_some()
     }
 
-    /// Whether the tree shows this tech, given the gate: a fusion only once it stands
+    /// Whether the tree shows this tech, given the gate: a fusion, or a tech that
+    /// `requires.united` (the Republic era's goods, #1027), only once it stands
     /// (`Facts::united`). Every other tech is always shown here (a teaching has its own rule,
     /// `World::is_hidden_teaching`).
     pub fn visible_when(&self, united: bool) -> bool {
-        self.fusion.is_none() || united
+        (self.fusion.is_none() && !self.requires.united) || united
     }
 
     /// Whether `prereq` may be required by a fusion tech of `pair`: a shared tech, or a teachable

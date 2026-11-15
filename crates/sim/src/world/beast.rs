@@ -159,6 +159,7 @@ impl World {
             guest: None,
             beast: Some(Beast { id: beast, home, bored: 0 }),
             glider: Glider::default(),
+            standing: Default::default(),
             unhappy_since: None,
             last_harm: None,
             exposed_alerted: false,
