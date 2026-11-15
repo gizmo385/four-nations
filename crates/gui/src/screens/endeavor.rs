@@ -191,7 +191,8 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                         page::text_row(ui, &look, &Row::default(), false, Sense::hover());
                         let cells = (ui.available_width() / look.cell.x).max(1.0) as usize;
                         let ledger = goods_ledger(&app.session.world, &app.session.defs);
-                        for row in goods_lines(&ledger, cells, &marks) {
+                        let cursor = app.ui.goods_cursor.min(ledger.len().saturating_sub(1));
+                        for row in goods_lines(&ledger, cells, &marks, Some(cursor)) {
                             page::text_row(ui, &look, &row, false, Sense::hover());
                         }
                         return;

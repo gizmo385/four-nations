@@ -366,6 +366,25 @@ impl App {
                 _ => {}
             }
         }
+        if self.ui.screen == Some(Screen::Endeavor)
+            && self.session.world.united()
+            && self.ui.city_tab == crate::state::CityTab::Goods
+        {
+            // The Goods tab has a pointer: the arrows move it by one good, and Enter opens the
+            // planner on the good under it.
+            match action {
+                Action::Move { dy, .. } if dy != 0 => {
+                    let n = crate::endeavor::goods_ledger(&self.session.world, &self.session.defs)
+                        .len();
+                    let at = self.ui.goods_cursor.min(n.saturating_sub(1)) as i32;
+                    self.ui.goods_cursor =
+                        (at + dy.signum()).clamp(0, n.max(1) as i32 - 1) as usize;
+                    return;
+                }
+                Action::Confirm => return self.open_planner(),
+                _ => {}
+            }
+        }
         if self.ui.screen == Some(Screen::Endeavor) {
             // The gate (#643): Enter chooses a site once the endeavor is Ready, `X` withdraws a
             // site no work has started on. Both say why when there's nothing to do.
@@ -420,6 +439,9 @@ impl App {
             return;
         }
         if self.ui.screen == Some(Screen::Split) && self.split_key(action) {
+            return;
+        }
+        if self.ui.screen == Some(Screen::Planner) && self.planner_key(action) {
             return;
         }
         match action {
@@ -714,6 +736,7 @@ impl App {
                     | Screen::Traders
                     | Screen::Airship
                     | Screen::Split
+                    | Screen::Planner
             )
         }) else {
             return;
@@ -1290,6 +1313,46 @@ impl App {
             }
             Err(why) => self.ui.notice = why,
         }
+    }
+
+    /// `Enter` on the Goods tab: the planner on the good under the pointer.
+    fn open_planner(&mut self) {
+        let ledger = crate::endeavor::goods_ledger(&self.session.world, &self.session.defs);
+        let Some(row) = ledger.get(self.ui.goods_cursor.min(ledger.len().saturating_sub(1))) else {
+            self.ui.notice = "No good to plan yet".to_owned();
+            return;
+        };
+        self.ui.scroll = 0;
+        self.ui.planner = Some(crate::planner::PlanEdit::new(row.item));
+        self.ui.screen = Some(Screen::Planner);
+    }
+
+    /// What a key does in the planner; whether it was one the screen took. Left and Right move
+    /// along the chain, Up and Down (and `+`/`-`) change the rate, `Esc` or `G` go back to the
+    /// Goods tab. The other clock keys work throughout.
+    fn planner_key(&mut self, action: Action) -> bool {
+        let Some(mut edit) = self.ui.planner else { return false };
+        match action {
+            Action::Move { dx, dy, .. } => {
+                if dx != 0 {
+                    crate::planner::step(&self.session, &mut edit, dx.signum());
+                }
+                if dy != 0 {
+                    crate::planner::adjust(&mut edit, -dy.signum());
+                }
+            }
+            Action::Faster => crate::planner::adjust(&mut edit, 1),
+            Action::Slower => crate::planner::adjust(&mut edit, -1),
+            Action::Cancel | Action::ShowEndeavor => {
+                self.ui.planner = None;
+                self.ui.screen = Some(Screen::Endeavor);
+                return true;
+            }
+            Action::Jump { .. } | Action::Confirm => {}
+            _ => return false,
+        }
+        self.ui.planner = Some(edit);
+        true
     }
 
     /// What a key does in the Split screen; whether it was one the screen took. Up and Down move

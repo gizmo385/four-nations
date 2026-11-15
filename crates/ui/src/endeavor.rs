@@ -175,6 +175,8 @@ pub struct GoodFlowRow {
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LedgerRow {
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub item: ItemId,
     pub name: String,
     pub made: f32,
     pub used: f32,
@@ -243,6 +245,7 @@ pub fn goods_ledger(world: &World, defs: &Defs) -> Vec<LedgerRow> {
         .into_iter()
         .zip(items.iter())
         .map(|(w, &item)| LedgerRow {
+            item,
             made_at: made_at(item),
             short: w.short,
             name: w.name,
@@ -257,6 +260,7 @@ pub fn goods_ledger(world: &World, defs: &Defs) -> Vec<LedgerRow> {
         let stores = world.stored_total(item);
         let at = made_at(item);
         rows.push(LedgerRow {
+            item,
             name: defs.item(item).name.clone(),
             made,
             used,

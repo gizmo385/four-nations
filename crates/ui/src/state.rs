@@ -69,6 +69,10 @@ pub enum Screen {
     /// `V` on a machine in Select mode: where its automated output goes (`crate::split`). The
     /// machine and pointer are [`UiState::split`].
     Split,
+    /// `Enter` on a good on the United City screen's Goods tab: the pipeline planner
+    /// (`crate::planner`), the chain that makes it at a rate. The good, rate and pointer are
+    /// [`UiState::planner`].
+    Planner,
 }
 
 /// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
@@ -251,6 +255,10 @@ pub struct UiState {
     pub airship: Option<crate::airship::Picks>,
     /// The Split screen's machine and pointer. `Some` exactly while the screen is open.
     pub split: Option<crate::split::SplitEdit>,
+    /// The planner's good, rate and pointer. `Some` exactly while the screen is open.
+    pub planner: Option<crate::planner::PlanEdit>,
+    /// The Goods tab's pointer, over `endeavor::goods_ledger`'s rows.
+    pub goods_cursor: usize,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
     /// changes them (`App::refresh_saves`), not on every frame.
     pub save_slots: Vec<Slot>,
@@ -322,6 +330,8 @@ impl UiState {
             trade_cursor: 0,
             airship: None,
             split: None,
+            planner: None,
+            goods_cursor: 0,
             save_slots: Vec::new(),
             save_cursor: 0,
             save_name: None,

@@ -53,6 +53,7 @@ pub mod notice;
 pub mod page;
 pub mod panel;
 pub mod patch;
+pub mod planner;
 pub mod pointer;
 pub mod recipe;
 pub mod research;

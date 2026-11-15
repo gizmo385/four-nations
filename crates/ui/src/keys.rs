@@ -169,6 +169,8 @@ pub enum Mode {
     Airship,
     /// The Split screen (`V` on a machine).
     Split,
+    /// The pipeline planner (`Enter` on a good on the Goods tab).
+    Planner,
     /// The SEND THE AIRSHIP box over it.
     AirshipSend,
     Log,
@@ -230,6 +232,7 @@ impl Mode {
             Self::Abilities => "ABILITIES",
             Self::Traders => "TRADERS",
             Self::Split => "SPLIT",
+            Self::Planner => "PLANNER",
             Self::Airship => "AIRSHIP",
             Self::AirshipSend => "SEND THE AIRSHIP",
             Self::Log | Self::WatchLog => "LOG",
@@ -411,6 +414,9 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Split], &[step], "Up/Down", "choose", None);
     add(&[Mode::Split], &[], "Left/Right", "share", None);
     add(&[Mode::Split], &[Action::Cancel, Action::ShowSplit], "Esc or V", "close", None);
+    add(&[Mode::Planner], &[], "Left/Right", "step", None);
+    add(&[Mode::Planner], &[step], "Up/Down", "rate", None);
+    add(&[Mode::Planner], &[Action::Cancel, Action::ShowEndeavor], "Esc or G", "back", None);
     add(&[Mode::Airship], &[step], "Up/Down", "choose", None);
     add(&[Mode::Airship], &[], "Left/Right", "nation or deal", None);
     add(&[Mode::Airship], &[Action::Faster, Action::Slower], "+/-", "times", None);
@@ -421,7 +427,7 @@ fn build() -> Vec<Entry> {
     add(&[Mode::AirshipSend], &[Action::Cancel], "Esc", "back", None);
 
     add(&[Mode::Endeavor], &[step], "Up/Down", "scroll", None);
-    add(&[Mode::Endeavor], &[Action::Confirm], "Enter", "place", None);
+    add(&[Mode::Endeavor], &[Action::Confirm], "Enter", "place or plan", None);
     add(&[Mode::Endeavor], &[Action::Cancel, Action::ShowEndeavor], "Esc or G", "close", None);
     add(&[Mode::Endeavor], &[Action::PickTool(Tool::Remove)], "X", "withdraw", None);
     add(&[Mode::Endeavor], &[jump], "PgUp/PgDn", "page", None);
