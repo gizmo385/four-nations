@@ -175,7 +175,7 @@ pub fn highlight(src: &str) -> Vec<Vec<Span>>; // one Vec per line
 still applies (`--ascii` only changes glyphs). With no colour, the code is plain text, and the
 diff marker column still carries the diff.
 
-### Diff: `fn_ui::code::line_diff`
+### Diff: `fn_ui::code::line_diff` and `diff_rows`
 
 ```rust
 pub enum Mark { Same, Added, RemovedAfter } // per line of the new revision
@@ -188,21 +188,63 @@ pub fn line_diff(old: &str, new: &str) -> (Vec<Mark>, usize /*added*/, usize /*d
   crate (Myers or patience) is the fallback if the diffs come out ugly in practice.
 - **A changed line counts as one deleted and one added**, the way `diff` counts it. This is what
   the `+A −D` header shows.
-- **Deleted lines aren't drawn.** The pane shows the code that runs. A deletion leaves a `▁`
-  (`_` with `--ascii`) in the marker column of the line just above the gap, in the
-  `removed` colour.
+- **Deleted lines are drawn inline (#558)**, where they were, on rows of their own: no line
+  number (they have none in this revision), a `−` (`-` with `--ascii`) in the marker column and
+  the text dimmed in the `removed` colour. `x` hides them; then a deletion leaves a `▁` (`_`
+  with `--ascii`) in the marker column of the line just above the gap instead. The pane uses
+  `fn_ui::code::diff_rows`, which returns the rows in order (`Same`, `Added`, `Deleted`) and
+  takes off the lines shared at both ends before the LCS, so a long governor changed in one
+  place stays far under the cell cap.
 - **Added lines** get `▌` (`+` with `--ascii`) in the marker column, plus the `added_bg` tint
   across the line.
+
+### Display formatting: `fn_ui::code::format` (#558)
+
+Agents lay scripts out however it comes out, and reformat them between revisions, so a raw line
+diff read layout as change. The pane shows and diffs a display formatting of each revision
+instead, by default:
+
+- **One statement per line**, four-space indent by block depth, one space around binary
+  operators, `switch` arms one to a line, at most one blank line between statements.
+- **A line past 80 columns is broken the way a person would:** before each `||`, `&&`, `??` or
+  binary `+`/`-` of a chain at its top level, or else its outermost call, array or map with two
+  or more items goes one item to a line. The width is fixed, not the pane's, so the text and the
+  `+A −D` counts don't change when the terminal is resized.
+- **Comments and strings are copied exactly.** Code that won't lex (an unterminated string or
+  comment, unbalanced brackets) is shown raw, never dropped, and the footer says `won't format`.
+- **Formatting is idempotent**, and two revisions differing only in layout format to the same
+  text, so they show no marks and `+0 −0`. Blank lines never count as a change. The header and
+  the feed's `save_script` row count on the same text as the pane.
+- **It only affects display.** Logs and the code that runs are never touched. `p` switches to
+  the raw text and back.
+
+It's a token-level formatter on its own lexer, not a parser: it needs the script to lex, not to
+be valid Rhai, and where it guesses (is this `-` unary, is this `|` a closure) a wrong guess
+costs a space.
 
 ### Gutter, scrolling, long lines
 
 - **The gutter** is the line number, right-aligned to the width of the largest number, then the
   marker column, then a space.
-- **Long lines are cut with `…`** (`>` with `--ascii`). They aren't wrapped, because wrapping
-  breaks the one-row-per-line reading of a diff.
-- **Auto-scroll:** when the shown revision changes, the pane scrolls so that the first marked
-  line sits a third of the way down. `j`/`k` scroll one line, and `J`/`K` scroll half a pane.
-  Your scroll position holds until the revision changes.
+- **Long lines wrap (#589).** A line wider than the pane continues on the rows below, indented
+  past its own indent, with `↪` (`\` with `--ascii`) where the line number would be. The number
+  shows once, on the line's first row, so the gutter's numbers stay right, and an added line's
+  `▌` and tint carry onto its continuation rows. Wrapping was chosen over sideways scrolling
+  because it shows the whole of a changed line at once, with its colours, without a key. The
+  one-row-per-line reading the earlier "cut with `…`" rule protected is kept by the gutter:
+  a row with a number is a line, a row with `↪` is more of the one above.
+- **Scrolling is by rows**, so `J` reaches the very last row of the longest script. `j`/`k`
+  scroll one row, `J`/`K` half a pane. A resize rewraps every line and keeps the same line at
+  the top.
+- **Follow mode** is the default: when the shown revision changes, the pane scrolls so that the
+  first change (an added line, or a deleted one) sits a third of the way down. Scrolling on
+  purpose stops that: a new revision leaves the view where it is (on the same line), and the
+  footer says `c follow changes`. `c` jumps back to the changes and follows again.
+- **The footer** (the bottom border, right-aligned) says where you are and how to move when the
+  script doesn't fit, `j/k scroll  lines 40-82 of 160`, and always the `p` and `x` switches
+  (`p raw` or `p formatted`, `x hide deleted` when the revision deleted lines). Parts that don't
+  fit a narrow pane are left out, least useful first; when everything fits, only the switches
+  show.
 - **One column only.** The code pane never splits into columns: past `code_max_width` (88), the
   extra width goes to the game column's map instead, so a long script scrolls.
 
@@ -339,7 +381,10 @@ Watcher keys win over free look (#330). Free look passes every other key to the 
 |---|---|---|
 | `1` `2` `3` | Zoom or tab: code, game, feed | Digits are the game's nation switch, which free look already refuses (`input::spectator_allowed`), so they're free |
 | `0` | Back to the studio split | Same reason |
-| `j` `k` / `J` `K` | Scroll the code pane a line / half a pane | Not bound anywhere in the game (`input::build_table`) |
+| `j` `k` / `J` `K` | Scroll the code pane a row / half a pane, and stop following (#589) | Not bound anywhere in the game (`input::build_table`) |
+| `c` | Jump back to the changes and follow them (#589) | Not bound in the game; "changes" |
+| `p` | Formatted / raw code (#558) | Not bound in the game; "pretty" |
+| `x` | Show / hide deleted lines (#558) | Not bound in the game; a crossed-out line |
 | `Tab` `Shift+Tab` | In the message log (free look): the next / previous kind of line (#774) | The log's own filters are the digits, which are the studio's here; `Tab` is free in a log screen. The hint bar and key help list it (`Mode::WatchLog`) |
 | `{` `}` | Previous / next revision of the shown script (#502) | The owner suggested `[`/`]`, but `]` already jumps to the end of the next turn. Decided in #505 |
 
@@ -431,9 +476,12 @@ A `tui.toml` test checks that every `Class` has a colour.
 
 - **A `--studio` flag or toggle.** The owner placed the studio in `--watch`, and the tab
   fallback already covers small terminals.
-- **Drawing deleted lines inline** (red, struck through). Then the pane would no longer show the
-  code that runs, and the length of every revision would jump around. The marker and the
-  `−D` count are enough.
+- **Drawing deleted lines inline** was turned down at first (the pane would no longer show
+  only the code that runs). The owner asked for it later (#558): they're dimmed, unnumbered and
+  hidden with `x`.
+- **Sideways scrolling for long lines** (#589's other option). It keeps one row per line, but a
+  change past the edge stays hidden until you scroll to it, and the syntax colours and diff
+  tint of the hidden part can't be seen. Wrapping shows it all.
 - **Streaming a script's lines while it runs** (flushing on every `wait`). It would make live
   watching smoother, but replay already paces the lines once they land, and it changes
   `run_script`'s flush contract. It can be its own issue if live watching feels jumpy.

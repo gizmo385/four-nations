@@ -931,7 +931,12 @@ keys inside the watcher:
   1  2  3        zoom the code, game or feed pane; again to return to the split. Below the
                  studio size these switch the tab instead
   0              back to the split (below the studio size, only flashes a reminder)
-  j  k           scroll the code pane a line down or up; J  K half a pane
+  j  k           scroll the code pane a row down or up; J  K half a pane. Scrolling stops it
+                 following each new revision's changes
+  c              jump back to the changes in the code pane, and follow them again
+  p              show the script raw, as the agent wrote it, or formatted for reading (the
+                 default: one statement per line, so a change of layout alone isn't a change)
+  x              show or hide the lines the latest revision deleted
   q              quit (a run started by `agent-run` stops its agent too; `watch` never does;
                  from the run browser, back to the list)
 
@@ -3439,6 +3444,9 @@ mod tests {
             "1  2  3",
             "  0  ",
             "j  k",
+            "  c  ",
+            "  p  ",
+            "  x  ",
             "  q  ",
             "free look",
             "four-nations/runs",
@@ -3476,6 +3484,9 @@ mod tests {
         let studio_rs = include_str!("../../crates/tui/src/studio.rs");
         for scroll in ["'j'", "'k'", "'J'", "'K'"] {
             assert!(studio_rs.contains(&format!("KeyCode::Char({scroll}) => self.scroll_by")));
+        }
+        for toggle in ["'c'", "'p'", "'x'"] {
+            assert!(studio_rs.contains(&format!("KeyCode::Char({toggle}) => {{")), "{toggle}");
         }
         let tui_toml = include_str!("../../data/tui.toml");
         assert!(tui_toml.contains("min_width = 160"), "the studio threshold moved");

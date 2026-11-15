@@ -9,6 +9,9 @@
 
 use std::cmp::max;
 
+mod format;
+pub use format::{FORMAT_WIDTH, format};
+
 /// How a byte range of a line reads, for a frontend's own colour table. Classifying is this
 /// module's whole job; a frontend decides what each variant looks like.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -445,6 +448,148 @@ pub fn line_diff(old: &str, new: &str) -> (Vec<Mark>, usize, usize) {
     (marks, added, deleted)
 }
 
+/// One row of a diff that shows deleted lines too ([`diff_rows`]): a line of the new text, or
+/// one of the old text that the new one dropped, placed where it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Row {
+    /// The new text's line `n` (0-based), unchanged.
+    Same(usize),
+    /// The new text's line `n`, added (a changed line is one deletion and one addition).
+    Added(usize),
+    /// The old text's line `n`, deleted.
+    Deleted(usize),
+}
+
+/// A diff as rows, for a pane that shows deleted lines inline ([`diff_rows`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowDiff {
+    pub rows: Vec<Row>,
+    pub added: usize,
+    pub deleted: usize,
+}
+
+impl RowDiff {
+    /// One [`Mark`] per line of the new text, the same as [`line_diff`]'s: for a pane that shows
+    /// deletions only as a mark on the line above them.
+    pub fn marks(&self) -> Vec<Mark> {
+        let mut marks = Vec::new();
+        let mut last_kept: Option<usize> = None;
+        for row in &self.rows {
+            match *row {
+                Row::Same(_) => {
+                    marks.push(Mark::Same);
+                    last_kept = Some(marks.len() - 1);
+                }
+                Row::Added(_) => marks.push(Mark::Added),
+                Row::Deleted(_) => {
+                    if let Some(k) = last_kept {
+                        marks[k] = Mark::RemovedAfter;
+                    }
+                }
+            }
+        }
+        marks
+    }
+}
+
+/// An LCS line diff between `old` and `new` as rows, deleted lines included (#558). With
+/// `ignore_blank`, blank lines on either side never count as a change: the display formatter
+/// keeps the blank lines an agent left between statements, and adding or dropping one is layout,
+/// not logic. Where what's left between the lines shared at both ends is above
+/// [`DIFF_CELL_CAP`], every line of it counts as added or deleted.
+pub fn diff_rows(old: &str, new: &str, ignore_blank: bool) -> RowDiff {
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    let keep = |l: &&str| !(ignore_blank && l.trim().is_empty());
+    let old_idx: Vec<usize> = (0..old_lines.len()).filter(|&i| keep(&old_lines[i])).collect();
+    let new_idx: Vec<usize> = (0..new_lines.len()).filter(|&i| keep(&new_lines[i])).collect();
+    let (n, m) = (old_idx.len(), new_idx.len());
+
+    // The edit script over the kept lines, oldest first: (Some(old), None) a deletion,
+    // (None, Some(new)) an addition, both a kept line. Lines shared at both ends are taken
+    // off first, so a revision that changes one region of a long governor is cheap and stays
+    // well under the cap.
+    let same = |i: usize, j: usize| old_lines[old_idx[i]] == new_lines[new_idx[j]];
+    let mut prefix = 0;
+    while prefix < n && prefix < m && same(prefix, prefix) {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < n - prefix && suffix < m - prefix && same(n - 1 - suffix, m - 1 - suffix) {
+        suffix += 1;
+    }
+    let mut ops: Vec<(Option<usize>, Option<usize>)> = Vec::with_capacity(n + m);
+    ops.extend((0..prefix).map(|k| (Some(old_idx[k]), Some(new_idx[k]))));
+    let (mid_old, mid_new) = (&old_idx[prefix..n - suffix], &new_idx[prefix..m - suffix]);
+    let (n_mid, m_mid) = (mid_old.len(), mid_new.len());
+    if n_mid.saturating_mul(m_mid) > DIFF_CELL_CAP {
+        ops.extend(mid_old.iter().map(|&i| (Some(i), None)));
+        ops.extend(mid_new.iter().map(|&j| (None, Some(j))));
+    } else {
+        let eq = |i: usize, j: usize| old_lines[mid_old[i]] == new_lines[mid_new[j]];
+        let width = m_mid + 1;
+        let mut dp = vec![0u32; (n_mid + 1) * width];
+        for i in 1..=n_mid {
+            for j in 1..=m_mid {
+                dp[i * width + j] = if eq(i - 1, j - 1) {
+                    dp[(i - 1) * width + (j - 1)] + 1
+                } else {
+                    max(dp[(i - 1) * width + j], dp[i * width + (j - 1)])
+                };
+            }
+        }
+        let mut mid_ops = Vec::with_capacity(n_mid + m_mid);
+        let (mut i, mut j) = (n_mid, m_mid);
+        while i > 0 || j > 0 {
+            if i > 0 && j > 0 && eq(i - 1, j - 1) {
+                mid_ops.push((Some(mid_old[i - 1]), Some(mid_new[j - 1])));
+                i -= 1;
+                j -= 1;
+            } else if j > 0 && (i == 0 || dp[i * width + (j - 1)] >= dp[(i - 1) * width + j]) {
+                mid_ops.push((None, Some(mid_new[j - 1])));
+                j -= 1;
+            } else {
+                mid_ops.push((Some(mid_old[i - 1]), None));
+                i -= 1;
+            }
+        }
+        ops.extend(mid_ops.into_iter().rev());
+    }
+    ops.extend((0..suffix).rev().map(|k| (Some(old_idx[n - 1 - k]), Some(new_idx[m - 1 - k]))));
+
+    let mut rows = Vec::with_capacity(new_lines.len() + n);
+    let (mut added, mut deleted) = (0, 0);
+    // Blank new lines that were left out of the LCS go back in, in order, as unchanged.
+    let mut next_new = 0usize;
+    let catch_up = |upto: usize, next_new: &mut usize, rows: &mut Vec<Row>| {
+        while *next_new < upto {
+            rows.push(Row::Same(*next_new));
+            *next_new += 1;
+        }
+    };
+    for op in ops {
+        match op {
+            (_, Some(j)) => {
+                catch_up(j, &mut next_new, &mut rows);
+                next_new = j + 1;
+                if op.0.is_some() {
+                    rows.push(Row::Same(j));
+                } else {
+                    rows.push(Row::Added(j));
+                    added += 1;
+                }
+            }
+            (Some(i), None) => {
+                rows.push(Row::Deleted(i));
+                deleted += 1;
+            }
+            (None, None) => {}
+        }
+    }
+    catch_up(new_lines.len(), &mut next_new, &mut rows);
+    RowDiff { rows, added, deleted }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,6 +899,46 @@ mod tests {
     fn fixture_prelude_never_panics_and_keywords_classified() {
         let src = fixture(concat!(env!("CARGO_MANIFEST_DIR"), "/../agent/src/script/prelude.rhai"));
         assert_never_panics_and_keywords_classified(&src);
+    }
+
+    // --- diff_rows ---
+
+    #[test]
+    fn diff_rows_place_deleted_lines_where_they_were() {
+        let d = diff_rows("a\nb\nc\n", "a\nx\nc\n", false);
+        assert_eq!(d.rows, vec![Row::Same(0), Row::Deleted(1), Row::Added(1), Row::Same(2)]);
+        assert_eq!((d.added, d.deleted), (1, 1));
+        assert_eq!(d.marks(), line_diff("a\nb\nc\n", "a\nx\nc\n").0);
+    }
+
+    #[test]
+    fn diff_rows_agree_with_line_diff_on_counts() {
+        let pairs = [("", "a\nb"), ("a\nb", ""), ("a\nb\nc", "c\nb\na"), ("x\ny", "x\ny")];
+        for (old, new) in pairs {
+            let d = diff_rows(old, new, false);
+            let (marks, added, deleted) = line_diff(old, new);
+            assert_eq!((d.added, d.deleted), (added, deleted), "{old:?} -> {new:?}");
+            assert_eq!(d.marks(), marks, "{old:?} -> {new:?}");
+        }
+    }
+
+    #[test]
+    fn diff_rows_can_ignore_blank_lines() {
+        let d = diff_rows("a\nb\n", "a\n\nb\n\n", true);
+        assert_eq!(d.rows, vec![Row::Same(0), Row::Same(1), Row::Same(2), Row::Same(3)]);
+        assert_eq!((d.added, d.deleted), (0, 0));
+        let d = diff_rows("a\n\nb\n", "a\nb\nc\n", true);
+        assert_eq!(d.rows, vec![Row::Same(0), Row::Same(1), Row::Added(2)]);
+        assert_eq!((d.added, d.deleted), (1, 0));
+    }
+
+    #[test]
+    fn diff_rows_handle_a_long_script_changed_in_one_place() {
+        let old: String = (0..3000).map(|i| format!("line{i}\n")).collect();
+        let new = old.replace("line1500\n", "changed\n");
+        let d = diff_rows(&old, &new, true);
+        assert_eq!((d.added, d.deleted), (1, 1));
+        assert_eq!(d.rows.len(), 3001);
     }
 
     // --- line_diff ---
