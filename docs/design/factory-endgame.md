@@ -375,21 +375,17 @@ are exactly the three tools this doc adds: automate, carry, or buy.
 
 ### The Here panel on machines and links
 
-Three panels side by side. A Steelworks in a Fire yard, fed by a touching Smelter and feeding a
-touching Forge. The near end of an Earth freight line. A Furniture Works that isn't connected to
-anything and is starving for fittings.
+One idea per line, five lines at most. Where a good comes from and goes to is dim, under what
+the building is doing. Three examples: a Steelworks in a Fire yard, the near end of an Earth
+freight line, and a Workshop nothing feeds.
 
 ```
-+- HERE ------------ (41, 22) -+   +- HERE ------------ (12, 40) -+   +- HERE ------------ (30, 18) -+
-| Steelworks (automated)       |   | Freight line, near end       |   | Furniture Works              |
-| 2 metal, 2 wood -> 1 steel   |   | Hold: 14/20 gold ore         |   | 1 fittings, 2 wood -> 1      |
-| Batch 60%, Fire yard x1.0    |   | To: far end, 38 tiles        |   | furniture                    |
-| From: Smelter, touching      |   | Next cart in 12 s            |   | Waiting: no fittings         |
-| From: wood by haul           |   | Crew: Haru (Earth)           |   | From: Forge, 6 tiles         |
-| To: Forge, touching          |   | Moving 40 a minute           |   |   (not touching)             |
-| Made 3.1 a min, last 10      |   |                              |   | Route: stores                |
-| Wear: tend in 4 batches      |   |                              |   | Made 0 a min, last 10        |
-| Load 4 of plant's 20         |   |                              |   | Short for 9 Earth wants      |
++- HERE ---------- (24, 11) -+   +- HERE ----------- (26, 2) -+   +- HERE ---------- (30, 18) -+
+| Steelworks                 |   | Freight Station            |   | Workshop                   |
+| Making steel - 60%         |   | Sending gold ore           |   | Making furniture           |
+| Runs itself in the yard    |   | Next cart in 12 s          |   | Waiting for fittings       |
+| Metal from the Smelter     |   | To the yard, 38 tiles      |   | Nothing feeds it           |
+| Steel to the Forge         |   |                            |   |                            |
 ```
 
 ### The map, with the production overlay
@@ -397,8 +393,10 @@ anything and is starving for fittings.
 A toggle like the reach tint. Arrows show where goods flow: from the mines (`HH`, a Deep Mine at
 the rock face) onto a freight line (`#` stations, `=` rail, `>` the cart's direction), then down
 into a row of touching machines (`SS` Smelter, `WWW` Steelworks, `FF` Forge, `UU` Furniture
-Works) and out to stores (`[]`). `LLLL` is the Lightning Station whose yard runs them. Glyphs are
-placeholders.
+Works) and out to stores (`[]`). `LLLL` is the Lightning Station whose yard runs them. These
+letters are placeholders: the picture version uses the game's real glyphs (Smelter `Ψ`,
+Steelworks `Ξ`, Forge `Ω`, Workshop `⚒`, Lightning Station `Ϟ`, Deep Mine `◈`, rail `╪`), and
+proposes `⊟` for a freight station.
 
 ```
 ^^^^^^^^^^,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
