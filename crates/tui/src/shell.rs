@@ -429,6 +429,7 @@ impl Shell {
             Outcome::None => {}
             Outcome::Quit => self.quit = true,
             Outcome::Replays => self.replays_wanted = self.runs.is_some(),
+            Outcome::Scenario(id) => self.start_scenario(&id),
             Outcome::Embark { seed, nation, size, mode, difficulty } => {
                 self.open_embark(seed, nation, size, mode, difficulty)
             }
@@ -443,6 +444,26 @@ impl Shell {
                 // A loaded game is the saved one: the confirm box counts from here.
                 if let Mode::Game(app) = &mut self.mode {
                     app.ui.saved_at = Some(app.session.world.tick);
+                }
+            }
+        }
+    }
+
+    /// The title screen's playtest start (#1025): the same world `--scenario ID` starts, in
+    /// place of the title screen. A failure stays on the title screen and says why.
+    fn start_scenario(&mut self, id: &str) {
+        match Self::for_scenario(id, self.screen, self.saves.clone()) {
+            Ok(Self { mode: Mode::Game(mut app), .. }) => {
+                app.fast = self.fast;
+                app.session.clock = app.session.clock.clone().with_fast(self.fast);
+                app.ui.can_quit = self.can_quit;
+                self.defs = app.session.defs.clone();
+                self.mode = Mode::Game(app);
+            }
+            Ok(_) => {}
+            Err(why) => {
+                if let Mode::Title(title) = &mut self.mode {
+                    title.status = why;
                 }
             }
         }

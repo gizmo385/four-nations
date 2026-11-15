@@ -153,7 +153,8 @@ fn quitting_a_game_asks_once_in_one_box() {
 
     press(&mut shell, KeyCode::Down);
     press(&mut shell, KeyCode::Down);
-    // The menu is New game, Load, Quit with no saves: the third row is Quit.
+    press(&mut shell, KeyCode::Down);
+    // The menu is New game, Load, Playtest starts, Quit with no saves: the fourth row is Quit.
     press(&mut shell, KeyCode::Enter);
     assert!(shell.quit, "the title screen's own Quit stops the process without asking again");
 }

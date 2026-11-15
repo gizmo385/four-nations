@@ -55,6 +55,7 @@ pub fn publish(shell: &Shell, last: &mut String) {
                     Page::Nation { .. } => "nation",
                     Page::Seed { .. } => "seed",
                     Page::Load => "load",
+                    Page::Playtest { .. } => "playtest",
                 }
                 .to_owned(),
             ),

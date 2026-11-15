@@ -535,6 +535,22 @@ matter.
 deep, all made by hand. If that's fun, F2 to F4 make it bigger. If it isn't, F2 to F4 won't save
 it, and we've learned that cheaply.
 
+## Playtesting it
+
+The era starts after the Harmony Gate, hours into a game, so each phase must be reachable at
+turn 0 (#1025):
+
+- **Republic starts.** `fire-republic`, `water-republic`, `earth-republic` and `air-republic` in
+  `data/scenarios.toml`: four hours of the economy opening, the gate stood, then
+  `World::start_republic` learns the techs and fills the stores the newest phase needs, on
+  sandbox rules so nobody starves while a feature is tried. `fn_tui --scenario fire-republic`
+  starts one; so does **Playtest starts** on the title screen, in the terminal and the window.
+- **Each phase keeps them current.** A phase's PR adds what its feature needs to
+  `REPUBLIC_TECHS` and `REPUBLIC_ITEMS` (`crates/sim/src/world/playtest.rs`) and says in its body
+  what to try and what should happen.
+- **Saves.** A good setup can be saved and loaded as usual, so a playtest can pick up where it
+  left off.
+
 ## Risks
 
 - **Busywork.** Eight goods fetched by 40 people could feel like upkeep. The rates and the

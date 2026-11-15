@@ -11,6 +11,9 @@ pub const NATION_PROMPT: &str = "Choose a nation (arrows or 1-4):";
 /// The Load step with nothing saved.
 pub const NO_SAVES: &str = "No saves yet.";
 
+/// The playtest page's heading (#1025): each start plays its opening first, which takes a moment.
+pub const PLAYTEST_HEADING: &str = "Start partway into a game. Each one plays its opening first.";
+
 /// The seed step's heading: `Fire Nation — new game:`.
 pub fn seed_heading(nation_name: &str) -> String {
     format!("{nation_name} — new game:")

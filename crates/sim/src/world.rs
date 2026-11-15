@@ -67,6 +67,7 @@ mod orchard;
 mod outpost;
 mod pair;
 mod pickers;
+mod playtest;
 mod population;
 mod power;
 mod probe;

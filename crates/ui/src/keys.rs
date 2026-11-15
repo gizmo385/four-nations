@@ -193,6 +193,8 @@ pub enum Mode {
     TitleNation,
     TitleSeed,
     TitleLoad,
+    /// The title screen's playtest starts (`data/scenarios.toml`, #1025).
+    TitlePlaytest,
     /// The embark screen at the overview, at a middle zoom and at the closest (site) zoom: what
     /// `Enter` and `Esc` do differs.
     Embark,
@@ -236,6 +238,7 @@ impl Mode {
             Self::TitleNation => "NATION",
             Self::TitleSeed => "SEED",
             Self::TitleLoad => "LOAD",
+            Self::TitlePlaytest => "PLAYTEST",
             Self::Embark | Self::EmbarkZoom | Self::EmbarkSite => "EMBARK",
             Self::Settle => "SETTLE?",
             Self::Anywhere => "ANY",
@@ -492,6 +495,9 @@ fn build() -> Vec<Entry> {
     add(&[Mode::TitleLoad], &[], "Up/Down", "choose", None);
     add(&[Mode::TitleLoad], &[], "Enter", "load", None);
     add(&[Mode::TitleLoad], &[], "Esc", "back", None);
+    add(&[Mode::TitlePlaytest], &[], "Up/Down", "choose", None);
+    add(&[Mode::TitlePlaytest], &[], "Enter", "start", None);
+    add(&[Mode::TitlePlaytest], &[], "Esc", "back", None);
 
     // The embark screen, by zoom, and its settle question.
     const EMBARK: &[Mode] = &[Mode::Embark, Mode::EmbarkZoom, Mode::EmbarkSite];
@@ -824,6 +830,7 @@ mod tests {
             "Up/Down pick row · Left/Right change · Enter embark · Esc back"
         );
         assert_eq!(line(Mode::TitleLoad), "Up/Down choose · Enter load · Esc back");
+        assert_eq!(line(Mode::TitlePlaytest), "Up/Down choose · Enter start · Esc back");
         assert_eq!(
             line(Mode::Embark),
             "Arrows move · Enter zoom in · E settle · R new seed · Esc back"

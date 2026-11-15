@@ -1,7 +1,7 @@
 //! The title screen (#280): before a game exists, New game (pick a nation and a seed), Continue
 //! (the newest loadable slot, hidden with none), Load (every slot, as the in-game saves screen
-//! shows them), Replays (the run browser on the agent runs folder, #841; hidden with no runs)
-//! and Quit. [`crate::shell::Shell`] is the only thing that drives this: it holds
+//! shows them), Playtest starts (the `data/scenarios.toml` presets, #1025), Replays (the run
+//! browser on the agent runs folder, #841; hidden with no runs) and Quit. [`crate::shell::Shell`] is the only thing that drives this: it holds
 //! either this or the game, and switches between them on the outcome of a key.
 //!
 //! Like [`crate::state::UiState`], nothing here touches the terminal, so the keys and the golden
@@ -42,6 +42,9 @@ pub enum MenuItem {
     /// Hidden unless [`TitleScreen::continue_slot`] has something to load.
     Continue,
     Load,
+    /// The scenario presets (#1025): a start partway into a game, so late features can be
+    /// playtested without playing up to them.
+    Playtest,
     /// The run browser (#841). Hidden unless [`TitleScreen::replays`] says there are runs.
     Replays,
     Quit,
@@ -53,6 +56,7 @@ impl MenuItem {
             Self::NewGame => "New game",
             Self::Continue => "Continue",
             Self::Load => "Load",
+            Self::Playtest => "Playtest starts",
             Self::Replays => "Replays",
             Self::Quit => "Quit",
         }
@@ -85,6 +89,10 @@ pub enum Page {
     },
     /// Every save, as the in-game saves screen (`F6`) shows them.
     Load,
+    /// The scenario presets (#1025): `cursor` indexes `crate::scenario::bundled()`.
+    Playtest {
+        cursor: usize,
+    },
 }
 
 /// A row of the seed step (#290, docs/design/embark.md; Difficulty added by #298).
@@ -118,6 +126,8 @@ pub enum Outcome {
     },
     /// Continue or Load: a world ready to become the game.
     Loaded(Box<World>),
+    /// A playtest start (#1025): start the bundled scenario with this id, as `--scenario ID`.
+    Scenario(String),
     /// Replays (#841): open the run browser. The title screen stays as it is underneath, so
     /// coming back finds the cursor still on Replays.
     Replays,
@@ -199,6 +209,7 @@ impl TitleScreen {
             items.push(MenuItem::Continue);
         }
         items.push(MenuItem::Load);
+        items.push(MenuItem::Playtest);
         if self.replays {
             items.push(MenuItem::Replays);
         }
@@ -215,6 +226,9 @@ impl TitleScreen {
         match &self.page {
             Page::Nation { cursor } => Nation::ALL[*cursor % Nation::ALL.len()],
             Page::Seed { nation, .. } => *nation,
+            Page::Playtest { cursor } => {
+                crate::scenario::bundled().get(*cursor).map_or(Nation::Earth, |s| s.nation)
+            }
             Page::Menu | Page::Load => Nation::Earth,
         }
     }
@@ -234,7 +248,30 @@ impl TitleScreen {
             Page::Seed { nation, digits, edited, row, size_idx, survey, difficulty_idx } => self
                 .key_seed(key, defs, nation, digits, edited, row, size_idx, survey, difficulty_idx),
             Page::Load => self.key_load(key, defs, saves),
+            Page::Playtest { cursor } => self.key_playtest(key, cursor),
         }
+    }
+
+    /// The playtest page (#1025): up/down through the presets, `Enter` starts one, `Esc` goes
+    /// back to the menu.
+    fn key_playtest(&mut self, key: KeyEvent, cursor: usize) -> Outcome {
+        let scenarios = crate::scenario::bundled();
+        match key.code {
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
+                self.page = Page::Playtest { cursor: step(scenarios.len(), cursor, -1) }
+            }
+            KeyCode::Down | KeyCode::Char('s' | 'S') => {
+                self.page = Page::Playtest { cursor: step(scenarios.len(), cursor, 1) }
+            }
+            KeyCode::Enter => {
+                if let Some(s) = scenarios.get(cursor) {
+                    return Outcome::Scenario(s.id.clone());
+                }
+            }
+            KeyCode::Esc => self.page = Page::Menu,
+            _ => {}
+        }
+        Outcome::None
     }
 
     fn key_menu(&mut self, key: KeyEvent, defs: &Defs, saves: Option<&dyn SaveStore>) -> Outcome {
@@ -269,6 +306,10 @@ impl TitleScreen {
                 self.save_slots = list_slots(saves);
                 self.load_cursor = 0;
                 self.page = Page::Load;
+                Outcome::None
+            }
+            MenuItem::Playtest => {
+                self.page = Page::Playtest { cursor: 0 };
                 Outcome::None
             }
             MenuItem::Replays => Outcome::Replays,
@@ -497,6 +538,7 @@ pub fn hint_mode(page: &Page) -> keys::Mode {
         Page::Nation { .. } => keys::Mode::TitleNation,
         Page::Seed { .. } => keys::Mode::TitleSeed,
         Page::Load => keys::Mode::TitleLoad,
+        Page::Playtest { .. } => keys::Mode::TitlePlaytest,
     }
 }
 
@@ -506,6 +548,8 @@ const BOX_WIDTH: u16 = 64;
 /// the cursor moves between rows whose text wraps to different lengths.
 const NATION_DESCRIPTION_LINES: usize = 4;
 const SEED_HINT_LINES: usize = 3;
+/// Lines the playtest page keeps for the highlighted preset's brief.
+const PLAYTEST_BRIEF_LINES: usize = 3;
 /// The save list's own rows, which scroll inside whatever height the box gives them.
 const LOAD_ROWS: u16 = 20;
 
@@ -520,6 +564,8 @@ fn content_rows(screen: &TitleScreen) -> u16 {
         // The heading and a blank, the four rows, a blank, then the hint.
         Page::Seed { .. } => 2 + SeedRow::ALL.len() + 1 + SEED_HINT_LINES,
         Page::Load => return LOAD_ROWS,
+        // The heading (two lines) and a blank, one row per preset, a blank, then the brief.
+        Page::Playtest { .. } => 3 + crate::scenario::bundled().len() + 1 + PLAYTEST_BRIEF_LINES,
     };
     u16::try_from(rows).unwrap_or(u16::MAX)
 }
@@ -565,7 +611,30 @@ pub fn draw_title(
         Page::Seed { nation, digits, row, size_idx, survey, difficulty_idx, .. } => {
             draw_seed(defs, *nation, digits, *row, *size_idx, *survey, *difficulty_idx, &mut p)
         }
+        Page::Playtest { cursor } => draw_playtest(*cursor, &mut p),
         Page::Load => unreachable!("handled above"),
+    }
+}
+
+/// The playtest page (#1025): the heading, one row per preset by name, and the highlighted
+/// one's brief below.
+fn draw_playtest(cursor: usize, p: &mut Painter) {
+    let width = usize::from(p.inner.width);
+    for line in wrap(words::PLAYTEST_HEADING, width, 2, p.marks.ellipsis) {
+        p.row(&Row::text(line, Tone::Dim));
+    }
+    p.blank();
+    let scenarios = crate::scenario::bundled();
+    for (i, s) in scenarios.iter().enumerate() {
+        let pointer = if i == cursor { p.marks.pointer } else { " " };
+        let tone = if i == cursor { Tone::Title } else { Tone::Text };
+        p.row(&Row::text(format!("{pointer} {}", s.name), tone));
+    }
+    p.blank();
+    if let Some(s) = scenarios.get(cursor) {
+        for line in wrap(&s.brief, width, PLAYTEST_BRIEF_LINES, p.marks.ellipsis) {
+            p.row(&Row::text(line, Tone::Dim));
+        }
     }
 }
 
@@ -707,7 +776,7 @@ mod tests {
         let screen = TitleScreen::new(None, 1);
         assert_eq!(
             screen.items(),
-            [MenuItem::NewGame, MenuItem::Load, MenuItem::Quit],
+            [MenuItem::NewGame, MenuItem::Load, MenuItem::Playtest, MenuItem::Quit],
             "no save directory: nothing to continue"
         );
     }
@@ -717,10 +786,13 @@ mod tests {
         let mut screen = TitleScreen::new(None, 1);
         screen.cursor = screen.items().len() - 1;
         screen.set_quit(false);
-        assert_eq!(screen.items(), [MenuItem::NewGame, MenuItem::Load]);
+        assert_eq!(screen.items(), [MenuItem::NewGame, MenuItem::Load, MenuItem::Playtest]);
         assert!(screen.cursor < screen.items().len(), "the cursor stays on a row");
         let screen = TitleScreen::new(None, 1).with_replays(true).with_quit(false);
-        assert_eq!(screen.items(), [MenuItem::NewGame, MenuItem::Load, MenuItem::Replays]);
+        assert_eq!(
+            screen.items(),
+            [MenuItem::NewGame, MenuItem::Load, MenuItem::Playtest, MenuItem::Replays]
+        );
     }
 
     #[test]
@@ -730,13 +802,41 @@ mod tests {
         let mut shown = TitleScreen::new(None, 1).with_replays(true);
         assert_eq!(
             shown.items(),
-            [MenuItem::NewGame, MenuItem::Load, MenuItem::Replays, MenuItem::Quit]
+            [
+                MenuItem::NewGame,
+                MenuItem::Load,
+                MenuItem::Playtest,
+                MenuItem::Replays,
+                MenuItem::Quit
+            ]
         );
+        press(&mut shown, KeyCode::Down);
         press(&mut shown, KeyCode::Down);
         press(&mut shown, KeyCode::Down);
         assert!(matches!(press(&mut shown, KeyCode::Enter), Outcome::Replays));
         assert_eq!(shown.page, Page::Menu, "the menu stays put underneath the browser");
         assert_eq!(shown.items()[shown.cursor], MenuItem::Replays);
+    }
+
+    /// #1025: Playtest starts lists every bundled scenario; `Enter` starts the highlighted one by
+    /// id, `Esc` goes back to the menu.
+    #[test]
+    fn playtest_starts_lists_the_scenarios_and_starts_the_chosen_one() {
+        let mut screen = TitleScreen::new(None, 1);
+        press(&mut screen, KeyCode::Down);
+        press(&mut screen, KeyCode::Down);
+        assert_eq!(screen.items()[screen.cursor], MenuItem::Playtest);
+        press(&mut screen, KeyCode::Enter);
+        assert_eq!(screen.page, Page::Playtest { cursor: 0 });
+        assert_eq!(hint_mode(&screen.page), keys::Mode::TitlePlaytest);
+        press(&mut screen, KeyCode::Down);
+        let second = crate::scenario::bundled()[1].id.clone();
+        match press(&mut screen, KeyCode::Enter) {
+            Outcome::Scenario(id) => assert_eq!(id, second),
+            other => panic!("{other:?}"),
+        }
+        press(&mut screen, KeyCode::Esc);
+        assert_eq!(screen.page, Page::Menu);
     }
 
     #[test]
@@ -912,7 +1012,7 @@ mod tests {
     #[test]
     fn quit_from_the_menu_quits_at_once_with_no_further_question() {
         let mut screen = TitleScreen::new(None, 1);
-        for _ in 0..3 {
+        for _ in 0..4 {
             press(&mut screen, KeyCode::Down);
         }
         assert_eq!(screen.items()[screen.cursor], MenuItem::Quit);

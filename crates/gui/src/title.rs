@@ -301,6 +301,7 @@ pub fn show(ui: &mut Ui, screen: &TitleScreen, defs: &Defs, palette: &Palette) -
                         Page::Nation { cursor } => nation(ui, defs, *cursor, &look, &mut keys),
                         Page::Seed { .. } => seed(ui, screen, defs, &look, &mut keys),
                         Page::Load => load(ui, screen, defs, &look, &mut keys),
+                        Page::Playtest { cursor } => playtest(ui, *cursor, &look, &mut keys),
                     }
                 });
             },
@@ -602,4 +603,42 @@ fn load(ui: &mut Ui, screen: &TitleScreen, defs: &Defs, look: &Look, keys: &mut 
     } else {
         buttons(ui, look, ("Back", KeyCode::Esc), ("Load", KeyCode::Enter), keys);
     }
+}
+
+/// The playtest step (#1025): the heading, one row per scenario preset, the highlighted one's
+/// brief, then Back and Start. Clicks press the same keys the terminal's page reads.
+fn playtest(ui: &mut Ui, cursor: usize, look: &Look, keys: &mut Vec<KeyEvent>) {
+    ui.add(dim(look, words::PLAYTEST_HEADING).wrap());
+    ui.add_space(8.0);
+    let scenarios = fn_tui::scenario::bundled();
+    let cursor = cursor.min(scenarios.len().saturating_sub(1));
+    for (i, s) in scenarios.iter().enumerate() {
+        let selected = i == cursor;
+        let r = row(ui, ("playtest", i), &s.name, look, ROW, selected, |p, rect| {
+            let ink = if selected { look.accent_text } else { look.text };
+            if selected {
+                p.text(
+                    pos2(rect.left() + 10.0, rect.center().y),
+                    Align2::LEFT_CENTER,
+                    "▸",
+                    mono(BODY),
+                    look.accent,
+                );
+            }
+            left_text(p, rect, rect.left() + 28.0, &s.name, mono(BODY), ink, 0.0);
+        });
+        if r.clicked() {
+            keys.extend(load_click(cursor, i, r.double_clicked()));
+        }
+    }
+    if let Some(s) = scenarios.get(cursor) {
+        ui.add_space(4.0);
+        ui.add(
+            Label::new(RichText::new(&s.brief).font(mono(BODY - 2.0)).color(look.text))
+                .selectable(false)
+                .wrap(),
+        );
+    }
+    ui.add_space(8.0);
+    buttons(ui, look, ("Back", KeyCode::Esc), ("Start", KeyCode::Enter), keys);
 }
