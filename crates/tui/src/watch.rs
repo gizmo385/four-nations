@@ -2838,6 +2838,33 @@ mod tests {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
     }
 
+    /// `(` and `)` (#502) step the studio's code pane through the script's revisions, as
+    /// `--frame --keys "("` plays them: pinned to the older one, then back to the running one.
+    #[test]
+    fn parens_pin_the_code_pane_in_the_studio() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        let code = |c: &str| LogLine::Script {
+            name: "governor".to_owned(),
+            version: if c.contains('1') { 1 } else { 2 },
+            code: c.to_owned(),
+            turns: 5,
+            wake_on: Vec::new(),
+        };
+        w.feed([code("let a = 1;"), LogLine::Turn { index: 0, tick: 100 }, code("let a = 2;")]);
+        w.fast_forward_to_turn(u32::MAX);
+        w.step_one();
+        let palette =
+            Palette::new(&fn_sim::Defs::bundled(), Nation::Earth, ColorDepth::TrueColor, false);
+        control_key(&mut w, KeyEvent::new(KeyCode::Char('('), KeyModifiers::NONE));
+        let text = crate::frame::to_text(&w.render(&palette, (160, 45)));
+        assert!(text.contains("rev 1/2 · pinned ── running v2"), "{text}");
+        assert!(text.contains("let a = 1;"), "{text}");
+        control_key(&mut w, KeyEvent::new(KeyCode::Char(')'), KeyModifiers::NONE));
+        let text = crate::frame::to_text(&w.render(&palette, (160, 45)));
+        assert!(text.contains("rev 2/2 ── run 5t"), "{text}");
+        assert!(!text.contains("pinned"), "{text}");
+    }
+
     /// Every studio digit (`0`/`1`/`2`/`3`) is claimed by `Watcher::key`, so `watch::run`'s own
     /// loop and `--watch --frame --keys` never offer them to free look (which already refuses
     /// them anyway, `input::spectator_allowed` -- this is the "win over free look" contract

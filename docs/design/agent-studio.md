@@ -387,16 +387,17 @@ Watcher keys win over free look (#330). Free look passes every other key to the 
 | `x` | Show / hide deleted lines (#558) | Not bound in the game; a crossed-out line |
 | `Tab` `Shift+Tab` | In the message log (free look): the next / previous kind of line (#774) | The log's own filters are the digits, which are the studio's here; `Tab` is free in a log screen. The hint bar and key help list it (`Mode::WatchLog`) |
 | `*` | Skip to the next notable moment (#590, docs/design/agent-play.md) | Free everywhere; a star for a moment that stands out |
-| `{` `}` | Previous / next revision of the shown script (#502) | The owner suggested `[`/`]`, but `]` already jumps to the end of the next turn. Decided in #505 |
+| `(` `)` | Previous / next revision of the shown script (#502) | `{`/`}` were decided in #505, then taken by #640 for ten-turn skips; the owner picked `(`/`)` (2026-11-15), free everywhere and a pair like the others |
 
 No F-keys (WSL never delivers them). Every studio key goes through one new
 `Watcher::key(KeyEvent) -> bool`, called by both `watch::run`'s loop and the
 `--watch --frame --keys` path, so all of them can be tested without a terminal.
 
-**Revision stepping** pins the pane to the chosen revision. The header shows
-`rev 2/9 · pinned`, and the diff is still against that revision's predecessor. While a pane is
-pinned, a new run only changes the header's `running v4` hint. Stepping back to the running
-revision unpins it.
+**Revision stepping** (#502, `(` and `)`) pins the pane to the chosen revision, in the order
+revisions were fed, and scrolls to its first change. The header shows
+`rev 2/9 · pinned ── running v4`, and the diff is still against that revision's predecessor.
+While a pane is pinned, a new run only changes the header's `running vK` hint. Stepping back to
+the running revision unpins it, and so does a run of a different script.
 
 ## Data: `data/tui.toml`
 
