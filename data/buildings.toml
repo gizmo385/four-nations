@@ -1540,6 +1540,7 @@ work = 60.0
 passable = false
 footprint = [2, 2]
 capacity = 1
+uses_power = true      # #1037: a machine once `mechanisms` reaches it
 [[building.cost]]
 item = "wood"
 count = 16
@@ -1573,6 +1574,7 @@ work = 60.0
 passable = false
 footprint = [2, 2]
 capacity = 1
+uses_power = true      # #1037: a machine once `mechanisms` reaches it
 [[building.cost]]
 item = "wood"
 count = 14

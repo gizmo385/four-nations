@@ -392,9 +392,17 @@ pub fn unlock_parts(
         if u.fuel_free == Some(true) {
             return Some(format!("{} needs no fuel", b.display_name(nation)));
         }
-        if let Some(a) = u.automate {
+        if let Some(a) = &u.automate {
+            // Water's race and Earth's face (#1037): a machine must touch the water or the rock.
+            let along = if a.beside.is_empty() {
+                ""
+            } else if a.beside.contains(&fn_sim::defs::Terrain::Mountain) {
+                " at the rock"
+            } else {
+                " along the water"
+            };
             return Some(format!(
-                "Machines within {} tiles of a {} run with no crafter",
+                "Machines within {} tiles of a {}{along} run with no crafter",
                 a.radius,
                 b.display_name(nation)
             ));

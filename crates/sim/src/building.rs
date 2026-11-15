@@ -665,12 +665,15 @@ pub struct BankDef {
 
 /// How a power source's yard runs its recipe buildings with no crafter (`automate` upgrade,
 /// `great_works`, #725, `world/automate.rs`).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AutomateDef {
     /// The batch's speed against the recipe's plain one (its `modifier` applies, power doesn't).
     pub rate: f32,
     /// Chebyshev from the source's footprint, unscaled.
     pub radius: u32,
+    /// Terrains a machine's footprint ring must touch for it to run (#1037: Water's machines
+    /// run along water, Earth's at the rock face). Empty: anywhere in reach.
+    pub beside: Vec<Terrain>,
 }
 
 impl AuraDef {
@@ -2450,7 +2453,7 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                 }
                 b.fuel_free_upgrade = Some(TechId(t as u16));
             }
-            if let Some(a) = up.automate {
+            if let Some(a) = &up.automate {
                 if b.power.is_none() {
                     return err(format!(
                         "{name:?} is no power source; automate needs [building.power]"
@@ -2462,11 +2465,11 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                 if !(1..=8).contains(&a.radius) {
                     return err(format!("automate radius = {} must be 1 to 8", a.radius));
                 }
-                if let Some((other, _)) = b.automate_upgrade {
-                    return taken(other, "automate");
+                if let Some((other, _)) = &b.automate_upgrade {
+                    return taken(*other, "automate");
                 }
-                b.automate_upgrade =
-                    Some((TechId(t as u16), AutomateDef { rate: a.rate, radius: a.radius }));
+                let def = AutomateDef { rate: a.rate, radius: a.radius, beside: a.beside.clone() };
+                b.automate_upgrade = Some((TechId(t as u16), def));
             }
             if let Some(bank) = &up.bank {
                 if b.power.is_none() {

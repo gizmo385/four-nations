@@ -1258,3 +1258,30 @@ teachable = true
 requires = { united = true }
 [tech.unlocks]
 buildings = ["tea_works"]
+
+# --- #1037 (factory endgame F2: machines) -------------------------------------------------------
+
+# Every nation's machines (docs/design/factory-endgame.md, "Each nation's machines"): recipe
+# buildings in reach of the nation's own power source run themselves, as Fire's yard does with
+# `great_works`. Earth's run at the rock face, Water's along the water, Air's anywhere in the
+# turbine's wide reach but slowest.
+[[tech]]
+id = "mechanisms"
+name = "Mechanisms"
+description = "Gears and shafts take the work from tired hands, wherever the power reaches."
+cost = 1000
+prereqs = []
+requires = { united = true }
+[[tech.cost_items]]
+item = "steel"
+count = 6
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "hot_spring_mill"
+automate = { rate = 0.6, radius = 3, beside = ["mountain", "tunnel"] }
+[[tech.unlocks.upgrades]]
+building = "tide_mill"
+automate = { rate = 0.75, radius = 4, beside = ["water", "river", "lake", "canal"] }
+[[tech.unlocks.upgrades]]
+building = "wind_turbine"
+automate = { rate = 0.5, radius = 6 }

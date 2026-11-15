@@ -382,7 +382,10 @@ pub(super) fn yard_anchor(world: &World, defs: &Defs, id: &str) -> Option<Pos> {
     world
         .buildings()
         .filter(|b| {
-            defs.building(b.id).automate_upgrade.is_some_and(|(t, _)| world.research().is_known(t))
+            defs.building(b.id)
+                .automate_upgrade
+                .as_ref()
+                .is_some_and(|(t, _)| world.research().is_known(*t))
         })
         .map(|b| b.anchor)
         .min_by_key(|&p| (p.chebyshev(world.settlement_anchor()), p))
