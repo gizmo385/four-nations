@@ -62,31 +62,19 @@ fn the_bundled_steelworks_is_the_earth_fire_fusion() {
 }
 
 #[test]
-fn the_steelworks_makes_one_metal_from_one_ore_and_two_wood() {
+fn the_steelworks_makes_one_steel_from_two_metal_and_two_wood() {
     let defs = Defs::bundled();
     let works = defs.building(defs.building_id("steelworks").unwrap());
     let tech = defs.tech_id("steelworks").unwrap();
     assert_eq!(works.unlocked_by, Some(tech));
     let r = works.recipe.as_ref().expect("a recipe building");
-    let metal = defs.items.iter().position(|i| i.id == "metal").unwrap();
-    assert_eq!((r.output.item.0 as usize, r.output.count), (metal, 1));
+    // Steel is its own item (#1023), so the stock limit counts steel, not the metal it eats.
+    let steel = defs.item_id("steel").unwrap();
+    assert_eq!((r.output.item, r.output.count), (steel, 1));
     let inputs: Vec<(&str, u32)> =
         r.inputs.iter().map(|s| (defs.items[s.item.0 as usize].id.as_str(), s.count)).collect();
-    assert_eq!(inputs, [("gold_ore", 1), ("wood", 2)]);
+    assert_eq!(inputs, [("metal", 2), ("wood", 2)]);
     assert_eq!(r.stock_limit, 8);
-    // The Smelter it improves on: two ore and one wood for the same metal.
-    let smelter = defs.building(defs.building_id("smelter").unwrap());
-    let ore = |b: &crate::building::BuildingDef| {
-        b.recipe
-            .as_ref()
-            .unwrap()
-            .inputs
-            .iter()
-            .find(|s| defs.items[s.item.0 as usize].id == "gold_ore")
-            .unwrap()
-            .count
-    };
-    assert_eq!(ore(smelter), 2 * ore(works));
 }
 
 #[test]

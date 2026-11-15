@@ -1343,9 +1343,10 @@ cooldown_minutes = 20.0
 # --- #754 (research horizons phase 6: `steelworks`) ----------------------------------------------
 
 # The Earth + Fire fusion (docs/design/horizons-phase-6.md, "`steelworks`"): an ordinary recipe
-# building like the Smelter, but one ore makes one metal, not half, for twice the wood. Any crafter
-# works it at their own `heating`, so a Fire resident runs it fastest. Unlocked by the `steelworks`
-# fusion tech after the gate.
+# building that works metal again into steel (docs/design/factory-endgame.md, "Steel and other
+# goods", #1023), so its stock limit counts steel and Earth's metalbent metal feeds it (#968).
+# Provisional numbers. Any crafter works it at their own `heating`, so a Fire resident runs it
+# fastest. Unlocked by the `steelworks` fusion tech after the gate.
 [[building]]
 id = "steelworks"
 name = "Steelworks"
@@ -1365,11 +1366,11 @@ count = 2
 item = "tool"
 count = 2
 [building.recipe]
-output = "metal"
+output = "steel"
 output_count = 1
 work = 20.0
 modifier = "heating"
-input = [{ item = "gold_ore", count = 1 }, { item = "wood", count = 2 }]
+input = [{ item = "metal", count = 2 }, { item = "wood", count = 2 }]
 stock_limit = 8
 
 # --- #755 (research horizons phase 6: `aqueducts`) -----------------------------------------------
@@ -1427,7 +1428,10 @@ item = "wood"
 count = 30
 [[building.cost]]
 item = "metal"
-count = 4
+count = 2
+[[building.cost]]
+item = "steel"     # #1023, provisional
+count = 2
 [[building.cost]]
 item = "tool"
 count = 2
@@ -1461,4 +1465,7 @@ item = "stone"
 count = 6
 [[building.cost]]
 item = "metal"
-count = 2
+count = 1
+[[building.cost]]
+item = "steel"     # #1023, provisional
+count = 1

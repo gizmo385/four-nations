@@ -177,7 +177,7 @@ fn effect_ids_and_numbers_are_validated() {
     assert!(bad("multiplier = 2.5", "multiplier = 1.0").contains("scooter"));
     // Metalbend.
     assert!(bad("ore = \"gold_ore\"", "ore = \"coal\"").contains("coal"));
-    assert!(bad("metal = \"metal\"", "metal = \"steel\"").contains("steel"));
+    assert!(bad("metal = \"metal\"", "metal = \"bronze\"").contains("bronze"));
     assert!(bad("ratio = 2", "ratio = 0").contains("ratio"));
     assert!(bad("metal = \"metal\"", "metal = \"gold_ore\"").contains("must be different"));
 }

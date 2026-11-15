@@ -133,6 +133,12 @@ name = "Glow Crystal"
 id = "spirit_vial"
 name = "Spirit Water"
 
+# Steel, from the Steelworks (docs/design/factory-endgame.md, "Steel and other goods", #1023): metal
+# worked again, so Earth's metalbent glut has somewhere to go. Some phase-6 builds bill it.
+[[item]]
+id = "steel"
+name = "Steel"
+
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.
