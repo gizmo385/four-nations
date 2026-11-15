@@ -189,6 +189,57 @@ Five tiers. Each one lets a city serve a higher tier of resident, or more nation
 The Steelworks is already the Earth and Fire fusion (phase 6), so tier 5 grows the pattern it
 started rather than inventing one.
 
+### The pipeline planner (owner's idea, 2026-11-15)
+
+**How a player wires a factory.** Indirect control already means "you plan it, they build it",
+so the factory's main tool is a planner, not a wiring tool. It's a screen with four steps:
+
+1. **Pick a target**, a good and a rate: `Furniture, 1.0 a minute`.
+2. **The planner lays out the chain** from the recipes the city knows, back to raw goods: each
+   step's machine, how many, how busy they'd be, and what they take. Under it go the totals
+   (wood and ore a minute against what the city makes now, power draw against spare capacity,
+   hands, ground and cost), with anything short flagged.
+3. **The player changes sources.** On any row: make it, buy it from a caravan, take it from
+   stores, or settle for a lower rate the city can feed. On a short row the planner lists those
+   ways out.
+4. **Stamp it on the map.** The plan becomes a ghost block of touching machines in the right
+   order, moved and turned like the Build tool's ghost, which already shows tiles to clear (#427).
+   Enter turns it into ordinary build orders, and settlers haul and build it.
+
+The Goods screen then shows whether the real factory meets the plan. Saved plans can be stamped
+again: a second furniture line is one key. The planner is pure arithmetic over recipes and
+rates, so it lives in `fn_ui` beside the other view models and needs nothing new in the sim
+except the per-machine rates F1 already adds.
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ◆ PLANNER ◆ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+  Furniture · 1.0 a minute                                                 By machine · Fire yard
+  For 9 Earth residents at Citizen, with 2 more on the way
+
+    GOOD           A MIN   MADE BY              BUSY   TAKES
+    Furniture        1.0   ⚒ 2 Workshops        83%   1.0 fittings, 2.0 wood
+    └ Fittings       1.0   Ω 1 Forge            83%   0.5 steel, 0.5 wood
+      └ Steel        0.5   Ξ 1 Steelworks       83%   1.0 metal, 1.0 wood
+        └ Metal      1.0   Ψ 2 Smelters         83%   2.0 gold ore, 1.0 wood
+  >       └ Gold ore 2.0   ◈ 5 Deep Mines       You have 2: short 1.2
+
+    NEEDS
+    Wood       4.5 a min    chopping makes 6.0
+    Gold ore   2.0 a min    mines make 0.8
+    Power      draw 12      the Lightning Station has 8 spare
+    Ground     a 10x4 block, every machine touching
+  ─────────────────────────────────────────────────────────────────────────────────────────────────
+  Gold ore: short 1.2 a minute
+    Make     3 more Deep Mines at the rock face, fed by the freight line
+    Buy      Earth caravans sell 6 a visit, about 0.4 a minute
+    Settle   plan 0.6 furniture a minute, which 2 mines can feed
+```
+
+(The picture versions, with the stamp's ghost on a real frame, are `planner.png` and `stamp.png`
+in the project's `factory-endgame` folder.) Whether the planner can also draw explicit supply
+routes between distant machines, a middle way between placement and belts, is question 4's
+option D.
+
 ### Each nation's machines
 
 `mechanisms` lands on the city's own nation's source, with its own shape:
@@ -373,15 +424,15 @@ are exactly the three tools this doc adds: automate, carry, or buy.
  GOODS  Up/Down choose - Enter show where it's made - Esc close                               ? keys
 ```
 
-### The Here panel on machines and links
+### The inspector on machines and links
 
-One idea per line, five lines at most. Where a good comes from and goes to is dim, under what
+The side panel's last section, which describes whatever is under the cursor (side-panel-v2.md,
+#653). Its heading names the thing. One idea per line, five lines at most. Where a good comes from and goes to is dim, under what
 the building is doing. Three examples: a Steelworks in a Fire yard, the near end of an Earth
 freight line, and a Workshop nothing feeds.
 
 ```
-+- HERE ---------- (24, 11) -+   +- HERE ----------- (26, 2) -+   +- HERE ---------- (30, 18) -+
-| Steelworks                 |   | Freight Station            |   | Workshop                   |
++- STEELWORKS ---- (24, 11) -+   +- FREIGHT STATION - (26, 2) +   +- WORKSHOP ------ (30, 18) -+
 | Making steel - 60%         |   | Sending gold ore           |   | Making furniture           |
 | Runs itself in the yard    |   | Next cart in 12 s          |   | Waiting for fittings       |
 | Metal from the Smelter     |   | To the yard, 38 tiles      |   | Nothing feeds it           |
@@ -538,6 +589,7 @@ The era starting at the gate is assumed. Say so if it shouldn't.
      kind per nation. Haulers still load the near end.
    - B. Conveyor belts laid tile by tile.
    - C. Settlers only, with better roads.
+   - D. A as well as explicit supply routes drawn in the planner, a hauler assigned to each.
 5. **Does power get a load?** *Recommended: A.*
    - **A. Only for machines and the era's new buildings**, with crewed plants. Overload slows,
      never stops.
