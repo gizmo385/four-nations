@@ -2,10 +2,10 @@
 
 Doc status: current
 
-Status: **exploration** (owner's idea, 2026-11-15). Nothing here is decided and no issues are
-filed yet. The owner's choices are under "Open questions for the owner". Once they are answered,
-this doc becomes a proposal and its phases get design issues of their own, the way
-research-horizons.md split into phase docs.
+Status: **proposed** (owner, 2026-11-15). The owner reviewed the direction in the project thread
+and asked for it to be built. The six questions under "Open questions for the owner" are being
+built on their recommended answers (A) until the owner says otherwise; each is listed there with
+its default. Follow-up work is under "Follow-up issues".
 
 The owner's idea: an endgame expansion where the game "becomes more factory-esque", overlapping
 the open power and steel work. The first draft of this doc built machines, freight and power,
@@ -548,6 +548,9 @@ it, and we've learned that cheaply.
 - **Map room.** Small maps (192x128) may cramp Water's lines and Earth's freight.
 
 ## Open questions for the owner
+
+**Defaults in use (2026-11-15):** 1A, 2A, 3A, 4A, 5A, 6A. Any of them can change before its phase
+lands.
 
 The era starting at the gate is assumed. Say so if it shouldn't.
 
