@@ -66,6 +66,9 @@ pub enum Screen {
     /// nation to sail to, its deals and how many times each, then the SEND THE AIRSHIP box. The
     /// picks are [`UiState::airship`]; there is no key that opens it from anywhere else.
     Airship,
+    /// `V` on a machine in Select mode: where its automated output goes (`crate::split`). The
+    /// machine and pointer are [`UiState::split`].
+    Split,
 }
 
 /// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
@@ -244,6 +247,8 @@ pub struct UiState {
     /// The Airship screen's picks (#763): the dock it is for, the nation and deal under the
     /// pointer and the times each deal is taken. `Some` exactly while the screen is open.
     pub airship: Option<crate::airship::Picks>,
+    /// The Split screen's machine and pointer. `Some` exactly while the screen is open.
+    pub split: Option<crate::split::SplitEdit>,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
     /// changes them (`App::refresh_saves`), not on every frame.
     pub save_slots: Vec<Slot>,
@@ -313,6 +318,7 @@ impl UiState {
             ability_cursor: 0,
             trade_cursor: 0,
             airship: None,
+            split: None,
             save_slots: Vec::new(),
             save_cursor: 0,
             save_name: None,

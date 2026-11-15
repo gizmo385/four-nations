@@ -214,6 +214,10 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
         lines.push(format!("Picked: {}  Eaten: {}", p.picked, p.eaten));
     }
     lines.extend(automation_line(world, defs, anchor));
+    lines.extend(crate::split::sends_line(world, defs, anchor));
+    if world.needs_tending(anchor, defs) {
+        lines.push("Needs tending: waiting for a tool".to_owned());
+    }
     lines
 }
 

@@ -117,6 +117,15 @@ pub fn draw_screen(
         }
         Screen::Help => draw_help(session, ui, palette, page.body, buf),
         Screen::Log => crate::msglog::draw(session, ui, palette, &page, buf),
+        Screen::Split => {
+            if let Some(edit) = &ui.split {
+                let mut p = Painter::new(buf, page.body, palette);
+                for row in fn_ui::split::lines(session, edit) {
+                    p.row(&row);
+                }
+            }
+            None
+        }
         Screen::Endeavor => {
             let body = page.body;
             let marks = fn_ui::rows::Marks::new(palette.ascii);

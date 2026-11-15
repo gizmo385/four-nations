@@ -11,6 +11,8 @@
 
 use crate::jobs::{ItemId, JobKind, Stack};
 
+use serde::{Deserialize, Serialize};
+
 use super::work::route_from;
 use super::*;
 
@@ -21,6 +23,23 @@ pub type CraftBatch = (Vec<(ItemId, u32, u32)>, f32);
 /// What a worn machine needs brought to run again (#1039, docs/design/factory-endgame.md,
 /// "Wear"): a tool, used up.
 pub(super) const TEND_ITEM: &str = "tool";
+
+/// Where a share of a machine's output goes (`Command::SetShare`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitTo {
+    /// Out the door, for the haulers to take to stores.
+    Stores,
+    /// Straight into the batch of the touching machine anchored here.
+    Machine(Pos),
+}
+
+/// One destination of a machine's output split, with its share.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Share {
+    pub to: SplitTo,
+    pub weight: u8,
+}
 
 impl World {
     /// The rate the building anchored on `pos` runs at with no crafter, if it is automated now.
@@ -138,12 +157,14 @@ impl World {
         every > 0 && self.anchored(pos).is_some_and(|b| b.wear >= every)
     }
 
-    /// `Command::SetRoute` (#1038): where the recipe building anchored on `pos` sends its
-    /// automated batches. Refused off a finished recipe building.
-    pub(super) fn set_route(
+    /// `Command::SetShare`: sets `to`'s share of the output of the recipe building anchored on
+    /// `pos` to `weight` (0 takes it off the split). Refused off a finished recipe building, and
+    /// for a machine that isn't one of its `split_destinations`.
+    pub(super) fn set_share(
         &mut self,
         pos: Pos,
-        stores: bool,
+        to: SplitTo,
+        weight: u8,
         defs: &Defs,
     ) -> Result<(), RecipeError> {
         let Some(b) = self.anchored(pos) else {
@@ -156,7 +177,17 @@ impl World {
         if defs.building(b.id).recipe.is_none() {
             return Err(RecipeError::NoSuchRecipe);
         }
-        self.anchored_mut(pos).expect("just found").to_stores = stores;
+        if weight > 0 && !self.split_destinations(pos, defs).contains(&to) {
+            return Err(RecipeError::NotTouching);
+        }
+        let b = self.anchored_mut(pos).expect("just found");
+        match b.split.iter_mut().find(|s| s.to == to) {
+            Some(share) if weight > 0 => share.weight = weight,
+            Some(_) => b.split.retain(|s| s.to != to),
+            None if weight > 0 => b.split.push(Share { to, weight }),
+            None => {}
+        }
+        b.split_turn = 0;
         Ok(())
     }
 
@@ -175,36 +206,99 @@ impl World {
             .collect()
     }
 
-    /// Whether the building anchored on `pos` sends its batches to stores (`Command::SetRoute`).
-    pub fn routes_to_stores(&self, pos: Pos) -> bool {
-        self.anchored(pos).is_some_and(|b| b.to_stores)
+    /// Where the recipe building anchored on `pos` can send its output: each touching machine
+    /// that takes it (`touching_takers`, in tile order), then stores. What a split editor lists.
+    pub fn split_destinations(&self, pos: Pos, defs: &Defs) -> Vec<SplitTo> {
+        let Some(recipe) = self.recipe_at(pos, defs) else { return Vec::new() };
+        let mut out: Vec<SplitTo> = self
+            .touching_takers(pos, recipe.output.item, defs)
+            .into_iter()
+            .map(SplitTo::Machine)
+            .collect();
+        out.push(SplitTo::Stores);
+        out
     }
 
-    /// Hands as much of `stack`, a batch just finished at `pos`, as touching machines' batches
-    /// have room for (`touching_takers`, first in tile order first), unless `pos` routes to
-    /// stores. Returns what's left for the ground by the door.
+    /// The output split of the building anchored on `pos` (`Command::SetShare`): each
+    /// destination with its share, in the order they were added. Empty for the default, which
+    /// hands each batch to the first touching machine with room and the rest to stores.
+    pub fn split_of(&self, pos: Pos) -> &[Share] {
+        self.anchored(pos).map_or(&[], |b| b.split.as_slice())
+    }
+
+    /// Hands `stack`, a batch just finished at `pos`, on (docs/design/factory-endgame.md, "How
+    /// machines connect"). With no split set, as much as touching machines' batches have room
+    /// for goes to them, first in tile order first. With a split, each unit is dealt in turn to
+    /// the split's destinations by their shares; a machine with no room passes the unit to the
+    /// next destination in the split, and stores always take it. Returns what's left for the
+    /// ground by the door.
     fn pass_across(&mut self, pos: Pos, mut stack: Stack, defs: &Defs) -> Stack {
-        if self.routes_to_stores(pos) {
+        let split = self.split_of(pos).to_vec();
+        if split.is_empty() {
+            for target in self.touching_takers(pos, stack.item, defs) {
+                if stack.count == 0 {
+                    break;
+                }
+                let take = self.batch_room(target, stack.item, defs).min(stack.count);
+                if take == 0 {
+                    continue;
+                }
+                self.hand_to(target, Stack { item: stack.item, count: take }, defs);
+                stack.count -= take;
+            }
             return stack;
         }
-        for target in self.touching_takers(pos, stack.item, defs) {
-            if stack.count == 0 {
-                break;
+        let takers = self.touching_takers(pos, stack.item, defs);
+        let total: u32 = split.iter().map(|s| u32::from(s.weight)).sum();
+        let mut left = 0;
+        for _ in 0..stack.count {
+            let turn = self.anchored(pos).map_or(0, |b| b.split_turn) % total.max(1);
+            if let Some(b) = self.anchored_mut(pos) {
+                b.split_turn = b.split_turn.wrapping_add(1);
             }
-            let Some(recipe) = self.recipe_at(target, defs) else { continue };
-            let Some(idx) = recipe.inputs.iter().position(|c| c.item == stack.item) else {
-                continue;
-            };
-            let have = self.craft(target).and_then(|s| s.delivered.get(idx).copied()).unwrap_or(0);
-            let take = stack.count.min(recipe.inputs[idx].count.saturating_sub(have));
-            if take == 0 {
-                continue;
+            let mut acc = 0;
+            let first = split
+                .iter()
+                .position(|s| {
+                    acc += u32::from(s.weight);
+                    turn < acc
+                })
+                .unwrap_or(0);
+            let mut placed = false;
+            for k in 0..split.len() {
+                match split[(first + k) % split.len()].to {
+                    SplitTo::Stores => break,
+                    SplitTo::Machine(target) => {
+                        if takers.contains(&target) && self.batch_room(target, stack.item, defs) > 0
+                        {
+                            self.hand_to(target, Stack { item: stack.item, count: 1 }, defs);
+                            placed = true;
+                            break;
+                        }
+                    }
+                }
             }
-            self.deliver_to_craft(target, Stack { item: stack.item, count: take }, recipe);
-            stack.count -= take;
-            self.tallies.count_school("passed_across", take);
+            if !placed {
+                left += 1;
+            }
         }
-        stack
+        Stack { item: stack.item, count: left }
+    }
+
+    /// How many of `item` the batch under way at `target` still has room for.
+    fn batch_room(&self, target: Pos, item: ItemId, defs: &Defs) -> u32 {
+        let Some(recipe) = self.recipe_at(target, defs) else { return 0 };
+        let Some(idx) = recipe.inputs.iter().position(|c| c.item == item) else { return 0 };
+        let have = self.craft(target).and_then(|s| s.delivered.get(idx).copied()).unwrap_or(0);
+        recipe.inputs[idx].count.saturating_sub(have)
+    }
+
+    /// Puts `stack` into `target`'s batch, which has room for it (`batch_room`).
+    fn hand_to(&mut self, target: Pos, stack: Stack, defs: &Defs) {
+        if let Some(recipe) = self.recipe_at(target, defs) {
+            self.deliver_to_craft(target, stack, recipe);
+            self.tallies.count_school("passed_across", stack.count);
+        }
     }
 
     /// The next input an automated building's batch is short, or `None` when it needs nothing

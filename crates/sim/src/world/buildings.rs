@@ -102,10 +102,13 @@ pub struct Building {
     /// even inside an automating yard.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) manual: bool,
-    /// Sends its automated batches to stores even where a touching machine takes them
-    /// (`Command::SetRoute`, #1038); off, the default, hands each across.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(super) to_stores: bool,
+    /// How its automated batches are shared out (`Command::SetShare`, `world/automate.rs`):
+    /// empty, the default, hands each to the first touching machine with room.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) split: Vec<super::automate::Share>,
+    /// How many units the split has dealt, which picks the next destination.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub(super) split_turn: u32,
     /// Automated batches since it was last tended (`JobSettings::tend_every`, #1039).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub(super) wear: u32,
@@ -413,7 +416,8 @@ impl World {
             voyage: None,
             free: false,
             manual: false,
-            to_stores: false,
+            split: Vec::new(),
+            split_turn: 0,
             wear: 0,
         };
         let key = self.buildings.insert(record, defs);
@@ -665,7 +669,8 @@ impl World {
                     voyage: None,
                     free: false,
                     manual: false,
-                    to_stores: false,
+                    split: Vec::new(),
+                    split_turn: 0,
                     wear: 0,
                 },
             );

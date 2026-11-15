@@ -48,6 +48,9 @@ pub enum RecipeError {
     Locked(String),
     /// `Command::SetAutomated` outside every automating yard: the source's name (#725).
     NotInYard(String),
+    /// `Command::SetShare` naming a machine that doesn't touch this one or doesn't take its
+    /// output.
+    NotTouching,
 }
 
 impl std::fmt::Display for RecipeError {
@@ -58,6 +61,7 @@ impl std::fmt::Display for RecipeError {
             Self::NoSuchRecipe => f.write_str("no such recipe"),
             Self::Locked(tech) => write!(f, "needs {tech}"),
             Self::NotInYard(source) => write!(f, "not in a {source}'s yard"),
+            Self::NotTouching => f.write_str("doesn't touch a machine that takes it"),
         }
     }
 }

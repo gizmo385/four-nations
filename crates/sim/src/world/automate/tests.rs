@@ -205,8 +205,8 @@ fn a_smelter_hands_its_metal_straight_to_the_touching_steelworks() {
 fn routed_to_stores_the_metal_goes_out_the_door_instead() {
     let defs = Defs::bundled();
     let mut w = smelter_row(&defs);
-    w.apply(Command::SetRoute { pos: at(5, 2), stores: true }, &defs).unwrap();
-    assert!(w.routes_to_stores(at(5, 2)));
+    w.apply(Command::SetShare { pos: at(5, 2), to: SplitTo::Stores, weight: 1 }, &defs).unwrap();
+    assert_eq!(w.split_of(at(5, 2)), &[Share { to: SplitTo::Stores, weight: 1 }]);
     let metal = defs.item_id("metal").unwrap();
     let mut metal_out = false;
     for _ in 0..20_000 {
@@ -218,8 +218,58 @@ fn routed_to_stores_the_metal_goes_out_the_door_instead() {
     }
     assert!(metal_out, "the Smelter's metal left by the door");
     assert_eq!(w.tallies().school("passed_across"), 0);
-    let e = w.apply(Command::SetRoute { pos: at(30, 15), stores: true }, &defs).unwrap_err();
-    assert!(!e.to_string().is_empty());
+    let e = w.apply(Command::SetShare { pos: at(30, 15), to: SplitTo::Stores, weight: 1 }, &defs);
+    assert!(e.is_err(), "no building there");
+    let far = SplitTo::Machine(at(30, 15));
+    let e = w.apply(Command::SetShare { pos: at(5, 2), to: far, weight: 1 }, &defs).unwrap_err();
+    assert_eq!(e.to_string(), "doesn't touch a machine that takes it");
+}
+
+#[test]
+fn a_split_deals_the_output_by_its_shares() {
+    let defs = Defs::bundled();
+    let mut w = smelter_row(&defs);
+    let smelter = at(5, 2);
+    assert_eq!(
+        w.split_destinations(smelter, &defs),
+        vec![SplitTo::Machine(at(7, 2)), SplitTo::Stores]
+    );
+    for (to, weight) in [(SplitTo::Machine(at(7, 2)), 2), (SplitTo::Stores, 1)] {
+        w.apply(Command::SetShare { pos: smelter, to, weight }, &defs).unwrap();
+    }
+    for _ in 0..30_000 {
+        w.tick(&defs);
+        if w.tallies().school("automated_batches") >= 9 {
+            break;
+        }
+    }
+    let across = w.tallies().school("passed_across");
+    assert!(across >= 2, "some metal went across: {across}");
+    let out = w.tallies().school("automated_batches") - w.tallies().school("steel_made");
+    assert!(out > 0, "some batches were the smelter's");
+    // A share of 0 takes a destination off; with none left the default is back.
+    for to in [SplitTo::Machine(at(7, 2)), SplitTo::Stores] {
+        w.apply(Command::SetShare { pos: smelter, to, weight: 0 }, &defs).unwrap();
+    }
+    assert!(w.split_of(smelter).is_empty());
+}
+
+#[test]
+fn shares_of_two_to_one_send_two_across_for_each_one_out_the_door() {
+    let defs = Defs::bundled();
+    let mut w = smelter_row(&defs);
+    let (smelter, works) = (at(5, 2), at(7, 2));
+    let metal = defs.item_id("metal").unwrap();
+    for (to, weight) in [(SplitTo::Machine(works), 2), (SplitTo::Stores, 1)] {
+        w.apply(Command::SetShare { pos: smelter, to, weight }, &defs).unwrap();
+    }
+    // The Steelworks' batch takes 2 metal: two units go across, the third is the door's.
+    let left = w.pass_across(smelter, Stack { item: metal, count: 3 }, &defs);
+    assert_eq!(left.count, 1);
+    assert_eq!(w.batch_room(works, metal, &defs), 0);
+    // With its batch full, the machine's turns fall through to stores.
+    let left = w.pass_across(smelter, Stack { item: metal, count: 3 }, &defs);
+    assert_eq!(left.count, 3);
 }
 
 /// Ticks `w` until a machine has been tended or `ticks` pass.

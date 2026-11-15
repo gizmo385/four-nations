@@ -222,6 +222,9 @@ impl App {
             Action::ShowNation => self.open(Screen::Nation),
             Action::ShowAbilities => self.open(Screen::Abilities),
             Action::ShowTraders => self.open(Screen::Traders),
+            // `V` opens the Split screen on the machine under the cursor, in Select mode.
+            Action::ShowSplit if self.ui.tool == Tool::Select => self.open_split(),
+            Action::ShowSplit => {}
             Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
@@ -415,6 +418,9 @@ impl App {
         if self.ui.screen == Some(Screen::Airship) && self.airship_key(action) {
             return;
         }
+        if self.ui.screen == Some(Screen::Split) && self.split_key(action) {
+            return;
+        }
         match action {
             // `Tab` flips the key help between its keys and its legend (#662).
             Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Help) => {
@@ -436,6 +442,7 @@ impl App {
             Action::ShowNation => self.open(Screen::Nation),
             Action::ShowAbilities => self.open(Screen::Abilities),
             Action::ShowTraders => self.open(Screen::Traders),
+            Action::ShowSplit => {}
             Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
@@ -704,6 +711,7 @@ impl App {
                     | Screen::Abilities
                     | Screen::Traders
                     | Screen::Airship
+                    | Screen::Split
             )
         }) else {
             return;
@@ -1268,6 +1276,51 @@ impl App {
 
     /// `R` in Select mode (#712): sets the building under the cursor to its next recipe
     /// (`crate::recipe::switch`), the outcome in the Tool section's notice.
+    /// `V` in Select mode: the Split screen on the machine under the cursor, or a notice saying
+    /// why there's nothing to split.
+    fn open_split(&mut self) {
+        match crate::split::open(&self.session, self.ui.cursor) {
+            Ok(edit) => {
+                self.ui.tool_list = None;
+                self.ui.scroll = 0;
+                self.ui.split = Some(edit);
+                self.ui.screen = Some(Screen::Split);
+            }
+            Err(why) => self.ui.notice = why,
+        }
+    }
+
+    /// What a key does in the Split screen; whether it was one the screen took. Up and Down move
+    /// the pointer, Left and Right (and `+`/`-`) change the share under it, `Esc` or `V` close.
+    /// The clock keys work throughout.
+    fn split_key(&mut self, action: Action) -> bool {
+        let Some(mut edit) = self.ui.split else { return false };
+        let delta = match action {
+            Action::Move { dy, .. } if dy != 0 => {
+                crate::split::step(&self.session, &mut edit, dy);
+                0
+            }
+            Action::Move { dx, .. } => dx,
+            Action::Faster => 1,
+            Action::Slower => -1,
+            Action::Cancel | Action::ShowSplit => {
+                self.ui.split = None;
+                self.ui.screen = None;
+                return true;
+            }
+            Action::Jump { .. } | Action::Confirm => 0,
+            _ => return false,
+        };
+        if delta != 0
+            && let Err(why) = crate::split::adjust(&mut self.session, &edit, delta)
+        {
+            self.ui.status = why;
+            self.ui.status_badge = Some(" SPLIT ");
+        }
+        self.ui.split = Some(edit);
+        true
+    }
+
     fn next_recipe(&mut self) {
         self.ui.notice =
             crate::recipe::switch(&mut self.session, self.ui.cursor).unwrap_or_else(|why| why);
