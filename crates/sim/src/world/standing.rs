@@ -86,6 +86,7 @@ impl World {
                 self.stored.remove(&pos);
             }
         }
+        self.record_used(item, 1);
         true
     }
 

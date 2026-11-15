@@ -144,6 +144,60 @@ pub struct UnitedView {
     /// How far `population` is toward `next`, in `[0, 1]`: from the milestone before it (or
     /// from nothing before the first).
     pub frac: f32,
+    /// Residents at each standing (#1026), Settler first.
+    pub standing: [u32; 3],
+    /// Each good residents want (#1028), in data order, less the ones no resident wants and
+    /// the city neither stores nor makes; empty when the data has no wants.
+    pub goods: Vec<GoodFlowRow>,
+}
+
+/// One good residents want, on the United City screen (#1028, docs/design/factory-endgame.md
+/// "The Goods screen"): how much of it the city makes and uses a minute, over the last
+/// `fn_sim::world::FLOW_MINUTES` minutes, how many are in stores, and who wants it.
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct GoodFlowRow {
+    pub name: String,
+    pub made: f32,
+    pub used: f32,
+    pub stores: u32,
+    /// "14 Fire Nation": the residents who want it now (every one of its nation for a Citizen
+    /// good, which Settlers aim for; Citizens and up for a Notable good).
+    pub wanted_by: String,
+    /// None in stores while someone wants it.
+    pub short: bool,
+}
+
+/// The rows of [`GoodFlowRow`], one per wanted good in data order.
+fn goods_rows(world: &World, defs: &Defs) -> Vec<GoodFlowRow> {
+    let mut rows: Vec<GoodFlowRow> = Vec::new();
+    let mut seen = Vec::new();
+    for want in &defs.standing.wants {
+        if seen.contains(&want.item) {
+            continue;
+        }
+        seen.push(want.item);
+        let floor = want.tier.down().unwrap_or(want.tier);
+        let wanting = world
+            .residents()
+            .filter(|u| world.nation_of(u) == want.nation && world.tier_of(u) >= floor)
+            .count();
+        let (made, used) = world.goods_rate(want.item);
+        let stores = world.stored_total(want.item);
+        // A good no one here wants, and the city neither has nor makes, is only noise.
+        if wanting == 0 && stores == 0 && made == 0.0 && used == 0.0 {
+            continue;
+        }
+        rows.push(GoodFlowRow {
+            name: defs.item(want.item).name.clone(),
+            made,
+            used,
+            stores,
+            wanted_by: format!("{wanting} {}", want.nation.title()),
+            short: stores == 0 && wanting > 0,
+        });
+    }
+    rows
 }
 
 /// The Endeavor screen's CHAPTER section (#439, docs/design/pacing.md section 3).
@@ -637,7 +691,14 @@ fn united_view(world: &World, defs: &Defs) -> Option<UnitedView> {
         let span = n.saturating_sub(from).max(1) as f32;
         (population.saturating_sub(from as usize) as f32 / span).clamp(0.0, 1.0)
     });
-    Some(UnitedView { population, by_nation: population_by_nation(world, defs), next, frac })
+    Some(UnitedView {
+        population,
+        by_nation: population_by_nation(world, defs),
+        next,
+        frac,
+        standing: world.tier_counts(),
+        goods: goods_rows(world, defs),
+    })
 }
 
 pub fn screen_view(session: &Session) -> ScreenView {

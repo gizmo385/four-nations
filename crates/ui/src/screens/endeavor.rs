@@ -87,6 +87,46 @@ pub fn united_rows(u: &UnitedView, marks: &Marks) -> Vec<Row> {
         }
         None => rows.push(Row::text("  Every milestone is reached", Tone::Dim)),
     }
+    if u.standing.iter().any(|&n| n > 0) && !u.goods.is_empty() {
+        rows.extend(standing_rows(u));
+    }
+    rows
+}
+
+/// The STANDING and GOODS sections (#1026, #1028): residents at each tier, Notables first, then
+/// one row per good residents want with what the city makes and uses of it a minute.
+fn standing_rows(u: &UnitedView) -> Vec<Row> {
+    let [settlers, citizens, notables] = u.standing;
+    let mut rows = vec![Row::default(), Row::text("STANDING", Tone::Title)];
+    for (name, count) in [("Notables", notables), ("Citizens", citizens), ("Settlers", settlers)] {
+        rows.push(Row::spans(vec![
+            (format!("  {name:<10}"), Tone::Text),
+            (format!("{count:>3}"), Tone::Dim),
+        ]));
+    }
+    rows.push(Row::default());
+    rows.push(Row::pair(
+        "GOODS".to_owned(),
+        Tone::Title,
+        format!("a minute, last {} minutes", fn_sim::world::FLOW_MINUTES),
+        Tone::Dim,
+    ));
+    let name_width = u.goods.iter().map(|g| g.name.chars().count()).max().unwrap_or(0).max(4);
+    rows.push(Row::text(
+        format!("  {:<name_width$}   MADE   USED  STORES  WANTED BY", "GOOD"),
+        Tone::Dim,
+    ));
+    for g in &u.goods {
+        let mut spans = vec![
+            (format!("  {:<name_width$} ", g.name), Tone::Text),
+            (format!("{:>6.1} {:>6.1} {:>7}  ", g.made, g.used, g.stores), Tone::Dim),
+            (g.wanted_by.clone(), Tone::Text),
+        ];
+        if g.short {
+            spans.push(("  Short".to_owned(), Tone::Warn));
+        }
+        rows.push(Row::spans(spans));
+    }
     rows
 }
 
@@ -164,6 +204,25 @@ mod tests {
 
     use super::*;
     use crate::new_session;
+
+    /// A Republic start (#1025) shows its residents by standing and the goods they want (#1028),
+    /// with the stocked lanterns in stores and nothing made yet.
+    #[test]
+    fn the_united_city_shows_standing_and_the_wanted_goods() {
+        let mut s = new_session(7, Nation::Fire);
+        let defs = s.defs.clone();
+        s.world.start_republic(&defs);
+        let text: Vec<String> = lines(&s, 80, &Marks::new(false)).iter().map(Row::plain).collect();
+        assert!(text.iter().any(|t| t == "STANDING"), "{text:?}");
+        assert!(text.iter().any(|t| t.starts_with("GOODS")), "{text:?}");
+        let lantern =
+            text.iter().find(|t| t.trim_start().starts_with("Lantern")).expect("lanterns");
+        assert!(lantern.contains("0.0    0.0      10"), "{lantern}");
+        assert!(!lantern.contains("Short"), "{lantern}");
+        // Nobody here is Water, and the stocked smoked fish is listed anyway, since it's in stores.
+        assert!(text.iter().any(|t| t.trim_start().starts_with("Smoked Fish")), "{text:?}");
+        assert!(!text.iter().any(|t| t.trim_start().starts_with("Parka")), "{text:?}");
+    }
 
     #[test]
     fn the_screen_opens_with_the_name_the_count_and_the_stage() {

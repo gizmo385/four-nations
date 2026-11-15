@@ -9,6 +9,7 @@
 //! feature needs, so the newest one is always a command away.
 
 use crate::defs::Defs;
+use crate::geom::Pos;
 use crate::jobs::Stack;
 
 use super::World;
@@ -53,8 +54,10 @@ impl World {
         }
     }
 
-    /// Puts `stack` on stockpile tiles with room, in tile order, and drops the rest beside the
-    /// first stockpile tile (or the map's centre with none).
+    /// Puts `stack` on stockpile tiles with room, in tile order. What's left goes on new
+    /// stockpile tiles, the free open ground nearest the first stockpile tile (or the map's
+    /// centre with none), so a start whose stores are full still holds every item (#1028:
+    /// otherwise the goods lay on the ground beside full stores, out of residents' reach).
     pub(super) fn add_to_stores(&mut self, stack: Stack, defs: &Defs) {
         let zones: Vec<_> = self.zones.iter().copied().collect();
         let mut left = stack.count;
@@ -69,10 +72,35 @@ impl World {
             self.stored.entry(*z).or_insert(Stack { item: stack.item, count: 0 }).count += put;
             left -= put;
         }
+        if left == 0 {
+            return;
+        }
+        let near = zones
+            .first()
+            .copied()
+            .unwrap_or_else(|| Pos::new(self.map.width() / 2, self.map.height() / 2));
+        let mut open: Vec<Pos> = self
+            .map
+            .positions()
+            .filter(|&p| {
+                self.map.get(p).is_some_and(|t| t.terrain.is_walkable() && t.resource.is_none())
+                    && !self.zones.contains(&p)
+                    && !self.ground.contains_key(&p)
+                    && self.building_at(p).is_none()
+            })
+            .collect();
+        open.sort_by_key(|p| ((p.x - near.x).pow(2) + (p.y - near.y).pow(2), *p));
+        let per_tile = defs.jobs.stockpile_stack.max(1);
+        for pos in open {
+            if left == 0 {
+                return;
+            }
+            let put = left.min(per_tile);
+            self.zones.insert(pos);
+            self.stored.insert(pos, Stack { item: stack.item, count: put });
+            left -= put;
+        }
         if left > 0 {
-            let near = zones.first().copied().unwrap_or_else(|| {
-                crate::geom::Pos::new(self.map.width() / 2, self.map.height() / 2)
-            });
             self.place_ground(near, Stack { item: stack.item, count: left });
         }
     }
@@ -94,9 +122,19 @@ mod tests {
         assert!(w.united());
         assert!(w.research().is_known(defs.tech_id("steelworks").unwrap()));
         let steel = defs.item_id("steel").unwrap();
-        let on_ground: u32 =
-            w.ground_items().filter(|(_, s)| s.item == steel).map(|(_, s)| s.count).sum();
-        assert_eq!(w.stored_total(steel) + on_ground, 20);
+        assert_eq!(w.stored_total(steel), 20);
+    }
+
+    #[test]
+    fn a_full_store_grows_new_stockpile_tiles_for_the_rest() {
+        let defs = Defs::bundled();
+        let cfg = MapGenConfig { width: 48, height: 32, seed: 7, ..Default::default() };
+        let mut w = World::new(&cfg, Nation::Fire, 6, &defs);
+        let zones = w.zones.len();
+        let lantern = defs.item_id("lantern").unwrap();
+        w.add_to_stores(crate::jobs::Stack { item: lantern, count: 500 }, &defs);
+        assert_eq!(w.stored_total(lantern), 500);
+        assert!(w.zones.len() > zones);
     }
 
     #[test]
