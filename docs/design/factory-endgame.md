@@ -27,8 +27,10 @@ power are how a city meets those wants at scale.
 3. **Each resident wants their own nation's goods.** A Fire resident wants lanterns, then fine
    steelware. Water wants smoked fish, then parkas. Earth wants furniture, then crystal jewellery.
    Air wants tea, then incense. Every tier also wants a comfort in reach (a Tea House, Bathhouse,
-   Pai Sho Table or lamp). **Who you invite decides which chains you need**, and phase 6's draw
-   steering (#761) already lets the player choose who comes.
+   Pai Sho Table or lamp). Notables also want **goods from two other nations**: bought from
+   caravans at first, then made at home once residents of that nation can teach the recipe.
+   **Who you invite decides which chains you need**, and phase 6's draw steering (#761) already
+   lets the player choose who comes.
 4. **Standing pays back in play.** Citizens and Notables work faster and draw newcomers. Only
    Notables can crew a power plant and sit on the capstone's council. The city's goal becomes
    its people's standing, not a headcount.
@@ -102,7 +104,7 @@ A want is one of two kinds, both reusing a shipped mechanic:
 | **Water** | **Smoked fish** (fish and wood, a new Smokehouse), one every 10 min | **Parkas** (hide and fittings, Workshop second recipe), one every 20 min. Hide is a new by-product of the Fishing Dock |
 | **Earth** | **Furniture** (wood and fittings, Workshop), one every 15 min | **Crystal jewellery** (glow crystal and metal, Forge second recipe), one every 20 min |
 | **Air** | **Tea** (herbs, a new Tea Works), one every 10 min | **Incense** (herbs and fruit, Tea Works second recipe), one every 15 min |
-| **Everyone** | One comfort in reach: Tea House, Bathhouse, Pai Sho Table or an Oil Lamp | Two different comforts in reach |
+| **Everyone** | One comfort in reach: Tea House, Bathhouse, Pai Sho Table or an Oil Lamp | Two different comforts in reach, and **Citizen goods of two other nations** (any two) |
 
 All names and numbers are placeholders. What matters is the shape:
 
@@ -120,32 +122,88 @@ All names and numbers are placeholders. What matters is the shape:
 At about one good per resident every 15 minutes, a city of 40 uses roughly 3 goods a minute
 across eight kinds, with Notables doubling their share. That's the factory's load.
 
+### Foreign goods
+
+The owner's review (2026-11-15) added that residents should want other nations' goods too. A
+Notable wants the Citizen goods of any two nations besides their own, one of each every 30
+minutes, counted the way draw counts food kinds. That makes the Notable tier a taste for the
+wider world, which suits a United City, and it gives a want three sources over a game:
+
+1. **Caravans.** Each nation's caravan sells its own Citizen good in small lots (`data/trade.toml`,
+   as food is sold today, #551). Before anyone of that nation lives in the city, buying is the
+   only way. Caravans stop being only a sink for surplus and become a supply line.
+2. **Borrowed recipes.** With 3 residents of a nation, the city can borrow that good's recipe at
+   2x cost (phase 6's `teachable`), and make it at home in the ordinary building.
+3. **Fusion machines** (layer 2, tier 5) make two nations' goods well at once.
+
+So the arc of each foreign good is buy, then learn from the neighbours, then build. A Fire city's
+Notables who want tea and furniture send the player first to the Air and Earth caravans, then to
+steering Air and Earth newcomers in, then to a Tea Works and fittings.
+
 ### What it replaces
 
 Draw's food variety and warm-bed terms stay for the road to the gate. In the United City, the
 Citizen draw term sits on top of them. The population milestones (#929) stay, and the Endeavor
 screen's United City view adds residents by tier and nation.
 
-## Layer 2: machines
+## Layer 2: machines and how they connect
 
 The Factory (`great_works`, #725) already runs recipe buildings in a Lightning Station's yard
 with no crafter, fed by Supply hauls (`crates/sim/src/world/automate.rs`). This layer gives every
-nation its own version, so a city can keep up with its wants without tying up half its people at
-the bench.
+nation machines, a way to connect them, and a short tree to climb.
 
-**Rule (proposed).** The `automate` upgrade gains one sibling per nation, each on that nation's
-own power source with its own shape. A post-gate shared tech (working name `mechanisms`, 1,000
-points plus steel) unlocks the sibling for the city's nation. `great_works` stays Fire's pre-gate
-school and the best version of it. Automated machines **wear**: every few batches one stops and
-posts a **Tend** job that uses a tool or fittings. That keeps people in the loop and gives tools
-a standing sink.
+### How machines connect
+
+No conveyor belts. Machines connect three ways, and only the first is new:
+
+1. **Touching.** When a machine's output is an input of a machine whose footprint touches it, a
+   finished batch passes straight across with no haul and no stockpile. Smelter, Steelworks, Forge
+   and Workshop in a row turn ore and wood into furniture with haulers only at the two ends. This
+   is the chain rule from the Fire yard, opened to every nation by `mechanisms`.
+2. **Freight links** (layer 3). A machine touching a link's far station takes its inputs from the
+   link directly, so a mine at the rock face can feed a Steelworks across the map.
+3. **Stockpiles**, as today. Anything that doesn't pass across or ride a link spills by the door
+   and is hauled to stores, which is the buffer between chains.
+
+**One routing control per machine:** `Send to: stores` or `Send to: next machine`, defaulting to
+next machine where one touches. With it off, the machine stocks the stores as today, which is how
+a player splits one Steelworks' steel between Fire's steelware and Earth's fittings. That's
+`Command::SetRoute { pos, to }`, a `serde(default)` flag like `Building::manual`.
+
+**Readable.** A machine's Here panel shows its chain: `From: Smelter (touching)`, `To: Forge
+(touching)`, `Waiting: no wood`. A production overlay draws arrows between touching machines and
+along links, the way power has a reach tint.
+
+### The machine tree
+
+Five tiers. Each one lets a city serve a higher tier of resident, or more nations at once.
+
+| Tier | Unlocked by | Adds | What it serves |
+|---|---|---|---|
+| 1. **Hand work** (ships) | The existing techs | Forge, Kiln, Smelter, Workshop, plus F1's new recipe buildings (Smokehouse, Tea Works). A crafter works every batch | Citizens of your own nation |
+| 2. **Mechanisms** | `mechanisms`, post-gate shared, 1,000 points plus steel | Recipe buildings in your nation's power reach run themselves (shapes below). Touching machines pass batches across. Machines wear, and a settler tends them | More Citizens than hands allow |
+| 3. **Freight** | One tech per nation, 1,000 points | Earth's freight line, Water's flume, Air's wind tube. Fire has the Balloon Dock already | Chains that span the map: rock face to yard, river to city |
+| 4. **Power and big works** | One tech per nation, after tier 2 | Plants with a capacity, crewed by Notables (layer 4). **Big works**: 3x3 machines that do two steps in one (steel to fittings to furniture, or herbs to tea and incense), with a heavy draw | Notables' fine goods at scale |
+| 5. **Fusion machines** | Six fusions in phase 6's pattern: two nations, 3 residents of each, 1,000 points plus tools | One machine per pair that makes both nations' goods well. Examples: a **Smoke Kiln** (Fire and Water: lanterns and smoked fish from one fire), a **Mountain Works** (Earth and Air: furniture and incense) | Notables' foreign goods without buying them |
+
+The Steelworks is already the Earth and Fire fusion (phase 6), so tier 5 grows the pattern it
+started rather than inventing one.
+
+### Each nation's machines
+
+`mechanisms` lands on the city's own nation's source, with its own shape:
 
 | Nation | Style | Source and shape | Rate |
 |---|---|---|---|
-| Fire | **The yard** (ships). Touching machines hand batches across with no haul: Smelter, Steelworks, Forge in a row | Lightning Station, 4-tile yard | 1.0 |
+| Fire | **The yard** (ships pre-gate as the `great_works` school) | Lightning Station, 4-tile yard | 1.0 |
 | Earth | **The face**. Mines and the Crystal Grotto along the rock run themselves | Hot Spring Mill, beside the rock | 0.6 |
 | Water | **The race**. Machines run only along water: bank, canal or aqueduct | Tide Mill | 0.75 |
 | Air | **The loft**. The slowest machines, with the widest reach | Wind Turbine, anywhere | 0.5 |
+
+Fire keeps its edge: it reaches tier 2 before the gate through its school, at the best rate.
+
+**Wear.** Every few batches an automated machine stops and posts a **Tend** job that uses a tool
+or fittings. That keeps people in the loop and gives tools a standing sink.
 
 ## Layer 3: freight
 
@@ -243,9 +301,10 @@ matter.
 |---|---|---|---|
 | F0. The lane | The open power issues, #968 steel, #890 | As filed | Nothing new |
 | F1. Wants and standing | Tiers, wants, the new goods made by hand in recipe buildings, a **People** view by tier and nation, rates on the Here panel | Medium: a per-resident tier, a want fetch (the remedy's), comfort reach (heat's), a few recipes and buildings | F0's steel. A United City playtest (#752) for numbers |
-| F2. Machines | `mechanisms`, the per-nation `automate` siblings, wear and Tend | Small to medium: `automate` exists | F1 |
+| F2. Machines | `mechanisms`: the per-nation `automate` siblings, touching hand-across, the route toggle, wear and Tend | Small to medium: `automate` exists | F1 |
 | F3. Freight | Freight line, Flume, Wind tube | Medium: a link edge in hauling (the chute's), station holds | F1 |
-| F4. Power with a load | `draw`, `capacity`, brownout, plants crewed by Notables | Medium | Question 5 |
+| F4. Power and big works | `draw`, `capacity`, brownout, plants crewed by Notables, 3x3 big works | Medium | Question 5 |
+| F4b. Fusion machines | Six two-nation machines | Small: phase 6's fusion pattern | F2, residents of both nations |
 | F5. The Council Hall | The capstone great work | Medium: reuses the Harmony Gate's stages | F1 |
 | F6. Spirits | Industry unsettles the spirits, vines creep, balance pushes back, then the Spirit Portal | Large | A playtest of F1 to F4 |
 
@@ -274,14 +333,16 @@ The era starting at the gate is assumed. Say so if it shouldn't.
    - B. Residents who stay unhappy long enough leave the city.
    - C. Nothing. Tiers only go up.
 2. **Whose wants?** *Recommended: A.*
-   - **A. Each resident wants their own nation's goods**, plus shared comforts. Who you invite
-     shapes your chains.
-   - B. One list for the whole city, whatever nation people are from.
+   - **A. Citizens want their own nation's goods, and Notables also want two other nations'.**
+     Foreign goods come from caravans, then borrowed recipes, then fusion machines.
+   - B. Own nation's goods only.
+   - C. One list for the whole city, whatever nation people are from.
 3. **What does standing give?** *Recommended: A.*
    - **A. Work speed and draw, and Notables crew plants and sit on the council.**
    - B. Only draw and the city's score.
 4. **How do goods move?** *Recommended: A.*
-   - **A. Paired freight links**, one kind per nation. Haulers still load the near end.
+   - **A. Touching machines pass goods across, and paired freight links cover distance**, one
+     kind per nation. Haulers still load the near end.
    - B. Conveyor belts laid tile by tile.
    - C. Settlers only, with better roads.
 5. **Does power get a load?** *Recommended: A.*
