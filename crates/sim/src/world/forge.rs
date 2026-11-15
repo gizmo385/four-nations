@@ -75,7 +75,7 @@ pub(super) struct CraftState {
 
 impl World {
     /// The batch under way at the production building anchored on `pos`, if one has begun.
-    fn craft(&self, pos: Pos) -> Option<&CraftState> {
+    pub(super) fn craft(&self, pos: Pos) -> Option<&CraftState> {
         self.anchored(pos)?.craft.as_ref()
     }
 

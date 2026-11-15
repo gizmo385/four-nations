@@ -91,6 +91,10 @@ pub enum Command {
     /// yard) or give it back to a crafter (`world/automate.rs`, #725). Refused with `needs Great
     /// Works` before the tech, and `not in a Lightning Station's yard` outside one.
     SetAutomated { pos: Pos, on: bool },
+    /// Where the recipe building anchored on `pos` sends its automated batches (#1038): to a
+    /// touching machine that takes them (`stores` false, the default) or to stores (`stores`
+    /// true), which splits one machine's output between chains.
+    SetRoute { pos: Pos, stores: bool },
     /// Keep `tech` from the pending teaching draft it is in; the rest of that offer is lost for
     /// good (`world/teachings.rs`, docs/design/horizons-phase-5.md, #737). Refused with
     /// `NotOffered` when no pending offer holds it.
@@ -279,6 +283,7 @@ impl World {
             Command::SetLink { pos, to } => self.set_link(pos, to, defs)?,
             Command::SetRecipe { pos, recipe } => self.set_recipe(pos, recipe, defs)?,
             Command::SetAutomated { pos, on } => self.set_automated(pos, on, defs)?,
+            Command::SetRoute { pos, stores } => self.set_route(pos, stores, defs)?,
             Command::KeepTeaching { tech } => self.keep_teaching(tech)?,
             Command::TakeDeal { slot } => {
                 self.take_deal(slot, defs).map_err(CommandError::Trade)?
