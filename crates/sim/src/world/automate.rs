@@ -226,6 +226,48 @@ impl World {
         self.anchored(pos).map_or(&[], |b| b.split.as_slice())
     }
 
+    /// Every pass-across link in the city, for the production overlay
+    /// (docs/design/factory-endgame.md, "The map, with the production overlay"): `(from, to)`
+    /// anchors, one per automated machine and touching machine its batches go straight into.
+    /// With a split set, only the machines it gives a share; a machine on a crafter passes
+    /// nothing across, so it has no links.
+    pub fn flow_links(&self, defs: &Defs) -> Vec<(Pos, Pos)> {
+        let mut out = Vec::new();
+        for b in self.buildings() {
+            let pos = b.anchor;
+            if self.automated(pos, defs).is_none() {
+                continue;
+            }
+            let Some(recipe) = self.recipe_at(pos, defs) else { continue };
+            let split = &b.split;
+            out.extend(
+                self.touching_takers(pos, recipe.output.item, defs)
+                    .into_iter()
+                    .filter(|&to| {
+                        split.is_empty()
+                            || split.iter().any(|s| s.to == SplitTo::Machine(to) && s.weight > 0)
+                    })
+                    .map(|to| (pos, to)),
+            );
+        }
+        out
+    }
+
+    /// Every automating yard running now, for the production overlay: each source whose
+    /// automating tech is known, as its footprint and radius. A yard that also needs the rock or
+    /// the water beside a machine (`AutomateDef::beside`) still shows its whole radius.
+    pub fn yards(&self, defs: &Defs) -> Vec<(crate::geom::Footprint, u32)> {
+        if !self.has_kind(Kind::Automates) {
+            return Vec::new();
+        }
+        self.of_kind(Kind::Automates)
+            .filter_map(|s| {
+                let (tech, a) = defs.building(s.id).automate_upgrade.as_ref()?;
+                self.research.is_known(*tech).then_some((s.footprint(), a.radius))
+            })
+            .collect()
+    }
+
     /// Hands `stack`, a batch just finished at `pos`, on (docs/design/factory-endgame.md, "How
     /// machines connect"). With no split set, as much as touching machines' batches have room
     /// for goes to them, first in tile order first. With a split, each unit is dealt in turn to

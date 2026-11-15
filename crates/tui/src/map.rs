@@ -231,6 +231,9 @@ pub struct Overlays {
     /// Call Rain's patches (#763, `fn_ui::patch`): the rain falling, while the Bend tool is up or
     /// the cursor is inside it, and the patch the Bend tool would call around the cursor.
     rain: BTreeSet<Pos>,
+    /// The production overlay's arrows (`Y`, `fn_ui::flow`, #1040), while it is on: each on a
+    /// machine's edge, pointing into the touching machine its batches pass to.
+    flow: BTreeMap<Pos, fn_ui::flow::Dir>,
 }
 
 impl Overlays {
@@ -313,7 +316,14 @@ impl Overlays {
                 .find(|f| f.pos == cursor)
                 .map(|f| (f.pos, f.radius))
                 .or_else(|| glows.iter().find(|g| g.pos == cursor).map(|g| (g.pos, g.radius))),
-            powered: power_reaches(session, ui, cursor, &ghosts),
+            powered: {
+                let mut reaches = power_reaches(session, ui, cursor, &ghosts);
+                // The production overlay tints every running yard's reach (#1040).
+                if ui.flow_view {
+                    reaches.extend(fn_ui::flow::yard_reaches(session));
+                }
+                reaches
+            },
             occupants: occupant_counts(world),
             feet: ui
                 .linking
@@ -324,6 +334,7 @@ impl Overlays {
             sheltered: sheltered_tiles(session, ui),
             irrigated: fn_ui::patch::aqueduct_reach(session, cursor),
             rain: fn_ui::patch::rain_tiles(session, ui.tool, cursor),
+            flow: if ui.flow_view { fn_ui::flow::arrows(session) } else { BTreeMap::new() },
         }
     }
 
@@ -614,6 +625,8 @@ pub enum Thing {
     Resource(ResourceId),
     /// A tile on a link line (#683, #698): `:` between a chute's head and foot, or a pair's ends.
     Link,
+    /// A production overlay arrow (#1040), drawn over the sending machine's own glyph.
+    Flow(fn_ui::flow::Dir),
     /// A tile of a caravan's 2x2 camp (#438), in the visiting `nation`'s colour: a tent, or on
     /// its bottom-left tile (`trader`) the traders themselves, drawn as a unit.
     Camp {
@@ -722,6 +735,8 @@ pub fn cell_look(
         over.ghost.get(&pos).filter(|&&(_, free)| free || !palette.mono())
     {
         Thing::Ghost { building: b, free }
+    } else if let Some(&dir) = over.flow.get(&pos) {
+        Thing::Flow(dir)
     } else if let Some(b) = world.building_at(pos) {
         match (over.occupants.get(&pos), world.plot_stage(pos)) {
             (Some(&n), _) if n > 0 => Thing::Occupied { building: b, n },
@@ -969,6 +984,11 @@ fn thing_look(
         Thing::Link => {
             let l = &g.overlay.link;
             (l.glyph(ascii), l.fg)
+        }
+        Thing::Flow(dir) => {
+            let f = g.overlay.flow.get(*dir);
+            mods |= Modifier::BOLD;
+            (f.glyph(ascii), f.fg)
         }
         Thing::Camp { nation, trader } => {
             let fg = palette.unit_rgb_for(defs, *nation);

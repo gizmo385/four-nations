@@ -36,6 +36,7 @@ pub mod clock;
 pub mod code;
 pub mod embark;
 pub mod endeavor;
+pub mod flow;
 pub mod gate;
 pub mod input;
 pub mod inspect;

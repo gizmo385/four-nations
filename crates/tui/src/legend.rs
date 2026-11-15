@@ -93,6 +93,11 @@ fn describe(
         Thing::AirShield => (LegendGroup::Buildings, "Air shield".to_owned(), Thing::AirShield),
         Thing::Sapling => (LegendGroup::Plants, "Sapling".to_owned(), Thing::Sapling),
         Thing::Link => (LegendGroup::Buildings, "Link line".to_owned(), Thing::Link),
+        Thing::Flow(_) => (
+            LegendGroup::Buildings,
+            "Goods passing across".to_owned(),
+            Thing::Flow(fn_ui::flow::Dir::East),
+        ),
         Thing::Camp { nation: n, trader } => {
             let name = if *trader { "Traders" } else { "Traders' camp" };
             let thing = Thing::Camp { nation: *n, trader: *trader };

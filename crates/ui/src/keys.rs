@@ -83,6 +83,9 @@ pub enum Action {
     ShowTraders,
     /// `V` on a machine in Select mode: the Split screen, where its output goes.
     ShowSplit,
+    /// `Y`: the production overlay (#1040) on the map, on or off: arrows where machines pass
+    /// goods across, and each automating yard's reach.
+    ToggleFlow,
     /// `F5`: save the game to the quicksave slot.
     QuickSave,
     /// `F9`: replace the game with the quicksave, after asking in a centred box.
@@ -622,6 +625,7 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Anywhere], &[Action::ShowEndeavor], "G", "endeavor", help(game, "Endeavor"));
     add(&[Mode::Anywhere], &[Action::ShowTraders], "M", "traders", help(game, "Traders"));
     add(&[Mode::Anywhere], &[Action::ShowLog], "L", "log", help(game, "Message log"));
+    add(&[], &[Action::ToggleFlow], "Y", "flow", help(game, "Flow view: machines and yards"));
     // The log's own filters: in no hint bar here (`Mode::Log` and `Mode::WatchLog` have them),
     // only in the key help.
     add(&[], &[], "1-5", "filter", help(game, "Log: one kind of line (0: all)"));

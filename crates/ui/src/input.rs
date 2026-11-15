@@ -154,6 +154,7 @@ fn build_table() -> Vec<Binding> {
     add(Key::ch('i'), Action::ShowAbilities);
     add(Key::ch('m'), Action::ShowTraders);
     add(Key::ch('v'), Action::ShowSplit);
+    add(Key::ch('y'), Action::ToggleFlow);
     // F5/F9, the usual quicksave/quickload keys.
     add(Key::plain(F(5)), Action::QuickSave);
     add(Key::plain(F(9)), Action::AskQuickLoad);
@@ -214,6 +215,8 @@ pub fn spectator_allowed(action: Action) -> bool {
         Action::ShowTools => false,
         // Setting a machine's split is a command, which a spectator may not give.
         Action::ShowSplit => false,
+        // The overlay is the spectator's own view, like the cursor.
+        Action::ToggleFlow => true,
         Action::ShowSaves => false,
         Action::QuickSave | Action::AskQuickLoad => false,
         Action::TogglePause | Action::Faster | Action::Slower | Action::Step => false,
