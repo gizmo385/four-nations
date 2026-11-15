@@ -199,9 +199,10 @@ so the factory's main tool is a planner, not a wiring tool. It's a screen with f
    step's machine, how many, how busy they'd be, and what they take. Under it go the totals
    (wood and ore a minute against what the city makes now, power draw against spare capacity,
    hands, ground and cost), with anything short flagged.
-3. **The player changes sources.** On any row: make it, buy it from a caravan, take it from
-   stores, or settle for a lower rate the city can feed. On a short row the planner lists those
-   ways out.
+3. **The player picks how to cover each shortfall.** Selecting a short row opens WAYS TO GET it
+   underneath: build more of its machine, buy it from a caravan, take it from stores, or lower the
+   target to what the city can feed. Each way says how much of the gap it covers and what it
+   costs, and Enter applies it to the plan, which recalculates.
 4. **Stamp it on the map.** The plan becomes a ghost block of touching machines in the right
    order, moved and turned like the Build tool's ghost, which already shows tiles to clear (#427).
    Enter turns it into ordinary build orders, and settlers haul and build it.
@@ -229,10 +230,11 @@ except the per-machine rates F1 already adds.
     Power      draw 12      the Lightning Station has 8 spare
     Ground     a 10x4 block, every machine touching
   ─────────────────────────────────────────────────────────────────────────────────────────────────
-  Gold ore: short 1.2 a minute
-    Make     3 more Deep Mines at the rock face, fed by the freight line
-    Buy      Earth caravans sell 6 a visit, about 0.4 a minute
-    Settle   plan 0.6 furniture a minute, which 2 mines can feed
+  WAYS TO GET GOLD ORE                                                         Short 1.2 a minute
+
+  > Build 3 more Deep Mines          covers it all     adds 3 mines to the plan
+    Buy from Earth caravans          covers 0.4        pays 8 lanterns a visit
+    Make less furniture: 0.6 a min   covers it all     2 mines are enough
 ```
 
 (The picture versions, with the stamp's ghost on a real frame, are `planner.png` and `stamp.png`
