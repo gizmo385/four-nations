@@ -183,8 +183,9 @@ fn print_frame(
 /// stdout, no terminal needed (#319's acceptance criteria: "so a test checks the frame at a
 /// given turn without a TTY"). Reads as much of `path` as is on disk right now (it need not be
 /// finished) and replays it all at once, up to the end of `--at`'s turn, or as far as it reaches
-/// without one. `--keys` then plays spectator keys (`V` the Follow/Free toggle included) and the
-/// studio's own (`1`/`2`/`3`/`0`, #501) before the frame, so both can be golden-tested the same
+/// without one. `--keys` then plays the watcher's own controls (`]`, `}`, `>`, `*`, #590),
+/// spectator keys (`V` the Follow/Free toggle included) and the studio's own (`1`/`2`/`3`/`0`,
+/// #501) before the frame, so both can be golden-tested the same
 /// way the game's own `--keys` is (#330's acceptance criteria); a `<tick N>` in the script has
 /// no equivalent for a spectator (nothing here ever runs the world forward on its own), so it's
 /// skipped rather than erroring. `set_frame_size` runs ahead of `--keys`, since `--size` is
@@ -197,10 +198,11 @@ fn print_watch_frame(args: &Args, path: &std::path::Path, depth: ColorDepth) -> 
     watcher.fast_forward_to_turn(args.at.unwrap_or(u32::MAX));
     watcher.set_frame_size(args.size.0, args.size.1);
     for step in &args.keys {
-        if let Step::Key(key) = step
-            && !watcher.key(*key)
-        {
-            watcher.free_look_key(*key);
+        if let Step::Key(key) = step {
+            // The watcher's own controls too (#590): pace, the skips, `*`. `q` means nothing
+            // here, and a `*` skip runs to its end before the next key.
+            fn_tui::watch::control_key(&mut watcher, *key);
+            watcher.finish_seek();
         }
     }
     let palette = Palette::new(watcher.defs(), watcher.nation(), depth, args.ascii);

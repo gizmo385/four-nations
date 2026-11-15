@@ -927,6 +927,10 @@ keys inside the watcher:
                  browser's --frame)
   >              skip to the agent's next move, past the turns where it does nothing (in a
                  script run, to where the script wakes the agent)
+  *              skip to the next notable moment: a death, a sign met or other endeavor step,
+                 the Avatar, something learned, a newcomer, a new script revision, a script
+                 waking the agent, or a game problem. The strip says what it found; any key
+                 stops a skip in progress. A live run stops at what has been written so far
   v              switch between Follow (the agent's own view) and Free look
   1  2  3        zoom the code, game or feed pane; again to return to the split. Below the
                  studio size these switch the tab instead
@@ -3440,6 +3444,7 @@ mod tests {
             "- or _",
             "  .  ",
             "  ]  ",
+            "  *  ",
             "  v  ",
             "1  2  3",
             "  0  ",
@@ -3473,6 +3478,7 @@ mod tests {
             "KeyCode::Char('.') => watcher.step_one()",
             "KeyCode::Char(']') => watcher.fast_forward_to_turn(watcher.turn() + 1)",
             "KeyCode::Char('q' | 'Q') => quit = true",
+            "KeyCode::Char('*') => watcher.start_seek()",
             "KeyCode::Char('v' | 'V') => self.toggle_view()",
             "KeyCode::Char('1') => return self.press_pane(Pane::Code)",
             "KeyCode::Char('2') => return self.press_pane(Pane::Game)",

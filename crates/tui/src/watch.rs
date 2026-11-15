@@ -61,6 +61,17 @@ pub const PACES: [u32; 9] = [1, 2, 5, 10, 20, 40, 100, 200, 500];
 /// How many turns `}` skips ahead (and `{` back) at once.
 pub const BIG_STEP_TURNS: u32 = 10;
 
+/// How many turns `*`'s skip (#590) replays per frame: about what a release build runs in a
+/// frame on a late-game colony (25k ticks a second, 200 ticks a turn), so the loop keeps
+/// drawing and reading keys while it skips.
+const SEEK_TURNS_PER_FRAME: u32 = 4;
+
+/// How long the strip shows what a skip found, in real seconds.
+const JUMP_NOTE_SECONDS: f32 = 6.0;
+
+/// Below this share of the chosen pace, the strip says the pace the watcher really gets.
+const PACE_SHORT: f64 = 0.8;
+
 /// How often [`Rewind`] keeps a copy of the watcher, in turns: a rewind restores the nearest copy
 /// before its target and replays forward from there, so this bounds how much a `[` replays.
 pub const REWIND_SNAPSHOT_EVERY: u32 = 20;
@@ -456,6 +467,25 @@ pub struct Watcher {
     /// Lines of a live log that did not parse and were skipped (#587), as their error messages,
     /// oldest first. The strip says how many; [`run`] prints them when the watch ends.
     skipped: Vec<String>,
+    /// `*` (#590): a skip to the next notable moment in progress, a few turns a frame
+    /// ([`Self::advance`]) so keys and drawing never wait on it. Any key stops it.
+    seek: Option<NotableSeek>,
+    /// A notable log line ([`notable_line`]) replayed since the skip began: what it stops at.
+    notable: Option<String>,
+    /// What the last skip found, or why it stopped, and the real seconds left to show it on
+    /// the strip ([`JUMP_NOTE_SECONDS`]).
+    jump_note: Option<(String, f32)>,
+    /// How much of the chosen pace the interactive loop is managing, smoothed: 1.0 when it
+    /// keeps up. Below [`PACE_SHORT`] the strip says the pace it really gets (#590).
+    pace_kept: f64,
+    /// Every script revision replayed so far, `(name, number)`: a new one is notable.
+    replayed_revisions: std::collections::HashSet<(String, u32)>,
+}
+
+/// `*`'s skip in progress (#590): how many of the world's events it has already looked at.
+#[derive(Clone, Debug)]
+struct NotableSeek {
+    events_seen: usize,
 }
 
 /// What the agent strip shows for a script run in progress or just woken, between the clock and
@@ -564,6 +594,11 @@ impl Watcher {
             small_notice_left: 0.0,
             playtest: header.playtest,
             skipped: Vec::new(),
+            seek: None,
+            notable: None,
+            jump_note: None,
+            pace_kept: 1.0,
+            replayed_revisions: Default::default(),
         })
     }
 
@@ -878,6 +913,16 @@ impl Watcher {
     pub fn advance(&mut self, real_secs: f64) {
         self.age_ghost(real_secs);
         self.small_notice_left = (self.small_notice_left - real_secs as f32).max(0.0);
+        if let Some((_, left)) = &mut self.jump_note {
+            *left -= real_secs as f32;
+            if *left <= 0.0 {
+                self.jump_note = None;
+            }
+        }
+        if self.seek.is_some() {
+            self.seek_some(SEEK_TURNS_PER_FRAME);
+            return;
+        }
         if self.paused || self.finished() {
             return;
         }
@@ -961,6 +1006,95 @@ impl Watcher {
                 break;
             }
         }
+    }
+
+    /// `*` (#590): starts skipping to the next notable moment: a death, an endeavor milestone
+    /// (a sign met, a stage done), the Avatar coming or going, something learned, a newcomer
+    /// (the web timeline's own markers, `crate::replay::scan::marker_for`), a new revision of
+    /// the agent's script, a script waking the agent, or a `game problem:` remark. It runs a few
+    /// turns a frame in [`Self::advance`], so it can be watched and stopped
+    /// ([`Self::cancel_seek`]); [`Self::finish_seek`] runs it to the end at once.
+    pub fn start_seek(&mut self) {
+        self.step_one();
+        self.notable = None;
+        self.jump_note = None;
+        let events_seen = self.session().world.events().len();
+        self.seek = Some(NotableSeek { events_seen });
+    }
+
+    /// Whether a `*` skip is in progress.
+    pub fn seeking(&self) -> bool {
+        self.seek.is_some()
+    }
+
+    /// Stops a `*` skip where it is. The watcher is left exactly as if it had played that far.
+    pub fn cancel_seek(&mut self) {
+        if self.seek.take().is_some() {
+            self.note_jump(format!("skip stopped at turn {}", self.turn));
+        }
+    }
+
+    /// Runs a `*` skip to its end at once (`--frame --keys`, tests).
+    pub fn finish_seek(&mut self) {
+        while self.seek.is_some() {
+            self.seek_some(u32::MAX);
+        }
+    }
+
+    fn note_jump(&mut self, text: String) {
+        self.jump_note = Some((text, JUMP_NOTE_SECONDS));
+    }
+
+    /// Replays up to `max_turns` more turns of a `*` skip, a line at a time, stopping at the
+    /// first notable thing; ends the skip when it finds one or runs out of log.
+    fn seek_some(&mut self, max_turns: u32) {
+        let Some(seek) = self.seek.as_mut() else { return };
+        let mut events_seen = seek.events_seen;
+        let until = self.turn.saturating_add(max_turns);
+        let found = loop {
+            if let Some(found) = self.notable.take() {
+                break Some(found);
+            }
+            let session = self.session();
+            let events = session.world.events();
+            let marker = events[events_seen.min(events.len())..]
+                .iter()
+                .find_map(|ev| crate::replay::scan::marker_for(&session.defs, ev));
+            events_seen = events.len();
+            if let Some((_, text)) = marker {
+                break Some(text);
+            }
+            if self.turn >= until {
+                if let Some(seek) = self.seek.as_mut() {
+                    seek.events_seen = events_seen;
+                }
+                return;
+            }
+            if self.current.is_some() {
+                self.finish_current();
+            } else if !self.start_next() {
+                break None;
+            }
+        };
+        self.seek = None;
+        let note = match found {
+            Some(text) => format!("turn {}: {text}", self.turn),
+            None if self.finished() => "no more notable moments".to_owned(),
+            None => "nothing notable yet in what the agent has written".to_owned(),
+        };
+        self.note_jump(note);
+    }
+
+    /// The interactive loop's measure of how much of the pace it managed this frame:
+    /// `used_secs` of real time advanced out of `real_secs` that passed (#590). Smoothed, so
+    /// one slow frame doesn't flicker the strip.
+    pub fn note_frame(&mut self, real_secs: f64, used_secs: f64) {
+        if real_secs <= 0.0 || self.paused || self.seek.is_some() || self.caught_up() {
+            self.pace_kept = 1.0;
+            return;
+        }
+        let kept = (used_secs / real_secs).clamp(0.0, 1.0);
+        self.pace_kept = self.pace_kept * 0.8 + kept * 0.2;
     }
 
     /// Takes the viewer's own choices from `viewer` (the pace, pause, which pane is shown, the
@@ -1099,6 +1233,11 @@ impl Watcher {
                 // #499: the code pane follows every `Script` line, saved-only ones (`turns: 0`)
                 // included, whether or not it ends up shown (`CodePane::on_script`'s own rule).
                 let number = self.code_pane.on_script(&name, version, &code, turns);
+                if self.replayed_revisions.insert((name.clone(), number)) && self.seek.is_some() {
+                    let what = if version > 0 { "saved" } else { "ran new" };
+                    let label = if version > 0 { format!(" v{version}") } else { String::new() };
+                    self.notable = Some(format!("{what} {name}{label}"));
+                }
                 // #500: the feed's own entry is labelled with the `Script` line's own `version`
                 // (0 for an ad hoc run -- `crate::feed::Run`'s own doc comment), not `number`
                 // (`CodePane`'s revision ordinal), which `diff` alone needs to look up.
@@ -1119,6 +1258,9 @@ impl Watcher {
                 self.code_pane.on_wake(turns_run); // #499
                 self.feed.on_wake(&reason, why.as_deref()); // #500
                 let detail = why.unwrap_or(reason);
+                if self.seek.is_some() {
+                    self.notable = Some(format!("woke: {detail}"));
+                }
                 let tick = self.app().session.world.tick;
                 self.push_agent(
                     tick,
@@ -1147,7 +1289,14 @@ impl Watcher {
             LogLine::Score { .. } => {}
             // #576: something the model said in a playtest. Only the feed shows it: nothing
             // is replayed, and it takes no game time.
-            LogLine::Say { text } => self.feed.on_say(&text, self.turn),
+            LogLine::Say { text } => {
+                if self.seek.is_some()
+                    && let Some(problem) = text.lines().find(|l| crate::feed::is_game_problem(l))
+                {
+                    self.notable = Some(problem.trim().to_owned());
+                }
+                self.feed.on_say(&text, self.turn)
+            }
             // #576: a summary of the model's thinking. Feed only, like `Say`.
             LogLine::Think { text } => self.feed.on_think(&text, self.turn),
         }
@@ -1527,6 +1676,15 @@ impl Watcher {
             latest
         };
         let action = if drop_action { String::new() } else { action };
+        // A skip in progress, or what the last one found: shown even in the studio, which
+        // drops the action text, since it answers the key just pressed (#590).
+        let action = if self.seek.is_some() {
+            format!("skipping to the next notable moment... (any key stops)  {action}")
+        } else if let Some((note, _)) = &self.jump_note {
+            format!("» {note}  {action}")
+        } else {
+            action
+        };
         let view = if self.follow { "FOLLOW" } else { "FREE" };
         let playtest = if self.playtest { "  PLAYTEST" } else { "" };
         let skipped = match self.skipped.len() {
@@ -1535,11 +1693,15 @@ impl Watcher {
             n => format!("  {n} BAD LOG LINES SKIPPED"),
         };
         let playtest = format!("{playtest}{skipped}");
+        let pace = if self.pace_kept < PACE_SHORT && !self.paused {
+            let real = (f64::from(self.pace()) * self.pace_kept).round().max(1.0);
+            format!("x{} (only ~x{real})", self.pace())
+        } else {
+            format!("x{}", self.pace())
+        };
         format!(
-            " AGENT {}{playtest}  {view}  turn {}  {clock}  {script}{action}  x{}",
-            self.nation_label,
-            self.turn,
-            self.pace()
+            " AGENT {}{playtest}  {view}  turn {}  {clock}  {script}{action}  {pace}",
+            self.nation_label, self.turn
         )
     }
 }
@@ -1716,7 +1878,9 @@ pub fn run_in(
                     // Rewinding needs the copies only this loop keeps, so it is handled here
                     // rather than in `control_key`, which the web replayer shares.
                     let key = crate::keyev::from_crossterm(key);
+                    let seeking = watcher.seeking();
                     let back = match key.code {
+                        _ if seeking => None,
                         crate::keyev::KeyCode::Char('[') => Some(1),
                         crate::keyev::KeyCode::Char('{') => Some(BIG_STEP_TURNS),
                         _ => None,
@@ -1742,7 +1906,10 @@ pub fn run_in(
         }
 
         let now = Instant::now();
-        watcher.advance(now.duration_since(last_tick).as_secs_f64().min(MAX_FRAME_SECS));
+        let real = now.duration_since(last_tick).as_secs_f64();
+        let used = real.min(MAX_FRAME_SECS);
+        watcher.advance(used);
+        watcher.note_frame(real, used);
         rewind.note(&watcher);
         last_tick = now;
     }
@@ -1771,6 +1938,11 @@ pub fn control_key(watcher: &mut Watcher, key: KeyEvent) -> bool {
     use crate::keyev::KeyCode;
 
     let mut quit = false;
+    // Any key stops a `*` skip in progress (#590), and does nothing else; `q` still quits.
+    if watcher.seeking() && !matches!(key.code, KeyCode::Char('q' | 'Q')) {
+        watcher.cancel_seek();
+        return false;
+    }
     match key.code {
         KeyCode::Char(' ') => watcher.toggle_pause(),
         KeyCode::Char('+' | '=') => watcher.faster(),
@@ -1779,6 +1951,7 @@ pub fn control_key(watcher: &mut Watcher, key: KeyEvent) -> bool {
         KeyCode::Char(']') => watcher.fast_forward_to_turn(watcher.turn() + 1),
         KeyCode::Char('}') => watcher.fast_forward_to_turn(watcher.turn() + BIG_STEP_TURNS),
         KeyCode::Char('>') => watcher.skip_to_next_move(),
+        KeyCode::Char('*') => watcher.start_seek(),
         KeyCode::Char('q' | 'Q') => quit = true,
         // Studio keys (#499, `j`/`k`/`J`/`K` scrolling the code pane) win over free look too;
         // everything else is free look's: `V` (not an F-key, since the owner's WSL terminal
@@ -3066,6 +3239,142 @@ mod tests {
         w.skip_to_next_move();
         assert_eq!(w.turn(), 3);
         assert!(matches!(w.pending.front(), Some(LogLine::Keys { .. })));
+    }
+
+    fn star() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char('*'), KeyModifiers::NONE)
+    }
+
+    /// A log where turn 3 has a wake and turn 6 a `game problem:` remark, nothing else notable.
+    fn notable_log() -> Vec<LogLine> {
+        let mut lines = vec![script("keep-fed", 3, 4)];
+        for t in 0..10u32 {
+            if t == 3 {
+                lines.push(wake("event", Some("a raid")));
+            }
+            if t == 6 {
+                lines.push(LogLine::Say { text: "game problem: piles never empty".to_owned() });
+            }
+            lines.push(LogLine::Turn { index: t, tick: u64::from(t + 1) * 100 });
+        }
+        lines
+    }
+
+    /// `*` stops at each notable moment in turn, says on the strip what it found, and at the
+    /// end says there's nothing more. Played through `control_key`, as `--frame --keys` is.
+    #[test]
+    fn star_skips_to_each_notable_moment() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed(notable_log());
+        // The first press starts the script run itself (the act in progress), then skips on.
+        control_key(&mut w, star());
+        w.finish_seek();
+        assert_eq!(w.turn(), 3);
+        assert!(w.strip_text(true).contains("» turn 3: woke: a raid"), "{}", w.strip_text(true));
+
+        control_key(&mut w, star());
+        w.finish_seek();
+        assert_eq!(w.turn(), 6);
+        assert!(w.strip_text(false).contains("game problem: piles"), "{}", w.strip_text(false));
+
+        control_key(&mut w, star());
+        w.finish_seek();
+        assert!(w.caught_up());
+        assert!(
+            w.strip_text(false).contains("nothing notable yet in what the agent has written"),
+            "a log with no end line is still being written: {}",
+            w.strip_text(false)
+        );
+    }
+
+    /// A skip runs a few turns a frame and shows it's working; any key stops it where it is,
+    /// and the watcher is then just as if it had played that far.
+    #[test]
+    fn a_skip_can_be_watched_and_stopped() {
+        let h = long_log(40);
+        let mut w = Watcher::new(&h.header()).unwrap();
+        w.feed(h.log().lines());
+        control_key(&mut w, star());
+        assert!(w.seeking());
+        w.advance(0.03);
+        assert!(w.seeking(), "a quiet log takes more than one frame");
+        assert!(w.strip_text(true).contains("skipping to the next notable moment"));
+        let turn = w.turn();
+        assert!(turn > 0 && turn <= SEEK_TURNS_PER_FRAME + 1, "{turn}");
+        control_key(&mut w, KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE));
+        assert!(!w.seeking());
+        assert_eq!(w.pace(), PACES[0], "the key that stopped it did nothing else");
+        assert!(w.strip_text(false).contains("skip stopped at turn"), "{}", w.strip_text(false));
+
+        // From there, playing on reaches the same world as a straight replay.
+        w.fast_forward_to_turn(u32::MAX);
+        let mut fresh = Watcher::new(&h.header()).unwrap();
+        fresh.feed(h.log().lines());
+        fresh.fast_forward_to_turn(u32::MAX);
+        assert_eq!(w.app().session.world.tick, fresh.app().session.world.tick);
+        assert_eq!(w.app().session.world.command_log(), fresh.app().session.world.command_log());
+    }
+
+    /// A finished skip leaves the same world a straight replay to that point does.
+    #[test]
+    fn a_skip_matches_a_straight_replay() {
+        let h = long_log(30);
+        let mut skipped = Watcher::new(&h.header()).unwrap();
+        skipped.feed(h.log().lines());
+        skipped.start_seek();
+        skipped.finish_seek();
+        let turn = skipped.turn();
+        let mut fresh = Watcher::new(&h.header()).unwrap();
+        fresh.feed(h.log().lines());
+        fresh.fast_forward_to_turn(turn);
+        skipped.fast_forward_to_turn(turn);
+        assert_eq!(skipped.app().session.world.tick, fresh.app().session.world.tick);
+        let world = |w: &mut Watcher| {
+            let text = frame_text(w);
+            text.lines().take(text.lines().count() - 1).collect::<Vec<_>>().join("\n")
+        };
+        assert_eq!(world(&mut skipped), world(&mut fresh), "only the strip's note differs");
+    }
+
+    /// A new script revision is a notable moment.
+    #[test]
+    fn a_new_script_revision_is_notable() {
+        let mut w = Watcher::new(&header(Nation::Earth)).unwrap();
+        w.feed([
+            LogLine::Turn { index: 0, tick: 100 },
+            script("keep-fed", 3, 0),
+            LogLine::Turn { index: 1, tick: 200 },
+            LogLine::Turn { index: 2, tick: 300 },
+        ]);
+        control_key(&mut w, star());
+        w.finish_seek();
+        assert_eq!(w.turn(), 1);
+        assert!(
+            w.strip_text(false).contains("» turn 1: saved keep-fed v3"),
+            "{}",
+            w.strip_text(false)
+        );
+    }
+
+    /// When the loop can't keep the chosen pace, the strip says what it really gets.
+    #[test]
+    fn the_strip_says_when_the_pace_falls_short() {
+        let h = long_log(10);
+        let mut w = Watcher::new(&h.header()).unwrap();
+        w.feed(h.log().lines());
+        for _ in 0..PACES.len() {
+            w.faster();
+        }
+        assert!(w.strip_text(false).ends_with("x500"), "{}", w.strip_text(false));
+        for _ in 0..30 {
+            w.note_frame(0.5, 0.1);
+        }
+        let strip = w.strip_text(false);
+        assert!(strip.contains("x500 (only ~x"), "{strip}");
+        for _ in 0..30 {
+            w.note_frame(0.03, 0.03);
+        }
+        assert!(w.strip_text(false).ends_with("x500"), "{}", w.strip_text(false));
     }
 
     /// Going back a turn, or ten, lands on the same frame a fresh replay to that turn shows, and

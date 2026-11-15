@@ -386,6 +386,7 @@ Watcher keys win over free look (#330). Free look passes every other key to the 
 | `p` | Formatted / raw code (#558) | Not bound in the game; "pretty" |
 | `x` | Show / hide deleted lines (#558) | Not bound in the game; a crossed-out line |
 | `Tab` `Shift+Tab` | In the message log (free look): the next / previous kind of line (#774) | The log's own filters are the digits, which are the studio's here; `Tab` is free in a log screen. The hint bar and key help list it (`Mode::WatchLog`) |
+| `*` | Skip to the next notable moment (#590, docs/design/agent-play.md) | Free everywhere; a star for a moment that stands out |
 | `{` `}` | Previous / next revision of the shown script (#502) | The owner suggested `[`/`]`, but `]` already jumps to the end of the next turn. Decided in #505 |
 
 No F-keys (WSL never delivers them). Every studio key goes through one new
