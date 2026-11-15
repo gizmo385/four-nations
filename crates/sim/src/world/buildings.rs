@@ -102,6 +102,10 @@ pub struct Building {
     /// even inside an automating yard.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) manual: bool,
+    /// Sends its automated batches to stores even where a touching machine takes them
+    /// (`Command::SetRoute`, #1038); off, the default, hands each across.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) to_stores: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -406,6 +410,7 @@ impl World {
             voyage: None,
             free: false,
             manual: false,
+            to_stores: false,
         };
         let key = self.buildings.insert(record, defs);
         let tile = TileBuilding::new(key, def.passable, def.track.map_or(0, |t| t.index));
@@ -656,6 +661,7 @@ impl World {
                     voyage: None,
                     free: false,
                     manual: false,
+                    to_stores: false,
                 },
             );
         }

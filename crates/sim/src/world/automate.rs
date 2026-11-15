@@ -126,6 +126,75 @@ impl World {
         Ok(())
     }
 
+    /// `Command::SetRoute` (#1038): where the recipe building anchored on `pos` sends its
+    /// automated batches. Refused off a finished recipe building.
+    pub(super) fn set_route(
+        &mut self,
+        pos: Pos,
+        stores: bool,
+        defs: &Defs,
+    ) -> Result<(), RecipeError> {
+        let Some(b) = self.anchored(pos) else {
+            return Err(if self.sites.contains_key(&pos) {
+                RecipeError::Site
+            } else {
+                RecipeError::NoBuilding
+            });
+        };
+        if defs.building(b.id).recipe.is_none() {
+            return Err(RecipeError::NoSuchRecipe);
+        }
+        self.anchored_mut(pos).expect("just found").to_stores = stores;
+        Ok(())
+    }
+
+    /// The machines a batch from the building anchored on `pos` can pass straight to
+    /// (docs/design/factory-endgame.md, "How machines connect", #1038): every other recipe
+    /// building whose footprint touches it and whose recipe takes `item`, in tile order.
+    pub fn touching_takers(&self, pos: Pos, item: ItemId, defs: &Defs) -> Vec<Pos> {
+        let Some(foot) = self.anchored(pos).map(|b| b.footprint()) else { return Vec::new() };
+        self.buildings()
+            .filter(|b| b.anchor != pos && b.footprint().gap(foot) == 1)
+            .filter(|b| {
+                self.recipe_at(b.anchor, defs)
+                    .is_some_and(|r| r.inputs.iter().any(|c| c.item == item))
+            })
+            .map(|b| b.anchor)
+            .collect()
+    }
+
+    /// Whether the building anchored on `pos` sends its batches to stores (`Command::SetRoute`).
+    pub fn routes_to_stores(&self, pos: Pos) -> bool {
+        self.anchored(pos).is_some_and(|b| b.to_stores)
+    }
+
+    /// Hands as much of `stack`, a batch just finished at `pos`, as touching machines' batches
+    /// have room for (`touching_takers`, first in tile order first), unless `pos` routes to
+    /// stores. Returns what's left for the ground by the door.
+    fn pass_across(&mut self, pos: Pos, mut stack: Stack, defs: &Defs) -> Stack {
+        if self.routes_to_stores(pos) {
+            return stack;
+        }
+        for target in self.touching_takers(pos, stack.item, defs) {
+            if stack.count == 0 {
+                break;
+            }
+            let Some(recipe) = self.recipe_at(target, defs) else { continue };
+            let Some(idx) = recipe.inputs.iter().position(|c| c.item == stack.item) else {
+                continue;
+            };
+            let have = self.craft(target).and_then(|s| s.delivered.get(idx).copied()).unwrap_or(0);
+            let take = stack.count.min(recipe.inputs[idx].count.saturating_sub(have));
+            if take == 0 {
+                continue;
+            }
+            self.deliver_to_craft(target, Stack { item: stack.item, count: take }, recipe);
+            stack.count -= take;
+            self.tallies.count_school("passed_across", take);
+        }
+        stack
+    }
+
     /// The next input an automated building's batch is short, or `None` when it needs nothing
     /// (not automated, idle at its stock limit, or fully supplied).
     pub(super) fn supply_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(ItemId, u32)> {
@@ -166,8 +235,12 @@ impl World {
             state.progress += step;
             if state.progress >= work {
                 b.craft = None;
-                self.place_ground(pos, Stack { item: output.item, count: output.count });
                 self.record_batch(recipe);
+                let left =
+                    self.pass_across(pos, Stack { item: output.item, count: output.count }, defs);
+                if left.count > 0 {
+                    self.place_ground(pos, left);
+                }
                 self.tallies.count_school("automated_batches", 1);
                 if self
                     .building_at(pos)

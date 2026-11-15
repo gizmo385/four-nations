@@ -128,6 +128,22 @@ fn machine_yard(
     w
 }
 
+/// A Fire yard with a Smelter at (5, 2) touching a Steelworks at (7, 2), both automated, and
+/// ore and wood in stores (#1038).
+fn smelter_row(defs: &Defs) -> World {
+    let mut w = World::with_map(1, field(40, 20), Nation::Fire, &[at(20, 12), at(21, 12)], defs);
+    let id = |s: &str| defs.building_id(s).unwrap();
+    w.put_building(Footprint::new(at(2, 2), 2, 2), id("lightning_station"), defs);
+    w.put_building(Footprint::new(at(5, 2), 2, 2), id("smelter"), defs);
+    w.put_building(Footprint::new(at(7, 2), 3, 2), id("steelworks"), defs);
+    for (x, item) in [(20, "gold_ore"), (21, "wood")] {
+        w.designate_stockpile(at(x, 10)).unwrap();
+        w.stored.insert(at(x, 10), Stack { item: defs.item_id(item).unwrap(), count: 30 });
+    }
+    w.research.grant(defs.tech_id("great_works").unwrap());
+    w
+}
+
 #[test]
 fn mechanisms_runs_each_nations_machines_at_its_own_rate() {
     let defs = Defs::bundled();
@@ -164,4 +180,44 @@ fn mechanisms_is_shared_waits_for_the_gate_and_bills_steel() {
     let station = defs.building(defs.building_id("lightning_station").unwrap());
     let (tech, a) = station.automate_upgrade.as_ref().unwrap();
     assert_eq!((defs.tech(*tech).id.as_str(), a.rate), ("great_works", 1.0));
+}
+
+#[test]
+fn a_smelter_hands_its_metal_straight_to_the_touching_steelworks() {
+    let defs = Defs::bundled();
+    let mut w = smelter_row(&defs);
+    let metal = defs.item_id("metal").unwrap();
+    assert_eq!(w.touching_takers(at(5, 2), metal, &defs), vec![at(7, 2)]);
+    let mut metal_loose = false;
+    for _ in 0..30_000 {
+        w.tick(&defs);
+        metal_loose |= w.ground.values().chain(w.stored.values()).any(|s| s.item == metal);
+        if w.tallies().school("steel_made") > 0 {
+            break;
+        }
+    }
+    assert!(w.tallies().school("steel_made") > 0, "the Steelworks made steel");
+    assert!(w.tallies().school("passed_across") >= 2, "the metal went across");
+    assert!(!metal_loose, "no metal was ever hauled or stored");
+}
+
+#[test]
+fn routed_to_stores_the_metal_goes_out_the_door_instead() {
+    let defs = Defs::bundled();
+    let mut w = smelter_row(&defs);
+    w.apply(Command::SetRoute { pos: at(5, 2), stores: true }, &defs).unwrap();
+    assert!(w.routes_to_stores(at(5, 2)));
+    let metal = defs.item_id("metal").unwrap();
+    let mut metal_out = false;
+    for _ in 0..20_000 {
+        w.tick(&defs);
+        metal_out |= w.ground.values().chain(w.stored.values()).any(|s| s.item == metal);
+        if metal_out {
+            break;
+        }
+    }
+    assert!(metal_out, "the Smelter's metal left by the door");
+    assert_eq!(w.tallies().school("passed_across"), 0);
+    let e = w.apply(Command::SetRoute { pos: at(30, 15), stores: true }, &defs).unwrap_err();
+    assert!(!e.to_string().is_empty());
 }
