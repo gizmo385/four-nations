@@ -119,7 +119,9 @@ pub fn draw_screen(
         Screen::Log => crate::msglog::draw(session, ui, palette, &page, buf),
         Screen::Endeavor => {
             let body = page.body;
-            let rows = lines(session, screen, usize::from(body.width), palette.ascii);
+            let marks = fn_ui::rows::Marks::new(palette.ascii);
+            let width = usize::from(body.width);
+            let rows = fn_ui::screens::endeavor::tab_lines(session, ui, width, &marks);
             let max = rows.len().saturating_sub(usize::from(body.height));
             let start = ui.scroll.min(max);
             let mut p = Painter::new(buf, body, palette);

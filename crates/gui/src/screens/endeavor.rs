@@ -20,10 +20,11 @@ use eframe::egui::{
 use fn_tui::color::Palette;
 use fn_tui::widgets::{Marks, Row, Tone};
 use fn_ui::app::App;
-use fn_ui::endeavor::{ChapterView, GroupView, SignRow, screen_view};
+use fn_ui::endeavor::{ChapterView, GroupView, SignRow, goods_ledger, screen_view};
 use fn_ui::gate::{self, GateAction};
 use fn_ui::keyev::{KeyCode, KeyEvent, KeyModifiers};
 pub use fn_ui::screens::endeavor::*;
+use fn_ui::state::CityTab;
 
 use crate::cells::Metrics;
 use crate::gauge;
@@ -179,6 +180,23 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                 let head =
                     Row::pair(view.name.clone(), Tone::Title, view.count.clone(), Tone::Accent);
                 page::text_row(ui, &look, &head, false, Sense::hover());
+                if view.united.is_some() {
+                    // The United City's two tabs (#1028): a click on the strip presses Tab.
+                    let strip = tab_strip(app.ui.city_tab);
+                    let r = page::text_row(ui, &look, &strip, false, Sense::click());
+                    if r.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                        keys.push(key(KeyCode::Tab));
+                    }
+                    if app.ui.city_tab == CityTab::Goods {
+                        page::text_row(ui, &look, &Row::default(), false, Sense::hover());
+                        let cells = (ui.available_width() / look.cell.x).max(1.0) as usize;
+                        let ledger = goods_ledger(&app.session.world, &app.session.defs);
+                        for row in goods_lines(&ledger, cells, &marks) {
+                            page::text_row(ui, &look, &row, false, Sense::hover());
+                        }
+                        return;
+                    }
+                }
                 let width = ui.available_width().min(GATE_CELLS as f32 * look.cell.x);
                 let (rect, response) =
                     ui.allocate_exact_size(vec2(width, look.cell.y), Sense::hover());

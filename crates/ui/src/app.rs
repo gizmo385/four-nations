@@ -420,6 +420,9 @@ impl App {
             Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Help) => {
                 self.ui.switch_help_tab();
             }
+            Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Endeavor) => {
+                self.ui.switch_city_tab(&self.session);
+            }
             Action::Move { dy, tiles, .. } => self.scroll_by(dy * tiles),
             Action::Jump { dy, .. } => {
                 let page = self.screen_rows();
@@ -521,6 +524,7 @@ impl App {
                 msglog::reset(&mut self.ui);
             }
             self.ui.help_tab = HelpTab::default();
+            self.ui.city_tab = crate::state::CityTab::default();
             if screen == Screen::Research {
                 self.ui.research_page = crate::research::ResearchPage::default();
                 let view = screen_view(&self.session);

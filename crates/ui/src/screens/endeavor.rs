@@ -8,7 +8,8 @@
 //! that scroll (`screens::draw_screen`).
 
 use crate::Session;
-use crate::endeavor::{GroupView, SignRow, UnitedView, screen_view};
+use crate::endeavor::{GroupView, LedgerRow, SignRow, UnitedView, goods_ledger, screen_view};
+use crate::state::{CityTab, UiState};
 
 use crate::rows::{Marks, Row, Tone, meter, wrap};
 
@@ -130,6 +131,95 @@ fn standing_rows(u: &UnitedView) -> Vec<Row> {
     rows
 }
 
+/// The tab strip under the United City's name (#1028): both tabs, the open one bracketed.
+pub fn tab_strip(tab: CityTab) -> Row {
+    let (city, goods) = match tab {
+        CityTab::City => ("[City]", " Goods "),
+        CityTab::Goods => (" City ", "[Goods]"),
+    };
+    Row::spans(vec![
+        (city.to_owned(), if tab == CityTab::City { Tone::Accent } else { Tone::Dim }),
+        (" ".to_owned(), Tone::Dim),
+        (goods.to_owned(), if tab == CityTab::Goods { Tone::Accent } else { Tone::Dim }),
+        ("   Tab switches".to_owned(), Tone::Dim),
+    ])
+}
+
+/// The Goods tab's rows (#1028, docs/design/factory-endgame.md "The Goods screen"): a heading
+/// with the window the rates cover, the column heads, then one row per good with what makes
+/// it here and who wants it, and a closing note on the short ones.
+pub fn goods_lines(rows: &[LedgerRow], width: usize, marks: &Marks) -> Vec<Row> {
+    let mut out = vec![Row::pair(
+        "GOODS".to_owned(),
+        Tone::Title,
+        format!("a minute, last {} minutes", fn_sim::world::FLOW_MINUTES),
+        Tone::Dim,
+    )];
+    if rows.is_empty() {
+        out.push(Row::text("  No resident wants anything yet", Tone::Dim));
+        return out;
+    }
+    let name_width = rows.iter().map(|g| g.name.chars().count()).max().unwrap_or(0).max(4);
+    let at_width = rows.iter().map(|g| g.made_at.chars().count()).max().unwrap_or(0).max(7);
+    out.push(Row::text(
+        format!(
+            "  {:<name_width$}   MADE   USED    NET  STORES  {:<at_width$}  WANTED BY",
+            "GOOD", "MADE AT"
+        ),
+        Tone::Dim,
+    ));
+    for g in rows {
+        let net = g.made - g.used;
+        let net_tone = if net < -0.05 { Tone::Warn } else { Tone::Dim };
+        let at_tone = if g.made_at == "nothing" { Tone::Warn } else { Tone::Text };
+        let mut spans = vec![
+            (format!("  {:<name_width$} ", g.name), Tone::Text),
+            (format!("{:>6.1} {:>6.1} ", g.made, g.used), Tone::Dim),
+            (format!("{net:>+6.1} "), net_tone),
+            (format!("{:>7}  ", g.stores), Tone::Dim),
+            (format!("{:<at_width$}  ", g.made_at), at_tone),
+            (g.wanted_by.clone(), Tone::Text),
+        ];
+        if g.short {
+            spans.push(("  Short".to_owned(), Tone::Warn));
+        }
+        out.push(Row::spans(spans));
+    }
+    let short: Vec<&str> = rows.iter().filter(|g| g.short).map(|g| g.name.as_str()).collect();
+    if !short.is_empty() {
+        out.push(Row::default());
+        let note = format!(
+            "Short of {}. Set a building to make it (R on a selected building), or buy it from \
+             a caravan.",
+            short.join(", ")
+        );
+        for line in wrap(&note, width, usize::MAX, marks.ellipsis) {
+            out.push(Row::text(line, Tone::Warn));
+        }
+    }
+    out
+}
+
+/// The screen's rows for the tab `ui` has open: [`lines`] on the City tab (and always before
+/// the gate), the name, the tab strip and [`goods_lines`] on the Goods tab.
+pub fn tab_lines(session: &Session, ui: &UiState, width: usize, marks: &Marks) -> Vec<Row> {
+    if !session.world.united() || ui.city_tab == CityTab::City {
+        let mut rows = lines(session, width, marks);
+        if session.world.united() {
+            rows.insert(1, tab_strip(CityTab::City));
+        }
+        return rows;
+    }
+    let v = screen_view(session);
+    let mut rows = vec![
+        Row::pair(v.name.clone(), Tone::Title, v.count.clone(), Tone::Accent),
+        tab_strip(CityTab::Goods),
+        Row::default(),
+    ];
+    rows.extend(goods_lines(&goods_ledger(&session.world, &session.defs), width, marks));
+    rows
+}
+
 /// The screen's text, `width` columns wide: the name and count, the description if the data has
 /// one, a blank line, the stage tracker, then every group with a blank line before it.
 pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
@@ -204,6 +294,38 @@ mod tests {
 
     use super::*;
     use crate::new_session;
+
+    /// Tab opens the Goods tab after the gate (#1028): each wanted good, then the made goods
+    /// on the way to them (fittings for furniture, steel for fittings), and a note naming the
+    /// short ones. Before the gate Tab does nothing and there is no strip.
+    #[test]
+    fn tab_switches_the_united_city_to_its_goods() {
+        let mut s = new_session(7, Nation::Fire);
+        let marks = Marks::new(false);
+        let mut ui = UiState::new(&s, (100, 30));
+        ui.switch_city_tab(&s);
+        assert_eq!(ui.city_tab, CityTab::City, "no Goods tab before the gate");
+        let before: Vec<String> = tab_lines(&s, &ui, 100, &marks).iter().map(Row::plain).collect();
+        assert!(!before.iter().any(|t| t.contains("Tab switches")), "{before:?}");
+
+        let defs = s.defs.clone();
+        s.world.start_republic(&defs);
+        let city: Vec<String> = tab_lines(&s, &ui, 100, &marks).iter().map(Row::plain).collect();
+        assert!(city[1].starts_with("[City]"), "{city:?}");
+        ui.switch_city_tab(&s);
+        assert_eq!(ui.city_tab, CityTab::Goods);
+        let goods: Vec<String> = tab_lines(&s, &ui, 100, &marks).iter().map(Row::plain).collect();
+        assert!(goods[1].contains("[Goods]"), "{goods:?}");
+        let row = |name: &str| goods.iter().position(|t| t.trim_start().starts_with(name));
+        let (lantern, fittings, steel) = (row("Lantern "), row("Fittings "), row("Steel "));
+        assert!(lantern.is_some() && fittings.is_some() && steel.is_some(), "{goods:?}");
+        assert!(lantern < fittings, "wanted goods come first: {goods:?}");
+        assert!(goods[lantern.unwrap()].contains("nothing"), "no Forge makes lanterns yet");
+        assert!(
+            !goods.iter().any(|t| t.trim_start().starts_with("Wood ")),
+            "raw goods are left out"
+        );
+    }
 
     /// A Republic start (#1025) shows its residents by standing and the goods they want (#1028),
     /// with the stocked lanterns in stores and nothing made yet.

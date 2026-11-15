@@ -87,6 +87,16 @@ impl HelpTab {
     }
 }
 
+/// The two tabs of the United City screen (`G` after the gate, #1028): the city itself, and
+/// the goods its residents want with what makes them. `Tab` switches between them; the screen
+/// always opens on the city. Before the gate there is only the Endeavor, and `Tab` does nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CityTab {
+    #[default]
+    City,
+    Goods,
+}
+
 /// Something that captures every key while it is open: no tool key, screen key or clock action
 /// reaches `App::act` (`App::modal_key`). The game menu draws as a centred box (`crate::menu`);
 /// the Build picker draws as a full screen, like a [`Screen`] (#652).
@@ -186,6 +196,8 @@ pub struct UiState {
     pub log_open: Vec<u64>,
     /// Which tab of the key help shows (`Tab` switches it, [`HelpTab`]).
     pub help_tab: HelpTab,
+    /// Which tab of the United City screen shows (`Tab` switches it, [`CityTab`]).
+    pub city_tab: CityTab,
     /// The modal dialog over the map, if one is open (#285).
     pub modal: Option<Modal>,
     /// The Build modal's highlight: an index into `crate::build::picker_rows`.
@@ -283,6 +295,7 @@ impl UiState {
             log_cursor: None,
             log_open: Vec::new(),
             help_tab: HelpTab::default(),
+            city_tab: CityTab::default(),
             modal: None,
             build_cursor: 0,
             menu_cursor: 0,
@@ -312,6 +325,19 @@ impl UiState {
     /// `Tab` in the key help: the other tab, from its top.
     pub fn switch_help_tab(&mut self) {
         self.help_tab = self.help_tab.other();
+        self.scroll = 0;
+    }
+
+    /// `Tab` in the United City screen: the other tab, from its top. Nothing happens before
+    /// the gate, when there is only the Endeavor.
+    pub fn switch_city_tab(&mut self, session: &Session) {
+        if !session.world.united() {
+            return;
+        }
+        self.city_tab = match self.city_tab {
+            CityTab::City => CityTab::Goods,
+            CityTab::Goods => CityTab::City,
+        };
         self.scroll = 0;
     }
 
