@@ -50,6 +50,7 @@ mod endeavor;
 mod events;
 mod exchange;
 mod farm;
+mod flow;
 mod forge;
 mod found;
 mod fuel;
@@ -118,6 +119,7 @@ pub use endeavor::{
 pub use events::{Event, FindEvent};
 pub use exchange::{Exchange, ExchangeEntry, ExchangeKind, ExchangeNeed, ExchangeStanding};
 pub use farm::PlotStage;
+pub use flow::{FLOW_MINUTES, GoodsFlow};
 use forge::CraftState;
 pub use forge::RecipeError;
 pub use gate::{EndeavorError, GateSite, GateTask};
@@ -587,6 +589,10 @@ pub struct World {
     /// Lifetime counts for the end-game signs: items harvested, scrolls read (`tally.rs`, #233).
     #[serde(default)]
     tallies: Tallies,
+    /// What a United City made and used of each good lately (`flow.rs`, #1028). Empty, and not
+    /// saved, before the gate.
+    #[serde(default, skip_serializing_if = "GoodsFlow::is_empty")]
+    flow: GoodsFlow,
     /// Time spent suffering and near-deaths, for the agent run score and the balance harness
     /// (`care.rs`, #533). A save from before #533 loads with zeros.
     #[serde(default)]
@@ -774,6 +780,7 @@ impl World {
             rides: BTreeMap::new(),
             saplings: BTreeSet::new(),
             tallies: Tallies::default(),
+            flow: GoodsFlow::default(),
             care: CareTally::default(),
             refusals: probe::Refusals::default(),
             roster: Roster::default(),
