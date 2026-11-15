@@ -157,6 +157,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Airship => Mode::Airship,
             Screen::Split => Mode::Split,
             Screen::Planner => Mode::Planner,
+            Screen::Good => Mode::Good,
         };
     }
     if ui.tool_list.is_some() {

@@ -38,6 +38,7 @@ pub mod embark;
 pub mod endeavor;
 pub mod flow;
 pub mod gate;
+pub mod good;
 pub mod input;
 pub mod inspect;
 pub mod inspector;

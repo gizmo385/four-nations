@@ -382,6 +382,16 @@ impl App {
                     return;
                 }
                 Action::Confirm => return self.open_planner(),
+                Action::ToggleRepeat => {
+                    let ledger =
+                        crate::endeavor::goods_ledger(&self.session.world, &self.session.defs);
+                    if let Some(row) =
+                        ledger.get(self.ui.goods_cursor.min(ledger.len().saturating_sub(1)))
+                    {
+                        self.open_good(row.item, Screen::Endeavor);
+                    }
+                    return;
+                }
                 _ => {}
             }
         }
@@ -442,6 +452,9 @@ impl App {
             return;
         }
         if self.ui.screen == Some(Screen::Planner) && self.planner_key(action) {
+            return;
+        }
+        if self.ui.screen == Some(Screen::Good) && self.good_key(action) {
             return;
         }
         match action {
@@ -737,6 +750,7 @@ impl App {
                     | Screen::Airship
                     | Screen::Split
                     | Screen::Planner
+                    | Screen::Good
             )
         }) else {
             return;
@@ -1341,6 +1355,16 @@ impl App {
                     crate::planner::adjust(&mut edit, -dy.signum());
                 }
             }
+            Action::ToggleRepeat => {
+                let p = crate::planner::plan(&self.session, edit.goal, edit.per_min);
+                let item = p
+                    .steps
+                    .get(edit.cursor.min(p.steps.len().saturating_sub(1)))
+                    .map_or(edit.goal, |s| s.item);
+                self.ui.planner = Some(edit);
+                self.open_good(item, Screen::Planner);
+                return true;
+            }
             Action::Faster => crate::planner::adjust(&mut edit, 1),
             Action::Slower => crate::planner::adjust(&mut edit, -1),
             Action::Cancel | Action::ShowEndeavor => {
@@ -1352,6 +1376,58 @@ impl App {
             _ => return false,
         }
         self.ui.planner = Some(edit);
+        true
+    }
+
+    /// `O` on a good: its own screen, going back to `back` on `Esc`.
+    fn open_good(&mut self, item: fn_sim::jobs::ItemId, back: Screen) {
+        self.ui.scroll = 0;
+        self.ui.good = Some(crate::good::GoodEdit { item, cursor: 0, back });
+        self.ui.screen = Some(Screen::Good);
+    }
+
+    /// What a key does on a good's screen; whether it was one the screen took. Up and Down move
+    /// the pointer over the ways to get more, `Enter` on a machine to build arms the Build tool
+    /// with it, `Esc` or `O` go back to where it was opened from.
+    fn good_key(&mut self, action: Action) -> bool {
+        let Some(mut edit) = self.ui.good else { return false };
+        match action {
+            Action::Move { dy, .. } if dy != 0 => {
+                crate::good::step(&self.session, &mut edit, dy.signum());
+            }
+            Action::Confirm => {
+                use crate::good::WayKind;
+                if let Some(w) = crate::good::chosen(&self.session, &edit) {
+                    match (w.kind, &w.locked) {
+                        (WayKind::Build(id), None) => {
+                            self.ui.good = None;
+                            self.ui.planner = None;
+                            self.ui.screen = None;
+                            self.ui.choice = Some(id);
+                            self.ui.set_tool(Tool::Build);
+                            return true;
+                        }
+                        (WayKind::Build(_), Some(tech)) => {
+                            self.ui.notice = format!("Research {tech} first");
+                        }
+                        (WayKind::Caravan, _) => {
+                            self.ui.notice = "Trade for it when that caravan camps (M)".to_owned();
+                        }
+                        (WayKind::Gather, _) => {
+                            self.ui.notice = "Mark them with the Harvest tool (H)".to_owned();
+                        }
+                    }
+                }
+            }
+            Action::Cancel | Action::ToggleRepeat => {
+                self.ui.good = None;
+                self.ui.screen = Some(edit.back);
+                return true;
+            }
+            Action::Move { .. } | Action::Jump { .. } => {}
+            _ => return false,
+        }
+        self.ui.good = Some(edit);
         true
     }
 

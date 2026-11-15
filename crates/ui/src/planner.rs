@@ -101,7 +101,7 @@ pub struct Plan {
 
 /// The building and recipe the plan makes `item` with: one the nation can build now if any,
 /// else one it may yet unlock (with the tech's name). `None` for a raw good.
-fn maker(
+pub(crate) fn maker(
     session: &Session,
     item: ItemId,
 ) -> Option<(BuildingId, &BuildingDef, &RecipeDef, Option<String>)> {
@@ -132,7 +132,7 @@ fn maker(
 /// The best automating yard rate `def` could run at in this city (a source whose tech is known
 /// and that the nation builds), or `None` to run by hand. The yard's own `beside` rule (the
 /// rock, the water) is the player's to meet when placing it.
-fn yard_rate(session: &Session, def: &BuildingDef) -> Option<(f32, String)> {
+pub(crate) fn yard_rate(session: &Session, def: &BuildingDef) -> Option<(f32, String)> {
     if !def.uses_power {
         return None;
     }
@@ -152,7 +152,7 @@ fn yard_rate(session: &Session, def: &BuildingDef) -> Option<(f32, String)> {
 
 /// How much one machine making `recipe` turns out a minute, at `rate` times the plain speed
 /// and the nation's modifier.
-fn per_machine(session: &Session, recipe: &RecipeDef, rate: f32) -> f32 {
+pub(crate) fn per_machine(session: &Session, recipe: &RecipeDef, rate: f32) -> f32 {
     let speed =
         recipe.modifier.as_deref().and_then(|m| session.world.modifiers().get(m)).unwrap_or(1.0);
     let secs = recipe.work.max(0.1) / (rate * speed).max(0.01);
@@ -161,7 +161,7 @@ fn per_machine(session: &Session, recipe: &RecipeDef, rate: f32) -> f32 {
 
 /// Where a building must stand, in words, if it has a rule: "at the rock face", "by the
 /// water".
-fn standing_rule(def: &BuildingDef) -> Option<&'static str> {
+pub(crate) fn standing_rule(def: &BuildingDef) -> Option<&'static str> {
     let beside = def.beside.as_ref()?;
     if beside.iter().any(|t| matches!(t, Terrain::Mountain | Terrain::Tunnel)) {
         Some("at the rock face")

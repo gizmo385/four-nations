@@ -196,7 +196,10 @@ pub fn goods_lines(
     }
     let short: Vec<&str> = rows.iter().filter(|g| g.short).map(|g| g.name.as_str()).collect();
     out.push(Row::default());
-    out.push(Row::text("Enter on a good plans the machines that make it.", Tone::Dim));
+    out.push(Row::text(
+        "Enter on a good plans the machines that make it. O shows every way to get more.",
+        Tone::Dim,
+    ));
     if !short.is_empty() {
         out.push(Row::default());
         let note = format!(

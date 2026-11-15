@@ -176,7 +176,9 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
         // `input::spectator_allowed` refuses `Action::ShowSplit`.
         Screen::Split => unreachable!("the spectator never opens the Split screen"),
         // Only the game's own Goods tab pointer opens the planner.
-        Screen::Planner => unreachable!("the spectator never opens the planner"),
+        Screen::Planner | Screen::Good => {
+            unreachable!("the spectator never opens the planner or a good's screen")
+        }
         Screen::Log | Screen::Help | Screen::Endeavor => {}
     }
     match action {

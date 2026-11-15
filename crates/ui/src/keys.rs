@@ -171,6 +171,8 @@ pub enum Mode {
     Split,
     /// The pipeline planner (`Enter` on a good on the Goods tab).
     Planner,
+    /// A good's own screen (`O` in the planner or on the Goods tab).
+    Good,
     /// The SEND THE AIRSHIP box over it.
     AirshipSend,
     Log,
@@ -233,6 +235,7 @@ impl Mode {
             Self::Traders => "TRADERS",
             Self::Split => "SPLIT",
             Self::Planner => "PLANNER",
+            Self::Good => "GOOD",
             Self::Airship => "AIRSHIP",
             Self::AirshipSend => "SEND THE AIRSHIP",
             Self::Log | Self::WatchLog => "LOG",
@@ -416,7 +419,11 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Split], &[Action::Cancel, Action::ShowSplit], "Esc or V", "close", None);
     add(&[Mode::Planner], &[], "Left/Right", "step", None);
     add(&[Mode::Planner], &[step], "Up/Down", "rate", None);
+    add(&[Mode::Planner], &[Action::ToggleRepeat], "O", "open the good", None);
     add(&[Mode::Planner], &[Action::Cancel, Action::ShowEndeavor], "Esc or G", "back", None);
+    add(&[Mode::Good], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Good], &[Action::Confirm], "Enter", "build it", None);
+    add(&[Mode::Good], &[Action::Cancel, Action::ToggleRepeat], "Esc or O", "back", None);
     add(&[Mode::Airship], &[step], "Up/Down", "choose", None);
     add(&[Mode::Airship], &[], "Left/Right", "nation or deal", None);
     add(&[Mode::Airship], &[Action::Faster, Action::Slower], "+/-", "times", None);

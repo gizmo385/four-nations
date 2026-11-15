@@ -73,6 +73,9 @@ pub enum Screen {
     /// (`crate::planner`), the chain that makes it at a rate. The good, rate and pointer are
     /// [`UiState::planner`].
     Planner,
+    /// `O` on a good in the planner or on the Goods tab: the good's own screen (`crate::good`),
+    /// what makes it, what uses it and every way to get more. [`UiState::good`] holds it.
+    Good,
 }
 
 /// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
@@ -257,6 +260,8 @@ pub struct UiState {
     pub split: Option<crate::split::SplitEdit>,
     /// The planner's good, rate and pointer. `Some` exactly while the screen is open.
     pub planner: Option<crate::planner::PlanEdit>,
+    /// The good's screen: the good, the way under the pointer and where `Esc` goes back to.
+    pub good: Option<crate::good::GoodEdit>,
     /// The Goods tab's pointer, over `endeavor::goods_ledger`'s rows.
     pub goods_cursor: usize,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
@@ -331,6 +336,7 @@ impl UiState {
             airship: None,
             split: None,
             planner: None,
+            good: None,
             goods_cursor: 0,
             save_slots: Vec::new(),
             save_cursor: 0,
