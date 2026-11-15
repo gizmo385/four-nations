@@ -149,6 +149,63 @@ impl App {
         if self.ui.screen.is_some() {
             return self.act_in_screen(action);
         }
+        if self.ui.stamp.is_some() {
+            if self.stamp_key(action) {
+                self.stamp_status();
+                return;
+            }
+            self.act_on_map(action);
+            self.stamp_status();
+            return;
+        }
+        self.act_on_map(action);
+    }
+
+    /// What a key does while a plan is being stamped (`crate::stamp`); whether it was one the
+    /// stamp took. `R` turns the block, `Enter` places it as build orders, `Esc` goes back to the
+    /// plan. The arrows move the cursor as ever, and the block with it; any other key stops
+    /// stamping first.
+    fn stamp_key(&mut self, action: Action) -> bool {
+        let Some(mut edit) = self.ui.stamp else { return false };
+        match action {
+            Action::NextRecipe => {
+                edit.turned = !edit.turned;
+                self.ui.stamp = Some(edit);
+            }
+            Action::Confirm => {
+                self.ui.notice = crate::stamp::place(&mut self.session, &edit, self.ui.cursor);
+                self.ui.stamp = None;
+            }
+            Action::Cancel => {
+                self.ui.stamp = None;
+                self.ui.planner = Some(edit.plan);
+                self.ui.screen = Some(Screen::Planner);
+            }
+            Action::Move { .. }
+            | Action::Jump { .. }
+            | Action::TogglePause
+            | Action::Faster
+            | Action::Slower
+            | Action::Step => return false,
+            _ => {
+                self.ui.stamp = None;
+                return false;
+            }
+        }
+        true
+    }
+
+    /// The stamp's summary in the status bar, while stamping.
+    fn stamp_status(&mut self) {
+        if let Some(edit) = self.ui.stamp {
+            let v = crate::stamp::view(&self.session, &edit, self.ui.cursor);
+            self.ui.status = crate::stamp::summary(&self.session, &v);
+            self.ui.status_badge = Some(" STAMP ");
+        }
+    }
+
+    /// What a key does on the map, with no screen open.
+    fn act_on_map(&mut self, action: Action) {
         if self.ui.tool_list.is_some() && self.tool_list_act(action) {
             return;
         }
@@ -382,6 +439,16 @@ impl App {
                     return;
                 }
                 Action::Confirm => return self.open_planner(),
+                Action::ToggleRepeat => {
+                    let ledger =
+                        crate::endeavor::goods_ledger(&self.session.world, &self.session.defs);
+                    if let Some(row) =
+                        ledger.get(self.ui.goods_cursor.min(ledger.len().saturating_sub(1)))
+                    {
+                        self.open_good(row.item, Screen::Endeavor);
+                    }
+                    return;
+                }
                 _ => {}
             }
         }
@@ -442,6 +509,9 @@ impl App {
             return;
         }
         if self.ui.screen == Some(Screen::Planner) && self.planner_key(action) {
+            return;
+        }
+        if self.ui.screen == Some(Screen::Good) && self.good_key(action) {
             return;
         }
         match action {
@@ -737,6 +807,7 @@ impl App {
                     | Screen::Airship
                     | Screen::Split
                     | Screen::Planner
+                    | Screen::Good
             )
         }) else {
             return;
@@ -1341,6 +1412,16 @@ impl App {
                     crate::planner::adjust(&mut edit, -dy.signum());
                 }
             }
+            Action::ToggleRepeat => {
+                let p = crate::planner::plan(&self.session, edit.goal, edit.per_min);
+                let item = p
+                    .steps
+                    .get(edit.cursor.min(p.steps.len().saturating_sub(1)))
+                    .map_or(edit.goal, |s| s.item);
+                self.ui.planner = Some(edit);
+                self.open_good(item, Screen::Planner);
+                return true;
+            }
             Action::Faster => crate::planner::adjust(&mut edit, 1),
             Action::Slower => crate::planner::adjust(&mut edit, -1),
             Action::Cancel | Action::ShowEndeavor => {
@@ -1348,10 +1429,71 @@ impl App {
                 self.ui.screen = Some(Screen::Endeavor);
                 return true;
             }
-            Action::Jump { .. } | Action::Confirm => {}
+            // Enter stamps the plan on the map, its block's top-left on the cursor.
+            Action::Confirm => {
+                self.ui.planner = None;
+                self.ui.screen = None;
+                self.ui.set_tool(Tool::Select);
+                self.ui.stamp = Some(crate::stamp::StampEdit { plan: edit, turned: false });
+                self.stamp_status();
+                return true;
+            }
+            Action::Jump { .. } => {}
             _ => return false,
         }
         self.ui.planner = Some(edit);
+        true
+    }
+
+    /// `O` on a good: its own screen, going back to `back` on `Esc`.
+    fn open_good(&mut self, item: fn_sim::jobs::ItemId, back: Screen) {
+        self.ui.scroll = 0;
+        self.ui.good = Some(crate::good::GoodEdit { item, cursor: 0, back });
+        self.ui.screen = Some(Screen::Good);
+    }
+
+    /// What a key does on a good's screen; whether it was one the screen took. Up and Down move
+    /// the pointer over the ways to get more, `Enter` on a machine to build arms the Build tool
+    /// with it, `Esc` or `O` go back to where it was opened from.
+    fn good_key(&mut self, action: Action) -> bool {
+        let Some(mut edit) = self.ui.good else { return false };
+        match action {
+            Action::Move { dy, .. } if dy != 0 => {
+                crate::good::step(&self.session, &mut edit, dy.signum());
+            }
+            Action::Confirm => {
+                use crate::good::WayKind;
+                if let Some(w) = crate::good::chosen(&self.session, &edit) {
+                    match (w.kind, &w.locked) {
+                        (WayKind::Build(id), None) => {
+                            self.ui.good = None;
+                            self.ui.planner = None;
+                            self.ui.screen = None;
+                            self.ui.choice = Some(id);
+                            self.ui.set_tool(Tool::Build);
+                            return true;
+                        }
+                        (WayKind::Build(_), Some(tech)) => {
+                            self.ui.notice = format!("Research {tech} first");
+                        }
+                        (WayKind::Caravan, _) => {
+                            self.ui.notice = "Trade for it when that caravan camps (M)".to_owned();
+                        }
+                        (WayKind::Gather, _) => {
+                            self.ui.notice = "Mark them with the Harvest tool (H)".to_owned();
+                        }
+                    }
+                }
+            }
+            Action::Cancel | Action::ToggleRepeat => {
+                self.ui.good = None;
+                self.ui.screen = Some(edit.back);
+                return true;
+            }
+            Action::Move { .. } | Action::Jump { .. } => {}
+            _ => return false,
+        }
+        self.ui.good = Some(edit);
         true
     }
 
