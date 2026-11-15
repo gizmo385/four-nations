@@ -91,10 +91,12 @@ pub enum Command {
     /// yard) or give it back to a crafter (`world/automate.rs`, #725). Refused with `needs Great
     /// Works` before the tech, and `not in a Lightning Station's yard` outside one.
     SetAutomated { pos: Pos, on: bool },
-    /// Where the recipe building anchored on `pos` sends its automated batches (#1038): to a
-    /// touching machine that takes them (`stores` false, the default) or to stores (`stores`
-    /// true), which splits one machine's output between chains.
-    SetRoute { pos: Pos, stores: bool },
+    /// Sets `to`'s share of the automated output of the recipe building anchored on `pos`
+    /// (`world/automate.rs`): units are dealt to the split's destinations in proportion to
+    /// their shares, which splits one machine's output between chains. `weight` 0 takes `to`
+    /// off the split; with nothing on it, batches go to the first touching machine with room.
+    /// `to` must be a touching machine that takes the output, or stores.
+    SetShare { pos: Pos, to: SplitTo, weight: u8 },
     /// Keep `tech` from the pending teaching draft it is in; the rest of that offer is lost for
     /// good (`world/teachings.rs`, docs/design/horizons-phase-5.md, #737). Refused with
     /// `NotOffered` when no pending offer holds it.
@@ -283,7 +285,7 @@ impl World {
             Command::SetLink { pos, to } => self.set_link(pos, to, defs)?,
             Command::SetRecipe { pos, recipe } => self.set_recipe(pos, recipe, defs)?,
             Command::SetAutomated { pos, on } => self.set_automated(pos, on, defs)?,
-            Command::SetRoute { pos, stores } => self.set_route(pos, stores, defs)?,
+            Command::SetShare { pos, to, weight } => self.set_share(pos, to, weight, defs)?,
             Command::KeepTeaching { tech } => self.keep_teaching(tech)?,
             Command::TakeDeal { slot } => {
                 self.take_deal(slot, defs).map_err(CommandError::Trade)?

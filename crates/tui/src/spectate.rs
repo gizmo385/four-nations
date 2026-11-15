@@ -169,6 +169,8 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
         // `Enter` on a dock only selects in the spectator (`select_here`): it has no way to open
         // the Airship screen, whose keys would plan voyages in the agent's own game.
         Screen::Airship => unreachable!("the spectator never opens the Airship screen"),
+        // `input::spectator_allowed` refuses `Action::ShowSplit`.
+        Screen::Split => unreachable!("the spectator never opens the Split screen"),
         Screen::Log | Screen::Help | Screen::Endeavor => {}
     }
     match action {

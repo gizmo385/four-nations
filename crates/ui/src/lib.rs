@@ -63,6 +63,7 @@ pub mod script;
 mod ser;
 pub mod session;
 pub mod sparkline;
+pub mod split;
 pub mod state;
 pub mod teaching;
 pub mod text;

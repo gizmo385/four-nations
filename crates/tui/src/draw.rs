@@ -155,6 +155,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Traders => Mode::Traders,
             Screen::Airship if ui.airship.as_ref().is_some_and(|p| p.confirm) => Mode::AirshipSend,
             Screen::Airship => Mode::Airship,
+            Screen::Split => Mode::Split,
         };
     }
     if ui.tool_list.is_some() {

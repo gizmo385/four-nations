@@ -96,6 +96,7 @@ mod voyage;
 mod work;
 
 pub use aqueduct::AqueductFlow;
+pub use automate::{Share, SplitTo};
 pub use avatar::AvatarState;
 pub use balloon::{Balloon, BalloonStatus, Dock, Flight, Held};
 pub use beast::{BeastEvent, BeastEventKind};

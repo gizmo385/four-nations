@@ -153,6 +153,7 @@ fn build_table() -> Vec<Binding> {
     add(Key::ch('n'), Action::ShowNation);
     add(Key::ch('i'), Action::ShowAbilities);
     add(Key::ch('m'), Action::ShowTraders);
+    add(Key::ch('v'), Action::ShowSplit);
     // F5/F9, the usual quicksave/quickload keys.
     add(Key::plain(F(5)), Action::QuickSave);
     add(Key::plain(F(9)), Action::AskQuickLoad);
@@ -211,6 +212,8 @@ pub fn spectator_allowed(action: Action) -> bool {
         | Action::ShowTraders => true,
         // The list's only use is to pick a tool, which a spectator may not.
         Action::ShowTools => false,
+        // Setting a machine's split is a command, which a spectator may not give.
+        Action::ShowSplit => false,
         Action::ShowSaves => false,
         Action::QuickSave | Action::AskQuickLoad => false,
         Action::TogglePause | Action::Faster | Action::Slower | Action::Step => false,
@@ -528,9 +531,11 @@ mod tests {
             // The abilities key is shown in the hint bar only (#719), by design.
             // `Del` (#945, #962) is in neither: the key help is full at 120 by 40 and every
             // notice names the key itself ("Del ✕").
-            // `K` (#967) is named by the inspector's own line.
-            let hint_only =
-                matches!(b.action, Action::ShowAbilities | Action::DismissNotice | Action::KeepIt);
+            // `K` (#967) and `V` (the Split screen) are named by the inspector's own lines.
+            let hint_only = matches!(
+                b.action,
+                Action::ShowAbilities | Action::DismissNotice | Action::KeepIt | Action::ShowSplit
+            );
             let listed = table.iter().any(|e| {
                 (e.help.is_some() || hint_only)
                     && e.actions.iter().any(|a| a.same_kind(b.action))

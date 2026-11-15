@@ -81,6 +81,8 @@ pub enum Action {
     ShowAbilities,
     /// `M`: the Traders screen (#438): the caravan camped now, its deals and its request.
     ShowTraders,
+    /// `V` on a machine in Select mode: the Split screen, where its output goes.
+    ShowSplit,
     /// `F5`: save the game to the quicksave slot.
     QuickSave,
     /// `F9`: replace the game with the quicksave, after asking in a centred box.
@@ -162,6 +164,8 @@ pub enum Mode {
     Traders,
     /// The Airship screen (`Enter` on a dock, #763).
     Airship,
+    /// The Split screen (`V` on a machine).
+    Split,
     /// The SEND THE AIRSHIP box over it.
     AirshipSend,
     Log,
@@ -222,6 +226,7 @@ impl Mode {
             Self::Nation => "NATION",
             Self::Abilities => "ABILITIES",
             Self::Traders => "TRADERS",
+            Self::Split => "SPLIT",
             Self::Airship => "AIRSHIP",
             Self::AirshipSend => "SEND THE AIRSHIP",
             Self::Log | Self::WatchLog => "LOG",
@@ -400,6 +405,9 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Traders], &[Action::PickTool(Tool::Remove)], "X", "cancel", None);
     add(&[Mode::Traders], &[Action::Cancel, Action::ShowTraders], "Esc or M", "close", None);
 
+    add(&[Mode::Split], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Split], &[], "Left/Right", "share", None);
+    add(&[Mode::Split], &[Action::Cancel, Action::ShowSplit], "Esc or V", "close", None);
     add(&[Mode::Airship], &[step], "Up/Down", "choose", None);
     add(&[Mode::Airship], &[], "Left/Right", "nation or deal", None);
     add(&[Mode::Airship], &[Action::Faster, Action::Slower], "+/-", "times", None);
@@ -594,6 +602,9 @@ fn build() -> Vec<Entry> {
     // `K` on a building marked to be taken down (#967): in no hint bar and not in the key help
     // (full at 120 by 40); the inspector's own line names the key ("Press K to keep it").
     add(&[], &[Action::KeepIt], "K", "keep it", None);
+    // Select mode's `V` on a machine touching another: in no hint bar; the Here panel's own
+    // `Sends:` line names the key.
+    add(&[], &[Action::ShowSplit], "V", "split", None);
     // Select mode's `O` on a chute (#683): in no hint bar, only in the key help.
     add(&[], &[], "O", "link", help(in_tool, "Move a chute foot or partner (Select)"));
     // Select mode's `O` on a building in a Lightning Station's yard (#725, #730).

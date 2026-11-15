@@ -135,6 +135,9 @@ fn screen_surface(screen: Screen) -> Surface {
         // The Airship screen (#763) is drawn in cells, as the terminal does, until it has a
         // native painter.
         Screen::Airship => Surface::CellsFull,
+        // The Split screen is drawn in cells, as the terminal does, until it has a native
+        // painter.
+        Screen::Split => Surface::CellsFull,
     }
 }
 
