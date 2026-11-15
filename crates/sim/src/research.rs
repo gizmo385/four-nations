@@ -2516,4 +2516,17 @@ mod tests {
         assert_eq!(e.to_string(), "the other path of this school was chosen");
         assert_eq!(r.queue(), queue, "a refusal leaves the queue alone");
     }
+
+    /// #890 option A (#1024): the three schools that billed ancient scrolls, which the opening
+    /// paid on 1 to 3 seeds of 32, bill scroll copies from the Archive, a production chain.
+    #[test]
+    fn the_three_scroll_schools_bill_scroll_copies() {
+        let defs = Defs::bundled();
+        let copy = defs.item_id("scroll_copy").unwrap();
+        for id in ["sun_warriors", "southern_ways", "nomad_way"] {
+            let tech = defs.tech(defs.tech_id(id).unwrap());
+            let bill: Vec<_> = tech.cost_items.iter().map(|s| (s.item, s.count)).collect();
+            assert_eq!(bill, [(copy, 3)], "{id}");
+        }
+    }
 }

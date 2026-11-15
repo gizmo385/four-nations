@@ -46,12 +46,12 @@ implementation work is under "Follow-up issues".
 |---|---|---|---|---|---|
 | Which city? | `agrarian_ring` | Earth | 1,000 + 6 tools | **Ring Gate**; **sheltered rings**: inside a closed ring of Earth Wall, no cold, no frost, crops grow in winter | How much land to wall in, at 3 stone a tile, and where the gates go |
 | | `metal_city` | Earth | 1,000 + 8 metal | **Metal Rail** (2.5x, lays in tunnels, carries power); Hot Spring Mill boost 1.5x | Ore goes to the gate or to the line |
-| What is fire for? | `sun_warriors` | Fire | 1,000 + 3 scrolls | Campfires heal (2x) and restore chi (1.5x) in their reach; Hothouse and Steam Engine burn nothing | Warmth as life: hearths placed where people work and rest |
+| What is fire for? | `sun_warriors` | Fire | 1,000 + 3 scroll copies | Campfires heal (2x) and restore chi (1.5x) in their reach; Hothouse and Steam Engine burn nothing | Warmth as life: hearths placed where people work and rest |
 | | `great_works` | Fire | 1,000 + 8 metal | **Factory**: recipe buildings within 4 tiles of a Lightning Station run with no crafter | Hands freed for the gate, at the cost of metal and a tight yard |
 | North or South? | `northern_city` | Water | 1,000 + 6 tools | **Ice masonry**: ice pays any stone cost one for one | A city at the water's edge, paid in chi instead of quarrying |
-| | `southern_ways` | Water | 1,000 + 3 scrolls | Waystations cost no materials and keep crews within 6 tiles out of the cold; **shore fishing** from any water's edge | A tribe spread along the coast, building little |
+| | `southern_ways` | Water | 1,000 + 3 scroll copies | Waystations cost no materials and keep crews within 6 tiles out of the cold; **shore fishing** from any water's edge | A tribe spread along the coast, building little |
 | Temple or sky? | `high_temple` | Air | 1,000 + 40 stone | **High Temple**: one per game, touches rock, never moves. Within 8 tiles chi returns 2x and study runs 1.5x | Settle, and spend Air's scarcest material on it |
-| | `nomad_way` | Air | 1,000 + 3 scrolls | **Pack up**: taking a building down returns its full bill, twice as fast. Bison haul to build sites | Move to fresh land and mild winters instead of fighting tired ground |
+| | `nomad_way` | Air | 1,000 + 3 scroll copies | **Pack up**: taking a building down returns its full bill, twice as fast. Bison haul to build sites | Move to fresh land and mild winters instead of fighting tired ground |
 
 Every nation sees exactly one school, from tick 0, and learns at most 1,000 more points through
 it. Each school tech's only prereq is the nation's capstone, so the fork opens at minute 110 to
@@ -927,6 +927,11 @@ Against the doc's expectations:
   (`food_winter2`, the careless and idle death bars, `decision_gap`, `pop16_window`,
   `ready_window` and others). That is the state of `main`, not this phase's doing, and it needs
   its own look. The committed `baseline.json` predates phase 4's data and isn't reblessed here.
+
+**Since (#1024, #890 option A, 2026-11-15):** the three scroll bills are now 3 scroll copies from
+the Archive, so the bill is a production chain rather than a ruin search. The owner chose it
+with the factory endgame (docs/design/factory-endgame.md). The phase-4 balance hasn't been re-run
+on it (#731); the economy opening also spends copies on caravans, which may compete with the bill.
 
 Owner questions this run raised: #890 (the three scroll bills almost never get paid), #891 (what
 the fork check should read) and #892 (how to play Nomad Way).

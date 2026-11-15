@@ -790,7 +790,7 @@ cost = 1000
 prereqs = ["sky_bison"]
 school = "air_path"
 [[tech.cost_items]]
-item = "ancient_scroll"
+item = "scroll_copy"    # #890 option A: copies the Archive makes, not finds
 count = 3
 [tech.unlocks]
 features = ["pack_up"]
@@ -827,7 +827,7 @@ cost = 1000
 prereqs = ["spirit_oasis"]
 school = "water_pole"
 [[tech.cost_items]]
-item = "ancient_scroll"
+item = "scroll_copy"    # #890 option A: copies the Archive makes, not finds
 count = 3
 [tech.unlocks]
 features = ["shore_fishing"]
@@ -894,7 +894,7 @@ cost = 1000
 prereqs = ["lightning_generation"]
 school = "fire_purpose"
 [[tech.cost_items]]
-item = "ancient_scroll"
+item = "scroll_copy"    # #890 option A: copies the Archive makes, not finds
 count = 3
 [tech.unlocks]
 [[tech.unlocks.upgrades]]
