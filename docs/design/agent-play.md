@@ -262,10 +262,25 @@ headless at full speed, and watching never slows them.
 Watcher keys: `Space` pauses the replay, `+`/`-` change the pace (x1 up to x500), `.` steps one
 action, `]` jumps to the end of the next turn and `}` ten turns, `[` goes back to the end of the
 previous turn and `{` ten turns, `>` skips to the agent's next move (past the turns where it does
-nothing; inside a script run, to where the script wakes it), and `q` quits. Going back restores
+nothing; inside a script run, to where the script wakes it), `*` skips to the next notable
+moment (#590, below), and `q` quits. Going back restores
 a copy the watcher keeps every 20 turns and replays forward from it, so it is quick even late in
 a long run. These win over the game's own keys if they'd
-otherwise clash (#330): the watcher's meaning always comes first.
+otherwise clash (#330): the watcher's meaning always comes first. They also work in
+`fn_tui --watch LOG --frame --keys`, which plays them through the same `watch::control_key`.
+
+**Notable moments** (#590): `*` replays forward until something worth stopping for: a world
+event the web replayer marks on its timeline (`replay::scan::marker_for`: a death, an endeavor
+step such as a sign met, the Avatar, something learned, a newcomer), a new revision of the
+agent's script, a script waking the agent, or a `game problem:` remark. It runs a few turns a
+frame, so the strip shows "skipping to the next notable moment" while it works and any key
+stops it where it is; either way the watcher is exactly as if it had played that far. The strip
+then says what it found (`» turn 212: Mei died of thirst`), or that a finished run has no more,
+or that a live run has nothing notable in what it has written yet.
+
+**Falling short of the pace** (#590): the interactive loop caps each frame's work, so a pace the
+machine can't keep plays as fast as it can. When that's under 80% of the chosen pace, the strip
+says so: `x500 (only ~x180)`.
 
 **Free-look spectating** (#330, `crate::spectate`): the rest of the game's own keys move a
 second, separate `UiState` -- its own camera, cursor, selection and open screen -- over the same
