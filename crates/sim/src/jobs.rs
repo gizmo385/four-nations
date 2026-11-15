@@ -166,6 +166,10 @@ pub struct JobSettings {
     /// With the difficulty preset's `strain_kills`, a harvest that leaves its tile's strain at
     /// or above this kills the plant (#296).
     pub strain_kill_at: f32,
+    /// An automated machine in a United City stops for tending after this many batches
+    /// (docs/design/factory-endgame.md, "Wear", #1039); 0 never wears.
+    #[serde(default)]
+    pub tend_every: u32,
 }
 
 #[derive(Deserialize)]

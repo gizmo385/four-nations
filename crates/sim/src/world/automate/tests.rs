@@ -138,7 +138,7 @@ fn smelter_row(defs: &Defs) -> World {
     w.put_building(Footprint::new(at(7, 2), 3, 2), id("steelworks"), defs);
     for (x, item) in [(20, "gold_ore"), (21, "wood")] {
         w.designate_stockpile(at(x, 10)).unwrap();
-        w.stored.insert(at(x, 10), Stack { item: defs.item_id(item).unwrap(), count: 30 });
+        w.stored.insert(at(x, 10), Stack { item: defs.item_id(item).unwrap(), count: 60 });
     }
     w.research.grant(defs.tech_id("great_works").unwrap());
     w
@@ -220,4 +220,60 @@ fn routed_to_stores_the_metal_goes_out_the_door_instead() {
     assert_eq!(w.tallies().school("passed_across"), 0);
     let e = w.apply(Command::SetRoute { pos: at(30, 15), stores: true }, &defs).unwrap_err();
     assert!(!e.to_string().is_empty());
+}
+
+/// Ticks `w` until a machine has been tended or `ticks` pass.
+fn run_smelter(w: &mut World, defs: &Defs, ticks: u32) {
+    for _ in 0..ticks {
+        w.tick(defs);
+        if w.tallies().school("tended") > 0 {
+            break;
+        }
+    }
+}
+
+#[test]
+fn a_united_city_s_machine_stops_after_its_batches_until_a_tool_is_brought() {
+    assert!(Defs::bundled().jobs.tend_every > 0, "the data wears machines");
+    // Two batches a tending, so the settlers are still fed when the test is done.
+    let mut defs = Defs::bundled();
+    defs.jobs.tend_every = 2;
+    let tool = defs.item_id("tool").unwrap();
+    // No tool in stores: the Smelter stops for good after `every` batches.
+    let mut w = smelter_row(&defs);
+    w.complete_endeavor(&defs);
+    run_smelter(&mut w, &defs, 12_000);
+    assert!(w.needs_tending(at(5, 2), &defs), "worn out");
+    let stuck = w.tallies().school("automated_batches");
+    for _ in 0..3_000 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.tallies().school("automated_batches"), stuck, "nothing runs while worn");
+    // A tool comes from stores, is used up, and the machine runs again.
+    w.designate_stockpile(at(22, 10)).unwrap();
+    w.stored.insert(at(22, 10), Stack { item: tool, count: 3 });
+    run_smelter(&mut w, &defs, 6_000);
+    assert!(!w.units.is_empty());
+    assert_eq!(w.tallies().school("tended"), 1);
+    assert!(!w.needs_tending(at(5, 2), &defs));
+    let tools: u32 = w
+        .ground
+        .values()
+        .chain(w.stored.values())
+        .filter(|s| s.item == tool)
+        .map(|s| s.count)
+        .sum();
+    assert_eq!(tools, 2, "one tool used up");
+}
+
+#[test]
+fn before_the_gate_machines_never_wear() {
+    let mut defs = Defs::bundled();
+    defs.jobs.tend_every = 2;
+    let mut w = smelter_row(&defs);
+    for _ in 0..12_000 {
+        w.tick(&defs);
+    }
+    assert!(w.tallies().school("automated_batches") > defs.jobs.tend_every);
+    assert!(!w.needs_tending(at(5, 2), &defs));
 }

@@ -18,6 +18,10 @@ use super::*;
 /// (`World::craft_batch`).
 pub type CraftBatch = (Vec<(ItemId, u32, u32)>, f32);
 
+/// What a worn machine needs brought to run again (#1039, docs/design/factory-endgame.md,
+/// "Wear"): a tool, used up.
+pub(super) const TEND_ITEM: &str = "tool";
+
 impl World {
     /// The rate the building anchored on `pos` runs at with no crafter, if it is automated now.
     pub fn automated(&self, pos: Pos, defs: &Defs) -> Option<f32> {
@@ -126,6 +130,14 @@ impl World {
         Ok(())
     }
 
+    /// Whether the automated machine anchored on `pos` has stopped for tending (#1039): it has
+    /// run `JobSettings::tend_every` batches since a settler last brought it a tool. Its Supply
+    /// haul fetches the tool; nothing else is fetched, and no batch runs, until it arrives.
+    pub fn needs_tending(&self, pos: Pos, defs: &Defs) -> bool {
+        let every = defs.jobs.tend_every;
+        every > 0 && self.anchored(pos).is_some_and(|b| b.wear >= every)
+    }
+
     /// `Command::SetRoute` (#1038): where the recipe building anchored on `pos` sends its
     /// automated batches. Refused off a finished recipe building.
     pub(super) fn set_route(
@@ -199,6 +211,9 @@ impl World {
     /// (not automated, idle at its stock limit, or fully supplied).
     pub(super) fn supply_shortfall(&self, pos: Pos, defs: &Defs) -> Option<(ItemId, u32)> {
         self.automated(pos, defs)?;
+        if self.needs_tending(pos, defs) {
+            return Some((defs.item_id(TEND_ITEM)?, 1));
+        }
         if self.craft_idle(pos, defs) {
             return None;
         }
@@ -215,6 +230,12 @@ impl World {
         for pos in anchors {
             let Some(rate) = self.automated(pos, defs) else { continue };
             let Some(recipe) = self.recipe_at(pos, defs) else { continue };
+            if self.needs_tending(pos, defs) {
+                if !self.jobs.iter().any(|j| j.kind == JobKind::Refuel { pos }) {
+                    self.add_job(JobKind::Refuel { pos });
+                }
+                continue;
+            }
             if self.craft_idle(pos, defs) {
                 continue;
             }
@@ -242,6 +263,11 @@ impl World {
                     self.place_ground(pos, left);
                 }
                 self.tallies.count_school("automated_batches", 1);
+                if self.united()
+                    && let Some(b) = self.anchored_mut(pos)
+                {
+                    b.wear += 1;
+                }
                 if self
                     .building_at(pos)
                     .is_some_and(|b| defs.building(b).id == super::forge::STEELWORKS)
@@ -261,12 +287,25 @@ impl World {
             self.jobs.remove(idx);
             return self.finish_job(i);
         };
-        let wanted = |s: &Stack| recipe.inputs.iter().any(|c| c.item == s.item);
+        let tend = self.needs_tending(pos, defs).then(|| defs.item_id(TEND_ITEM)).flatten();
+        let wanted =
+            |s: &Stack| tend == Some(s.item) || recipe.inputs.iter().any(|c| c.item == s.item);
         if let Some(stack) = self.units[i].carrying.filter(wanted) {
             if !self.go_or_abandon(i, id, StandRule::Building(pos), defs) {
                 return;
             }
-            self.deliver_to_craft(pos, stack, recipe);
+            if tend == Some(stack.item) {
+                // Tended (#1039): the tool is used up, and the machine runs again.
+                if stack.count > 1 {
+                    self.place_ground(pos, Stack { item: stack.item, count: stack.count - 1 });
+                }
+                if let Some(b) = self.anchored_mut(pos) {
+                    b.wear = 0;
+                }
+                self.tallies.count_school("tended", 1);
+            } else {
+                self.deliver_to_craft(pos, stack, recipe);
+            }
             self.units[i].carrying = None;
             self.units[i].route = None;
             let idx = self.job_index(id).expect("still queued");
