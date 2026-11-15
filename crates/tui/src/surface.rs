@@ -1527,8 +1527,12 @@ pub(crate) mod prelude {
             }
             session.world.tick(&session.defs);
         }
-        if prelude.opening == PreludeOpening::EconomyUnited {
-            session.world.complete_endeavor(&session.defs);
+        match prelude.opening {
+            PreludeOpening::EconomyUnited => {
+                session.world.complete_endeavor(&session.defs);
+            }
+            PreludeOpening::Republic => session.world.start_republic(&session.defs),
+            _ => {}
         }
     }
 
@@ -1558,7 +1562,7 @@ pub(crate) mod prelude {
 
     fn step(session: &mut Session, opening: PreludeOpening) {
         match opening {
-            PreludeOpening::Economy | PreludeOpening::EconomyUnited => {
+            PreludeOpening::Economy | PreludeOpening::EconomyUnited | PreludeOpening::Republic => {
                 Economy::new(STARTING_UNITS).step(&mut session.world, &session.defs);
             }
             PreludeOpening::EconomyBranchFirst => {
@@ -2920,6 +2924,7 @@ pub mod referee {
                     super::PreludeOpening::Economy => ParOpening::Economy,
                     super::PreludeOpening::EconomyBranchFirst => ParOpening::EconomyBranchFirst,
                     super::PreludeOpening::EconomyUnited => ParOpening::EconomyUnited,
+                    super::PreludeOpening::Republic => ParOpening::Republic,
                     super::PreludeOpening::Opening => ParOpening::Opening,
                 },
                 minutes: p.minutes,

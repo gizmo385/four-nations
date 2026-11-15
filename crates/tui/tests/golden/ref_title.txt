@@ -12,12 +12,12 @@
 
 
 
-
                             ┏────────────────────── ◆ FOUR NATIONS ◆ ──────────────────────┓
                             │ Welcome to the Four Nations.                                 │
                             │                                                              │
                             │ ▸ New game                                                   │
                             │   Load                                                       │
+                            │   Playtest starts                                            │
                             │   Quit                                                       │
                             │                                                              │
                             │                                                              │

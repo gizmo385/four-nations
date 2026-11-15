@@ -89,7 +89,7 @@ fn title_to_replays_to_a_run_and_back_leaves_the_title_screen_unchanged() {
     assert!(load < replays && replays < quit, "Replays sits between Load and Quit:\n{text}");
     assert_eq!(shell.take_replays(), None, "nothing chosen yet");
 
-    shell.play(&keys::parse("<down> <down> <enter>").unwrap());
+    shell.play(&keys::parse("<down> <down> <down> <enter>").unwrap());
     let before = title(&shell);
     let before_text = frame(&mut shell);
     assert_eq!(before.items()[before.cursor], MenuItem::Replays);

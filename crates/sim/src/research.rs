@@ -1627,8 +1627,8 @@ impl Research {
     }
 
     /// Marks `tech` known at once, skipping the queue and its cost. For tests that need a nation
-    /// to have a tech without waiting out the research.
-    #[cfg(test)]
+    /// to have a tech without waiting out the research, and the Republic playtest start
+    /// (`World::start_republic`, #1025).
     pub(crate) fn grant(&mut self, tech: TechId) {
         self.known[tech.0 as usize] = true;
     }

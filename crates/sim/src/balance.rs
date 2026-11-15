@@ -543,6 +543,8 @@ pub enum ParOpening {
     /// `autoplay::Economy`, then the gate is stood at the prelude's end
     /// (`World::complete_endeavor`, #751).
     EconomyUnited,
+    /// `EconomyUnited`, then `World::start_republic` (#1025).
+    Republic,
     /// The plainer `autoplay::Opening`.
     Opening,
 }
@@ -602,10 +604,7 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
     let mut start = ScoreStart::default();
     for tick in 0..horizon {
         if tick == prelude_ticks && tick > 0 {
-            if matches!(track.prelude, Some(ParPrelude { opening: ParOpening::EconomyUnited, .. }))
-            {
-                world.complete_endeavor(defs);
-            }
+            finish_prelude(&mut world, track, defs);
             start = ScoreStart::of(&world);
         }
         if Opening::due(tick) {
@@ -624,13 +623,23 @@ pub fn par(track: &ParTrack, defs: &Defs, score: &ScoreDef) -> Result<Scorecard,
         world.tick(defs);
     }
     if horizon <= prelude_ticks && prelude_ticks > 0 {
-        if matches!(track.prelude, Some(ParPrelude { opening: ParOpening::EconomyUnited, .. })) {
-            world.complete_endeavor(defs);
-        }
+        finish_prelude(&mut world, track, defs);
         // No turns after the prelude: turn 0 is the horizon.
         start = ScoreStart::of(&world);
     }
     Ok(Scorecard::compute(&world, defs, score, &start, horizon))
+}
+
+/// What a prelude does at its last tick: stands the gate for `EconomyUnited`, and the Republic
+/// start's gate, techs and stores for `Republic` (#1025).
+fn finish_prelude(world: &mut World, track: &ParTrack, defs: &Defs) {
+    match track.prelude {
+        Some(ParPrelude { opening: ParOpening::EconomyUnited, .. }) => {
+            world.complete_endeavor(defs);
+        }
+        Some(ParPrelude { opening: ParOpening::Republic, .. }) => world.start_republic(defs),
+        _ => {}
+    }
 }
 
 /// The world a [`ParTrack`] starts from, before any opening plays: the world a player or an

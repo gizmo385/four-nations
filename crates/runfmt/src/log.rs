@@ -32,6 +32,10 @@ pub enum PreludeOpening {
     /// not finish the gate inside 420 minutes on its own, so the scenario plays it for
     /// `minutes` and completes the gate by that dev hook.
     EconomyUnited,
+    /// `EconomyUnited`, then `fn_sim::World::start_republic` at the prelude's last tick: the
+    /// Republic era's playtest start (docs/design/factory-endgame.md, #1025), with the techs and
+    /// stores its newest phase needs.
+    Republic,
     /// The plainer `fn_sim::autoplay::Opening`: beds, a campfire and a short research queue.
     Opening,
 }
