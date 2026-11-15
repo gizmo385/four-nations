@@ -243,6 +243,11 @@ impl Overlays {
         let flames = world.flames();
         let glows = world.glows();
         let ghosts = ui.ghosts(session);
+        let stamp = ui
+            .stamp
+            .filter(|_| ui.screen.is_none())
+            .map(|e| fn_ui::stamp::view(session, &e, cursor).pieces)
+            .unwrap_or_default();
         Self {
             // A unit that is inside a building (#226) isn't drawn on the map: its `pos` still
             // names the door it went in by, but `occupants` (below) covers it instead. The
@@ -305,8 +310,22 @@ impl Overlays {
                 .flat_map(|(f, b, _)| f.tiles().map(move |p| (p, b)))
                 .chain(gate_site_tiles(world, defs))
                 .collect(),
-            ghost: ghost_tiles(ui.ghost_building(session), &ghosts),
-            door: door_tiles(&ghosts),
+            ghost: {
+                let mut tiles = ghost_tiles(ui.ghost_building(session), &ghosts);
+                // A plan being stamped (`fn_ui::stamp`): every machine of its block.
+                for piece in &stamp {
+                    tiles.extend(ghost_tiles(
+                        Some(piece.building),
+                        std::slice::from_ref(&piece.placement),
+                    ));
+                }
+                tiles
+            },
+            door: {
+                let mut doors = door_tiles(&ghosts);
+                doors.extend(stamp.iter().filter_map(|p| p.placement.entrance));
+                doors
+            },
             flames: flames.iter().map(|f| (f.pos, f.ability)).collect(),
             wet: world.wet_tiles().into_iter().map(|(p, _)| p).collect(),
             cast: cast_highlights(session),

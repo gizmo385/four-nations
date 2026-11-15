@@ -262,6 +262,9 @@ pub struct UiState {
     pub planner: Option<crate::planner::PlanEdit>,
     /// The good's screen: the good, the way under the pointer and where `Esc` goes back to.
     pub good: Option<crate::good::GoodEdit>,
+    /// A plan being stamped on the map (`crate::stamp`): its ghost block follows the cursor
+    /// (its top-left). `Some` exactly while stamping.
+    pub stamp: Option<crate::stamp::StampEdit>,
     /// The Goods tab's pointer, over `endeavor::goods_ledger`'s rows.
     pub goods_cursor: usize,
     /// The saves screen's slots (newest first), read from disk when the screen opens or a save
@@ -337,6 +340,7 @@ impl UiState {
             split: None,
             planner: None,
             good: None,
+            stamp: None,
             goods_cursor: 0,
             save_slots: Vec::new(),
             save_cursor: 0,

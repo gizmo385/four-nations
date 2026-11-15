@@ -160,6 +160,9 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Good => Mode::Good,
         };
     }
+    if ui.stamp.is_some() {
+        return Mode::Stamp;
+    }
     if ui.tool_list.is_some() {
         return Mode::Tools;
     }

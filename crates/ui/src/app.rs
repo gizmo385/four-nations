@@ -149,6 +149,63 @@ impl App {
         if self.ui.screen.is_some() {
             return self.act_in_screen(action);
         }
+        if self.ui.stamp.is_some() {
+            if self.stamp_key(action) {
+                self.stamp_status();
+                return;
+            }
+            self.act_on_map(action);
+            self.stamp_status();
+            return;
+        }
+        self.act_on_map(action);
+    }
+
+    /// What a key does while a plan is being stamped (`crate::stamp`); whether it was one the
+    /// stamp took. `R` turns the block, `Enter` places it as build orders, `Esc` goes back to the
+    /// plan. The arrows move the cursor as ever, and the block with it; any other key stops
+    /// stamping first.
+    fn stamp_key(&mut self, action: Action) -> bool {
+        let Some(mut edit) = self.ui.stamp else { return false };
+        match action {
+            Action::NextRecipe => {
+                edit.turned = !edit.turned;
+                self.ui.stamp = Some(edit);
+            }
+            Action::Confirm => {
+                self.ui.notice = crate::stamp::place(&mut self.session, &edit, self.ui.cursor);
+                self.ui.stamp = None;
+            }
+            Action::Cancel => {
+                self.ui.stamp = None;
+                self.ui.planner = Some(edit.plan);
+                self.ui.screen = Some(Screen::Planner);
+            }
+            Action::Move { .. }
+            | Action::Jump { .. }
+            | Action::TogglePause
+            | Action::Faster
+            | Action::Slower
+            | Action::Step => return false,
+            _ => {
+                self.ui.stamp = None;
+                return false;
+            }
+        }
+        true
+    }
+
+    /// The stamp's summary in the status bar, while stamping.
+    fn stamp_status(&mut self) {
+        if let Some(edit) = self.ui.stamp {
+            let v = crate::stamp::view(&self.session, &edit, self.ui.cursor);
+            self.ui.status = crate::stamp::summary(&self.session, &v);
+            self.ui.status_badge = Some(" STAMP ");
+        }
+    }
+
+    /// What a key does on the map, with no screen open.
+    fn act_on_map(&mut self, action: Action) {
         if self.ui.tool_list.is_some() && self.tool_list_act(action) {
             return;
         }
@@ -1372,7 +1429,16 @@ impl App {
                 self.ui.screen = Some(Screen::Endeavor);
                 return true;
             }
-            Action::Jump { .. } | Action::Confirm => {}
+            // Enter stamps the plan on the map, its block's top-left on the cursor.
+            Action::Confirm => {
+                self.ui.planner = None;
+                self.ui.screen = None;
+                self.ui.set_tool(Tool::Select);
+                self.ui.stamp = Some(crate::stamp::StampEdit { plan: edit, turned: false });
+                self.stamp_status();
+                return true;
+            }
+            Action::Jump { .. } => {}
             _ => return false,
         }
         self.ui.planner = Some(edit);
