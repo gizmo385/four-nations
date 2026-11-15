@@ -1,4 +1,4 @@
-# The Republic era: a factory endgame for the United City
+# The Republic era: a factory endgame built on what people want
 
 Doc status: current
 
@@ -8,349 +8,294 @@ this doc becomes a proposal and its phases get design issues of their own, the w
 research-horizons.md split into phase docs.
 
 The owner's idea: an endgame expansion where the game "becomes more factory-esque", overlapping
-the open power and steel work. This doc explores what that means for a colony sim run by
-indirect control, how it grows out of systems that already ship, and how the four nations keep
-playing differently once the game is about throughput instead of survival.
+the open power and steel work. The first draft of this doc built machines, freight and power,
+and its only products were steel and fittings that went back into more machines. The owner's
+review (2026-11-15) was that this is a factory for its own sake. This draft starts from the
+other end: **the factory exists to meet what the city's people want**, and machines, freight and
+power are how a city meets those wants at scale.
 
 ## Decisions in brief (proposed)
 
-1. **The factory era starts at the Harmony Gate.** The United City is where every nation's
-   people already live together, and where pacing.md left a "lighter loop" with no new system.
-   Canon backs it: Aang's United Republic grows into Republic City, with lightning power plants,
-   earthbender-pushed trains and a metalbending city at Zaofu. Nothing before the gate changes or
-   becomes required.
-2. **The game's question shifts from "are we alive?" to "are the lines running?"** The new
-   pressure is throughput: items per minute through a chain, against standing orders from the
-   four nations. People stay in the loop as operators, tenders and plant crews. They are never
-   replaced.
-3. **Four layers, each built on something that ships today:**
-   - **Machines**: recipe buildings that run without a crafter. Fire's Factory (`great_works`,
-     #725) already does this. Every nation gets its own version, with its own placement rule.
-   - **Freight**: paired links that move goods without anyone carrying them. Chutes, Wind Gates,
-     Balloon Docks and Sky Lifts are the pattern. Each nation gets its own kind.
-   - **Power with a load**: a new machine tier that draws on a source's capacity. Old buildings
-     keep the speed-up rule. Plants are crewed by benders, as Republic City's are.
-   - **Goods**: two new intermediates, steel (#968) and fittings, so chains are three steps deep
-     instead of one.
-4. **A goal you supply, not a box you tick.** Standing contracts from the four nations ask for
-   sustained rates ("6 steel a minute for 10 minutes"), and pay in draw, teachings and named
-   newcomers. A capstone great work can follow.
-5. **Industry pushes back, peacefully.** Machines and plants unsettle the spirits nearby. Unrest
-   creeps over the land as spirit vines that slow work and block ground, and balance (groves,
-   meditation, spirit water) pushes it back. This is the bridge to the Spirit Portal, the
-   sequel endgame.md and pacing.md already name.
-6. **Nations differ in how they make, move and power goods**, not only in how fast. Fire makes
-   (dense yards, adjacency chains). Earth moves heavy loads far (freight rail) and extracts.
-   Water runs everything along water (flumes, mills). Air moves light loads anywhere, fast, and
-   powers the most machines.
+1. **The era starts at the Harmony Gate.** The United City already has every nation's people
+   in one place, and pacing.md left it a "lighter loop" with no new system. Canon backs it:
+   Aang's United Republic grows into Republic City. Nothing before the gate changes or becomes
+   required.
+2. **Residents have wants, and meeting them raises their standing.** Once the gate stands, each
+   resident can rise from **Settler** to **Citizen** to **Notable** when their wants are met for
+   a stretch, and slips back a tier when they aren't. Nobody dies or leaves over a want. A city
+   that falls short simply stays a town.
+3. **Each resident wants their own nation's goods.** A Fire resident wants lanterns, then fine
+   steelware. Water wants smoked fish, then parkas. Earth wants furniture, then crystal jewellery.
+   Air wants tea, then incense. Every tier also wants a comfort in reach (a Tea House, Bathhouse,
+   Pai Sho Table or lamp). **Who you invite decides which chains you need**, and phase 6's draw
+   steering (#761) already lets the player choose who comes.
+4. **Standing pays back in play.** Citizens and Notables work faster and draw newcomers. Only
+   Notables can crew a power plant and sit on the capstone's council. The city's goal becomes
+   its people's standing, not a headcount.
+5. **The factory is the means.** Goods are made in recipe buildings, as everything is today.
+   Machines (recipe buildings that run themselves), freight links and power with a load are how a
+   city of 40 keeps up with 40 people's wants. Steel becomes an input to several goods instead of
+   the product.
+6. **Nations differ in what their people want and in how they make and move it.** Air's wants are
+   light goods, and Air moves light goods fastest. Earth's are heavy, and Earth has freight rail.
+   Water's chains run along water. Fire packs a dense yard.
 
 ## Why
 
 What the late game has today, from the docs and data on `main`:
 
 - **The United City is the same loop, wider** (pacing.md, section 4, as built in #442 and #761):
-  caravans from all four nations at `united_scale` 1.5, requests that reward draw, and population
-  milestones every 8 people forever. Its goal is a number going up.
-- **Phase 6 gives the United City research** (six fusions, borrowed techs), but each fusion
-  unlocks one building or bend. After about 6,000 points there is nothing left to ask for.
-- **Power is a speed-up with a handful of consumers.** power.md chose that on purpose (question
-  2: "Unpowered means slower, never broken") and said to revisit after the gate, "where a
-  power-hungry building might make sense".
-- **Steel has no purpose** (#968). The Steelworks is a better smelter that Earth's Metalbend
-  glut idles (#958).
-- **Production is one step deep.** Ore to metal to tools is the longest chain. Everything moves
-  on someone's back, so a bigger colony means more haulers, not a better layout.
-- **Fire's Factory already proves the fantasy.** `great_works` automates recipe buildings in a
-  Lightning Station's yard, fed by Supply hauls (`crates/sim/src/world/automate.rs`). It is one
-  school option for one nation.
-
-A factory era answers all of these with systems the code already has.
+  caravans from all four nations, requests that reward draw, and population milestones every 8
+  people forever. Its goal is a number going up.
+- **Newcomers of other nations change who can do what** (their modifiers and bends), but they
+  want exactly what everyone wants: food, water and a bed. Nothing about a Water resident's life
+  differs from an Earth resident's.
+- **Production is one step deep and has no consumer at the end.** Ore makes metal, metal makes
+  tools, and tools go into buildings and tech bills. Once the city is built, nothing is ever
+  used up, so a bigger economy has nothing to do.
+- **Steel has no purpose** (#968), and power has a handful of consumers (power.md).
+- **Draw already rewards comfort in embryo.** Food variety and warm beds raise it (pacing.md,
+  section 1). That's a want system with two wants and no tiers. This doc grows it.
 
 ## Principles
 
 The seven rules in research-horizons.md still hold. Five more for this era:
 
-1. **People stay the point.** Pillar 2 is indirect control. A machine runs on its own, but it
-   wears and needs a tender. A plant needs a crew. Freight needs loading at one end. A colony of
-   40 should be busier, not idle.
-2. **Rates are readable.** Pillar 4 means every machine, link and stockpile can say what it
-   makes and moves per minute, and what it is short of. A factory you can't read is a factory you
-   can't fix.
-3. **Unpowered is slow, overloaded is slow, nothing is broken.** Power.md's rule survives with
-   one addition: a source shared by too many machines slows all of them (a brownout). No building
-   ever stops because of power.
-4. **Spend what is in glut, bottleneck on what is scarce.** Wood, food and labour pile up late.
-   Ore, metal and tools are scarce. Chains should eat the first and be limited by the second.
-5. **Reuse before invent.** Every layer starts as a generalisation of a shipped mechanic
-   (`automate`, `chute`, `pair`, `fuel`, `[building.power]`, `stock_limit`, United requests).
-   The new sim work is listed per phase.
+1. **Every chain ends in a person.** A good exists because some resident wants it. No item is
+   made only to build the machines that make it.
+2. **Unmet wants slow a city, never break it.** Falling a tier is the cost. Nobody starves, sickens,
+   leaves or dies over a lantern. Survival pressure stays where harm.md put it.
+3. **People stay the point.** Machines wear and need tending, plants need crews, and freight is
+   loaded by hand at one end. A city of 40 should be busier, not idle.
+4. **Rates are readable.** Every want, good, machine and link says what it uses or makes per
+   minute and what it's short of.
+5. **Reuse before invent.** Consumption reuses the remedy fetch (a hurt settler fetching herbs,
+   harm.md). Comfort reach reuses heat reach. Machines reuse `automate` (#725). Freight reuses
+   the chute and the paired buildings. Power reuses `[building.power]`.
 
-## What already ships to build on
+## Layer 1: wants and standing (the foundation)
 
-| Mechanic | Where | What the factory era does with it |
+### Tiers
+
+| Tier | Becomes it when | What it gives (provisional) |
 |---|---|---|
-| Recipe buildings with inputs, output and `stock_limit` | `[building.recipe]`, #124, #350 | The machine. Gains a second and third step (steel, fittings) |
-| A second recipe per building | `alt_recipe`, horizons-phase-3.md | Machines that switch product, so a line can be retooled |
-| Power as reach and boost | `[building.power]`, #428 | Stays for every existing building. A machine tier adds `draw` |
-| Automation in a yard, fed by Supply hauls | `automate` upgrade, #725 | Generalised: each nation gets an `automate` on its own source, with its own radius and rate |
-| Fuel bunkers kept full by Refuel hauls | `[building.fuel]`, #675 | Plant fuel, and the tending bill (tools) for machines |
-| One-way haul link | Chute (`omashu_chutes`, phase 1) | The template for freight links |
-| Paired buildings | `pair` (Wind Gate, Balloon Dock, Sky Lift), #690 | Freight stations come in pairs |
-| Tracks | Rail, Paved Road, Metal Rail | Earth's freight runs on them |
-| Residents as research conditions | `requires.residents`, phase 6 | Plant crews and nation-specific machines want residents of a nation |
-| Caravan requests that reward draw, steered by nation | #442, #761 | Grow into standing contracts measured as rates |
-| Milestones every 8 people | `[milestone_repeat]`, #929 | Unchanged. Contracts become the real goal beside them |
-| Harness targets and scorecards | `data/harness.toml`, `data/score.toml` | Throughput is easy to measure, which suits the agent tooling |
+| **Settler** | Every resident starts here, as today | Nothing new |
+| **Citizen** | Their Citizen wants have been met for 15 minutes | Works 15% faster at everything. Adds +0.05 to draw, up to +0.4 for the city |
+| **Notable** | A Citizen whose Notable wants have been met for 30 minutes | Works 30% faster. Can crew a power plant (layer 4) and sit on the council (the goal) |
 
-## Layer 1: machines
+A want unmet for 20 minutes drops the resident one tier, and they climb back the same way. The
+Avatar and other guests have no tier. Tiers are per resident, saved with `serde(default)`, and
+need no RNG.
 
-**Rule (proposed).** The `automate` upgrade (#725) gains siblings, one per nation, each on that
-nation's own power source and each with its own shape. A finished recipe building in an
-automating reach runs with no crafter at `rate` times plain speed, fed by Supply hauls, exactly
-as the Factory does now. The new part is **wear**: every `wear_batches` batches the machine stops
-and posts a **Tend** job that consumes one tool. A tender is any settler, and their nation's
-modifier for the recipe sets how long tending takes.
+### Wants
 
-| Nation | Machine style | Source and shape | Rate | Why it plays differently |
-|---|---|---|---|---|
-| Fire | **The yard** (ships as `great_works`) | Lightning Station, 4-tile yard | 1.0 | Densest and fastest. Adds the **chain rule** below |
-| Earth | **The face** | Hot Spring Mill, along the rock | 0.6 | Earth automates extraction: Mine Shaft, Deep Mine and Crystal Grotto beside the rock run themselves. Many small mills, so a long face, never a yard |
-| Water | **The race** | Tide Mill, and any mill on a flowing channel | 0.75 | Machines automate only along water (bank, canal, aqueduct). The layout is a line down a river, not a square |
-| Air | **The loft** | Wind Turbine, anywhere | 0.5 | Slowest machines, but the widest reach, so Air automates the most buildings at once and moves goods fastest (layer 2) |
+A want is one of two kinds, both reusing a shipped mechanic:
 
-**Fire's chain rule.** In a Fire yard, a machine whose output is another machine's input, and
-whose footprints touch, hands the batch across directly. No haul, no stockpile. Smelter touching
-Steelworks touching Forge is a line that needs only ore and wood brought in. This is Fire's
-"production density" made into a layout puzzle, and it keeps `great_works` the best automation in
-the game.
+- **A good**, consumed. Every `every_minutes` the resident fetches one from stores, the way a
+  hurt settler fetches herbs (`World::plan_remedy`). Missing from stores means the want is unmet.
+- **A comfort**, in reach. Their bed stands within the reach of a qualifying building, the way
+  warm beds check a campfire's radius (`World::is_heated`).
 
-**Fire's school stays special.** Other nations reach automation through a post-gate shared tech
-(working name `mechanisms`, 1,000 points plus steel, needs the gate complete) whose `automate`
-lands on whichever of that nation's sources it names. `great_works` stays a pre-gate school,
-rate 1.0 against 0.5 to 0.75, and alone has the chain rule. A borrowed `great_works` (phase 6's
-`teachable`) would let a United City with Fire residents build a Fire yard.
+| Nation | Citizen wants | Notable wants (adds) |
+|---|---|---|
+| **Fire** | **Lanterns** (metal and wood, Forge), one every 15 min | **Fine steelware** (steel and glow crystal, Steelworks second recipe), one every 20 min |
+| **Water** | **Smoked fish** (fish and wood, a new Smokehouse), one every 10 min | **Parkas** (hide and fittings, Workshop second recipe), one every 20 min. Hide is a new by-product of the Fishing Dock |
+| **Earth** | **Furniture** (wood and fittings, Workshop), one every 15 min | **Crystal jewellery** (glow crystal and metal, Forge second recipe), one every 20 min |
+| **Air** | **Tea** (herbs, a new Tea Works), one every 10 min | **Incense** (herbs and fruit, Tea Works second recipe), one every 15 min |
+| **Everyone** | One comfort in reach: Tea House, Bathhouse, Pai Sho Table or an Oil Lamp | Two different comforts in reach |
 
-**Wear is the tool sink.** Tools are scarce and every machine eats them, so the Workshop and
-Forge become the factory's heartbeat, and a player chooses how many machines they can keep fed.
-Wear also keeps settlers in the loop without micromanagement. Whether machines should wear at all
-is question 4.
+All names and numbers are placeholders. What matters is the shape:
 
-## Layer 2: freight
+- **Every nation's Citizen good is one step from what it already makes**, and its Notable good is
+  two or three steps, reaching into steel, crystal or a by-product.
+- **Each nation's goods suit its own strengths.** Air's tea and incense are light goods, which
+  Air's wind tubes carry (layer 3). Earth's furniture is heavy, and Earth has freight rail.
+  Water's smoked fish comes off the water. Fire's lanterns and steelware come out of the yard.
+- **A United City has to serve all four.** A Fire city that invites Air people needs herbs and a
+  Tea Works. Inviting Earth people means fittings, which means steel, which means ore. Who you
+  steer in (#761) is now an economic choice, not only a choice of who can bend what.
+- **Comforts reuse shipped buildings** that today only help caravans or a tired settler. The Tea
+  House, Bathhouse and Pai Sho Table get a second job.
 
-Today every item moves on a settler's back. At 40 settlers and four chains that means most of
-the colony hauls, and the layout question is only "put things near the stockpile". Freight is
-what makes layout a factory question.
+At about one good per resident every 15 minutes, a city of 40 uses roughly 3 goods a minute
+across eight kinds, with Notables doubling their share. That's the factory's load.
 
-**Rule (proposed).** A **freight link** is a pair of stations, like a Wind Gate pair. The near
-station has a small hold. Haulers drop goods into it (a short walk), and the link moves a stack
-to the far station every `interval` seconds, where it spills as stacks for ordinary hauls, or,
-if a machine touches the far station, straight into that machine's inputs. The hauling AI treats
-a link as it treats a chute: one more edge in the route, taken when it is cheaper. Each link
-reads `Moving 12 a minute` and `Waiting: hold empty`.
+### What it replaces
 
-| Nation | Link | Placement rule | Throughput | Operator |
-|---|---|---|---|---|
-| Earth | **Freight line**: a cart on rail, pushed by earthbending (canon's Ba Sing Se train) | Both stations on one connected rail line, any length | Highest: a 20-stack every 30 s | A bender rides it. Without one, it runs at a third |
-| Water | **Flume**: a water channel carrying crates | Downhill or downstream only, along river, canal or aqueduct | Medium, free running | None |
-| Air | **Wind tube**: gliders and air currents | Straight line, up to 30 tiles, any terrain | Low (5-stacks) but fastest (every 10 s) | None, but only light goods: no stone, ore or metal |
-| Fire | **Conveyor yard**: Fire has no long link | The chain rule inside the yard, and Balloon Docks (already shipped) for distance | n/a | n/a |
+Draw's food variety and warm-bed terms stay for the road to the gate. In the United City, the
+Citizen draw term sits on top of them. The population milestones (#929) stay, and the Endeavor
+screen's United City view adds residents by tier and nation.
 
-Fire's weakness at moving goods is the point: Fire builds a dense yard and brings ore to it,
-Earth runs one long line from the mines, Water strings the factory down the river, and Air spreads
-light industry over the whole map.
+## Layer 2: machines
 
-**The alternative is tile conveyors** (Factorio-style belts drawn tile by tile). They are the
-purest factory fantasy, but they are a new spatial system, a new render problem for the glyph map,
-and they make settlers irrelevant to logistics. Paired links reuse #690 and keep haulers at the
-ends. This is question 2.
+The Factory (`great_works`, #725) already runs recipe buildings in a Lightning Station's yard
+with no crafter, fed by Supply hauls (`crates/sim/src/world/automate.rs`). This layer gives every
+nation its own version, so a city can keep up with its wants without tying up half its people at
+the bench.
 
-## Layer 3: power with a load
+**Rule (proposed).** The `automate` upgrade gains one sibling per nation, each on that nation's
+own power source with its own shape. A post-gate shared tech (working name `mechanisms`, 1,000
+points plus steel) unlocks the sibling for the city's nation. `great_works` stays Fire's pre-gate
+school and the best version of it. Automated machines **wear**: every few batches one stops and
+posts a **Tend** job that uses a tool or fittings. That keeps people in the loop and gives tools
+a standing sink.
 
-**Rule (proposed).** A new `draw` field on **machine-tier** buildings only (the factory era's
-new buildings, plus any building while it is automated). A source gains `capacity`. Inside a
-source's reach, if the machines' total draw exceeds its capacity, every machine it feeds slows by
-`capacity / draw` (a brownout). Existing buildings and every pre-gate rule stay as power.md
-decided: reach, boost, no stacking, unpowered is slow.
-
-**Plants are crewed.** The factory era's sources are **plants** with seats, like a study hall.
-A plant makes capacity only while crewed, and how much depends on who sits there:
-
-| Plant | Crew | Capacity | Placement | Character |
-|---|---|---|---|---|
-| **Lightning Plant** (Fire) | Fire benders, adept or master (Republic City's power stations are exactly this) | Highest, scales with the crew's rank | Anywhere, with a fuel bunker for the crew's tea and rest (wood) | Big and central. Takes your best benders off bends |
-| **Wind Farm** (Air) | None | Varies by season, highest in autumn and winter | Open ground, spaced apart | Free, but you plan around the calendar (`calendar`, phase 1) |
-| **Hydro Mill** (Water) | One tender | Steady | On the bank or a canal, uses the Tide Mill's rule | Reliable, and pulls the factory to the water again |
-| **Geothermal Vent** (Earth) | None | Small, but cheap and stackable | Touching rock, as the Hot Spring Mill | Breadth, as power.md set for Earth |
-
-A United City can build any plant whose tech it has learned or borrowed, and crew it with the
-right residents. Who lives in the city decides what power it can make, which is phase 6's
-question carried into industry. Whether load exists at all is question 3.
-
-## Layer 4: goods and chains
-
-Two new items, kept deliberately few:
-
-| Item | Made at | From (provisional) | Spent on |
+| Nation | Style | Source and shape | Rate |
 |---|---|---|---|
-| **Steel** | Steelworks | 2 metal and 2 wood | Machine-tier buildings, freight links, plants, contracts, and the phase-6 big builds (#968's favourite) |
-| **Fittings** | Forge, second recipe | 1 steel and 1 wood, makes 2 | Tending (in place of a tool for machines), freight stations, contracts |
+| Fire | **The yard** (ships). Touching machines hand batches across with no haul: Smelter, Steelworks, Forge in a row | Lightning Station, 4-tile yard | 1.0 |
+| Earth | **The face**. Mines and the Crystal Grotto along the rock run themselves | Hot Spring Mill, beside the rock | 0.6 |
+| Water | **The race**. Machines run only along water: bank, canal or aqueduct | Tide Mill | 0.75 |
+| Air | **The loft**. The slowest machines, with the widest reach | Wind Turbine, anywhere | 0.5 |
 
-**Steel answers #968.** The Steelworks stops being a better smelter and becomes the one place
-steel comes from. Its input is metal, so Earth's metalbent glut (#958) is finally worth
-something: it feeds steel. Its `stock_limit` counts steel, not metal, so it runs. The Airship
-Dock, Sky Lift and Lightning Station swap some metal for steel, as the #968 thread preferred. The
-scripted opening's `united_steel_made` target then measures real production.
+## Layer 3: freight
 
-The resulting chains, three steps deep:
+Today every item moves on someone's back. Wants spread goods across the whole city, to every
+resident's door, so hauling becomes the bottleneck. Freight is what makes layout matter.
 
-```
-gold ore --Smelter/Metalbend--> metal --Steelworks--> steel --Forge--> fittings
-   wood ---------------------------^------------^-----------^
-stone --Kiln--> brick (plants, stations)
-```
+**Rule (proposed).** A freight link is a pair of stations, like a Wind Gate pair. Haulers drop
+goods into the near station's small hold, and the link moves a stack to the far station every
+`interval` seconds. The hauling AI treats a link the way it treats a chute: one more edge in a
+route, taken when cheaper.
 
-Existing items (wares, scroll copies, glow crystals, spirit water) stay as they are and become
-contract goods, which gives them a standing buyer.
+| Nation | Link | Placement | Carries |
+|---|---|---|---|
+| Earth | **Freight line**, a cart on rail pushed by an earthbender | Both ends on one rail line | Heaviest loads. A third speed with no bender aboard |
+| Water | **Flume** | Downhill or downstream along river, canal or aqueduct | Anything, free running |
+| Air | **Wind tube** | Straight, up to 30 tiles, any terrain | Light goods only (no stone, ore or metal), fastest |
+| Fire | None long-range. The yard's hand-across rule, and Balloon Docks for distance | | |
 
-**#890 fits here.** Option A (the scroll-billed schools take scroll copies from the Archive) makes
-those bills a production chain rather than a ruin search. That is the same direction as this
-doc, and an automated Archive in the factory era makes scroll copies a real line. A is still the
-right answer on its own merits.
+The alternative is tile-by-tile conveyor belts: the purest factory feel, but a new spatial system
+for the glyph map, and haulers stop mattering. That's question 4.
 
-## The goal: contracts, then a great work
+## Layer 4: power with a load
 
-**Standing contracts (proposed).** The United City's caravan requests grow into contracts, still
-in `data/trade.toml`. A contract names a nation, a good, a rate and a duration: "The Fire Nation
-asks for 6 steel a minute for 10 minutes." The rate is measured at a **Trade Depot** (a building
-haulers and freight links deliver to). Meeting it pays draw steered to that nation (#761), a
-teaching, or a named newcomer such as a master of that nation. Missing it costs nothing but the
-reward. Contracts are data, so their size grows with each population milestone.
+**Rule (proposed).** Machine-tier buildings (anything automated, plus the era's new buildings)
+draw on a source's `capacity`. Over capacity, every machine on that source slows in proportion (a
+brownout). Nothing stops. Every existing building keeps power.md's speed-up rule.
 
-Contracts make the factory's question "can I sustain this rate?", which is the part of factory
-games that is fun, and they reuse caravans, draw steering and milestones.
+The era's sources are **plants**, crewed by **Notables**. A lightning plant crewed by Fire
+Notables is Republic City's power station. Wind Farms (Air) need no crew but vary by season.
+Hydro Mills (Water) sit on the bank. Geothermal Vents (Earth) are small and stack along the rock.
+So your best-served residents power the city, which ties standing back into the machines that
+serve everyone else.
 
-**A capstone great work (later).** A second endeavor that asks for sustained deliveries in
-stages, like the Harmony Gate's four stages but measured in rates. Candidates, all canon and
-peaceful: a **Grand Railway** linking the city to the four nations' capitals, a **Lightning
-Grid** that powers the whole map, or a **City Tower**. This is optional. Contracts alone are an
-endless loop, which may be what the owner wants. Question 5.
+## Steel and other goods
 
-## Pressure: the spirits push back
+New items, all provisional:
 
-**Rule (proposed, later phase).** Every machine and plant adds **unrest** to the tiles around it.
-Unrest spreads slowly and fades slowly. Above a threshold, **spirit vines** grow on walkable
-tiles: they slow movement, block building, and make settlers who work among them uneasy (a mood
-hit if mood exists, otherwise slower work). Balance pushes it back: standing trees and orchards
-absorb unrest, meditation and spirit seats (Air, the High Temple's aura) calm it, and spirit water
-(Water) clears vines. Nothing dies from it, and nothing attacks.
+| Item | Made at | From | Wanted by, or spent on |
+|---|---|---|---|
+| **Steel** | Steelworks | 2 metal and 2 wood | Fine steelware (Fire Notables), fittings, plants and freight stations, and some of the phase-6 big builds' metal (#968's favourite) |
+| **Fittings** | Forge, second recipe | 1 steel and 1 wood, makes 2 | Furniture (Earth Citizens), parkas (Water Notables), tending machines |
+| **Lanterns, smoked fish, furniture, tea** | See the wants table | | Citizens |
+| **Fine steelware, parkas, crystal jewellery, incense** | See the wants table | | Notables |
+| **Hide** | Fishing Dock by-product | | Parkas |
 
-That gives the factory era the pressure factory games get from pollution, without war, and it is
-true to the setting: industry against the spirits is the whole of Korra's second season. It also
-grows straight into the Spirit Portal, which endgame.md (concept B) and pacing.md (question 4,
-#464) set aside as the sequel because it "needs spirit AI and a new resource". Unrest and vines
-are that resource. Whether the factory should push back at all is question 6.
+**#968, steel.** The Steelworks turns metal into steel, so Earth's metalbent glut (#958) becomes
+feedstock and its stock limit counts steel, not metal. Steel's uses are now mostly people's
+goods, with building costs second. The scripted opening's `united_steel_made` target measures
+real production.
+
+**#890, scroll-billed schools.** Option A (bill scroll copies from the Archive) is a production
+chain instead of a ruin search, which is this doc's direction too. It's also right on its own.
+
+## The goal: the Republic Council
+
+The United City view counts residents by tier and nation. The capstone is a second great work,
+the **Council Hall**: it needs Notables of every nation living in the city (2 each, provisional)
+plus a build in stages paid in steel, brick and goods. Finishing it founds the city's council,
+canon's United Republic Council with a member from each nation. Its payoff could be a council
+seat per nation that grants that nation's strongest modifier city-wide, or the Spirit Portal's
+opening. That part is open.
+
+Standing caravan contracts (rates of a good, for rewards) from the first draft become a side
+outlet for surplus, not the goal.
 
 ## How the four nations stay different
 
 | | Fire | Earth | Water | Air |
 |---|---|---|---|---|
-| **Makes** | Densest yard, the chain rule, rate 1.0 | Automated extraction along the rock face | Machines strung along water | Slow machines, but the most of them |
-| **Moves** | Short: chains inside the yard, balloons for distance | Freight line on rail, the heaviest loads | Flumes, downhill and downstream | Wind tubes, fastest, light goods only |
-| **Powers** | Lightning Plant, crewed by its best benders | Many small geothermal vents | Hydro Mills, steady | Wind Farms, free but seasonal |
-| **Weak at** | Moving goods any distance | Power (breadth, never depth) | Anything away from water | Heavy goods: stone, ore and metal walk |
-| **United City lever** | Borrow a Freight line from Earth residents | Borrow a Lightning Plant from Fire residents | Borrow Wind Farms from Air residents | Borrow a Fire yard |
-
-Each column is a different factory shape: a square, a line along rock, a line along water, and a
-scatter. Borrowed techs (phase 6) let a United City mix them, at 2x and with residents, so the
-mix is the late decision.
+| **Its people want** | Lanterns, then fine steelware | Furniture, then crystal jewellery | Smoked fish, then parkas | Tea, then incense |
+| **Makes** | Densest yard, hand-across chains | Automated extraction along the rock | Machines strung along water | Slow machines, but the most of them |
+| **Moves** | Short. Balloons for distance | Freight rail, the heaviest loads | Flumes, downhill | Wind tubes, light goods only |
+| **Powers** | Lightning plants crewed by Notables | Many small vents | Steady Hydro Mills | Free, seasonal Wind Farms |
+| **Weak at** | Moving goods far | Power | Anything away from water | Heavy goods |
 
 ## How this fits the open power lane
 
-Nothing in the lane needs to wait on this doc. Two issues lean on it.
+Nothing in the lane has to wait on this doc.
 
 | Issue | Effect |
 |---|---|
-| #447, #446, #448 (power track, Earth's source) | Unchanged. The Hot Spring Mill becomes Earth's automation source and the model for the Geothermal Vent |
-| #449 (Steam Engine costs brick) | Unchanged |
-| #450 (`spirit_oasis` widens Water's reach) | Unchanged. Water's reach rung carries over to its race |
-| #451, #429 (POWER section, readouts) | Unchanged. Load adds one line later ("Load 14 of 20") |
-| #432 (power balance) | Unchanged. Its targets are pre-gate |
-| #433 (Steam Engine burns wood) | **Leans yes.** Running costs are the factory era's language. A fuelled engine is the first taste of a plant |
-| #488 (Air's Windmill as an early source) | Unchanged |
+| #447, #446, #448, #449, #450, #451, #429, #432, #488 | Unchanged |
+| #433 (Steam Engine burns wood) | **Leans yes.** Running costs are this era's language |
 | #413 (late tier pays off) | Unchanged. This doc picks up power.md's "revisit after the gate" |
-| #835 (minute 50 to 80 gap) | **Not addressed.** That gap is before the gate, and this era starts after it |
-| #968 (steel) | **Answered here, provisionally:** steel from metal at the Steelworks, spent on the machine tier and the phase-6 big builds |
-| #890 (scroll-billed schools) | **A** (scroll copies) fits this direction, and is right on its own |
+| #835 (minute 50 to 80 gap) | **Not addressed.** That gap is before the gate |
+| #968 (steel) | **Answered here, provisionally:** steel from metal at the Steelworks, wanted by residents first |
+| #890 (scroll-billed schools) | **A** fits this direction, and is right on its own |
 
 ## Phases
 
-Each phase ships something playable. The cheapest and most reused come first.
+Each phase ships something playable. Wants come first, because they make every later phase
+matter.
 
 | Phase | Ships | New sim work | Waits on |
 |---|---|---|---|
 | F0. The lane | The open power issues, #968 steel, #890 | As filed | Nothing new |
-| F1. Read the factory | A **Production** screen: each item's made and used per minute over the last few minutes, and each machine's status. Rates on the Here panel | Small: a rolling tally per item and building | Nothing. Worth doing even without the rest |
-| F2. Machines for everyone | `mechanisms`, the per-nation `automate` siblings, wear and Tend, Fire's chain rule, fittings | Small to medium: `automate` already exists; shapes along water and rock; a Tend job | F0's steel |
-| F3. Freight | Freight line, Flume, Wind tube | Medium: a link edge in hauling (the chute's), station holds, the Air weight rule | F1 for readouts |
-| F4. Power with a load | `draw`, `capacity`, brownout, crewed plants | Medium: seats on a source, load summed per reach | Question 3 |
-| F5. Contracts | The Trade Depot, rate-measured contracts in `trade.toml` | Small to medium: a rate window at a building, reward paths exist | F1 |
-| F6. Spirits | Unrest, vines, balance answers, then the Spirit Portal's own design | Large | A United City playtest |
+| F1. Wants and standing | Tiers, wants, the new goods made by hand in recipe buildings, a **People** view by tier and nation, rates on the Here panel | Medium: a per-resident tier, a want fetch (the remedy's), comfort reach (heat's), a few recipes and buildings | F0's steel. A United City playtest (#752) for numbers |
+| F2. Machines | `mechanisms`, the per-nation `automate` siblings, wear and Tend | Small to medium: `automate` exists | F1 |
+| F3. Freight | Freight line, Flume, Wind tube | Medium: a link edge in hauling (the chute's), station holds | F1 |
+| F4. Power with a load | `draw`, `capacity`, brownout, plants crewed by Notables | Medium | Question 5 |
+| F5. The Council Hall | The capstone great work | Medium: reuses the Harmony Gate's stages | F1 |
+| F6. Spirits | Industry unsettles the spirits, vines creep, balance pushes back, then the Spirit Portal | Large | A playtest of F1 to F4 |
 
-F1 and F5 together are already a factory game in miniature: the player can see rates and has
-a reason to raise them, with the Factory and ordinary hauling as the only tools.
+**F1 alone is a small factory game.** Four nations' wants, eight goods, chains two or three steps
+deep, all made by hand. If that's fun, F2 to F4 make it bigger. If it isn't, F2 to F4 won't save
+it, and we've learned that cheaply.
 
 ## Risks
 
-- **Settlers become irrelevant.** Automation plus freight could leave a colony of 40 with nothing
-  to do. Wear, crews and station loading are there to stop it. The harness's idle-hands measure
-  (pacing.md) should check it per phase.
-- **The glyph map gets unreadable.** Dense yards in 1-cell glyphs need a production overlay (rates
-  and links), the way power has a reach tint. The egui window helps, but the terminal is still a
-  frontend.
-- **Session length is unknown.** No one has played the United City for long (#752). Contracts and
-  phases should be tuned after that playtest, as phase 6's numbers are.
-- **Fire's school loses its edge.** Mitigated by rate 1.0 and the chain rule staying Fire's.
-- **Map room.** Small maps (192x128) may cramp Water's lines and Earth's freight. Medium may be
-  the right default for this era. Measure first.
-- **Determinism and cost.** Links and machines are per-tick state with no RNG, as Supply hauls
-  are. Unrest spreading is a grid update and needs a budget.
+- **Busywork.** Eight goods fetched by 40 people could feel like upkeep. The rates and the
+  "what's short" readout are the defence, and the harness can measure how much of the city's time
+  goes to hauling goods.
+- **One nation's wants dominate.** If Earth's furniture chain is much harder than Air's tea, cities
+  steer away from Earth residents. Measure chain depth and labour per want, and tune per nation.
+- **Session length is unknown.** No one has played the United City for long (#752).
+- **The glyph map gets dense.** A production overlay (rates and links) will be needed, like power's
+  reach tint.
+- **Map room.** Small maps (192x128) may cramp Water's lines and Earth's freight.
 
 ## Open questions for the owner
 
-1. **Where does the factory era start?** *Recommended: A.*
-   - **A. After the Harmony Gate**, as the United City's loop. Canon fit (the Republic), every
-     nation's people are present, and nothing pre-gate changes.
-   - B. As a parallel track from the midgame, competing with the gate for resources.
-   - C. A separate scenario or game mode that starts industrial.
-2. **How do goods move?** *Recommended: A.*
-   - **A. Paired freight links**, one kind per nation, built on the chute and Wind Gate pattern.
-     Haulers still load and unload.
-   - B. Tile conveyors drawn tile by tile. The purest factory feel, the most new code, and
-     settlers stop mattering to logistics.
-   - C. Settlers only, with better roads and stockpiles. Least new, least factory.
-3. **Does power get a load?** *Recommended: A.*
-   - **A. A machine tier with `draw` and crewed plants.** Overload slows, never stops. Old
-     buildings keep power.md's speed-up rule.
-   - B. Power stays a speed-up forever. Machines are just faster in reach.
-   - C. A full grid for every building. Reverses power.md's question 2 and hurts Earth most.
-4. **Who works the machines?** *Recommended: A.*
-   - **A. Machines run themselves but wear**, and a settler tends them with a tool or fittings.
-   - B. Fully automated: no wear, no tending.
-   - C. Crafters still work every batch, and machines only run faster.
-5. **What is the factory for?** *Recommended: A.*
-   - **A. Standing contracts from the four nations, measured as rates**, then a capstone great
-     work later.
-   - B. One great work with staged deliveries, and nothing after it.
-   - C. No goal beyond milestones: a sandbox.
-6. **Does industry push back?** *Recommended: A, as the last phase.*
-   - **A. Spirit unrest and vines**, answered by balance, leading into the Spirit Portal.
-   - B. No pressure. The factory era is a pure builder.
+The era starting at the gate is assumed. Say so if it shouldn't.
 
-Two answers in the open lane that this doc leans on: **#968**, steel made from metal at the
-Steelworks and spent on the machine tier (proposed above), and **#890**, option A.
+1. **What do unmet wants cost?** *Recommended: A.*
+   - **A. Residents slip a tier.** Nobody leaves or dies.
+   - B. Residents who stay unhappy long enough leave the city.
+   - C. Nothing. Tiers only go up.
+2. **Whose wants?** *Recommended: A.*
+   - **A. Each resident wants their own nation's goods**, plus shared comforts. Who you invite
+     shapes your chains.
+   - B. One list for the whole city, whatever nation people are from.
+3. **What does standing give?** *Recommended: A.*
+   - **A. Work speed and draw, and Notables crew plants and sit on the council.**
+   - B. Only draw and the city's score.
+4. **How do goods move?** *Recommended: A.*
+   - **A. Paired freight links**, one kind per nation. Haulers still load the near end.
+   - B. Conveyor belts laid tile by tile.
+   - C. Settlers only, with better roads.
+5. **Does power get a load?** *Recommended: A.*
+   - **A. Only for machines and the era's new buildings**, with crewed plants. Overload slows,
+     never stops.
+   - B. Power stays a speed-up forever.
+6. **Do machines wear?** *Recommended: A.*
+   - **A. Yes, and a settler tends them** with a tool or fittings.
+   - B. No. Machines run until their inputs run out.
+
+Spirits (F6) are a later question, best asked after F1 to F4 have been played.
 
 ## Follow-up issues
 
-None filed yet. Once the questions are answered: one design issue per phase (F1 to F6, F0 is
+None filed yet. Once the questions are answered: one design issue per phase (F1 to F6; F0 is
 already filed), a comment on #968 with this doc's steel proposal, and a comment on #433 noting it
 leans yes.
