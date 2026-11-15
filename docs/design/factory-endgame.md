@@ -269,6 +269,201 @@ opening. That part is open.
 Standing caravan contracts (rates of a good, for rewards) from the first draft become a side
 outlet for surplus, not the goal.
 
+## Mockups
+
+Hand-drawn in the terminal's style, at 100x34 with the ASCII glyph set, edited from real frames
+(`fn_tui 7 fire --frame --ascii --size 100x34 --ticks 30000 --keys N`, and `G` for the Endeavor
+screen). Every number is invented for a Fire city of 34 in its third year. The strings aim at
+text-voice.md: one idea per line, keys in the footer.
+
+### The United City screen (`G`, after the gate)
+
+The Endeavor screen already becomes the United City view once the gate stands (#442). It gains
+standing, a row per nation, the wants that are short, and the Council Hall's progress.
+
+```
++-------------------------------------- * THE UNITED CITY * ---------------------------------------+
+| The United City                                                                        34 people |
+| Every nation's people live here. Meet their wants and they rise.                                 |
+|                                                                                                  |
+| STANDING                                                                                         |
+|    Notables      #.........       5                                 Lightning Plant: 3 of 5 crew |
+|    Citizens      #####.....      17                                                              |
+|    Settlers      ####......      12                                                              |
+|                                                                                                  |
+| BY NATION           PEOPLE  SETTLER  CITIZEN  NOTABLE   SHORT OF                                 |
+|    Fire Nation         14        3        8        3   Tea, for 3 Notables                       |
+|    Earth Kingdom        9        4        4        1   Furniture: none in stores                 |
+|    Water Tribes         7        3        3        1                                             |
+|    Air Nomads           4        2        2        0   Tea: the Tea Works has no herbs           |
+|                                                                                                  |
+| WANTS THIS HOUR            MADE   USED   STORES                                                  |
+|    Lanterns                  14     11       9                                                   |
+|    Furniture                  4      9       0   Short                                           |
+|    Smoked fish               10      8      12                                                   |
+|    Tea                        6      8       1   Short                                           |
+|    Fine steelware             3      3       2                                                   |
+|                                                                                                  |
+| THE COUNCIL HALL                                                                                 |
+|    Notables of every nation   ######....   5/8                     Earth 1/2, Water 1/2, Air 0/2 |
+|                                                                                                  |
+| Next milestone: 40 people                                                                        |
++--------------------------------------------------------------------------------------------------+
+ CITY  Up/Down choose - Enter show on map - Esc or G close                                    ? keys
+```
+
+### The Nation screen, with standing and a resident's wants
+
+Two new columns (nation and standing) and a WANTS meter. The detail pane under the list shows
+what the selected resident wants, how often, and when they slip a tier. Foreign goods say whose
+they are.
+
+```
++------------------------------------------- * NATION * -------------------------------------------+
+| Fire Nation city - 34 people - seed 7                                             Year 3, Autumn |
+|                                                                                                  |
+|   NAME      NATION  STANDING  DOING                     WANTS              BENDING               |
+| > Kuzon     Fire    Notable   Crewing Lightning Plant   ####. met          Master                |
+|   Pema      Air     Citizen   Fetching tea              ###.. tea short    Adept                 |
+|   Haru      Earth   Settler   Hauling ore               #.... furniture    Student               |
+|   Siku      Water   Citizen   Tending Smokehouse        ##### met          Adept                 |
+|   Ran       Fire    Citizen   Smelting                  ####. met          Adept                 |
+|                                                                                                  |
++--------------------------------------------------------------------------------------------------+
+| Kuzon - Fire Nation, Notable                                                          Works x1.3 |
+| Crewing the Lightning Plant. Carrying nothing.                                                   |
+|                                                                                                  |
+| WANTS                        EVERY    NEXT                                                       |
+|    Lantern                   15 min   in 11 min     Met                                          |
+|    Fine steelware            20 min   in 11 min     Met                                          |
+|    Tea (Air)                 30 min   17 min late   Unmet: 1 in stores, 3 people waiting         |
+|    Smoked fish (Water)       30 min   in 24 min     Met                                          |
+|    Two comforts in reach                            Met: Tea House, Bathhouse                    |
+|                                                                                                  |
+| Slips to Citizen in 3 min unless tea reaches them.                                               |
++--------------------------------------------------------------------------------------------------+
+ NATION  Up/Down choose - Enter select - Esc or N close - PgUp/PgDn page                      ? keys
+```
+
+### The Goods screen (new; its key is still to be chosen, since `p` is the Stockpile tool)
+
+Phase F1's readout and the factory's main tool: every good's rate in and out, where it's made,
+and who wants it. The selected row explains the shortfall and names the ways to close it, which
+are exactly the three tools this doc adds: automate, carry, or buy.
+
+```
++------------------------------------------- * GOODS * --------------------------------------------+
+| Goods                                                                per minute, last 10 minutes |
+|                                                                                                  |
+|   GOOD             MADE   USED   NET    STORES   MADE AT                  WANTED BY              |
+|   Gold ore          4.2    4.0   +0.2      18   2 mines (face), line     Smelter                 |
+|   Metal             2.0    2.1   -0.1       3   Smelter                  Steelworks, Forge       |
+|   Steel             1.0    0.9   +0.1       6   Steelworks               Forge, Fire Notables    |
+| > Fittings          0.6    1.1   -0.5       0   Forge (manual)           Furniture, tending      |
+|   Furniture         0.3    0.6   -0.3       0   Furniture Works          9 Earth residents       |
+|   Lanterns          1.4    1.1   +0.3       9   Forge, 2nd recipe        14 Fire residents       |
+|   Tea               0.6    0.8   -0.2       1   Tea Works, caravan       4 Air, 3 Notables       |
+|                                                                                                  |
++--------------------------------------------------------------------------------------------------+
+| Fittings: short 0.5 a minute                                                                     |
+| Made by 1 Forge, worked by hand, 40% of the time (the crafter also hauls).                       |
+| Automating it in the Lightning Station's yard would make about 1.0 a minute.                     |
+| Earth caravans sell 6 fittings a visit.                                                          |
++--------------------------------------------------------------------------------------------------+
+ GOODS  Up/Down choose - Enter show where it's made - Esc close                               ? keys
+```
+
+### The Here panel on machines and links
+
+Three panels side by side. A Steelworks in a Fire yard, fed by a touching Smelter and feeding a
+touching Forge. The near end of an Earth freight line. A Furniture Works that isn't connected to
+anything and is starving for fittings.
+
+```
++- HERE ------------ (41, 22) -+   +- HERE ------------ (12, 40) -+   +- HERE ------------ (30, 18) -+
+| Steelworks (automated)       |   | Freight line, near end       |   | Furniture Works              |
+| 2 metal, 2 wood -> 1 steel   |   | Hold: 14/20 gold ore         |   | 1 fittings, 2 wood -> 1      |
+| Batch 60%, Fire yard x1.0    |   | To: far end, 38 tiles        |   | furniture                    |
+| From: Smelter, touching      |   | Next cart in 12 s            |   | Waiting: no fittings         |
+| From: wood by haul           |   | Crew: Haru (Earth)           |   | From: Forge, 6 tiles         |
+| To: Forge, touching          |   | Moving 40 a minute           |   |   (not touching)             |
+| Made 3.1 a min, last 10      |   |                              |   | Route: stores                |
+| Wear: tend in 4 batches      |   |                              |   | Made 0 a min, last 10        |
+| Load 4 of plant's 20         |   |                              |   | Short for 9 Earth wants      |
+```
+
+### The map, with the production overlay
+
+A toggle like the reach tint. Arrows show where goods flow: from the mines (`HH`, a Deep Mine at
+the rock face) onto a freight line (`#` stations, `=` rail, `>` the cart's direction), then down
+into a row of touching machines (`SS` Smelter, `WWW` Steelworks, `FF` Forge, `UU` Furniture
+Works) and out to stores (`[]`). `LLLL` is the Lightning Station whose yard runs them. Glyphs are
+placeholders.
+
+```
+^^^^^^^^^^,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+^^MMMM^^^^,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+^^MMMM^#>>=================================>#,,,,,,,,,,,,,,,
+^^^^^^^^^^,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,v,,,,,,,,,,,,,,,
+^^HHMM^^^^,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,SS>WWW>FF>UU,,,,,
+^^HHMM^^^^,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,SS WWW FF UU,,,,,
+^^^^^^^^^^,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,v,,,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,LLLL,,,,,,,[],,,,,,
+,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,LLLL,,,,,,,,,,,,,,,
+```
+
+### Research: the machine tree
+
+A page on the Research screen, beside phase 6's From newcomers page. The five tiers read left to
+right, and fusion machines name the residents they still need.
+
+```
++------------------------------------------ * RESEARCH * ------------------------------------------+
+| Machines                                                                  Research: Machine tree |
+|                                                                                                  |
+| 1 HAND WORK            2 MECHANISMS          3 FREIGHT             4 POWER, BIG WORKS            |
+|   Forge          ok      Mechanisms     ok      Freight lines  50%    Lightning plants           |
+|   Kiln           ok      1,000 + 4 steel        1,000 points          1,000 + 6 steel            |
+|   Smelter        ok      Yard runs itself,      Carts on rail,        Notables crew it;          |
+|   Workshop       ok      touching machines      40 a minute           machines draw load         |
+|   Smokehouse     ok      pass goods along                              Big works (3x3)           |
+|   Tea Works      new                                                                             |
+|                                                                                                  |
+| 5 FUSION MACHINES  (from newcomers: 3 residents of each nation)                                  |
+|   Steelworks    Earth + Fire     known                                                           |
+|   Smoke Kiln    Fire + Water     needs 2 more Water residents                                    |
+|   Mountain Works Earth + Air     needs 3 Air residents                                           |
+|                                                                                                  |
++--------------------------------------------------------------------------------------------------+
+| Freight lines - 500 of 1,000                                                                     |
+| A cart on rail, pushed by an earthbender, moves 20 at a time between two stations.               |
+| Unlocks: Freight Station (pair).                                                                 |
++--------------------------------------------------------------------------------------------------+
+ RESEARCH  Arrows choose - Enter study - Tab page - Esc or T close                            ? keys
+```
+
+### A caravan selling another nation's goods
+
+Caravans gain each nation's Citizen goods in small lots, which is the first way a city gets a good
+it can't make.
+
+```
++------------------------------------------ * CARAVAN * -------------------------------------------+
+| Air Nomad caravan                                                                Leaves in 6 min |
+|                                                                                                  |
+| THEY SELL                            FOR                                                         |
+| > 6 Tea                              8 wood                                                      |
+|   4 Incense                          2 lanterns                                                  |
+|   10 Fruit                           6 stone                                                     |
+|                                                                                                  |
+| THEY WANT                                                                                        |
+|   4 Lanterns            Draws an Air newcomer                                                    |
+|                                                                                                  |
+| Tea is short: 3 Fire Notables and 1 Air resident are waiting.                                    |
++--------------------------------------------------------------------------------------------------+
+ CARAVAN  Up/Down choose - Enter trade - Esc close                                            ? keys
+```
+
 ## How the four nations stay different
 
 | | Fire | Earth | Water | Air |
