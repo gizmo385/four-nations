@@ -153,6 +153,30 @@ pub struct Overlays {
     pub camp: OverlayGlyph,
     /// A link line (#683, #698): `:` from a chute's head to its foot, or between a pair's ends.
     pub link: OverlayGlyph,
+    /// The production overlay's arrows (#1040): where a machine passes goods across.
+    pub flow: FlowArrows,
+}
+
+/// The production overlay's four arrows (`[overlay.flow]`, #1040).
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FlowArrows {
+    pub north: OverlayGlyph,
+    pub east: OverlayGlyph,
+    pub south: OverlayGlyph,
+    pub west: OverlayGlyph,
+}
+
+impl FlowArrows {
+    pub fn get(&self, dir: fn_ui::flow::Dir) -> &OverlayGlyph {
+        use fn_ui::flow::Dir;
+        match dir {
+            Dir::North => &self.north,
+            Dir::East => &self.east,
+            Dir::South => &self.south,
+            Dir::West => &self.west,
+        }
+    }
 }
 
 /// The watcher's studio layout thresholds and proportions (`[studio]`,

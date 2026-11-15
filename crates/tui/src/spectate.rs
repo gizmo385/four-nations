@@ -92,6 +92,10 @@ pub fn key(ui: &mut UiState, session: &Session, key: KeyEvent) -> bool {
         Action::ShowNation => open_screen(ui, session, Screen::Nation),
         Action::ShowAbilities => open_screen(ui, session, Screen::Abilities),
         Action::ShowTraders => open_screen(ui, session, Screen::Traders),
+        Action::ToggleFlow => {
+            ui.toggle_flow(session);
+            true
+        }
         // Every other action `input::spectator_allowed` lets through is handled above; nothing
         // else reaches this match with `true`.
         _ => false,

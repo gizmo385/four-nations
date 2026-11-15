@@ -327,3 +327,19 @@ fn before_the_gate_machines_never_wear() {
     assert!(w.tallies().school("automated_batches") > defs.jobs.tend_every);
     assert!(!w.needs_tending(at(5, 2), &defs));
 }
+
+#[test]
+fn the_overlay_lists_each_pass_across_link_and_each_running_yard() {
+    let defs = Defs::bundled();
+    let mut w = smelter_row(&defs);
+    let (smelter, works) = (at(5, 2), at(7, 2));
+    assert_eq!(w.flow_links(&defs), vec![(smelter, works)]);
+    assert!(!w.yards(&defs).is_empty(), "the station's yard runs");
+    // A split that sends nothing to the Steelworks drops the link.
+    w.apply(Command::SetShare { pos: smelter, to: SplitTo::Stores, weight: 1 }, &defs).unwrap();
+    assert!(w.flow_links(&defs).is_empty());
+    // On a crafter, the Smelter passes nothing across.
+    w.apply(Command::SetShare { pos: smelter, to: SplitTo::Stores, weight: 0 }, &defs).unwrap();
+    w.apply(Command::SetAutomated { pos: smelter, on: false }, &defs).unwrap();
+    assert!(w.flow_links(&defs).is_empty());
+}

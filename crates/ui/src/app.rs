@@ -225,6 +225,7 @@ impl App {
             // `V` opens the Split screen on the machine under the cursor, in Select mode.
             Action::ShowSplit if self.ui.tool == Tool::Select => self.open_split(),
             Action::ShowSplit => {}
+            Action::ToggleFlow => self.ui.toggle_flow(&self.session),
             Action::ShowSaves => self.show_saves(),
             Action::TogglePause => self.session.clock.toggle_pause(),
             Action::Faster => self.session.clock.faster(),
@@ -456,6 +457,7 @@ impl App {
             | Action::ToggleRepeat
             | Action::NextRecipe
             | Action::KeepIt
+            | Action::ToggleFlow
             | Action::Confirm
             | Action::NextUnit
             | Action::PrevUnit

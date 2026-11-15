@@ -713,6 +713,12 @@ air_shield = { glyph = "○", ascii = "s", fg = [210, 230, 235] }
 camp = { glyph = "△", ascii = "A", fg = [210, 180, 120] }
 # A chute's link line (#683): `:` from its head to its foot, while the head is under the cursor.
 link = { glyph = ":", ascii = ":", fg = [220, 220, 200] }
+# The production overlay's arrows (#1040, `Y`): on a machine's edge, pointing into the touching
+# machine its batches pass straight to.
+flow.north = { glyph = "↑", ascii = "^", fg = [255, 230, 120] }
+flow.east = { glyph = "→", ascii = ">", fg = [255, 230, 120] }
+flow.south = { glyph = "↓", ascii = "v", fg = [255, 230, 120] }
+flow.west = { glyph = "←", ascii = "<", fg = [255, 230, 120] }
 
 # The embark screen's overview (#290, docs/design/embark.md, "What a cell shows"): presentation
 # thresholds for the zoomed-out block classifier, not game rules, so they live here rather than

@@ -201,6 +201,8 @@ pub struct UiState {
     pub help_tab: HelpTab,
     /// Which tab of the United City screen shows (`Tab` switches it, [`CityTab`]).
     pub city_tab: CityTab,
+    /// Whether the production overlay is on (`Y`, `crate::flow`).
+    pub flow_view: bool,
     /// The modal dialog over the map, if one is open (#285).
     pub modal: Option<Modal>,
     /// The Build modal's highlight: an index into `crate::build::picker_rows`.
@@ -301,6 +303,7 @@ impl UiState {
             log_open: Vec::new(),
             help_tab: HelpTab::default(),
             city_tab: CityTab::default(),
+            flow_view: false,
             modal: None,
             build_cursor: 0,
             menu_cursor: 0,
@@ -336,6 +339,12 @@ impl UiState {
 
     /// `Tab` in the United City screen: the other tab, from its top. Nothing happens before
     /// the gate, when there is only the Endeavor.
+    /// `Y`: the production overlay on or off, with a notice saying what it shows.
+    pub fn toggle_flow(&mut self, session: &Session) {
+        self.flow_view = !self.flow_view;
+        self.notice = crate::flow::toggled_notice(self.flow_view, session);
+    }
+
     pub fn switch_city_tab(&mut self, session: &Session) {
         if !session.world.united() {
             return;
