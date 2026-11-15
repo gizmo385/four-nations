@@ -192,55 +192,32 @@ started rather than inventing one.
 ### The pipeline planner (owner's idea, 2026-11-15)
 
 **How a player wires a factory.** Indirect control already means "you plan it, they build it",
-so the factory's main tool is a planner, not a wiring tool. It's a screen with four steps:
+so the factory's main tool is a planner, not a wiring tool. Two screens and a stamp:
 
-1. **Pick a target**, a good and a rate: `Furniture, 1.0 a minute`.
-2. **The planner lays out the chain** from the recipes the city knows, back to raw goods: each
-   step's machine, how many, how busy they'd be, and what they take. Under it go the totals
-   (wood and ore a minute against what the city makes now, power draw against spare capacity,
-   hands, ground and cost), with anything short flagged.
-3. **The player picks how to cover each shortfall.** Selecting a short row opens WAYS TO GET it
-   underneath: build more of its machine, buy it from a caravan, take it from stores, or lower the
-   target to what the city can feed. Each way says how much of the gap it covers and what it
-   costs, and Enter applies it to the plan, which recalculates.
+1. **The planner** shows one chain as a flow from left to right: raw goods on the left, the
+   goal on the right. Each step is a box with its machine, how many are needed and how busy they
+   would be. Each arrow between two steps is labelled with what moves along it and how much a
+   minute, and its line shows how it travels: a plain line where the two machines touch, rail
+   ties for a freight line, dots for haulers. Inputs that feed many steps (wood) run along a bus
+   underneath, with the amount each step takes.
+2. **Every connection is a choice.** Selecting an arrow shows why it is what it is ("the mines
+   must stand at the rock face, 38 tiles from the yard, so these two can't touch") and the ways
+   the good can travel there: a freight line, haulers, or moving the machines so they touch.
+   That's where rails, flumes and wind tubes come in: they are what an arrow is built from when
+   two steps can't touch, and the stamp builds them with the machines.
+3. **A good has its own screen.** Opening a good (from the planner, the Goods screen or a
+   building) shows what makes it now, what uses it, the gap, and every way to get more, each
+   with how much it adds a minute and what it costs: build another machine, buy from a caravan,
+   or send settlers to the deposits. Choosing one adds it to the plan the screen was opened from.
 4. **Stamp it on the map.** The plan becomes a ghost block of touching machines in the right
-   order, moved and turned like the Build tool's ghost, which already shows tiles to clear (#427).
-   Enter turns it into ordinary build orders, and settlers haul and build it.
+   order, with any freight stations and the rail between them, moved and turned like the Build
+   tool's ghost, which already shows tiles to clear (#427). Enter turns it into ordinary build
+   orders, and settlers haul and build it.
 
-The Goods screen then shows whether the real factory meets the plan. Saved plans can be stamped
-again: a second furniture line is one key. The planner is pure arithmetic over recipes and
-rates, so it lives in `fn_ui` beside the other view models and needs nothing new in the sim
-except the per-machine rates F1 already adds.
-
-```
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ◆ PLANNER ◆ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  Furniture · 1.0 a minute                                                 By machine · Fire yard
-  For 9 Earth residents at Citizen, with 2 more on the way
-
-    GOOD           A MIN   MADE BY              BUSY   TAKES
-    Furniture        1.0   ⚒ 2 Workshops        83%   1.0 fittings, 2.0 wood
-    └ Fittings       1.0   Ω 1 Forge            83%   0.5 steel, 0.5 wood
-      └ Steel        0.5   Ξ 1 Steelworks       83%   1.0 metal, 1.0 wood
-        └ Metal      1.0   Ψ 2 Smelters         83%   2.0 gold ore, 1.0 wood
-  >       └ Gold ore 2.0   ◈ 5 Deep Mines       You have 2: short 1.2
-
-    NEEDS
-    Wood       4.5 a min    chopping makes 6.0
-    Gold ore   2.0 a min    mines make 0.8
-    Power      draw 12      the Lightning Station has 8 spare
-    Ground     a 10x4 block, every machine touching
-  ─────────────────────────────────────────────────────────────────────────────────────────────────
-  WAYS TO GET GOLD ORE                                                         Short 1.2 a minute
-
-  > Build 3 more Deep Mines          covers it all     adds 3 mines to the plan
-    Buy from Earth caravans          covers 0.4        pays 8 lanterns a visit
-    Make less furniture: 0.6 a min   covers it all     2 mines are enough
-```
-
-(The picture versions, with the stamp's ghost on a real frame, are `planner.png` and `stamp.png`
-in the project's `factory-endgame` folder.) Whether the planner can also draw explicit supply
-routes between distant machines, a middle way between placement and belts, is question 4's
-option D.
+The Goods screen then shows whether the real factory meets the plan, and a saved plan can be
+stamped again. The planner is arithmetic over recipes and rates, so it lives in `fn_ui` beside
+the other view models and needs nothing new in the sim beyond F1's per-machine rates. The
+pictures are `planner.png`, `good.png` and `stamp.png` in the project's `factory-endgame` folder.
 
 ### Each nation's machines
 
