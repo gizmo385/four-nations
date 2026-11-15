@@ -131,6 +131,13 @@ pub fn draw(
             p.row(&Row::text(line.clone(), Tone::Text));
         }
     }
+    if !view.republic.is_empty() {
+        p.blank();
+        p.row(&Row::text("THE REPUBLIC", Tone::Title));
+        for line in &view.republic {
+            p.row(&Row::text(line.clone(), Tone::Text));
+        }
+    }
     if !trait_lines.is_empty() {
         p.blank();
         p.row(&Row::text("TRAITS", Tone::Title));

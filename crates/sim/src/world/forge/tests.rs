@@ -310,6 +310,39 @@ fn a_steelworks_makes_steel_from_metal_and_stops_at_its_stock_limit() {
     assert_eq!(w.tallies().school("steel_made"), settled);
 }
 
+/// The Republic era's goods buildings (#1027) make their goods like any recipe building.
+#[test]
+fn the_smokehouse_smokes_fish_and_the_tea_works_dries_tea() {
+    runs_one_batch("smokehouse");
+    runs_one_batch("tea_works");
+}
+
+/// Every goods recipe (#1027) is an alt recipe its nation's goods tech unlocks, and each goods
+/// tech opens only once the gate stands (`requires.united`) and can be borrowed.
+#[test]
+fn the_goods_recipes_are_unlocked_by_gated_teachable_techs() {
+    let defs = Defs::bundled();
+    for (building, recipe, tech) in [
+        ("forge", "lanterns", "lanterncraft"),
+        ("steelworks", "steelware", "lanterncraft"),
+        ("steelworks", "fittings", "steelworks"),
+        ("workshop", "furniture", "joinery"),
+        ("workshop", "jewellery", "joinery"),
+        ("workshop", "parkas", "smokehouses"),
+        ("smokehouse", "hide", "smokehouses"),
+        ("tea_works", "incense", "tea_works"),
+    ] {
+        let b = defs.building(defs.building_id(building).unwrap());
+        let alt = b.alt_recipes.iter().find(|a| a.id == recipe).expect(recipe);
+        let unlock = alt.unlocked_by.or(b.unlocked_by);
+        assert_eq!(unlock, defs.tech_id(tech), "{building}/{recipe}");
+    }
+    for tech in ["lanterncraft", "smokehouses", "joinery", "tea_works"] {
+        let t = defs.tech(defs.tech_id(tech).unwrap());
+        assert!(t.requires.united && t.teachable, "{tech}");
+    }
+}
+
 /// Earth's Mine Shaft (issue #373): a source recipe (`input = []`) still needs a worker inside,
 /// and still takes `work` seconds -- it just has nothing to fetch first.
 #[test]
@@ -620,10 +653,11 @@ fn setting_a_recipe_is_refused_on_a_site_off_a_building_and_for_a_missing_recipe
     learn_trade_wares(&mut w, &defs);
     let set = |w: &mut World, pos, recipe| w.apply(Command::SetRecipe { pos, recipe }, &defs);
 
+    let past = defs.building(defs.building_id("workshop").unwrap()).alt_recipes.len() as u8;
     assert_eq!(
-        set(&mut w, anchor, Some(1)),
+        set(&mut w, anchor, Some(past)),
         Err(CommandError::Recipe(RecipeError::NoSuchRecipe)),
-        "the Workshop has one alt recipe"
+        "one past the Workshop's last alt recipe"
     );
     assert_eq!(
         set(&mut w, at(8, 8), None),

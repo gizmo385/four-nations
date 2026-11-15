@@ -192,6 +192,8 @@ pub struct Defs {
     pub harvests: Vec<HarvestDef>,
     /// `[shore_fishing]` in `data/jobs.toml` (#727): read only while `shore_fishing` is known.
     pub shore_fishing: Option<crate::jobs::ShoreFishingDef>,
+    /// `[standing]` in `data/jobs.toml` (#1026): residents' wants and tiers in a United City.
+    pub standing: crate::standing::StandingDef,
     pub jobs: JobSettings,
     /// Constructible structures, in file order; indexed by `BuildingId` (data/buildings.toml).
     pub buildings: Vec<BuildingDef>,
@@ -418,8 +420,11 @@ impl Defs {
         let resources = parse::<ResourceFile>("resources.toml", resources)?.resource;
         let resource_ids: Vec<&str> = resources.iter().map(|r| r.id.as_str()).collect();
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
+        let mut jobs_file = parse::<JobsFile>("jobs.toml", jobs)?;
+        let raw_standing = jobs_file.standing.take();
         let (jobs, items, harvests, shore_fishing) =
-            parse::<JobsFile>("jobs.toml", jobs)?.resolve(&resources, &foods, &needs, &techs)?;
+            jobs_file.resolve(&resources, &foods, &needs, &techs)?;
+        let standing = crate::standing::resolve(raw_standing, &items)?;
         let buildings = parse::<BuildingsFile>("buildings.toml", buildings)?;
         let deconstruct = buildings.deconstruct()?;
         let buildings = buildings.resolve(&items, &techs, &resources, &needs)?;
@@ -445,6 +450,7 @@ impl Defs {
             item_upgrades,
             harvests,
             shore_fishing,
+            standing,
             jobs,
             buildings,
             deconstruct,

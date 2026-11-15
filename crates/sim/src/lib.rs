@@ -28,6 +28,7 @@ pub mod rng;
 pub mod save;
 pub mod score;
 pub mod seasons;
+pub mod standing;
 pub mod trade;
 pub mod world;
 

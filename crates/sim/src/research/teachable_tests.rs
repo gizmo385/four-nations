@@ -32,7 +32,7 @@ fn edited(from: &str, to: &str) -> Result<Defs, DefsError> {
     Defs::from_files(files)
 }
 
-const TEACHABLE: [(&str, Nation, u32); 19] = [
+const TEACHABLE: [(&str, Nation, u32); 23] = [
     ("earthen_walls", Nation::Earth, 120),
     ("earth_rail", Nation::Earth, 250),
     ("omashu_chutes", Nation::Earth, 250),
@@ -53,6 +53,11 @@ const TEACHABLE: [(&str, Nation, u32); 19] = [
     ("canals", Nation::Water, 250),
     ("plantbending", Nation::Water, 250),
     ("spirit_projection", Nation::Air, 250),
+    // The Republic era's goods (#1027): a Notable's foreign wants can be learned from neighbours.
+    ("lanterncraft", Nation::Fire, 600),
+    ("smokehouses", Nation::Water, 600),
+    ("joinery", Nation::Earth, 600),
+    ("tea_works", Nation::Air, 600),
 ];
 
 /// The teachable techs that unlock an ability, and so are leaves of the tree (#969).

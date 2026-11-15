@@ -649,11 +649,47 @@ pub struct NationView {
     pub traits: Vec<(String, String)>,
     /// The Almanac's lines once `calendar` is known (`almanac_lines`), else empty.
     pub almanac: Vec<String>,
+    /// The Republic era's lines in a United City (`republic_lines`, #1026), else empty.
+    pub republic: Vec<String>,
 }
 
 /// The Almanac (docs/design/horizons-phase-1.md): `First frost in 9m 40s`, the celestial days once
 /// `star_charts` is known (`The harvest moon in 18m 20s. Water benders: 14`), and a caravan line
 /// only once caravans exist. Empty until the feature is known.
+/// The Republic era's readout (docs/design/factory-endgame.md, #1026): residents by standing,
+/// then, for each nation living here, the goods it wants and how many are in stores. Empty before
+/// the gate or with no wants in the data.
+///
+/// ```text
+/// Settlers 9 · Citizens 4 · Notables 1
+/// Fire: Lantern 8, Fine Steelware 0
+/// ```
+pub fn republic_lines(session: &Session) -> Vec<String> {
+    let (world, defs) = (&session.world, &session.defs);
+    let s = &defs.standing;
+    if !world.united() || s.wants.is_empty() {
+        return Vec::new();
+    }
+    let [settlers, citizens, notables] = world.tier_counts();
+    let mut out =
+        vec![format!("Settlers {settlers} \u{b7} Citizens {citizens} \u{b7} Notables {notables}")];
+    for nation in fn_sim::Nation::ALL {
+        if !world.residents().any(|u| world.nation_of(u) == nation) {
+            continue;
+        }
+        let goods: Vec<String> = s
+            .wants
+            .iter()
+            .filter(|w| w.nation == nation)
+            .map(|w| {
+                format!("{} {}", defs.items[w.item.0 as usize].name, world.stored_total(w.item))
+            })
+            .collect();
+        out.push(format!("{}: {}", nation.title(), goods.join(", ")));
+    }
+    out
+}
+
 pub fn almanac_lines(session: &Session) -> Vec<String> {
     let (world, defs) = (&session.world, &session.defs);
     let Some(a) = world.almanac(defs) else { return Vec::new() };
@@ -702,6 +738,7 @@ pub fn nation_view(session: &Session) -> NationView {
         stores: store_rows(session),
         traits: modifier_rows(world.modifiers()),
         almanac: almanac_lines(session),
+        republic: republic_lines(session),
     }
 }
 

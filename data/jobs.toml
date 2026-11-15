@@ -139,6 +139,49 @@ name = "Spirit Water"
 id = "steel"
 name = "Steel"
 
+# The Republic era's goods (docs/design/factory-endgame.md, "Wants", #1027): what residents of a
+# United City want, made by hand after the gate. Plain stored items: not food, never eaten.
+# Steel worked into hinges, brackets and nails at the Steelworks: what furniture and parkas are joined with.
+[[item]]
+id = "fittings"
+name = "Fittings"
+# Tanned fish skin from the Smokehouse, for parkas.
+[[item]]
+id = "hide"
+name = "Hide"
+# What Fire Citizens want: a light of their own.
+[[item]]
+id = "lantern"
+name = "Lantern"
+# What Fire Notables want.
+[[item]]
+id = "fine_steelware"
+name = "Fine Steelware"
+# What Water Citizens want. It keeps, so it is a good, not a meal.
+[[item]]
+id = "smoked_fish"
+name = "Smoked Fish"
+# What Water Notables want.
+[[item]]
+id = "parka"
+name = "Parka"
+# What Earth Citizens want.
+[[item]]
+id = "furniture"
+name = "Furniture"
+# What Earth Notables want.
+[[item]]
+id = "jewellery"
+name = "Jewellery"
+# What Air Citizens want.
+[[item]]
+id = "tea"
+name = "Tea"
+# What Air Notables want.
+[[item]]
+id = "incense"
+name = "Incense"
+
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
 # - verb:     what the designation is called in the UI.
@@ -361,3 +404,34 @@ count = 2
 work = 40.0
 also = [{ item = "teaching_scroll", count = 1 }]
 
+# --- #1026 (the Republic era: wants and standing) ------------------------------------------------
+
+# Residents' standing (docs/design/factory-endgame.md, "Layer 1", `fn_sim::standing`): in a United
+# City a resident whose wants are all met for `citizen_minutes` becomes a Citizen, and a Citizen
+# whose Notable wants are met too for `notable_minutes` becomes a Notable. A want of their own tier
+# unmet for `drop_minutes` drops them one tier. Nobody dies or leaves over it. A want is a good taken
+# from stores, one every `every_minutes`; a Notable also wants the Citizen goods of the
+# `foreign_nations` nations after their own, one each every `foreign_every_minutes`. Citizens and
+# Notables work faster (every work modifier times `citizen_work` or `notable_work`) and each adds
+# `citizen_draw` to draw, `draw_max` at most. Every number is provisional. Comforts in reach (the
+# design's second kind of want) aren't counted yet.
+[standing]
+citizen_minutes = 15.0
+notable_minutes = 30.0
+drop_minutes = 20.0
+citizen_work = 1.15
+notable_work = 1.3
+citizen_draw = 0.05
+draw_max = 0.4
+foreign_every_minutes = 30.0
+foreign_nations = 2
+want = [
+    { nation = "fire", tier = "citizen", item = "lantern", every_minutes = 15.0 },
+    { nation = "fire", tier = "notable", item = "fine_steelware", every_minutes = 20.0 },
+    { nation = "water", tier = "citizen", item = "smoked_fish", every_minutes = 10.0 },
+    { nation = "water", tier = "notable", item = "parka", every_minutes = 20.0 },
+    { nation = "earth", tier = "citizen", item = "furniture", every_minutes = 15.0 },
+    { nation = "earth", tier = "notable", item = "jewellery", every_minutes = 20.0 },
+    { nation = "air", tier = "citizen", item = "tea", every_minutes = 10.0 },
+    { nation = "air", tier = "notable", item = "incense", every_minutes = 15.0 },
+]

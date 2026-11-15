@@ -80,6 +80,7 @@ mod season;
 #[cfg(test)]
 mod southern_tests;
 mod stand;
+mod standing;
 mod strain;
 mod stride;
 mod study;
@@ -130,6 +131,7 @@ pub use power::PowerAt;
 pub use probe::{Reach, Refusals};
 use roster::Roster;
 pub use season::{Almanac, SeasonEvent, SeasonEventKind};
+pub use standing::Standing;
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
 pub use tally::Tallies;
@@ -308,6 +310,10 @@ pub struct Unit {
     /// (`glide.rs`). Idle, and not written, for a unit that never rides a gate.
     #[serde(default, skip_serializing_if = "Glider::is_idle")]
     glider: Glider,
+    /// Their standing in a United City (`world/standing.rs`, #1026): a Settler with nothing
+    /// tracked, and not written, for everyone before the Republic era.
+    #[serde(default, skip_serializing_if = "Standing::is_default")]
+    pub standing: Standing,
 }
 
 impl Unit {
@@ -917,12 +923,27 @@ impl World {
         {
             return avatar.modifiers;
         }
-        research::effective_modifiers(
+        let mut m = research::effective_modifiers(
             self.nation_of(unit),
             self.nation,
             self.research.known_techs(),
             defs,
-        )
+        );
+        // A Citizen or Notable works faster at everything (#1026), and walks and carries as
+        // before.
+        let work = defs.standing.work(unit.standing.tier);
+        if work != 1.0 {
+            for f in [
+                &mut m.earthworks,
+                &mut m.heating,
+                &mut m.water_work,
+                &mut m.construction,
+                &mut m.study,
+            ] {
+                *f *= work;
+            }
+        }
+        m
     }
 
     /// Progress `u` gains toward a step each tick: its row's own `speed` if it is a beast with
@@ -1097,6 +1118,7 @@ impl World {
                 sick_until: None,
                 remedy_retry_at: 0,
                 glider: Glider::default(),
+                standing: Standing::default(),
             });
         }
     }
@@ -1177,6 +1199,7 @@ impl World {
         self.tick_growth(defs);
         self.tick_strain(defs);
         self.tick_draw(defs);
+        self.tick_standing(defs);
         self.tick_orchards(defs);
         self.tick_pickers(defs);
         self.tick_farms(defs);

@@ -242,6 +242,10 @@ pub(crate) struct JobsFile {
     harvest: Vec<RawHarvest>,
     #[serde(default)]
     shore_fishing: Option<RawShoreFishing>,
+    /// `[standing]` (#1026): taken out before `resolve` and resolved against the items by
+    /// `standing::resolve`.
+    #[serde(default)]
+    pub(crate) standing: Option<crate::standing::RawStanding>,
 }
 
 /// `[shore_fishing]` (docs/design/horizons-phase-4.md, `southern_ways`, #727): fishing from any

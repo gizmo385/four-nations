@@ -1089,6 +1089,9 @@ item = "tool"
 count = 8
 [tech.unlocks]
 buildings = ["steelworks"]
+[[tech.unlocks.upgrades]]
+building = "steelworks"
+recipe = "fittings"
 
 # --- #755 (research horizons phase 6: `aqueducts`) -----------------------------------------------
 
@@ -1187,3 +1190,71 @@ item = "tool"
 count = 6
 [tech.unlocks]
 buildings = ["sky_lift"]
+
+# --- #1027 (the Republic era: goods by hand) -----------------------------------------------------
+
+# Each nation's goods (docs/design/factory-endgame.md, "Wants"): what its Citizens and Notables
+# want, made by hand. Open only once the gate stands (`requires.united`), and teachable, so a city
+# with 3 residents of another nation can borrow that nation's goods for its Notables' foreign
+# wants. Costs provisional.
+
+[[tech]]
+id = "lanterncraft"
+name = "Lanterncraft"
+description = "Every Fire home keeps a flame of its own, and the best smiths make the steel to hold it."
+nation = "fire"
+cost = 600
+prereqs = ["smelting"]
+teachable = true
+requires = { united = true }
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "forge"
+recipe = "lanterns"
+[[tech.unlocks.upgrades]]
+building = "steelworks"
+recipe = "steelware"
+
+[[tech]]
+id = "smokehouses"
+name = "Smokehouses"
+description = "Smoke the catch so it keeps, and tan the skins for coats against the cold."
+nation = "water"
+cost = 600
+prereqs = ["water_travel"]
+teachable = true
+requires = { united = true }
+[tech.unlocks]
+buildings = ["smokehouse"]
+[[tech.unlocks.upgrades]]
+building = "workshop"
+recipe = "parkas"
+
+[[tech]]
+id = "joinery"
+name = "Joinery"
+description = "Tables and chairs joined to last a lifetime, and stone cut fine enough to wear."
+nation = "earth"
+cost = 600
+prereqs = ["tunneling"]
+teachable = true
+requires = { united = true }
+[tech.unlocks]
+[[tech.unlocks.upgrades]]
+building = "workshop"
+recipe = "furniture"
+[[tech.unlocks.upgrades]]
+building = "workshop"
+recipe = "jewellery"
+
+[[tech]]
+id = "tea_works"
+name = "Tea Works"
+description = "Dry the leaves in the high wind, and burn sweet smoke at the shrines."
+nation = "air"
+cost = 600
+prereqs = ["orchards"]
+teachable = true
+requires = { united = true }
+[tech.unlocks]
+buildings = ["tea_works"]

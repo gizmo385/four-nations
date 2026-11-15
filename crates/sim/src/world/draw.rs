@@ -48,6 +48,8 @@ pub enum DrawTermKind {
     SpareBeds,
     /// A Tea House is open (`world/tea.rs`, #710). Listed only while one is.
     TeaHouse,
+    /// Citizens and Notables (`world/standing.rs`, #1026). Listed only while there are any.
+    Citizens,
 }
 
 /// One term of the draw multiplier: how many of it count (`count` of `max_count`) and what that
@@ -194,6 +196,15 @@ impl World {
                 count: 1,
                 max_count: 1,
                 milli: tea,
+            });
+        }
+        let (citizens, citizen_milli) = self.citizen_draw(defs);
+        if citizens > 0 {
+            terms.push(DrawTerm {
+                kind: DrawTermKind::Citizens,
+                count: citizens,
+                max_count: citizens,
+                milli: citizen_milli,
             });
         }
         let sum: u32 = terms.iter().map(|t| t.milli).sum();

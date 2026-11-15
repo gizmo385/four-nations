@@ -572,6 +572,9 @@ fn unit_lines(session: &Session, tool: Tool, unit: &Unit) -> Lines {
         format!("{task}{status}")
     };
     lines.push(Line::Detail(detail));
+    if let Some(line) = standing_line(world, defs, unit) {
+        lines.push(Line::Detail(line));
+    }
     if unit.carrying.is_some() {
         lines.push(Line::Detail(format!("Carrying: {}", describe_stack(defs, unit.carrying))));
     }
@@ -585,6 +588,26 @@ fn unit_lines(session: &Session, tool: Tool, unit: &Unit) -> Lines {
         lines.push(Line::Hint(Hint::SelectUnit));
     }
     lines
+}
+
+/// A resident's standing in a United City (#1026): "Settler, wants Lantern", "Citizen, wants
+/// Fine Steelware, Smoked Fish, Furniture". `None` before the gate, for a guest or a beast, and
+/// with no wants in the data.
+pub fn standing_line(world: &World, defs: &Defs, unit: &Unit) -> Option<String> {
+    let s = &defs.standing;
+    if !world.united() || !unit.is_settler() || s.wants.is_empty() {
+        return None;
+    }
+    let nation = world.nation_of(unit);
+    let tier = unit.standing.tier;
+    let mut names: Vec<&str> = Vec::new();
+    for (item, _) in s.keep(nation, tier).into_iter().chain(s.aim(nation, tier)) {
+        let name = defs.items[item.0 as usize].name.as_str();
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    Some(format!("{}, wants {}", tier.name(), names.join(", ")))
 }
 
 /// What `tile` itself holds, ignoring any unit standing there: the Here section's fallback once
