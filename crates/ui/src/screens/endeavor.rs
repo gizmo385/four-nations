@@ -148,7 +148,14 @@ pub fn tab_strip(tab: CityTab) -> Row {
 /// The Goods tab's rows (#1028, docs/design/factory-endgame.md "The Goods screen"): a heading
 /// with the window the rates cover, the column heads, then one row per good with what makes
 /// it here and who wants it, and a closing note on the short ones.
-pub fn goods_lines(rows: &[LedgerRow], width: usize, marks: &Marks) -> Vec<Row> {
+///
+/// `cursor` puts a pointer on that row, the good `Enter` opens in the planner.
+pub fn goods_lines(
+    rows: &[LedgerRow],
+    width: usize,
+    marks: &Marks,
+    cursor: Option<usize>,
+) -> Vec<Row> {
     let mut out = vec![Row::pair(
         "GOODS".to_owned(),
         Tone::Title,
@@ -168,12 +175,14 @@ pub fn goods_lines(rows: &[LedgerRow], width: usize, marks: &Marks) -> Vec<Row> 
         ),
         Tone::Dim,
     ));
-    for g in rows {
+    for (i, g) in rows.iter().enumerate() {
         let net = g.made - g.used;
+        let here = cursor == Some(i);
         let net_tone = if net < -0.05 { Tone::Warn } else { Tone::Dim };
         let at_tone = if g.made_at == "nothing" { Tone::Warn } else { Tone::Text };
         let mut spans = vec![
-            (format!("  {:<name_width$} ", g.name), Tone::Text),
+            (if here { "> " } else { "  " }.to_owned(), Tone::Accent),
+            (format!("{:<name_width$} ", g.name), if here { Tone::Strong } else { Tone::Text }),
             (format!("{:>6.1} {:>6.1} ", g.made, g.used), Tone::Dim),
             (format!("{net:>+6.1} "), net_tone),
             (format!("{:>7}  ", g.stores), Tone::Dim),
@@ -186,6 +195,8 @@ pub fn goods_lines(rows: &[LedgerRow], width: usize, marks: &Marks) -> Vec<Row> 
         out.push(Row::spans(spans));
     }
     let short: Vec<&str> = rows.iter().filter(|g| g.short).map(|g| g.name.as_str()).collect();
+    out.push(Row::default());
+    out.push(Row::text("Enter on a good plans the machines that make it.", Tone::Dim));
     if !short.is_empty() {
         out.push(Row::default());
         let note = format!(
@@ -216,7 +227,9 @@ pub fn tab_lines(session: &Session, ui: &UiState, width: usize, marks: &Marks) -
         tab_strip(CityTab::Goods),
         Row::default(),
     ];
-    rows.extend(goods_lines(&goods_ledger(&session.world, &session.defs), width, marks));
+    let ledger = goods_ledger(&session.world, &session.defs);
+    let cursor = ui.goods_cursor.min(ledger.len().saturating_sub(1));
+    rows.extend(goods_lines(&ledger, width, marks, Some(cursor)));
     rows
 }
 
@@ -316,7 +329,10 @@ mod tests {
         assert_eq!(ui.city_tab, CityTab::Goods);
         let goods: Vec<String> = tab_lines(&s, &ui, 100, &marks).iter().map(Row::plain).collect();
         assert!(goods[1].contains("[Goods]"), "{goods:?}");
-        let row = |name: &str| goods.iter().position(|t| t.trim_start().starts_with(name));
+        let row = |name: &str| {
+            goods.iter().position(|t| t.trim_start_matches("> ").trim_start().starts_with(name))
+        };
+        assert!(goods.iter().any(|t| t.starts_with("> Lantern")), "the pointer starts on the top");
         let (lantern, fittings, steel) = (row("Lantern "), row("Fittings "), row("Steel "));
         assert!(lantern.is_some() && fittings.is_some() && steel.is_some(), "{goods:?}");
         assert!(lantern < fittings, "wanted goods come first: {goods:?}");

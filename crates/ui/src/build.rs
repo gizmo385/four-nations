@@ -272,7 +272,7 @@ pub(crate) fn describe_blocker(session: &Session, at: Pos, why: Blocker) -> Stri
 /// Whether the current nation could ever build `def` from the picker: not if the tech that unlocks
 /// it belongs to another nation's branch (`TechDef::open_to`), which the nation can never research,
 /// nor the endeavor's gate, which the Endeavor screen places (#236).
-fn available_to_nation(session: &Session, def: &BuildingDef) -> bool {
+pub(crate) fn available_to_nation(session: &Session, def: &BuildingDef) -> bool {
     !def.endeavor
         && def.unlocked_by.is_none_or(|t| {
             let tech = session.defs.tech(t);

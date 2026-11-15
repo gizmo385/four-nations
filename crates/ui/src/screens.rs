@@ -75,7 +75,8 @@ pub fn lines(session: &Session, screen: Screen, width: usize, ascii: bool) -> Ve
         | Screen::Abilities
         | Screen::Traders
         | Screen::Airship
-        | Screen::Split => Vec::new(),
+        | Screen::Split
+        | Screen::Planner => Vec::new(),
     }
 }
 
@@ -287,6 +288,7 @@ pub fn title(screen: Screen) -> &'static str {
         Screen::Traders => "TRADERS",
         Screen::Airship => "AIRSHIP",
         Screen::Split => "SPLIT",
+        Screen::Planner => "PLANNER",
     }
 }
 

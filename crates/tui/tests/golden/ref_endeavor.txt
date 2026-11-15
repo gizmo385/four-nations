@@ -37,4 +37,4 @@
 │                                                                                                                      │
 │ BENDING                                                                                                              │
 ┗───────────────────────────────────────────────────────────────────────────────────────────────────────── 1-37 of 42 ─┛
- ENDEAVOR  Up/Down scroll · Enter place · Esc or G close · X withdraw · PgUp/PgDn page                    PAUSED ? keys
+ ENDEAVOR  Up/Down scroll · Enter place or plan · Esc or G close · X withdraw · PgUp/PgDn page            PAUSED ? keys
