@@ -25,6 +25,7 @@ Keep this list in step when you add a doc or change a status.
 - [horizons-phase-3.md](horizons-phase-3.md): research horizons phase 3, trade techs and scribing
 - [horizons-phase-5.md](horizons-phase-5.md): research horizons phase 5, great ruins and the lost-teachings draft
 - [horizons-phase-6.md](horizons-phase-6.md): research horizons phase 6, borrowed techs, fusions and celestial days
+- [factory-endgame.md](factory-endgame.md): the Republic era, a factory endgame built on what residents want (proposed)
 - [balance-harness.md](balance-harness.md): the balance harness
 - [agent-play.md](agent-play.md), [agent-scripting.md](agent-scripting.md), [agent-hillclimb.md](agent-hillclimb.md), [agent-studio.md](agent-studio.md): agents playing, scoring and watched
 
