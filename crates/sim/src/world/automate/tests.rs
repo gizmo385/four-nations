@@ -58,7 +58,7 @@ fn automate_is_validated() {
     }
     let defs = Defs::bundled();
     let station = defs.building(defs.building_id("lightning_station").unwrap());
-    let (tech, a) = station.automate_upgrade.expect("great_works");
+    let (tech, a) = station.automate_upgrade.clone().expect("great_works");
     assert_eq!((defs.tech(tech).id.as_str(), a.rate, a.radius), ("great_works", 1.0, 4));
 }
 
@@ -102,4 +102,66 @@ fn set_automated_toggles_and_is_refused_before_the_tech_and_outside_the_yard() {
     assert_eq!(w.automated(near, &defs), None, "back to a crafter");
     w.apply(Command::SetAutomated { pos: near, on: true }, &defs).unwrap();
     assert_eq!(w.automated(near, &defs), Some(1.0));
+}
+
+/// A `nation` world with its power `source` at (2, 2) and the recipe building `machine` at
+/// `pos`, `terrain` laid on each of `tiles` first, and `mechanisms` known (#1037).
+fn machine_yard(
+    defs: &Defs,
+    nation: Nation,
+    source: &str,
+    machine: &str,
+    pos: Pos,
+    tiles: &[(Pos, Terrain)],
+) -> World {
+    let mut map = field(40, 20);
+    for &(p, terrain) in tiles {
+        map.get_mut(p).unwrap().terrain = terrain;
+    }
+    let mut w = World::with_map(1, map, nation, &[at(20, 12)], defs);
+    let id = |s: &str| defs.building_id(s).unwrap();
+    let size = |s: &str| defs.building(id(s)).footprint;
+    let (sw, sh) = size(source);
+    w.put_building(Footprint::new(at(2, 2), sw, sh), id(source), defs);
+    let (mw, mh) = size(machine);
+    w.put_building(Footprint::new(pos, mw, mh), id(machine), defs);
+    w
+}
+
+#[test]
+fn mechanisms_runs_each_nations_machines_at_its_own_rate() {
+    let defs = Defs::bundled();
+    let mechanisms = defs.tech_id("mechanisms").unwrap();
+    // Air: the Wind Turbine runs a Tea Works anywhere in its wide reach, slowest.
+    let mut air = machine_yard(&defs, Nation::Air, "wind_turbine", "tea_works", at(8, 2), &[]);
+    assert_eq!(air.automated(at(8, 2), &defs), None, "not before the tech");
+    air.research.grant(mechanisms);
+    assert_eq!(air.automated(at(8, 2), &defs), Some(0.5));
+    // Water: the Tide Mill runs a Smokehouse only along the water.
+    let shore = [(at(9, 2), Terrain::River)];
+    for (tiles, want) in [(&[][..], None), (&shore[..], Some(0.75))] {
+        let mut w = machine_yard(&defs, Nation::Water, "tide_mill", "smokehouse", at(7, 2), tiles);
+        w.research.grant(mechanisms);
+        assert_eq!(w.automated(at(7, 2), &defs), want, "{tiles:?}");
+    }
+    // Earth: the Hot Spring Mill runs a Workshop only at the rock face.
+    let rock = [(at(5, 4), Terrain::Mountain)];
+    for (tiles, want) in [(&[][..], None), (&rock[..], Some(0.6))] {
+        let mut w =
+            machine_yard(&defs, Nation::Earth, "hot_spring_mill", "workshop", at(5, 2), tiles);
+        w.research.grant(mechanisms);
+        assert_eq!(w.automated(at(5, 2), &defs), want, "{tiles:?}");
+    }
+}
+
+#[test]
+fn mechanisms_is_shared_waits_for_the_gate_and_bills_steel() {
+    let defs = Defs::bundled();
+    let t = defs.tech(defs.tech_id("mechanisms").unwrap());
+    assert!(t.nation.is_none() && t.requires.united);
+    assert!(t.cost_items.iter().any(|c| defs.item(c.item).id == "steel"));
+    // Fire's own yard keeps Great Works, at the best rate.
+    let station = defs.building(defs.building_id("lightning_station").unwrap());
+    let (tech, a) = station.automate_upgrade.as_ref().unwrap();
+    assert_eq!((defs.tech(*tech).id.as_str(), a.rate), ("great_works", 1.0));
 }

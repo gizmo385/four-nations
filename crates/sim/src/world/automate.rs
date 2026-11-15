@@ -65,11 +65,20 @@ impl World {
             return None;
         }
         let foot = b.footprint();
+        let touches = |terrains: &[crate::defs::Terrain]| {
+            terrains.is_empty()
+                || foot
+                    .ring()
+                    .filter_map(|p| self.map.get(p))
+                    .any(|t| terrains.contains(&t.terrain))
+        };
         self.of_kind(Kind::Automates)
             .filter_map(|s| {
-                let (tech, a) = defs.building(s.id).automate_upgrade?;
-                (self.research.is_known(tech) && s.footprint().gap(foot) <= a.radius as i32)
-                    .then_some(a.rate)
+                let (tech, a) = defs.building(s.id).automate_upgrade.as_ref()?;
+                (self.research.is_known(*tech)
+                    && s.footprint().gap(foot) <= a.radius as i32
+                    && touches(&a.beside))
+                .then_some(a.rate)
             })
             .reduce(f32::max)
     }
@@ -93,8 +102,18 @@ impl World {
         if defs.building(b.id).recipe.is_none() {
             return Err(RecipeError::NoSuchRecipe);
         }
-        let sources: Vec<_> =
-            defs.buildings.iter().filter_map(|d| Some((d, d.automate_upgrade?.0))).collect();
+        // The sources this city's tree shows, so the refusal names a tech it can see (Fire's
+        // Great Works before the gate, not the Republic's Mechanisms).
+        let united = self.united();
+        let sources: Vec<_> = defs
+            .buildings
+            .iter()
+            .filter_map(|d| Some((d, d.automate_upgrade.as_ref()?.0)))
+            .filter(|&(_, t)| {
+                let tech = defs.tech(t);
+                tech.open_to(self.nation) && tech.visible_when(united)
+            })
+            .collect();
         if !sources.iter().any(|&(_, t)| self.research.is_known(t)) {
             let tech = sources.first().map_or("automation", |&(_, t)| defs.tech(t).name.as_str());
             return Err(RecipeError::Locked(tech.to_owned()));

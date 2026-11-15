@@ -453,8 +453,14 @@ impl Economy {
         defs: &Defs,
         known: impl Fn(TechId) -> bool,
     ) -> Vec<TechId> {
-        let mut techs: Vec<(TechId, bool)> =
-            defs.techs_for(nation).map(|(id, t)| (id, t.nation.is_none())).collect();
+        // The Republic era's techs (`requires.united`: the goods, #1027, and `mechanisms`,
+        // #1037) are left to the player: the opening plays the road to the gate and the
+        // exchange after it, and a steel bill would starve the airship.
+        let mut techs: Vec<(TechId, bool)> = defs
+            .techs_for(nation)
+            .filter(|(_, t)| !t.requires.united)
+            .map(|(id, t)| (id, t.nation.is_none()))
+            .collect();
         if self.research == ResearchOrder::BranchFirst {
             // A stable sort keeps each group (branch, then shared) in its own file order.
             techs.sort_by_key(|&(_, shared)| shared);

@@ -529,12 +529,15 @@ pub struct UpgradeAura {
 }
 
 /// The `automate` upgrade's value (#725): `rate` 0.1 to 1.0, `radius` 1 to 8 (unscaled, from
-/// the source's footprint).
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+/// the source's footprint), and `beside` (#1037), terrains a machine's own footprint must touch
+/// to run (Water's race, Earth's face); empty for anywhere in reach.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpgradeAutomate {
     pub rate: f32,
     pub radius: u32,
+    #[serde(default)]
+    pub beside: Vec<crate::defs::Terrain>,
 }
 
 /// A school: one permanent fork in a nation's tree (`[[school]]` in `data/research.toml`,
