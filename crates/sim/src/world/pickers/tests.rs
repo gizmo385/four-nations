@@ -85,7 +85,7 @@ fn it_picks_the_nearest_ripe_tree_in_reach_every_interval() {
     assert_eq!(w.pickers_at(ROOST).unwrap().picked, 0, "not before a full interval");
     run(&mut w, &defs, 1);
     assert!(w.resting.contains_key(&at(8, 10)), "the tie goes to the lower tile index");
-    assert_eq!(w.pickers_at(ROOST).unwrap().picked, 2);
+    assert_eq!(w.pickers_at(ROOST).unwrap().picked, 1);
     run(&mut w, &defs, n);
     assert!(w.resting.contains_key(&at(12, 10)));
     run(&mut w, &defs, n);
@@ -93,10 +93,12 @@ fn it_picks_the_nearest_ripe_tree_in_reach_every_interval() {
     run(&mut w, &defs, 2 * n);
     assert!(!w.resting.contains_key(&at(17, 10)), "out of reach");
     let p = w.pickers_at(ROOST).unwrap();
-    assert_eq!((p.picked, p.eaten), (6, 1), "every 4th fruit is eaten");
-    assert_eq!(fruit_everywhere(&w, &defs), 5);
+    // A tree gives 1 fruit a pick (#486), so three picks are three fruit, short of the 4th
+    // that the lemurs eat (the stockpile test below covers eating).
+    assert_eq!((p.picked, p.eaten), (3, 0));
+    assert_eq!(fruit_everywhere(&w, &defs), 3);
     // Each pick counts as a harvest and strains the tree.
-    assert_eq!(w.tallies.harvested(defs.item_id("fruit").unwrap()), 6);
+    assert_eq!(w.tallies.harvested(defs.item_id("fruit").unwrap()), 3);
     assert!(w.strain.contains_key(&at(8, 10)));
 }
 
@@ -107,12 +109,16 @@ fn fruit_goes_to_a_stockpile_in_reach_or_beside_the_roost() {
     // No stockpile: the fruit drops beside the roost, to be hauled.
     run(&mut w, &defs, pick_ticks(&defs));
     assert_eq!(w.stored_total(fruit), 0);
-    assert_eq!(fruit_everywhere(&w, &defs), 2);
+    assert_eq!(fruit_everywhere(&w, &defs), 1);
     // A stockpile in reach takes the next pick directly.
     w.designate_stockpile(at(13, 13)).unwrap();
     w.designate_stockpile(at(16, 16)).unwrap(); // out of reach
     run(&mut w, &defs, pick_ticks(&defs));
-    assert_eq!(w.stored.get(&at(13, 13)).map(|s| s.count), Some(1), "2 picked, 1 eaten");
+    assert_eq!(
+        w.stored.get(&at(13, 13)).map(|s| s.count),
+        Some(1),
+        "the second pick, stored directly"
+    );
     assert!(!w.stored.contains_key(&at(16, 16)));
 }
 
@@ -146,5 +152,5 @@ fn picking_is_deterministic_and_survives_a_save() {
     run(&mut w, &defs, pick_ticks(&defs) * 3);
     run(&mut b, &defs, pick_ticks(&defs) * 3);
     assert_eq!(w.save(&defs).unwrap(), b.save(&defs).unwrap());
-    assert_eq!(w.pickers_at(ROOST).unwrap().picked, 10);
+    assert_eq!(w.pickers_at(ROOST).unwrap().picked, 5);
 }

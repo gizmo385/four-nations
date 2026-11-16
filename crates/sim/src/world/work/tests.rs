@@ -707,7 +707,7 @@ fn a_renewable_resource_stays_after_harvest_and_ripens_on_schedule() {
     // The tree is still there, bare, and the pick dropped beside it.
     assert!(w.map[at(4, 2)].resource.is_some());
     assert!(w.is_resting(at(4, 2)));
-    assert_eq!(w.ground_items().map(|(_, s)| s.count).sum::<u32>(), 2);
+    assert_eq!(w.ground_items().map(|(_, s)| s.count).sum::<u32>(), 1);
     assert_eq!(w.ground_items().next().map(|(_, s)| s.item), Some(fruit));
     assert!(w.resting_left(at(4, 2)).unwrap() > 0.0, "the TUI's hover (#299) counts down from it");
     assert_eq!(w.resting_left(at(0, 0)), None, "not resting");
@@ -797,7 +797,7 @@ fn fishing_needs_the_tech_and_runs_on_water_work() {
     let ticks = run_until(&mut w, &defs, 5000, |w| w.job(job).is_none());
     assert!((ticks as i64 - 40).abs() <= 4, "{ticks} ticks");
     assert!(w.is_resting(at(3, 1)));
-    assert_eq!(w.ground_items().map(|(_, s)| s.count).sum::<u32>(), 2);
+    assert_eq!(w.ground_items().map(|(_, s)| s.count).sum::<u32>(), 1);
 }
 
 #[test]
@@ -1121,9 +1121,9 @@ fn clearing_a_ripe_fruit_tree_drops_wood_and_fruit_and_empties_the_tile() {
     assert!(w.map[pos].resource.is_none(), "the tree is gone for good");
     assert!(!w.is_resting(pos));
     assert_eq!(ground_total(&w, wood), 2);
-    assert_eq!(ground_total(&w, fruit), 2);
+    assert_eq!(ground_total(&w, fruit), 1);
     assert_eq!(w.tallies().harvested(wood), 2, "a clear's own drop counts in the tally too");
-    assert_eq!(w.tallies().harvested(fruit), 2);
+    assert_eq!(w.tallies().harvested(fruit), 1);
 }
 
 #[test]
@@ -1136,7 +1136,7 @@ fn clearing_a_resting_fruit_tree_drops_only_the_wood() {
     let pick = w.designate_harvest(pos, &defs).unwrap();
     run_until(&mut w, &defs, 2000, |w| w.job(pick).is_none());
     assert!(w.is_resting(pos));
-    assert_eq!(ground_total(&w, fruit), 2);
+    assert_eq!(ground_total(&w, fruit), 1);
 
     // A resting tree can be cleared at once (unlike a harvest), and gives no second helping of
     // fruit since it isn't ripe.
@@ -1146,7 +1146,7 @@ fn clearing_a_resting_fruit_tree_drops_only_the_wood() {
     run_until(&mut w, &defs, 2000, |w| w.job(job).is_none());
     assert!(w.map[pos].resource.is_none());
     assert_eq!(ground_total(&w, wood), 2);
-    assert_eq!(ground_total(&w, fruit), 2, "still only the first pick's fruit");
+    assert_eq!(ground_total(&w, fruit), 1, "still only the first pick's fruit");
 }
 
 #[test]

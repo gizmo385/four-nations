@@ -156,14 +156,19 @@ fn the_first_frost_sends_ripe_plants_on_frost_bands_back_to_resting() {
 
 #[test]
 fn frost_hardy_harvests_and_already_resting_plants_are_untouched_by_frost() {
-    let defs = Defs::bundled();
+    // No bundled spot harvest is frost-hardy since #486 (only shore fishing is), so make the
+    // fish spot hardy here to exercise the rule.
+    let mut defs = Defs::bundled();
+    let fish = defs.resource_id("fish_spot").unwrap();
+    let h = defs.harvests.iter_mut().find(|h| h.resource == fish).unwrap();
+    h.frost_hardy = true;
     let mut map = field(3, 1, 0); // polar
-    map[at(0, 0)].resource = defs.resource_id("fish_spot");
+    map[at(0, 0)].resource = Some(fish);
     let mut w = world(&defs, map, &[]);
     w.difficulty = Some("normal".into());
     w.tick = 3 * season_ticks(&defs) - 1;
     w.tick(&defs);
-    assert!(!w.is_resting(at(0, 0)), "fishing is frost_hardy");
+    assert!(!w.is_resting(at(0, 0)), "a frost_hardy harvest skips the frost");
 }
 
 #[test]

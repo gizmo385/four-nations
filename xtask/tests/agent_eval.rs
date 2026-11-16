@@ -51,6 +51,28 @@ owner_seeds = [201]
 collapse_below = 1
 "#;
 
+/// FNV-1a over every `data/*.toml`, by file name, read once.
+fn data_digest() -> u64 {
+    static DIGEST: OnceLock<u64> = OnceLock::new();
+    *DIGEST.get_or_init(|| {
+        let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
+        let mut files: Vec<PathBuf> = fs::read_dir(&data)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+            .collect();
+        files.sort();
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for file in files {
+            let name = file.file_name().unwrap().to_string_lossy().into_owned();
+            for b in name.bytes().chain(fs::read(&file).unwrap()).chain(std::iter::once(0)) {
+                h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+        h
+    })
+}
+
 struct Fixture {
     tmp: PathBuf,
     /// `$FN_AGENT_CACHE` for its evaluations.
@@ -62,8 +84,13 @@ impl Fixture {
     /// target tmp dir, never the owner's): they're the same for every test on one build, and
     /// computing them is most of a first evaluation. Writes are atomic (a temporary file and a
     /// rename), so tests running at once can share it.
+    ///
+    /// The folder is named for the game data too. CI pins the build id
+    /// (`FN_BUILD_ID_OVERRIDE`) and restores `target/` from main, so a par cached under main's
+    /// data would otherwise be read back on a pull request that changes the data (#486).
     fn new(name: &str) -> Self {
-        let cache = Path::new(env!("CARGO_TARGET_TMPDIR")).join("agent_eval_cache");
+        let cache = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("agent_eval_cache-{:016x}", data_digest()));
         Self::with_cache(name, cache)
     }
 
