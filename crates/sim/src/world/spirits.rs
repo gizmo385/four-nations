@@ -6,6 +6,12 @@
 //!   the last minute (`Tallies::school("trees_felled")`, counted where a tree's tile empties).
 //! - **Calm**: a base, and the living trees on the map, up to a cap.
 //!
+//! While balance is low, **spirit vines** grow (F6b): every `vine_seconds` one appears on the
+//! free land tile nearest the busiest yard (the highest draw, then the first by anchor), among
+//! the tiles touching that yard's machines or an existing vine within 3 tiles of them. A vine is
+//! a map resource, cut like any other. An automated machine whose edge touches one runs at
+//! `vine_choke` of its speed (`World::choked`).
+//!
 //! No RNG. Before the gate nothing runs and nothing is written to a save.
 
 use serde::{Deserialize, Serialize};
@@ -91,7 +97,12 @@ impl World {
     pub fn balance_now(&self, defs: &Defs) -> BalanceTerms {
         let s = &defs.spirits;
         let draw: u32 = self.yard_loads(defs).values().map(|l| l.draw).sum();
-        let felled = self.tallies.school("trees_felled").saturating_sub(self.spirits.felled_seen);
+        // Only trees felled since the gate count: the first minute after it charges none.
+        let felled = if self.spirits.balance.is_some() {
+            self.tallies.school("trees_felled").saturating_sub(self.spirits.felled_seen)
+        } else {
+            0
+        };
         let trees = self.living_trees(defs) / s.trees_per_calm;
         BalanceTerms {
             machines: draw as f32 * s.unrest_per_draw,
@@ -111,6 +122,82 @@ impl World {
         self.spirits.balance = Some((now + terms.net()).clamp(0.0, 100.0));
         self.spirits.felled_seen = self.tallies.school("trees_felled");
         self.spirits.last = Some(terms);
+    }
+}
+
+impl World {
+    /// Whether the building anchored on `pos` has a spirit vine against its edge (F6b).
+    pub fn choked(&self, pos: Pos, defs: &Defs) -> bool {
+        let Some(vine) = defs.spirits.vines else { return false };
+        let Some(b) = self.anchored(pos) else { return false };
+        b.footprint().ring().any(|p| self.map.get(p).is_some_and(|t| t.resource == Some(vine)))
+    }
+
+    /// Whether a vine may grow on `pos`: open land with nothing on it and nobody standing there.
+    fn vine_room(&self, pos: Pos) -> bool {
+        self.map.get(pos).is_some_and(|t| {
+            t.terrain == crate::defs::Terrain::Land && t.resource.is_none() && t.building.is_none()
+        }) && self.site_at(pos).is_none()
+            && !self.zones.contains(&pos)
+            && !self.ground.contains_key(&pos)
+            && self.units_at(pos).next().is_none()
+    }
+
+    /// Where the next vine grows, if one is due to: the free tile nearest the busiest yard.
+    pub(super) fn next_vine(&self, defs: &Defs) -> Option<Pos> {
+        let vine = defs.spirits.vines?;
+        let loads = self.yard_loads(defs);
+        let (&yard, _) = loads
+            .iter()
+            .filter(|(_, l)| l.draw > 0)
+            .max_by(|a, b| a.1.draw.cmp(&b.1.draw).then(b.0.cmp(a.0)))?;
+        let yard_foot = self.footprint_at(yard)?;
+        let machines: Vec<crate::geom::Footprint> = self
+            .buildings()
+            .filter(|b| !b.manual && self.yard_of(b.anchor, defs).is_some_and(|(y, _)| y == yard))
+            .map(|b| b.footprint())
+            .collect();
+        let near = |p: Pos, d: i32| machines.iter().any(|f| f.distance(p) <= d);
+        let (mut lo, mut hi) = (Pos::new(i32::MAX, i32::MAX), Pos::new(i32::MIN, i32::MIN));
+        for f in &machines {
+            for t in f.tiles() {
+                lo = Pos::new(lo.x.min(t.x - 4), lo.y.min(t.y - 4));
+                hi = Pos::new(hi.x.max(t.x + 4), hi.y.max(t.y + 4));
+            }
+        }
+        let is_vine = |p: Pos| self.map.get(p).is_some_and(|t| t.resource == Some(vine));
+        // Never on a door: a machine choked is slowed, never shut off from its supply.
+        let doors: std::collections::BTreeSet<Pos> =
+            self.buildings().map(|b| b.footprint().entrance()).collect();
+        (lo.y..=hi.y)
+            .flat_map(|y| (lo.x..=hi.x).map(move |x| Pos::new(x, y)))
+            .filter(|&p| self.vine_room(p) && !doors.contains(&p))
+            .filter(|&p| {
+                near(p, 1)
+                    || (near(p, 3)
+                        && [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                            .iter()
+                            .any(|&(dx, dy)| is_vine(Pos::new(p.x + dx, p.y + dy))))
+            })
+            .min_by_key(|&p| (yard_foot.distance(p), p.y, p.x))
+    }
+
+    /// Grows a vine when one is due (F6b).
+    pub(super) fn tick_vines(&mut self, defs: &Defs) {
+        let s = &defs.spirits;
+        let (Some(vine), Some(balance)) = (s.vines, self.balance(defs)) else { return };
+        if balance >= s.vine_below {
+            return;
+        }
+        let secs = if balance < s.vine_fast_below { s.vine_seconds / 2.0 } else { s.vine_seconds };
+        let every = (secs * TICKS_PER_SECOND as f32).round().max(1.0) as u64;
+        if !self.tick.is_multiple_of(every) {
+            return;
+        }
+        if let Some(p) = self.next_vine(defs) {
+            self.map[p].resource = Some(vine);
+            self.map_changed();
+        }
     }
 }
 

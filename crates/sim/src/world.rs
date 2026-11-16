@@ -1231,6 +1231,7 @@ impl World {
         self.tick_draw(defs);
         self.tick_standing(defs);
         self.tick_spirits(defs);
+        self.tick_vines(defs);
         self.tick_orchards(defs);
         self.tick_pickers(defs);
         self.tick_farms(defs);

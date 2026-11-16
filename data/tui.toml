@@ -169,6 +169,13 @@ glyph = "Π"
 ascii = "N"
 fg = [224, 206, 160]
 
+# Spirit vines (#1030, docs/design/spirits.md): a glowing green tangle.
+[resource.spirit_vines]
+glyph = "ξ"
+ascii = "%"
+fg = [120, 230, 170]
+plant = true
+
 [item.wood]
 glyph = "≡"
 ascii = "/"
@@ -269,6 +276,11 @@ fg = [140, 200, 110]
 glyph = "ʃ"
 ascii = "i"
 fg = [210, 170, 210]
+
+[item.spirit_vine]
+glyph = "∫"
+ascii = "v"
+fg = [120, 230, 170]
 
 # --- Fire production (#124) ---
 [item.metal]

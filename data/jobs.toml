@@ -190,6 +190,10 @@ name = "Tea"
 [[item]]
 id = "incense"
 name = "Incense"
+# Cut from spirit vines (docs/design/spirits.md, #1030): the Spirit Portal's main cost.
+[[item]]
+id = "spirit_vine"
+name = "Spirit Vine"
 
 # What working a map resource yields. When the work finishes `count` of `item` drops beside the
 # resource, and the resource is cleared unless it regrows (see `regrow`).
@@ -459,3 +463,21 @@ calm_per_trees = 0.5
 trees_per_calm = 25
 trees_calm_max = 3.0
 trees = ["oak_tree", "fir_tree", "fruit_tree"]
+# Spirit vines (F6b): below `vine_below`, one vine grows every `vine_seconds` beside the busiest
+# yard's machines; below `vine_fast_below`, twice as often. A machine whose edge touches one runs
+# at `vine_choke` of its speed.
+vines = "spirit_vines"
+vine_below = 40.0
+vine_fast_below = 15.0
+vine_seconds = 30.0
+vine_choke = 0.5
+
+# Cutting spirit vines (F6b, #1030). Appended last, after the tables above.
+[[harvest]]
+resource = "spirit_vines"
+verb = "Cut"
+noun = "vine"
+noun_many = "vines"
+item = "spirit_vine"
+count = 1
+work = 6.0

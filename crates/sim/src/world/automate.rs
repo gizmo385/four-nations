@@ -378,6 +378,8 @@ impl World {
             }
             let Some((yard, rate)) = self.yard_of(pos, defs) else { continue };
             let rate = rate * loads.get(&yard).map_or(1.0, super::plant::YardLoad::speed);
+            // A spirit vine against its edge (F6b, docs/design/spirits.md) slows it.
+            let rate = if self.choked(pos, defs) { rate * defs.spirits.vine_choke } else { rate };
             let Some(recipe) = self.recipe_at(pos, defs) else { continue };
             if self.needs_tending(pos, defs) {
                 if !self.jobs.iter().any(|j| j.kind == JobKind::Refuel { pos }) {

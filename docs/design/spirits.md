@@ -56,14 +56,15 @@ screen shows the meter, its trend a minute, and the two biggest terms ("Machines
 ## Layer 2: spirit vines
 
 **Rule (proposed).** While balance is below **40**, every 30 seconds one vine tile grows. It
-appears on a free land tile beside the most-loaded yard's machines: the yard with the highest draw,
-the free tile nearest its anchor, first in tile order. An existing vine tile next to a free land
-tile spreads into it instead, half the time, decided with the seeded RNG. Below **15** the
-interval halves.
+appears on the free land tile nearest the busiest yard (the highest draw, then the first by
+anchor), among the tiles touching that yard's machines or touching an existing vine within 3
+tiles of them, never on a building's door. Ties go in tile order, and there's no RNG. Below **15** the interval halves.
 
 - A vine is a **resource on the tile** (`spirit_vines` in `data/resources.toml`). The Harvest
   tool cuts it. Cutting takes 6 seconds and yields one **spirit vine** item.
-- A vine tile can't be built on, and settlers walk through it at half speed.
+- A vine tile blocks walking, as a tree does. Building over one queues it to be cut first, as
+  building over a tree does. (The first draft had settlers wade through at half speed. A
+  resource tile already blocks, so this reuses that.)
 - An automated machine whose footprint ring touches a vine runs at **half speed**: "Choked by
   vines". This stacks with a brownout.
 - At balance 40 or above, vines stop growing. They don't wither, so they still need cutting.
