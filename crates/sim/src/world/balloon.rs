@@ -161,7 +161,9 @@ impl World {
         for dock in docks {
             let Some(partner) = self.pair_partner(dock, defs) else { continue };
             let Some(def) = self.balloon_def(dock, defs) else { continue };
-            if self.dock_room(dock, defs) < stack.count {
+            if self.dock_room(dock, defs) < stack.count
+                || (def.light_only && defs.item(stack.item).heavy)
+            {
                 continue;
             }
             let Some((walk, stand)) = self.stand_building(flood, dock, defs) else { continue };
@@ -303,12 +305,17 @@ impl World {
             return;
         }
         let Some(plan) = self.plan_launch(dock, partner, &def) else { return };
-        let Some(fuel) = self.anchored(dock).and_then(|b| b.fuel) else { return };
-        if fuel.count < def.fuel_per_flight {
-            return;
+        // A free-running carrier (fuel_per_flight 0) has no bunker to check.
+        if def.fuel_per_flight > 0 {
+            let Some(fuel) = self.anchored(dock).and_then(|b| b.fuel) else { return };
+            if fuel.count < def.fuel_per_flight {
+                return;
+            }
         }
         let b = self.anchored_mut(dock).expect("a working dock");
-        b.fuel.as_mut().expect("checked above").count -= def.fuel_per_flight;
+        if def.fuel_per_flight > 0 {
+            b.fuel.as_mut().expect("checked above").count -= def.fuel_per_flight;
+        }
         let state = b.dock.as_mut().expect("checked above");
         state.balloon = None;
         let mut cargo: Vec<Stack> = Vec::new();
@@ -345,7 +352,9 @@ impl World {
         if let Some(flight) = &balloon.flight {
             return Some(BalloonStatus::Landing { ticks: flight.left });
         }
-        let fuel = defs.building(self.anchored(pos)?.id).fuel.as_ref()?;
+        let Some(fuel) = defs.building(self.anchored(pos)?.id).fuel.as_ref() else {
+            return Some(BalloonStatus::Parked);
+        };
         let have = self.anchored(pos)?.fuel.map_or(0, |f| f.count);
         match self.plan_launch(pos, partner, &def) {
             Some(_) if have < def.fuel_per_flight => Some(BalloonStatus::OutOfFuel(fuel.item)),

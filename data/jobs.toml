@@ -57,10 +57,12 @@ name = "Wood"
 [[item]]
 id = "stone"
 name = "Stone"
+heavy = true                # #1030: too heavy for a Wind Tube
 
 [[item]]
 id = "gold_ore"
 name = "Gold Ore"
+heavy = true                # #1030: too heavy for a Wind Tube
 
 [[item]]
 id = "ancient_scroll"
@@ -76,10 +78,12 @@ knowledge = 40
 [[item]]
 id = "metal"
 name = "Metal"
+heavy = true                # #1030: too heavy for a Wind Tube
 
 [[item]]
 id = "brick"
 name = "Brick"
+heavy = true                # #1030: too heavy for a Wind Tube
 stands_for = "stone"
 
 [[item]]
@@ -142,6 +146,7 @@ name = "Spirit Water"
 [[item]]
 id = "steel"
 name = "Steel"
+heavy = true                # #1030: too heavy for a Wind Tube
 
 # The Republic era's goods (docs/design/factory-endgame.md, "Wants", #1027): what residents of a
 # United City want, made by hand after the gate. Plain stored items: not food, never eaten.

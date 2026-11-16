@@ -524,6 +524,22 @@ glyph = "ŧ"
 ascii = "T"
 fg = [120, 200, 110]
 
+# Freight links (#1030).
+[building.freight_station]
+glyph = "⊟"
+ascii = "#"
+fg = [190, 160, 110]
+
+[building.flume]
+glyph = "≋"
+ascii = "~"
+fg = [90, 170, 220]
+
+[building.wind_tube]
+glyph = "◎"
+ascii = "o"
+fg = [200, 225, 235]
+
 [building.steam_engine]
 glyph = "Φ"
 ascii = "E"

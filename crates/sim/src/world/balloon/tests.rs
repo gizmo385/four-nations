@@ -330,3 +330,47 @@ fn flying_goods_is_deterministic() {
     };
     assert_eq!(run(), run());
 }
+
+/// A pair of `id` across the wall (#1030's freight links), linked, with no bunker, and a hauler.
+fn freight(id: &str, size: (u8, u8)) -> (World, Defs) {
+    let mut defs = Defs::bundled();
+    defs.needs.hunger.decay_per_minute = 0.0;
+    defs.needs.thirst.decay_per_minute = 0.0;
+    defs.needs.energy.decay_per_minute = 0.0;
+    let link = defs.building_id(id).unwrap();
+    let mut w = World::with_map(1, walled(), Nation::Earth, &[at(17, 6)], &defs);
+    for p in [A, B] {
+        w.put_building(Footprint::new(p, size.0, size.1), link, &defs);
+    }
+    w.apply(Command::SetLink { pos: A, to: B }, &defs).unwrap();
+    (w, defs)
+}
+
+#[test]
+fn a_freight_line_carries_stone_with_no_fuel_at_all() {
+    let (mut w, defs) = freight("freight_station", (2, 2));
+    assert!(w.anchored(A).unwrap().fuel.is_none(), "no bunker");
+    let stone = defs.item_id("stone").unwrap();
+    w.designate_stockpile(at(45, 6)).unwrap();
+    w.ground.insert(at(17, 7), Stack { item: stone, count: 4 });
+    w.ensure_haul_job(at(17, 7));
+    run_until(&mut w, &defs, 600, |w| held(w, A, &defs) == 4);
+    run_until(&mut w, &defs, 3000, |w| held(w, A, &defs) == 0);
+    run_until(&mut w, &defs, 3000, |w| w.stored_total(stone) == 4);
+}
+
+#[test]
+fn a_wind_tube_refuses_stone_and_carries_wood() {
+    let (mut w, defs) = freight("wind_tube", (1, 1));
+    w.designate_stockpile(at(45, 6)).unwrap();
+    let (stone, wood) = (defs.item_id("stone").unwrap(), defs.item_id("wood").unwrap());
+    assert!(defs.item(stone).heavy && !defs.item(wood).heavy);
+    let i = 0;
+    w.ensure_regions();
+    let flood = w.flood_from(i);
+    let take = |w: &mut World, item| {
+        w.balloon_for(i, &flood, Stack { item, count: 2 }, Some(10_000), &defs).map(|(d, _)| d)
+    };
+    assert_eq!(take(&mut w, stone), None, "stone walks");
+    assert_eq!(take(&mut w, wood), Some(A), "wood rides the tube");
+}

@@ -1340,7 +1340,11 @@ mod tests {
         assert!(bad("load = 20", "load = 41").contains("load must be"));
         assert!(bad("load = 20", "load = 0").contains("load must be"));
         assert!(bad("fuel_per_flight = 2", "fuel_per_flight = 11").contains("fuel_per_flight"));
-        assert!(bad("fuel_per_flight = 2", "fuel_per_flight = 0").contains("fuel_per_flight"));
+        // A carrier that runs free (#1030, freight links) needs no bunker, and may be light only.
+        let free = balloon("light_only = true\n").replace("fuel_per_flight = 2\n", "");
+        let defs = with(&free).unwrap();
+        let b = defs.building(defs.building_id("twin").unwrap()).balloon.unwrap();
+        assert_eq!((b.fuel_per_flight, b.light_only), (0, true));
         assert!(bad("wait_seconds = 60.0", "wait_seconds = 0.0").contains("wait_seconds"));
         assert!(
             bad("tiles_per_second = 1.5", "tiles_per_second = 0.0").contains("tiles_per_second")

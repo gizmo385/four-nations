@@ -1597,3 +1597,85 @@ work = 25.0
 modifier = "construction"
 input = [{ item = "herbs", count = 1 }, { item = "fruit", count = 1 }]
 stock_limit = 6
+
+# --- #1030 (factory endgame F3: freight) ---
+# Freight links (docs/design/factory-endgame.md, "Layer 3: freight"): pairs that carry goods
+# between their two ends, the Balloon Dock's machinery (`[building.balloon]`) running free, with
+# no fuel. A hauler bound for stores drops its load in the near end's hold when that beats
+# walking; the far end spills it by its door for the next hauler. One nation each.
+#
+# Earth's Freight Line: a cart on rail pushed by an earthbender. The heaviest loads, far apart.
+# (The design's "both ends on one rail line" rule isn't enforced yet.)
+[[building]]
+id = "freight_station"
+name = "Freight Station"
+verb = "Build"
+work = 90.0
+passable = false
+footprint = [2, 2]
+[building.pair]
+reach = 96
+min_tiles = 12
+[building.balloon]
+load = 40
+hold = 80
+wait_seconds = 40.0
+tiles_per_second = 3.0
+[[building.cost]]
+item = "stone"
+count = 12
+[[building.cost]]
+item = "steel"
+count = 2
+[[building.cost]]
+item = "tool"
+count = 1
+
+# Water's Flume: a channel the goods ride, both ends by the water.
+[[building]]
+id = "flume"
+name = "Flume"
+verb = "Cut"
+work = 60.0
+passable = false
+footprint = [2, 1]
+beside = ["water", "river", "lake", "canal"]
+[building.pair]
+reach = 64
+min_tiles = 8
+[building.balloon]
+load = 20
+hold = 40
+wait_seconds = 20.0
+tiles_per_second = 2.5
+[[building.cost]]
+item = "wood"
+count = 16
+[[building.cost]]
+item = "steel"
+count = 1
+
+# Air's Wind Tube: a straight gust, short and fastest, for light goods only (no stone, ore or
+# metal: `heavy` in data/jobs.toml).
+[[building]]
+id = "wind_tube"
+name = "Wind Tube"
+verb = "Raise"
+work = 50.0
+passable = false
+footprint = [1, 1]
+[building.pair]
+reach = 30
+min_tiles = 6
+[building.balloon]
+load = 10
+hold = 20
+wait_seconds = 10.0
+tiles_per_second = 6.0
+light_only = true
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "steel"
+count = 1

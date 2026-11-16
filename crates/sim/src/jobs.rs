@@ -36,6 +36,9 @@ pub struct ItemDef {
     /// horizons-phase-5.md, "Searching one", #737). Like `knowledge`, it makes the item
     /// readable: carried to a study hall and used up there. At most one of the two; 1 to 4.
     pub reveals: Option<u32>,
+    /// Too heavy for a light carrier (#1030, F3 freight): Air's Wind Tube refuses it
+    /// (`BalloonDef::light_only`). Stone, ore and metal.
+    pub heavy: bool,
 }
 
 impl ItemDef {
@@ -183,6 +186,8 @@ struct RawItem {
     stands_for: Option<String>,
     #[serde(default)]
     reveals: Option<u32>,
+    #[serde(default)]
+    heavy: bool,
 }
 
 #[derive(Deserialize)]
@@ -355,6 +360,7 @@ impl JobsFile {
                 knowledge: i.knowledge,
                 stands_for: None,
                 reveals: i.reveals,
+                heavy: i.heavy,
             })
             .collect();
         items.extend(foods.iter().enumerate().map(|(n, f)| ItemDef {
@@ -364,6 +370,7 @@ impl JobsFile {
             knowledge: None,
             stands_for: None,
             reveals: None,
+            heavy: false,
         }));
         for (idx, target) in raw_stands_for.iter().enumerate() {
             let Some(target_id) = target else { continue };

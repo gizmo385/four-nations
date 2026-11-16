@@ -498,8 +498,12 @@ pub struct BalloonDef {
     pub wait_ticks: u64,
     /// Tiles flown per second, anchor to anchor (Chebyshev).
     pub tiles_per_second: f32,
-    /// Items burned from the launching dock's bunker per flight, empty flights too.
+    /// Items burned from the launching dock's bunker per flight, empty flights too. 0 for a
+    /// carrier that runs free (the factory era's freight links, #1030), which needs no bunker.
     pub fuel_per_flight: u32,
+    /// Carries only light goods: a heavy item (`ItemDef::heavy`) walks instead (Air's Wind
+    /// Tube).
+    pub light_only: bool,
 }
 
 /// The most deals one voyage may carry whatever a dock's `deals` says: `Command::PlanVoyage`
@@ -1094,7 +1098,10 @@ struct RawBalloon {
     hold: u32,
     wait_seconds: f32,
     tiles_per_second: f32,
+    #[serde(default)]
     fuel_per_flight: u32,
+    #[serde(default)]
+    light_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -1949,12 +1956,19 @@ fn resolve_balloon(
     if !paired {
         return err("needs a [building.pair]: it flies to its partner");
     }
-    let Some(fuel) = fuel else { return err("needs a [building.fuel] bunker to burn from") };
     if r.load == 0 || r.hold < r.load {
         return err("load must be at least 1 and no more than hold");
     }
-    if r.fuel_per_flight == 0 || r.fuel_per_flight > fuel.bunker {
-        return err("fuel_per_flight must be at least 1 and fit the bunker");
+    // A carrier that burns fuel needs a bunker that holds a flight's worth; one that runs free
+    // (fuel_per_flight 0) needs none.
+    match fuel {
+        Some(fuel) if r.fuel_per_flight > fuel.bunker => {
+            return err("fuel_per_flight must fit the bunker");
+        }
+        None if r.fuel_per_flight > 0 => {
+            return err("needs a [building.fuel] bunker to burn from");
+        }
+        _ => {}
     }
     if !(r.wait_seconds.is_finite() && r.wait_seconds > 0.0) {
         return err("wait_seconds must be above 0");
@@ -1969,6 +1983,7 @@ fn resolve_balloon(
             as u64,
         tiles_per_second: r.tiles_per_second,
         fuel_per_flight: r.fuel_per_flight,
+        light_only: r.light_only,
     })
 }
 
