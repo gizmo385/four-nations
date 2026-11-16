@@ -288,6 +288,11 @@ pub struct Requires {
     /// 1 to `MAX_RESIDENTS_REQUIRED`. Can fall.
     #[serde(default)]
     pub residents: std::collections::BTreeMap<Nation, u32>,
+    /// Notables of each named nation living here (`Facts::notables`, docs/design/factory-endgame.md,
+    /// "The goal: the Republic Council", #1030): each count 1 to `MAX_RESIDENTS_REQUIRED`. Can
+    /// fall, when a Notable slips a tier.
+    #[serde(default)]
+    pub notables: std::collections::BTreeMap<Nation, u32>,
     /// The Harmony Gate stands (`Facts::united`): the Republic era's goods techs
     /// (docs/design/factory-endgame.md, #1027) open only in a United City. The gate never falls.
     #[serde(default)]
@@ -314,6 +319,8 @@ pub struct Facts<'a> {
     pub masters: [u16; 4],
     /// Residents by `Nation::index` of their own nation, the home nation included.
     pub residents: [u16; 4],
+    /// Residents at the Notable tier, by `Nation::index` of their own nation.
+    pub notables: [u16; 4],
     /// Whether the Harmony Gate stands (`World::united`): from then on a fusion tech is on the
     /// tree (docs/design/horizons-phase-6.md, "Fusions"). The gate never falls.
     pub united: bool,
@@ -334,6 +341,8 @@ pub enum Condition {
     Masters { count: u32, of: Vec<Nation> },
     /// At least `need` residents of `nation`, `have` of them living here now.
     Residents { nation: Nation, need: u32, have: u32 },
+    /// At least `need` Notables of `nation`, `have` of them living here now.
+    Notables { nation: Nation, need: u32, have: u32 },
     /// The Harmony Gate stands.
     United,
 }
@@ -363,6 +372,11 @@ impl std::fmt::Display for Condition {
                 let verb = if *have == 1 { "lives" } else { "live" };
                 write!(f, "{need} {} {noun} ({have} {verb} here)", nation.title())
             }
+            Self::Notables { nation, need, have } => {
+                let noun = if *need == 1 { "Notable" } else { "Notables" };
+                let verb = if *have == 1 { "lives" } else { "live" };
+                write!(f, "{need} {} {noun} ({have} {verb} here)", nation.title())
+            }
             Self::United => f.write_str("the Harmony Gate standing"),
         }
     }
@@ -377,6 +391,7 @@ impl Requires {
             && self.masters.is_none()
             && self.masters_of.is_none()
             && self.residents.is_empty()
+            && self.notables.is_empty()
             && !self.united
     }
 
@@ -411,6 +426,12 @@ impl Requires {
             let have = u32::from(facts.residents[nation.index()]);
             if have < need {
                 out.push(Condition::Residents { nation, need, have });
+            }
+        }
+        for (&nation, &need) in &self.notables {
+            let have = u32::from(facts.notables[nation.index()]);
+            if have < need {
+                out.push(Condition::Notables { nation, need, have });
             }
         }
         if self.united && !facts.united {
@@ -913,12 +934,16 @@ impl ResearchFile {
                     return Err(err(format!("requires.{key} = {n} must be 1 to {max}")));
                 }
             }
-            for (&nation, &n) in &raw.requires.residents {
-                if !(1..=MAX_RESIDENTS_REQUIRED).contains(&n) {
-                    return Err(err(format!(
-                        "requires.residents.{} = {n} must be 1 to {MAX_RESIDENTS_REQUIRED}",
-                        nation.as_str()
-                    )));
+            for (key, map) in
+                [("residents", &raw.requires.residents), ("notables", &raw.requires.notables)]
+            {
+                for (&nation, &n) in map {
+                    if !(1..=MAX_RESIDENTS_REQUIRED).contains(&n) {
+                        return Err(err(format!(
+                            "requires.{key}.{} = {n} must be 1 to {MAX_RESIDENTS_REQUIRED}",
+                            nation.as_str()
+                        )));
+                    }
                 }
             }
             if let Some(of) = &raw.requires.masters_of {

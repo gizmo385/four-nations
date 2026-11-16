@@ -91,6 +91,23 @@ macro_rules! modifiers {
         }
 
         impl Modifiers {
+            /// The largest modifier and its name, of the work modifiers (the first in field order
+            /// on a tie): what a nation's council seat lends (`World::council_seated`, #1030).
+            pub fn strongest(&self) -> (&'static str, f32) {
+                [$((stringify!($field), self.$field),)*]
+                    .into_iter()
+                    .fold(("", f32::MIN), |best, next| if next.1 > best.1 { next } else { best })
+            }
+
+            /// Raises the modifier called `name` to at least `v`. No effect on an unknown name.
+            pub fn raise(&mut self, name: &str, v: f32) {
+                match name {
+                    $(stringify!($field) => self.$field = self.$field.max(v),)*
+                    $(stringify!($dfield) => self.$dfield = self.$dfield.max(v),)*
+                    _ => {}
+                }
+            }
+
             /// Multiplies each modifier `m` sets, leaving the others alone.
             pub fn apply(&mut self, m: &ModifierMultipliers) {
                 $(if let Some(f) = m.$field { self.$field *= f; })*

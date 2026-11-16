@@ -165,6 +165,9 @@ fn card_text(condition: &Condition, facts: &Facts<'_>) -> String {
                 if *need == 1 { "resident" } else { "residents" }
             )
         }
+        Condition::Notables { nation, need, .. } => {
+            format!("{need} {} {}", nation.title(), if *need == 1 { "Notable" } else { "Notables" })
+        }
         Condition::Population(_) => format!("{condition} ({})", facts.population),
         Condition::Masters { count, of } => masters_text(*count, of),
         other => other.to_string(),
@@ -938,6 +941,10 @@ pub fn condition_lines(
     for (&nation, &need) in &r.residents {
         let have = u32::from(facts.residents[nation.index()]);
         all.push(Condition::Residents { nation, need, have });
+    }
+    for (&nation, &need) in &r.notables {
+        let have = u32::from(facts.notables[nation.index()]);
+        all.push(Condition::Notables { nation, need, have });
     }
     if r.united {
         all.push(Condition::United);

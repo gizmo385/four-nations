@@ -770,6 +770,10 @@ pub struct BuildingDef {
     /// How much of an automating yard's `capacity` this machine takes while automated
     /// (docs/design/factory-endgame.md, "Layer 4", #1030): 1 unless set; big works draw more.
     pub draw: u32,
+    /// The Council Hall (`council = true`, docs/design/factory-endgame.md, "The goal: the
+    /// Republic Council", #1030): once one stands, each nation's seat lends its strongest
+    /// modifier to the whole city (`World::council_seated`).
+    pub council: bool,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -1281,6 +1285,8 @@ struct RawBuilding {
     #[serde(default)]
     draw: Option<u32>,
     #[serde(default)]
+    council: bool,
+    #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
     endeavor: bool,
@@ -1746,6 +1752,7 @@ impl BuildingsFile {
                 archive,
                 uses_power: b.uses_power,
                 draw: b.draw.unwrap_or(1),
+                council: b.council,
                 names: b.names,
                 fuel,
                 houses_beast: false,

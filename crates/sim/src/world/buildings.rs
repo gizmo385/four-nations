@@ -150,6 +150,8 @@ impl Building {
 /// indexes are built, never saved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Kind {
+    /// The Council Hall (#1030).
+    Council,
     Orchard,
     Farm,
     Irrigation,
@@ -221,6 +223,7 @@ impl Kind {
             (def.track.is_some_and(|t| t.power_reach.is_some()), Kind::PowerRail),
             (def.heat_aura_upgrade.is_some(), Kind::HeatAura),
             (def.automate_upgrade.is_some(), Kind::Automates),
+            (def.council, Kind::Council),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))

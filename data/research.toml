@@ -1486,3 +1486,21 @@ item = "tool"
 count = 6
 [tech.unlocks]
 buildings = ["mist_house"]
+
+# --- #1030 (factory endgame F5: the Republic Council) -------------------------------------------
+
+# The capstone (docs/design/factory-endgame.md, "The goal: the Republic Council"): Notables of
+# every nation living in the city, then the Council Hall's bill. Once the hall stands, each
+# nation's seat lends its strongest modifier to the whole city (`World::council_seats`).
+[[tech]]
+id = "republic_council"
+name = "The Republic Council"
+description = "A seat for every nation, and a hall to hold them. The city governs itself."
+cost = 2000
+prereqs = ["mechanisms"]
+requires = { united = true, notables = { air = 2, water = 2, earth = 2, fire = 2 } }
+[[tech.cost_items]]
+item = "steel"
+count = 10
+[tech.unlocks]
+buildings = ["council_hall"]

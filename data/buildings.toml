@@ -2104,3 +2104,36 @@ work = 20.0
 modifier = "construction"
 input = [{ item = "herbs", count = 2 }]
 stock_limit = 12
+
+# --- #1030 (factory endgame F5: the Republic Council) ---
+# The Council Hall: the era's great work, paid in steel, brick and a share of every nation's
+# Citizen goods. Once it stands the council sits (`council = true`, `world/council.rs`). One per
+# city, and it can't be taken down. The design's build in stages is left for later: today it is
+# one large site.
+[[building]]
+id = "council_hall"
+name = "Council Hall"
+verb = "Raise"
+work = 600.0
+passable = false
+footprint = [4, 4]
+landmark = true
+council = true
+[[building.cost]]
+item = "steel"
+count = 30
+[[building.cost]]
+item = "brick"
+count = 40
+[[building.cost]]
+item = "lantern"
+count = 6
+[[building.cost]]
+item = "smoked_fish"
+count = 6
+[[building.cost]]
+item = "furniture"
+count = 6
+[[building.cost]]
+item = "tea"
+count = 6

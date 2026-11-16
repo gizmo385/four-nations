@@ -15,6 +15,7 @@ pub(super) struct Roster {
     pub(super) population: u16,
     pub(super) masters: [u16; 4],
     pub(super) residents: [u16; 4],
+    pub(super) notables: [u16; 4],
 }
 
 impl World {
@@ -25,6 +26,9 @@ impl World {
             let n = self.nation_of(u).index();
             roster.population = roster.population.saturating_add(1);
             roster.residents[n] = roster.residents[n].saturating_add(1);
+            if u.standing.tier == crate::standing::Tier::Notable {
+                roster.notables[n] = roster.notables[n].saturating_add(1);
+            }
             if self.rank_of(u, defs).rank == Rank::Master {
                 roster.masters[n] = roster.masters[n].saturating_add(1);
             }
@@ -50,6 +54,7 @@ pub(super) fn build_facts<'a>(
         population: roster.population,
         masters: roster.masters,
         residents: roster.residents,
+        notables: roster.notables,
         united,
     }
 }

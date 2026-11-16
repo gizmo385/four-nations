@@ -612,6 +612,12 @@ glyph = "⍥"
 ascii = "W"
 fg = [170, 210, 220]
 
+# The Council Hall (#1030, F5).
+[building.council_hall]
+glyph = "⍟"
+ascii = "C"
+fg = [235, 215, 150]
+
 [building.steam_engine]
 glyph = "Φ"
 ascii = "E"
