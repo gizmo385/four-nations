@@ -528,6 +528,34 @@ pub fn aqueduct_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
 
 /// A Waystation's pantry and beds (docs/design/horizons-phase-2.md, "`waystations`"):
 /// `Pantry: 9/12` or `Pantry empty`, then `Beds: 1/2 taken`.
+/// The Council Hall (#1030): `The council sits` and each seat's lent strength, `Earth:
+/// earthworks 2.5x`, two seats to a line.
+pub fn council_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    let Some(id) = world.building_at(anchor) else { return Vec::new() };
+    if !defs.building(id).council {
+        return Vec::new();
+    }
+    let seats = world.council_seats(defs);
+    if seats.is_empty() {
+        return Vec::new();
+    }
+    let words: Vec<String> = seats
+        .iter()
+        .map(|&(nation, name, v)| {
+            let name = if name == "power_generation" { "power reach" } else { name };
+            format!(
+                "{}: {} {}",
+                nation.title(),
+                name.replace('_', " "),
+                crate::text::boost_label(v)
+            )
+        })
+        .collect();
+    let mut lines = vec!["The council sits. Lent to the whole city:".to_owned()];
+    lines.extend(words.chunks(2).map(|pair| pair.join(", ")));
+    lines
+}
+
 pub fn outpost_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     let mut lines = Vec::new();
     let Some(b) = world.building_at(anchor) else { return lines };
@@ -752,6 +780,7 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         lines.extend(pair_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(dock_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(outpost_lines(world, defs, at).into_iter().map(Line::Detail));
+        lines.extend(council_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(aqueduct_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(airship_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(beast_lines(world, defs, at).into_iter().map(Line::Detail));
@@ -1464,6 +1493,23 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The Council Hall names the seats and what each lends (#1030).
+    #[test]
+    fn the_council_hall_names_each_seat_s_lent_strength() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let pos = spot(&s);
+        put(&mut s, "council_hall", pos);
+        let lines = council_lines(&s.world, &s.defs, pos);
+        assert_eq!(
+            lines,
+            vec![
+                "The council sits. Lent to the whole city:".to_owned(),
+                "Air: power reach 2x, Water: water work 2x".to_owned(),
+                "Earth: earthworks 2.5x, Fire: heating 2.5x".to_owned(),
+            ]
+        );
     }
 
     /// A yard over capacity says so, and so does each machine on it (#1030).

@@ -43,6 +43,7 @@ mod celestial;
 mod chart;
 mod chute;
 mod command;
+mod council;
 mod deconstruct;
 mod draw;
 mod enclosure;
@@ -609,6 +610,10 @@ pub struct World {
     /// saved.
     #[serde(skip)]
     roster: Roster,
+    /// Whether a Council Hall stood when the modifiers were last worked out
+    /// (`World::council_seated`, #1030): the tick refreshes them when that changes. Derived.
+    #[serde(skip)]
+    council_seen: bool,
     /// Where the end game stands (`endeavor.rs`, #234): Dormant until every sign is met at once.
     #[serde(default)]
     endeavor: EndeavorState,
@@ -787,6 +792,7 @@ impl World {
             care: CareTally::default(),
             refusals: probe::Refusals::default(),
             roster: Roster::default(),
+            council_seen: false,
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
             avatar: AvatarState::default(),
@@ -939,6 +945,7 @@ impl World {
             self.research.known_techs(),
             defs,
         );
+        self.lend_council_seats(&mut m, defs);
         // A Citizen or Notable works faster at everything (#1026), and walks and carries as
         // before.
         let work = defs.standing.work(unit.standing.tier);
@@ -990,6 +997,10 @@ impl World {
             self.research.known_techs(),
             defs,
         );
+        self.council_seen = self.council_seated();
+        let mut m = self.modifiers;
+        self.lend_council_seats(&mut m, defs);
+        self.modifiers = m;
         self.refresh_heat_radii(defs);
         self.refresh_biome_speeds(defs);
     }
@@ -1195,6 +1206,8 @@ impl World {
         if !completed.is_empty() {
             self.refresh_modifiers(defs);
             self.sync_seats(defs);
+        } else if self.council_seen != self.council_seated() {
+            self.refresh_modifiers(defs);
         }
         for c in completed {
             self.log_event(c);
