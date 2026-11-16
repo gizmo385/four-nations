@@ -187,6 +187,24 @@ fn apart(fixed: &BuildingDef, rule: &str, other: &BuildingDef, nation: fn_sim::N
     )
 }
 
+/// The freight link that could carry `item` between two machines that can't touch (#1030): the
+/// first pair carrier this nation builds or may unlock that takes it (a Wind Tube refuses heavy
+/// goods), as " A Freight Station pair could carry it." Empty with none.
+pub(crate) fn freight_hint(session: &Session, item: ItemId) -> String {
+    let (world, defs) = (&session.world, &session.defs);
+    let heavy = defs.item(item).heavy;
+    let carrier = defs.buildings.iter().find(|d| {
+        d.balloon.is_some_and(|b| !(b.light_only && heavy))
+            && crate::build::available_to_nation(session, d)
+    });
+    let Some(d) = carrier else { return String::new() };
+    let name = d.display_name(world.nation);
+    match d.unlocked_by.filter(|&t| !world.research().is_known(t)) {
+        Some(t) => format!(" A {name} pair could carry it, after {}.", defs.tech(t).name),
+        None => format!(" A {name} pair could carry it."),
+    }
+}
+
 /// Adds `per_min` of `item` to what the plan needs, and what its inputs need, in turn.
 /// `order` gets each made good once, after everything it takes, so makers come before takers.
 fn demand(
@@ -250,12 +268,14 @@ pub fn plan(session: &Session, goal: ItemId, per_min: f32) -> Plan {
                         let (theirs, ours) = (standing_rule(src), standing_rule(def));
                         match (theirs, ours) {
                             _ if theirs == ours => Travel::Touching,
-                            (Some(rule), _) => {
-                                Travel::Haulers { why: apart(src, rule, def, world.nation) }
-                            }
-                            (None, Some(rule)) => {
-                                Travel::Haulers { why: apart(def, rule, src, world.nation) }
-                            }
+                            (Some(rule), _) => Travel::Haulers {
+                                why: apart(src, rule, def, world.nation)
+                                    + &freight_hint(session, c.item),
+                            },
+                            (None, Some(rule)) => Travel::Haulers {
+                                why: apart(def, rule, src, world.nation)
+                                    + &freight_hint(session, c.item),
+                            },
                             (None, None) => Travel::Touching,
                         }
                     }
@@ -564,6 +584,18 @@ mod tests {
             // Fire has no Deep Mine of its own: ore is raw for it, from stores.
             assert_eq!(ore.travel, Travel::Stores);
         }
+    }
+
+    /// The freight link a nation could bridge a gap with (#1030): Earth's Freight Station takes
+    /// ore; Air's Wind Tube takes wood but not stone.
+    #[test]
+    fn the_freight_hint_names_the_nation_s_link_and_respects_light_only() {
+        let earth = republic(Nation::Earth);
+        let hint = freight_hint(&earth, item(&earth, "gold_ore"));
+        assert_eq!(hint, " A Freight Station pair could carry it.");
+        let air = republic(Nation::Air);
+        assert!(freight_hint(&air, item(&air, "wood")).contains("Wind Tube"));
+        assert!(!freight_hint(&air, item(&air, "stone")).contains("Wind Tube"));
     }
 
     #[test]

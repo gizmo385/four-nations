@@ -17,8 +17,17 @@ use super::World;
 /// Techs a Republic start knows: the Steelworks (#1023), so steel can be made from the start,
 /// every nation's goods techs (#1027), so each good can be made by hand, and `mechanisms`
 /// (#1037), so machines in reach of the nation's power source run themselves.
-pub const REPUBLIC_TECHS: &[&str] =
-    &["steelworks", "lanterncraft", "smokehouses", "joinery", "tea_works", "mechanisms"];
+pub const REPUBLIC_TECHS: &[&str] = &[
+    "steelworks",
+    "lanterncraft",
+    "smokehouses",
+    "joinery",
+    "tea_works",
+    "mechanisms",
+    "freight_lines",
+    "flumes",
+    "wind_tubes",
+];
 
 /// Items a Republic start adds to stores, by id and count: steel to spend, metal and wood for the
 /// Steelworks to make more, fittings, fish and herbs for the goods (#1027), and some of each

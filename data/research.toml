@@ -1285,3 +1285,40 @@ automate = { rate = 0.75, radius = 4, beside = ["water", "river", "lake", "canal
 [[tech.unlocks.upgrades]]
 building = "wind_turbine"
 automate = { rate = 0.5, radius = 6 }
+
+# --- #1030 (factory endgame F3: freight) ---------------------------------------------------------
+
+# Freight links, one a nation (docs/design/factory-endgame.md, "Layer 3: freight"). Fire has its
+# Balloon Docks already.
+[[tech]]
+id = "freight_lines"
+name = "Freight Lines"
+description = "A cart on rail, pushed by an earthbender, carries a load no hauler could."
+nation = "earth"
+cost = 1000
+prereqs = []
+requires = { united = true }
+[tech.unlocks]
+buildings = ["freight_station"]
+
+[[tech]]
+id = "flumes"
+name = "Flumes"
+description = "Cut the channel, bend the water, and let the river do the carrying."
+nation = "water"
+cost = 1000
+prereqs = []
+requires = { united = true }
+[tech.unlocks]
+buildings = ["flume"]
+
+[[tech]]
+id = "wind_tubes"
+name = "Wind Tubes"
+description = "A held gust down a straight tube, faster than anyone can run."
+nation = "air"
+cost = 1000
+prereqs = []
+requires = { united = true }
+[tech.unlocks]
+buildings = ["wind_tube"]
