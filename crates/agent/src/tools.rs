@@ -88,13 +88,19 @@ pub fn list() -> Vec<Value> {
                              Arch's beam lift): each task's name, who may do it, materials \
                              delivered of its cost, the chi it needs, and where it stands \
                              (waits for the stage's work, needs materials, open and waiting \
-                             for a bender with the chi, under way, done).",
+                             for a bender with the chi, under way, done). In the United \
+                             City, `endeavor`'s `united` adds standing, the Goods tab's rows and \
+                             the spirits. `good` and `planner` read the good screen or the \
+                             pipeline planner while it's open (G, Tab to the Goods tab, the \
+                             arrows to a good, then O for its screen or Enter for the planner; \
+                             Up and Down change the planner's rate, Left and \
+                             Right move its pointer).",
             "inputSchema": json!({
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "enum": ["nation", "research", "endeavor", "log", "help", "build", "bend"],
+                        "enum": ["nation", "research", "endeavor", "log", "help", "build", "bend", "good", "planner"],
                     },
                 },
                 "required": ["name"],

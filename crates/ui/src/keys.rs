@@ -621,7 +621,7 @@ fn build() -> Vec<Entry> {
         &[Action::NextRecipe],
         "R",
         "recipe",
-        help(units, "Switch a Workshop's recipe (Select)"),
+        help(units, "Switch a building's recipe (Select)"),
     );
     // `K` on a building marked to be taken down (#967): in no hint bar and not in the key help
     // (full at 120 by 40); the inspector's own line names the key ("Press K to keep it").

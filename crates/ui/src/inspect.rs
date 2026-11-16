@@ -25,6 +25,9 @@ pub enum Hint {
     /// The building here is marked to be taken down; `K` keeps it (`Command::CancelDeconstruct`,
     /// #967).
     KeepIt,
+    /// The building here can make something else; `R` switches its recipe
+    /// (`crate::recipe::switch`, #712).
+    NextRecipe,
 }
 
 /// One line of a tooltip, and so its role. The text is final English except for hints.
@@ -372,7 +375,40 @@ pub fn recipe_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     if world.craft_idle(anchor, defs) {
         lines.push(format!("Idle: {} {made} in stores", recipe.stock_limit));
     }
+    lines.push(recipes_line(world, defs, anchor));
     lines
+}
+
+/// Every recipe the building anchored on `anchor` has, in `R`'s order, each still locked naming
+/// the tech it waits on: "Can make: Tools, Wares, Furniture (needs Furnishing)".
+fn recipes_line(world: &World, defs: &Defs, anchor: Pos) -> String {
+    let Some(def) = world.building_at(anchor).map(|b| defs.building(b)) else {
+        return String::new();
+    };
+    let first = def.recipe.as_ref().map(|r| plural(&defs.item(r.output.item).name));
+    let alts = def.alt_recipes.iter().map(|alt| {
+        let name = plural(&defs.item(alt.recipe.output.item).name);
+        match alt.unlocked_by.filter(|&t| !world.research().is_known(t)) {
+            Some(t) => format!("{name} (needs {})", defs.tech(t).name),
+            None => name,
+        }
+    });
+    let all: Vec<String> = first.into_iter().chain(alts).collect();
+    format!("Can make: {}", all.join(", "))
+}
+
+/// Whether the building anchored on `anchor` has another recipe it may switch to now: one it
+/// isn't making whose tech (if any) is known.
+pub fn can_switch_recipe(world: &World, defs: &Defs, anchor: Pos) -> bool {
+    let Some(def) = world.building_at(anchor).map(|b| defs.building(b)) else { return false };
+    if def.recipe.is_none() {
+        return false;
+    }
+    let current = world.recipe_choice_at(anchor, defs);
+    let alt_ok = def.alt_recipes.iter().enumerate().any(|(i, alt)| {
+        current != Some(i as u8) && alt.unlocked_by.is_none_or(|t| world.research().is_known(t))
+    });
+    alt_ok || current.is_some()
 }
 
 /// An Archive's readout (docs/design/horizons-phase-3.md, "`archives`"): the halls its seats
@@ -781,6 +817,9 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
             lines.extend(power_lines(world, defs, at, building).into_iter().map(Line::Detail));
         }
         lines.extend(recipe_lines(world, defs, at).into_iter().map(Line::Detail));
+        if can_switch_recipe(world, defs, at) {
+            lines.push(Line::Hint(Hint::NextRecipe));
+        }
         lines.extend(archive_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(chute_lines(world, defs, at).into_iter().map(Line::Detail));
         lines.extend(pair_lines(world, defs, at).into_iter().map(Line::Detail));

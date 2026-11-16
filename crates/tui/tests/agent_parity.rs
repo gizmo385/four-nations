@@ -294,3 +294,45 @@ fn the_bend_screen_matches_the_banner_for_every_nation() {
         "every nation's midgame settlement should have unlocked a second ability"
     );
 }
+
+/// The factory endgame's screens (#1028, #1029, #1047, #1030), in a Republic-era city
+/// (`fire-republic`): `screen {"endeavor"}`'s United City leaves (standing, the Goods tab, the
+/// spirits) all appear on the City and Goods tabs, and `screen {"good"}` and
+/// `screen {"planner"}`, refused until their screen is open, report only what that screen shows.
+#[test]
+fn the_united_city_goods_and_planner_screens_show_every_leaf_they_report() {
+    const SIZE: (u16, u16) = (220, 50);
+    let mut h = Host::from_scenario("fire-republic").unwrap();
+    assert!(h.screen("good").is_err(), "no good screen open yet");
+    assert!(h.screen("planner").is_err(), "no planner open yet");
+    let check = |what: &str, value: &Value, text: &str| {
+        let mut out = Vec::new();
+        leaves(value, &mut out);
+        let haystack = fold(text);
+        for leaf in out {
+            assert!(haystack.contains(&fold(&leaf)), "{what}: {leaf:?} isn't on the screen");
+        }
+    };
+    let endeavor = serde_json::to_value(h.screen("endeavor").unwrap()).unwrap();
+    let united = endeavor["united"].clone();
+    assert!(united.get("standing").is_some(), "{united}");
+    assert!(!united["goods"].as_array().unwrap().is_empty(), "a Republic city wants goods");
+    h.press_keys("g", None, None).unwrap();
+    let mut text = h.frame(SIZE.0, SIZE.1);
+    h.press_keys("<tab>", None, None).unwrap();
+    text.push_str(&h.frame(SIZE.0, SIZE.1));
+    check("endeavor", &united["standing"], &text);
+    check("endeavor", &united["goods"], &text);
+    if let Some(spirits) = united.get("spirits") {
+        check("endeavor", spirits, &text);
+    }
+    // The planner on the first good, then the good screen for its last step.
+    h.press_keys("<enter>", None, None).unwrap();
+    let mut planner = serde_json::to_value(h.screen("planner").unwrap()).unwrap();
+    planner.as_object_mut().unwrap().remove("screen");
+    check("planner", &planner, &h.frame(SIZE.0, SIZE.1));
+    h.press_keys("o", None, None).unwrap();
+    let mut good = serde_json::to_value(h.screen("good").unwrap()).unwrap();
+    good.as_object_mut().unwrap().remove("screen");
+    check("good", &good, &h.frame(SIZE.0, SIZE.1));
+}

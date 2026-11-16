@@ -861,10 +861,127 @@ impl Host {
             })),
             "build" => Ok(ScreenView::Build(self.build_screen())),
             "bend" => Ok(ScreenView::Bend(self.bend_screen())),
+            "good" => self.good_screen().map(ScreenView::Good),
+            "planner" => self.planner_screen().map(ScreenView::Planner),
             other => Err(format!(
-                "no such screen {other:?} (nation, research, endeavor, log, help, build or bend)"
+                "no such screen {other:?} (nation, research, endeavor, log, help, build, bend, \
+                 good or planner)"
             )),
         }
+    }
+
+    /// The good screen while it's open (#1047), else why not.
+    fn good_screen(&self) -> Result<GoodScreenView, String> {
+        let app = self.app();
+        let edit = match (app.ui.screen, app.ui.good) {
+            (Some(fn_ui::state::Screen::Good), Some(edit)) => edit,
+            _ => {
+                return Err("no good screen is open: on the United City's Goods tab (G, then \
+                            Tab), O opens the good under the pointer"
+                    .to_owned());
+            }
+        };
+        let v = fn_ui::good::view(&app.session, edit.item);
+        let chosen = edit.cursor.min(v.ways.len().saturating_sub(1));
+        let flow = |l: fn_ui::good::FlowLine| FlowLineView {
+            label: l.label,
+            per_min: format!("{:.1}", l.per_min),
+            note: l.note,
+        };
+        Ok(GoodScreenView {
+            name: v.name,
+            stores: v.stores,
+            source: v.source,
+            made: format!("{:.1}", v.made),
+            used: format!("{:.1}", v.used),
+            making: v.making.into_iter().map(flow).collect(),
+            using: v.using.into_iter().map(flow).collect(),
+            ways: v
+                .ways
+                .into_iter()
+                .enumerate()
+                .map(|(i, w)| WayView {
+                    label: w.label,
+                    adds: w.adds,
+                    costs: w.costs,
+                    locked: w.locked,
+                    chosen: i == chosen,
+                })
+                .collect(),
+            close: v.close,
+        })
+    }
+
+    /// The pipeline planner while it's open (#1029), else why not.
+    fn planner_screen(&self) -> Result<PlannerScreenView, String> {
+        let app = self.app();
+        let edit = match (app.ui.screen, app.ui.planner) {
+            (Some(fn_ui::state::Screen::Planner), Some(edit)) => edit,
+            _ => {
+                return Err("the planner isn't open: on the United City's Goods tab (G, then \
+                            Tab), Enter opens it on the good under the pointer"
+                    .to_owned());
+            }
+        };
+        let p = fn_ui::planner::plan(&app.session, edit.goal, edit.per_min);
+        let rate = |v: f32| format!("{v:.1}");
+        let chosen = edit.cursor.min(p.steps.len().saturating_sub(1));
+        let machines: Vec<String> = p.steps.iter().map(|s| s.machine.clone()).collect();
+        let from_stores = p
+            .bus
+            .iter()
+            .map(|b| {
+                let parts: Vec<String> =
+                    b.takers.iter().map(|&(i, v)| format!("{} {}", machines[i], rate(v))).collect();
+                format!(
+                    "{} {} a min by haul from stores: {}",
+                    b.name,
+                    rate(b.per_min),
+                    parts.join(", ")
+                )
+            })
+            .collect();
+        Ok(PlannerScreenView {
+            goal: p.goal,
+            per_min: rate(p.per_min),
+            how: p.how,
+            steps: p
+                .steps
+                .into_iter()
+                .enumerate()
+                .map(|(i, s)| PlanStepView {
+                    machine: s.machine,
+                    made: s.made,
+                    per_min: rate(s.per_min),
+                    needed: s.needed,
+                    busy: format!("{:.0}%", s.busy * 100.0),
+                    built: s.built,
+                    locked: s.locked,
+                    inputs: s
+                        .inputs
+                        .into_iter()
+                        .map(|inp| {
+                            let (travel, why) = match inp.travel {
+                                fn_ui::planner::Travel::Touching => ("touching", None),
+                                fn_ui::planner::Travel::Haulers { why } => ("haulers", Some(why)),
+                                fn_ui::planner::Travel::Stores => ("from stores", None),
+                            };
+                            PlanInputView {
+                                name: inp.name,
+                                per_min: rate(inp.per_min),
+                                from: inp
+                                    .from
+                                    .map_or_else(|| "stores".to_owned(), |j| machines[j].clone()),
+                                travel: travel.to_owned(),
+                                why,
+                            }
+                        })
+                        .collect(),
+                    chosen: i == chosen,
+                })
+                .collect(),
+            from_stores,
+        })
     }
 
     fn nation_screen(&self) -> NationScreenView {
@@ -913,10 +1030,35 @@ impl Host {
             count: v.count,
             stage: v.stage,
             action: v.action,
-            united: v.united.map(|u| UnitedCityView {
-                population: u.population,
-                by_nation: u.by_nation,
-                next_milestone: u.next,
+            united: v.united.map(|u| {
+                let [settlers, citizens, notables] = u.standing;
+                let session = &self.app().session;
+                UnitedCityView {
+                    population: u.population,
+                    by_nation: u.by_nation,
+                    next_milestone: u.next,
+                    standing: StandingView { notables, citizens, settlers },
+                    goods: fn_ui::endeavor::session_goods_ledger(session)
+                        .into_iter()
+                        .map(|g| GoodsRowView {
+                            name: g.name,
+                            made: format!("{:.1}", g.made),
+                            used: format!("{:.1}", g.used),
+                            stores: g.stores,
+                            made_at: g.made_at,
+                            wanted_by: g.wanted_by,
+                            short: g.short,
+                        })
+                        .collect(),
+                    spirits: u.balance.map(|b| SpiritsView {
+                        balance: b.value,
+                        trend: format!("{:+.1} a minute", b.trend),
+                        terms: b.terms,
+                        portal: b
+                            .portal_open
+                            .then(|| fn_ui::screens::endeavor::portal_line(b.spirits)),
+                    }),
+                }
             }),
             groups: v
                 .groups
@@ -2213,6 +2355,8 @@ pub enum ScreenView {
     Help(HelpScreenView),
     Build(BuildScreenView),
     Bend(BendScreenView),
+    Good(GoodScreenView),
+    Planner(PlannerScreenView),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2370,6 +2514,129 @@ pub struct UnitedCityView {
     /// The next population milestone; absent when the data has no more.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_milestone: Option<u32>,
+    /// Residents at each standing (#1026), as the City tab's STANDING lists them.
+    pub standing: StandingView,
+    /// The Goods tab (#1028): each wanted good and those made on the way, with its rates a
+    /// minute (as the tab prints them), stores, what makes it here and who wants it.
+    pub goods: Vec<GoodsRowView>,
+    /// The City tab's SPIRITS (docs/design/spirits.md, #1030).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spirits: Option<SpiritsView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct StandingView {
+    pub notables: u32,
+    pub citizens: u32,
+    pub settlers: u32,
+}
+
+/// One row of the Goods tab. Rates are text, one decimal, as the tab prints them.
+#[derive(Clone, Debug, Serialize)]
+pub struct GoodsRowView {
+    pub name: String,
+    pub made: String,
+    pub used: String,
+    pub stores: u32,
+    /// "Forge x2, Steelworks", or "nothing".
+    pub made_at: String,
+    /// "14 Fire Nation"; empty for a good made only on the way to a wanted one.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub wanted_by: String,
+    pub short: bool,
+}
+
+/// The balance with the spirits, its trend and what moved it most.
+#[derive(Clone, Debug, Serialize)]
+pub struct SpiritsView {
+    pub balance: u32,
+    /// "+1.5 a minute".
+    pub trend: String,
+    /// The two biggest terms: "Machines -2.5".
+    pub terms: Vec<String>,
+    /// The Spirit Portal's line once it's open: "The Spirit Portal is open: 3 friendly spirits
+    /// wander the city."
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portal: Option<String>,
+}
+
+/// `screen {"good"}`: the good screen that's open (the Goods tab's `F` on a good, or the
+/// planner's), as it shows it. Rates are text, one decimal.
+#[derive(Clone, Debug, Serialize)]
+pub struct GoodScreenView {
+    pub name: String,
+    pub stores: u32,
+    pub source: String,
+    pub made: String,
+    pub used: String,
+    /// MAKING NOW: "2 Deep Mines", its rate a minute and a note.
+    pub making: Vec<FlowLineView>,
+    /// USING.
+    pub using: Vec<FlowLineView>,
+    /// The ways to get more, in the screen's order; the pointer's is `chosen`.
+    pub ways: Vec<WayView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub close: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FlowLineView {
+    pub label: String,
+    pub per_min: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct WayView {
+    pub label: String,
+    pub adds: String,
+    pub costs: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked: Option<String>,
+    pub chosen: bool,
+}
+
+/// `screen {"planner"}`: the pipeline planner that's open (#1029), as it lays the chain out:
+/// raw goods' makers first, the goal last. Rates are text, one decimal.
+#[derive(Clone, Debug, Serialize)]
+pub struct PlannerScreenView {
+    pub goal: String,
+    pub per_min: String,
+    /// "By machine, in the Lightning Station's yard" or "By hand".
+    pub how: String,
+    pub steps: Vec<PlanStepView>,
+    /// Raw goods hauled from stores: the good, its rate in all, and each machine's part.
+    pub from_stores: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PlanStepView {
+    pub machine: String,
+    pub made: String,
+    pub per_min: String,
+    pub needed: u32,
+    /// "80%".
+    pub busy: String,
+    pub built: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked: Option<String>,
+    pub inputs: Vec<PlanInputView>,
+    /// Whether the planner's pointer is on it.
+    pub chosen: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PlanInputView {
+    pub name: String,
+    pub per_min: String,
+    /// The machine it comes from, or "stores".
+    pub from: String,
+    /// "touching", "haulers" or "from stores".
+    pub travel: String,
+    /// What keeps a hauled input's machines apart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
