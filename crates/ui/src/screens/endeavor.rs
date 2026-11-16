@@ -112,6 +112,9 @@ fn standing_rows(u: &UnitedView) -> Vec<Row> {
         if !b.terms.is_empty() {
             rows.push(Row::text(format!("  {}", b.terms.join(", ")), Tone::Dim));
         }
+        if b.portal_open {
+            rows.push(Row::text("  The Spirit Portal is open.", Tone::Text));
+        }
     }
     rows.extend([Row::default(), Row::text("STANDING", Tone::Title)]);
     for (name, count) in [("Notables", notables), ("Citizens", citizens), ("Settlers", settlers)] {

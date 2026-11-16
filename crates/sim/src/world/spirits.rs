@@ -54,6 +54,9 @@ pub struct Spirits {
     pub felled_seen: u32,
     #[serde(default)]
     pub last: Option<BalanceTerms>,
+    /// The Spirit Portal has opened (F6d). It stays open.
+    #[serde(default)]
+    pub portal_open: bool,
 }
 
 impl Spirits {
@@ -118,7 +121,16 @@ impl World {
     }
 
     /// Once a minute in a United City: balance moves by calm minus unrest.
+    /// Whether the Spirit Portal has opened (F6d): from the tick one first stands, for good.
+    pub fn portal_open(&self) -> bool {
+        self.spirits.portal_open
+    }
+
     pub(super) fn tick_spirits(&mut self, defs: &Defs) {
+        if !self.spirits.portal_open && self.has_kind(Kind::Portal) {
+            self.spirits.portal_open = true;
+            self.endeavor_event(EndeavorEventKind::PortalOpened);
+        }
         if !self.tick.is_multiple_of(MINUTE) || !self.united() {
             return;
         }

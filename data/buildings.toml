@@ -2159,3 +2159,26 @@ count = 6
 [[building.cost]]
 item = "fruit"
 count = 4
+
+# --- #1030 (factory endgame F6d: the Spirit Portal) ---
+# The Spirit Portal (docs/design/spirits.md, "Layer 4"): the era's finish line after the Council
+# Hall. One per city, and it can't be taken down. It opens the tick it stands. The design's
+# Notable of each nation on the bill, and its build in stages, are left for later.
+[[building]]
+id = "spirit_portal"
+name = "Spirit Portal"
+verb = "Raise"
+work = 400.0
+passable = true
+footprint = [3, 3]
+landmark = true
+spirit_portal = true
+[[building.cost]]
+item = "spirit_vine"
+count = 30
+[[building.cost]]
+item = "stone"
+count = 20
+[[building.cost]]
+item = "steel"
+count = 10

@@ -636,6 +636,12 @@ glyph = "⊚"
 ascii = "g"
 fg = [150, 220, 160]
 
+# The Spirit Portal (#1030, F6d).
+[building.spirit_portal]
+glyph = "⊛"
+ascii = "P"
+fg = [170, 230, 255]
+
 [building.steam_engine]
 glyph = "Φ"
 ascii = "E"

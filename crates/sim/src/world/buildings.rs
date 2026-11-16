@@ -154,6 +154,8 @@ pub(super) enum Kind {
     Council,
     /// A Spirit Garden (#1030).
     Garden,
+    /// The Spirit Portal (#1030).
+    Portal,
     Orchard,
     Farm,
     Irrigation,
@@ -227,6 +229,7 @@ impl Kind {
             (def.automate_upgrade.is_some(), Kind::Automates),
             (def.council, Kind::Council),
             (def.spirit_garden, Kind::Garden),
+            (def.spirit_portal, Kind::Portal),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))

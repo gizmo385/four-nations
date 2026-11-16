@@ -162,12 +162,19 @@ pub struct BalanceRow {
     pub value: u32,
     pub trend: f32,
     pub terms: Vec<String>,
+    /// The Spirit Portal has opened (F6d).
+    pub portal_open: bool,
 }
 
 fn balance_row(world: &World, defs: &Defs) -> Option<BalanceRow> {
     let value = world.balance(defs)?.round() as u32;
     let Some(t) = world.balance_terms() else {
-        return Some(BalanceRow { value, trend: 0.0, terms: Vec::new() });
+        return Some(BalanceRow {
+            value,
+            trend: 0.0,
+            terms: Vec::new(),
+            portal_open: world.portal_open(),
+        });
     };
     let mut terms: Vec<(&str, f32)> = vec![
         ("Machines", -t.machines),
@@ -179,7 +186,7 @@ fn balance_row(world: &World, defs: &Defs) -> Option<BalanceRow> {
     terms.retain(|&(_, v)| v != 0.0);
     terms.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap_or(std::cmp::Ordering::Equal));
     let terms = terms.into_iter().take(2).map(|(n, v)| format!("{n} {v:+.1}")).collect();
-    Some(BalanceRow { value, trend: t.net(), terms })
+    Some(BalanceRow { value, trend: t.net(), terms, portal_open: world.portal_open() })
 }
 
 /// One good residents want, on the United City screen (#1028, docs/design/factory-endgame.md
@@ -976,6 +983,9 @@ pub fn describe_event(defs: &Defs, ev: &EndeavorEvent) -> String {
             .to_owned(),
         EndeavorEventKind::RiteBroken => "The rite is broken by grief.".to_owned(),
         EndeavorEventKind::Complete => format!("{} is complete.", defs.endeavor.name),
+        EndeavorEventKind::PortalOpened => {
+            "The Spirit Portal opens. The spirits come back to the city.".to_owned()
+        }
         // A United City population milestone (#442): the data's own words.
         EndeavorEventKind::PopulationMilestone(n) => defs
             .endeavor

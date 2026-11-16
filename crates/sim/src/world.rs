@@ -1078,8 +1078,15 @@ impl World {
         self.refresh_roster(defs);
         let teaching = self.teaching_facts();
         let united = self.united();
-        let facts =
-            roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster, united);
+        let city = self.city_facts();
+        let facts = roster::build_facts(
+            &self.tallies,
+            &self.endeavor_log,
+            teaching,
+            &self.roster,
+            united,
+            city,
+        );
         self.research.set_target(tech, self.nation, &facts, defs)
     }
 
@@ -1089,7 +1096,15 @@ impl World {
     pub fn facts(&self) -> research::Facts<'_> {
         let teaching = self.teaching_facts();
         let united = self.united();
-        roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster, united)
+        let city = self.city_facts();
+        roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster, united, city)
+    }
+
+    /// The balance with the spirits (rounded, as the readout shows it, once measured) and whether the Council Hall
+    /// stands, for `research::Facts`.
+    fn city_facts(&self) -> (Option<u32>, bool) {
+        let balance = self.united().then_some(self.spirits.balance).flatten();
+        (balance.map(|b| b.round() as u32), self.council_seated())
     }
 
     /// Spends the draw that once picked a unit's sprite variant (removed in #607). Every nation
@@ -1200,8 +1215,15 @@ impl World {
         self.refresh_roster(defs);
         let teaching = self.teaching_facts();
         let united = self.united();
-        let facts =
-            roster::build_facts(&self.tallies, &self.endeavor_log, teaching, &self.roster, united);
+        let city = self.city_facts();
+        let facts = roster::build_facts(
+            &self.tallies,
+            &self.endeavor_log,
+            teaching,
+            &self.roster,
+            united,
+            city,
+        );
         let completed = self.research.tick_scribing(
             self.tick,
             defs,

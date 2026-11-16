@@ -297,6 +297,13 @@ pub struct Requires {
     /// (docs/design/factory-endgame.md, #1027) open only in a United City. The gate never falls.
     #[serde(default)]
     pub united: bool,
+    /// The city's balance with the spirits at least this, 1 to 100 (`Facts::balance`,
+    /// docs/design/spirits.md, "Layer 4: the Spirit Portal", #1030). Can fall.
+    #[serde(default)]
+    pub balance: Option<u32>,
+    /// The Council Hall stands (`Facts::council`, F5). A landmark, so it never falls.
+    #[serde(default)]
+    pub council: bool,
 }
 
 /// What the world knows that `Requires` asks about: filled by `World::facts`, so `research`
@@ -324,6 +331,11 @@ pub struct Facts<'a> {
     /// Whether the Harmony Gate stands (`World::united`): from then on a fusion tech is on the
     /// tree (docs/design/horizons-phase-6.md, "Fusions"). The gate never falls.
     pub united: bool,
+    /// The city's balance with the spirits, rounded as the readout shows it: `None` until the first minute after
+    /// the gate measures it (`World::balance`).
+    pub balance: Option<u32>,
+    /// Whether the Council Hall stands (`World::council_seated`).
+    pub council: bool,
 }
 
 /// One unmet `Requires` key, as the player reads it: `Display` is `3 scrolls read`, the
@@ -345,6 +357,10 @@ pub enum Condition {
     Notables { nation: Nation, need: u32, have: u32 },
     /// The Harmony Gate stands.
     United,
+    /// The city's balance with the spirits at least this.
+    Balance(u32),
+    /// The Council Hall stands.
+    Council,
 }
 
 impl std::fmt::Display for Condition {
@@ -378,6 +394,8 @@ impl std::fmt::Display for Condition {
                 write!(f, "{need} {} {noun} ({have} {verb} here)", nation.title())
             }
             Self::United => f.write_str("the Harmony Gate standing"),
+            Self::Balance(n) => write!(f, "balance with the spirits at {n}"),
+            Self::Council => f.write_str("the Council Hall standing"),
         }
     }
 }
@@ -393,6 +411,8 @@ impl Requires {
             && self.residents.is_empty()
             && self.notables.is_empty()
             && !self.united
+            && self.balance.is_none()
+            && !self.council
     }
 
     /// The keys `facts` doesn't meet yet, in a fixed order (scrolls, chapter, population,
@@ -436,6 +456,12 @@ impl Requires {
         }
         if self.united && !facts.united {
             out.push(Condition::United);
+        }
+        if self.council && !facts.council {
+            out.push(Condition::Council);
+        }
+        if let Some(n) = self.balance.filter(|&n| facts.balance.is_none_or(|b| b < n)) {
+            out.push(Condition::Balance(n));
         }
         out
     }
@@ -933,6 +959,11 @@ impl ResearchFile {
                 {
                     return Err(err(format!("requires.{key} = {n} must be 1 to {max}")));
                 }
+            }
+            if let Some(n) = raw.requires.balance
+                && !(1..=100).contains(&n)
+            {
+                return Err(err(format!("requires.balance = {n} must be 1 to 100")));
             }
             for (key, map) in
                 [("residents", &raw.requires.residents), ("notables", &raw.requires.notables)]
