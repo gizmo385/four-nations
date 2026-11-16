@@ -774,6 +774,9 @@ pub struct BuildingDef {
     /// Republic Council", #1030): once one stands, each nation's seat lends its strongest
     /// modifier to the whole city (`World::council_seated`).
     pub council: bool,
+    /// A Spirit Garden (`spirit_garden = true`, docs/design/spirits.md, F6c, #1030): calms the
+    /// spirits (`SpiritsDef::calm_per_garden`), and no vine grows near it.
+    pub spirit_garden: bool,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -1287,6 +1290,8 @@ struct RawBuilding {
     #[serde(default)]
     council: bool,
     #[serde(default)]
+    spirit_garden: bool,
+    #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
     endeavor: bool,
@@ -1753,6 +1758,7 @@ impl BuildingsFile {
                 uses_power: b.uses_power,
                 draw: b.draw.unwrap_or(1),
                 council: b.council,
+                spirit_garden: b.spirit_garden,
                 names: b.names,
                 fuel,
                 houses_beast: false,

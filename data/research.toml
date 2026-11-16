@@ -1504,3 +1504,17 @@ item = "steel"
 count = 10
 [tech.unlocks]
 buildings = ["council_hall"]
+
+# --- #1030 (factory endgame F6c: Spirit Gardens) -------------------------------------------------
+
+# Calming the spirits (docs/design/spirits.md, "Layer 3"): a garden adds calm to the city's
+# balance, and no spirit vine grows near one.
+[[tech]]
+id = "spirit_gardens"
+name = "Spirit Gardens"
+description = "A quiet place of stone and fruit trees. The spirits rest easier near it."
+cost = 1000
+prereqs = ["mechanisms"]
+requires = { united = true }
+[tech.unlocks]
+buildings = ["spirit_garden"]

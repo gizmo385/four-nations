@@ -630,6 +630,12 @@ glyph = "⍟"
 ascii = "C"
 fg = [235, 215, 150]
 
+# The Spirit Garden (#1030, F6c).
+[building.spirit_garden]
+glyph = "⊚"
+ascii = "g"
+fg = [150, 220, 160]
+
 [building.steam_engine]
 glyph = "Φ"
 ascii = "E"
