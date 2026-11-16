@@ -343,3 +343,47 @@ fn the_overlay_lists_each_pass_across_link_and_each_running_yard() {
     w.apply(Command::SetAutomated { pos: smelter, on: false }, &defs).unwrap();
     assert!(w.flow_links(&defs).is_empty());
 }
+
+/// F4b (docs/design/factory-endgame.md, tier 5): six fusion machines, one per pair of nations,
+/// each making a Citizen good of both its nations, unlocked by phase 6's fusion pattern.
+#[test]
+fn each_pair_of_nations_has_a_fusion_machine_that_makes_both_their_citizen_goods() {
+    use crate::standing::Tier;
+    let defs = Defs::bundled();
+    let mut pairs = Vec::new();
+    for (tech, machine) in [
+        ("smoke_kilns", "smoke_kiln"),
+        ("mountain_works", "mountain_works"),
+        ("ember_joinery", "ember_joinery"),
+        ("sky_lanterns", "sky_lantern_works"),
+        ("river_mills", "river_mill"),
+        ("mist_houses", "mist_house"),
+    ] {
+        let t = defs.tech(defs.tech_id(tech).unwrap());
+        let [a, b] = t.fusion.expect(tech);
+        assert_eq!(t.requires.residents.get(&a), Some(&3), "{tech}");
+        assert_eq!(t.requires.residents.get(&b), Some(&3), "{tech}");
+        assert!(t.unlocks.buildings.iter().any(|id| id == machine), "{tech}");
+        let def = defs.building(defs.building_id(machine).unwrap());
+        assert!(def.uses_power, "{machine} runs itself in a yard");
+        let makes: Vec<ItemId> = def
+            .recipe
+            .iter()
+            .chain(def.alt_recipes.iter().map(|r| &r.recipe))
+            .map(|r| r.output.item)
+            .collect();
+        for nation in [a, b] {
+            let wants = defs.standing.aim(nation, Tier::Settler);
+            assert!(
+                wants.iter().any(|(item, _)| makes.contains(item)),
+                "{machine} makes a {nation:?} Citizen good"
+            );
+        }
+        let mut pair = [a, b];
+        pair.sort();
+        pairs.push(pair);
+    }
+    pairs.sort();
+    pairs.dedup();
+    assert_eq!(pairs.len(), 6, "every pair once");
+}

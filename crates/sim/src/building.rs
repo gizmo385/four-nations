@@ -3365,9 +3365,9 @@ mod tests {
         assert_eq!(wares.unlocked_by, defs.tech_id("trade_wares"));
         assert_eq!(defs.item(wares.recipe.output.item).id, "wares");
         // The Republic era's goods (#1027) added alt recipes to the Forge, the Steelworks, the
-        // Smokehouse and the Tea Works too, and the Herb House (#1030).
+        // Smokehouse and the Tea Works too, the Herb House and the six fusion machines (#1030).
         let others = defs.buildings.iter().filter(|b| !b.alt_recipes.is_empty()).count();
-        assert_eq!(others, 6);
+        assert_eq!(others, 12);
         assert!(!defs.tech(defs.tech_id("trade_wares").unwrap()).core);
     }
 

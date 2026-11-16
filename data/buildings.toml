@@ -1882,3 +1882,225 @@ work = 40.0
 modifier = "construction"
 input = [{ item = "herbs", count = 2 }, { item = "fruit", count = 2 }]
 stock_limit = 9
+
+# --- #1030 (factory endgame F4b: fusion machines) ---
+# One machine per pair of nations (docs/design/factory-endgame.md, "The machine tree", tier 5):
+# each makes both nations' Citizen goods, better than hand work does, and runs itself in a yard
+# like any machine (draw 2). Unlocked by phase 6's fusion pattern: 3 residents of each nation.
+[[building]]
+id = "smoke_kiln"
+name = "Smoke Kiln"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+uses_power = true
+draw = 2
+[[building.cost]]
+item = "brick"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 8
+[[building.cost]]
+item = "steel"
+count = 2
+[building.recipe]
+output = "lantern"
+output_count = 2
+work = 25.0
+modifier = "heating"
+input = [{ item = "metal", count = 1 }, { item = "wood", count = 1 }]
+stock_limit = 12
+[[building.alt_recipe]]
+id = "smoked_fish"
+output = "smoked_fish"
+output_count = 3
+work = 25.0
+modifier = "water_work"
+input = [{ item = "fish", count = 2 }, { item = "wood", count = 1 }]
+stock_limit = 12
+
+[[building]]
+id = "mountain_works"
+name = "Mountain Works"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+uses_power = true
+draw = 2
+[[building.cost]]
+item = "stone"
+count = 14
+[[building.cost]]
+item = "wood"
+count = 8
+[[building.cost]]
+item = "steel"
+count = 2
+[building.recipe]
+output = "furniture"
+output_count = 2
+work = 30.0
+modifier = "construction"
+input = [{ item = "wood", count = 2 }, { item = "fittings", count = 1 }]
+stock_limit = 12
+[[building.alt_recipe]]
+id = "tea"
+output = "tea"
+output_count = 3
+work = 20.0
+modifier = "construction"
+input = [{ item = "herbs", count = 2 }]
+stock_limit = 12
+[[building.alt_recipe]]
+id = "incense"
+output = "incense"
+output_count = 2
+work = 25.0
+modifier = "construction"
+input = [{ item = "herbs", count = 1 }, { item = "fruit", count = 1 }]
+stock_limit = 12
+
+[[building]]
+id = "ember_joinery"
+name = "Ember Joinery"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+uses_power = true
+draw = 2
+[[building.cost]]
+item = "brick"
+count = 10
+[[building.cost]]
+item = "stone"
+count = 8
+[[building.cost]]
+item = "steel"
+count = 2
+[building.recipe]
+output = "lantern"
+output_count = 2
+work = 25.0
+modifier = "heating"
+input = [{ item = "metal", count = 1 }, { item = "wood", count = 1 }]
+stock_limit = 12
+[[building.alt_recipe]]
+id = "furniture"
+output = "furniture"
+output_count = 2
+work = 30.0
+modifier = "construction"
+input = [{ item = "wood", count = 2 }, { item = "fittings", count = 1 }]
+stock_limit = 12
+
+[[building]]
+id = "sky_lantern_works"
+name = "Sky Lantern Works"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+uses_power = true
+draw = 2
+[[building.cost]]
+item = "brick"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "steel"
+count = 2
+[building.recipe]
+output = "lantern"
+output_count = 2
+work = 25.0
+modifier = "heating"
+input = [{ item = "metal", count = 1 }, { item = "wood", count = 1 }]
+stock_limit = 12
+[[building.alt_recipe]]
+id = "tea"
+output = "tea"
+output_count = 3
+work = 20.0
+modifier = "construction"
+input = [{ item = "herbs", count = 2 }]
+stock_limit = 12
+
+[[building]]
+id = "river_mill"
+name = "River Mill"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+uses_power = true
+draw = 2
+[[building.cost]]
+item = "stone"
+count = 12
+[[building.cost]]
+item = "wood"
+count = 10
+[[building.cost]]
+item = "steel"
+count = 2
+[building.recipe]
+output = "furniture"
+output_count = 2
+work = 30.0
+modifier = "construction"
+input = [{ item = "wood", count = 2 }, { item = "fittings", count = 1 }]
+stock_limit = 12
+[[building.alt_recipe]]
+id = "smoked_fish"
+output = "smoked_fish"
+output_count = 3
+work = 25.0
+modifier = "water_work"
+input = [{ item = "fish", count = 2 }, { item = "wood", count = 1 }]
+stock_limit = 12
+
+[[building]]
+id = "mist_house"
+name = "Mist House"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+capacity = 1
+uses_power = true
+draw = 2
+[[building.cost]]
+item = "wood"
+count = 16
+[[building.cost]]
+item = "stone"
+count = 4
+[[building.cost]]
+item = "steel"
+count = 2
+[building.recipe]
+output = "smoked_fish"
+output_count = 3
+work = 25.0
+modifier = "water_work"
+input = [{ item = "fish", count = 2 }, { item = "wood", count = 1 }]
+stock_limit = 12
+[[building.alt_recipe]]
+id = "tea"
+output = "tea"
+output_count = 3
+work = 20.0
+modifier = "construction"
+input = [{ item = "herbs", count = 2 }]
+stock_limit = 12

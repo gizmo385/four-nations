@@ -1397,3 +1397,92 @@ buildings = ["wind_farm", "herb_house"]
 [[tech.unlocks.upgrades]]
 building = "wind_farm"
 automate = { rate = 0.5, radius = 8, capacity = 10 }
+
+# --- #1030 (factory endgame F4b: fusion machines) ----------------------------------------------
+
+# Six fusions in phase 6's pattern (docs/design/factory-endgame.md, "The machine tree", tier 5):
+# two nations, 3 residents of each, 1,000 points plus tools, after `mechanisms`. Each unlocks one
+# machine that makes both nations' Citizen goods. Numbers are provisional.
+[[tech]]
+id = "smoke_kilns"
+name = "Smoke Kilns"
+description = "One fire, two crafts: Fire shapes the lantern while Water smokes the catch."
+fusion = ["fire", "water"]
+cost = 1000
+prereqs = ["mechanisms"]
+requires = { residents = { fire = 3, water = 3 } }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["smoke_kiln"]
+
+[[tech]]
+id = "mountain_works"
+name = "Mountain Works"
+description = "Earth cuts the timber true and Air dries the herbs on the high wind."
+fusion = ["earth", "air"]
+cost = 1000
+prereqs = ["mechanisms"]
+requires = { residents = { earth = 3, air = 3 } }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["mountain_works"]
+
+[[tech]]
+id = "ember_joinery"
+name = "Ember Joinery"
+description = "Earth's joints and Fire's metalwork, at one bench that never cools."
+fusion = ["fire", "earth"]
+cost = 1000
+prereqs = ["mechanisms"]
+requires = { residents = { fire = 3, earth = 3 } }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["ember_joinery"]
+
+[[tech]]
+id = "sky_lanterns"
+name = "Sky Lanterns"
+description = "Fire lights the paper and Air lifts it; the same hearth steeps the tea."
+fusion = ["fire", "air"]
+cost = 1000
+prereqs = ["mechanisms"]
+requires = { residents = { fire = 3, air = 3 } }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["sky_lantern_works"]
+
+[[tech]]
+id = "river_mills"
+name = "River Mills"
+description = "Water turns the saw and Earth sets the frame; the race carries the smoke away."
+fusion = ["earth", "water"]
+cost = 1000
+prereqs = ["mechanisms"]
+requires = { residents = { earth = 3, water = 3 } }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["river_mill"]
+
+[[tech]]
+id = "mist_houses"
+name = "Mist Houses"
+description = "Water's steam and Air's breeze: the fish smoke slow and the tea leaves curl."
+fusion = ["water", "air"]
+cost = 1000
+prereqs = ["mechanisms"]
+requires = { residents = { water = 3, air = 3 } }
+[[tech.cost_items]]
+item = "tool"
+count = 6
+[tech.unlocks]
+buildings = ["mist_house"]
