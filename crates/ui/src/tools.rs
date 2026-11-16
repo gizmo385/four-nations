@@ -15,7 +15,7 @@
 
 use fn_sim::bending::AbilityId;
 use fn_sim::building::BuildingId;
-use fn_sim::world::{Command, CommandError};
+use fn_sim::world::{Command, CommandError, DesignateError};
 use fn_sim::{Defs, Nation, Pos};
 
 use crate::build;
@@ -587,6 +587,10 @@ pub struct Report {
     pub unreachable: u32,
     /// Why the last command was refused, as a notice words it ("requires Fire Making").
     pub why: Option<String>,
+    /// The last refusal was a standing order asked for before its tech ("creating a standing
+    /// order requires researching Calendar"). With nothing marked, that sentence is the whole
+    /// message, so it can't read as the harvest itself needing the tech.
+    pub standing_gate: bool,
     /// The Build tool's tiles of resources to clear before the sites can go up.
     pub first: u32,
     /// The Build tool's total cost for the sites marked: "12 Wood, 4 Stone".
@@ -603,6 +607,11 @@ impl Report {
     /// nothing to harvest." The Build tool adds the tiles it clears first.
     pub fn summary(&self) -> String {
         if !self.done() {
+            if self.standing_gate
+                && let Some(why) = &self.why
+            {
+                return format!("{}.", upper_first(why));
+            }
             let nothing = match self.lead {
                 "Removed" => "Nothing removed",
                 "Added" => "Nothing added",
@@ -708,6 +717,7 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
     let mut counts: Vec<Count> = Vec::new();
     let mut removal = Removal::default();
     let mut last_error = None;
+    let mut standing_gate = false;
     for pos in targets {
         // Remove takes one thing per command and asks again, so a tile with a site, a zone and a
         // mark loses all three; every other tool issues one command a tile.
@@ -765,6 +775,13 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
                 }
                 Err(e) => {
                     refused += 1;
+                    standing_gate = matches!(
+                        (command, &e),
+                        (
+                            Command::StandingSow { .. },
+                            CommandError::Designate(DesignateError::NotResearched(_))
+                        )
+                    );
                     last_error = Some(e);
                     break;
                 }
@@ -779,7 +796,12 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
         Tool::Remove => counts = removal.counts(),
         _ => {}
     }
-    let why = last_error.clone().map(|e| build::describe_error(session, e));
+    let why = last_error.clone().map(|e| match e {
+        CommandError::Designate(DesignateError::NotResearched(t)) if standing_gate => {
+            format!("creating a standing order requires researching {}", session.defs.tech(t).name)
+        }
+        e => build::describe_error(session, e),
+    });
     let cost = match (tool, building) {
         (Tool::Build, Some(id)) if done > 0 => Some(build::cost_of(session, id, done)),
         _ => None,
@@ -799,12 +821,19 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
         // vocabulary"); every other tool keeps "done".
         let verb = if tool == Tool::Clear { "marked" } else { "done" };
         match &why {
+            Some(why) if standing_gate && done == 0 => upper_first(why),
             Some(why) => format!("{what}: {done} {verb}, {refused} skipped ({why}){suffix}"),
             None => format!("{what}: {done} {verb}, {refused} skipped{suffix}"),
         }
     };
     let removal = if tool == Tool::Remove { removal } else { Removal::default() };
-    Report { notice, lead, counts, removal, refused, unreachable, why, first, cost }
+    Report { notice, lead, counts, removal, refused, unreachable, why, standing_gate, first, cost }
+}
+
+/// `why` with its first letter in capitals, for a reason that stands as the whole message.
+fn upper_first(why: &str) -> String {
+    let mut chars = why.chars();
+    chars.next().map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
 }
 
 /// The most things Remove takes off one tile: a site, a zone, a mark of each kind and a

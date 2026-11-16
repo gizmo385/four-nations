@@ -534,6 +534,31 @@ mod tests {
         assert!(report.why.is_some());
     }
 
+    /// A standing order on farm plots before Calendar says so on its own, not as a harvest that
+    /// needs the tech (a playtest read "harvest (chop, mine, gather) ... requires Calendar" as
+    /// chopping needing it).
+    #[test]
+    fn a_standing_order_before_calendar_names_the_standing_order() {
+        let mut s = scene();
+        let plots = Order {
+            from: Pos::new(2, 2),
+            to: Pos::new(3, 2),
+            repeating: true,
+            ..order(Tool::Harvest, None)
+        };
+        let report = agree(&mut s, plots);
+        assert!(!report.done());
+        assert!(report.standing_gate);
+        let sentence = "Creating a standing order requires researching Calendar";
+        assert_eq!(report.summary(), format!("{sentence}."));
+        assert_eq!(report.notice, sentence);
+        assert!(!report.notice.contains("chop"), "{}", report.notice);
+        // A plain harvest on the same tiles isn't a standing order, so it doesn't say this.
+        let plain = agree(&mut s, Order { repeating: false, ..plots });
+        assert!(!plain.standing_gate);
+        assert!(!plain.summary().contains("standing order"), "{}", plain.summary());
+    }
+
     #[test]
     fn the_blocks_hold_what_the_tool_does_the_preview_and_the_toggles() {
         let s = scene();
