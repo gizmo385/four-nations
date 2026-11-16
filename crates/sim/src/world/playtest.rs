@@ -27,6 +27,10 @@ pub const REPUBLIC_TECHS: &[&str] = &[
     "freight_lines",
     "flumes",
     "wind_tubes",
+    "lightning_plants",
+    "geothermal_vents",
+    "hydro_mills",
+    "wind_farms",
 ];
 
 /// Items a Republic start adds to stores, by id and count: steel to spend, metal and wood for the

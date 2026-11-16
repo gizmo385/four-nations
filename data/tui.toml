@@ -540,6 +540,47 @@ glyph = "◎"
 ascii = "o"
 fg = [200, 225, 235]
 
+# Plants and big works (#1030).
+[building.lightning_plant]
+glyph = "ϟ"
+ascii = "Z"
+fg = [255, 200, 90]
+
+[building.geothermal_vent]
+glyph = "⊛"
+ascii = "v"
+fg = [210, 120, 70]
+
+[building.hydro_mill]
+glyph = "⊡"
+ascii = "H"
+fg = [80, 150, 230]
+
+[building.wind_farm]
+glyph = "✻"
+ascii = "*"
+fg = [220, 235, 240]
+
+[building.steel_foundry]
+glyph = "▣"
+ascii = "F"
+fg = [200, 110, 80]
+
+[building.furniture_works]
+glyph = "Ш"
+ascii = "U"
+fg = [170, 130, 90]
+
+[building.parka_works]
+glyph = "Ж"
+ascii = "P"
+fg = [150, 190, 220]
+
+[building.herb_house]
+glyph = "❀"
+ascii = "h"
+fg = [130, 210, 120]
+
 [building.steam_engine]
 glyph = "Φ"
 ascii = "E"

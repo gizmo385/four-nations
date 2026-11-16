@@ -538,6 +538,14 @@ pub struct UpgradeAutomate {
     pub radius: u32,
     #[serde(default)]
     pub beside: Vec<crate::defs::Terrain>,
+    /// The draw its machines can share before they brown out (#1030); 0 for no limit.
+    #[serde(default)]
+    pub capacity: u32,
+    /// Notables who can crew it, each adding `per_crew` to `capacity` (#1030).
+    #[serde(default)]
+    pub crew: u32,
+    #[serde(default)]
+    pub per_crew: u32,
 }
 
 /// A school: one permanent fork in a nation's tree (`[[school]]` in `data/research.toml`,

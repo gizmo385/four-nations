@@ -918,7 +918,7 @@ count = 8
 [tech.unlocks]
 [[tech.unlocks.upgrades]]
 building = "lightning_station"
-automate = { rate = 1.0, radius = 4 }    # radius from the footprint, unscaled
+automate = { rate = 1.0, radius = 4, capacity = 6 }    # radius from the footprint, unscaled; capacity in draw (#1030)
 
 # --- #738 (research horizons phase 5: `pai_sho`, `crystal_growing`) ----------------------------
 
@@ -1278,13 +1278,13 @@ count = 6
 [tech.unlocks]
 [[tech.unlocks.upgrades]]
 building = "hot_spring_mill"
-automate = { rate = 0.6, radius = 3, beside = ["mountain", "tunnel"] }
+automate = { rate = 0.6, radius = 3, beside = ["mountain", "tunnel"], capacity = 3 }
 [[tech.unlocks.upgrades]]
 building = "tide_mill"
-automate = { rate = 0.75, radius = 4, beside = ["water", "river", "lake", "canal"] }
+automate = { rate = 0.75, radius = 4, beside = ["water", "river", "lake", "canal"], capacity = 4 }
 [[tech.unlocks.upgrades]]
 building = "wind_turbine"
-automate = { rate = 0.5, radius = 6 }
+automate = { rate = 0.5, radius = 6, capacity = 4 }
 
 # --- #1030 (factory endgame F3: freight) ---------------------------------------------------------
 
@@ -1322,3 +1322,78 @@ prereqs = []
 requires = { united = true }
 [tech.unlocks]
 buildings = ["wind_tube"]
+
+# --- #1030 (factory endgame F4: power with a load, big works) -------------------------------------
+
+# Plants and big works, one tech a nation after `mechanisms` (docs/design/factory-endgame.md,
+# "Layer 4: power with a load"). Every automating yard now has a capacity, the draw its machines
+# share before they brown out (`World::yard_loads`); a plant is a yard with more, and a crewed
+# plant's Notables add to it. A big work is a 3x3 machine that does two steps in one, with a heavy
+# draw.
+[[tech]]
+id = "lightning_plants"
+name = "Lightning Plants"
+description = "Your finest firebenders crew the plant, and the whole city hums."
+nation = "fire"
+cost = 1500
+prereqs = ["mechanisms"]
+requires = { united = true }
+[[tech.cost_items]]
+item = "steel"
+count = 8
+[tech.unlocks]
+buildings = ["lightning_plant", "steel_foundry"]
+[[tech.unlocks.upgrades]]
+building = "lightning_plant"
+automate = { rate = 1.0, radius = 6, capacity = 4, crew = 4, per_crew = 3 }
+
+[[tech]]
+id = "geothermal_vents"
+name = "Geothermal Vents"
+description = "Small vents bored into the rock, one beside the next, each turning a shaft."
+nation = "earth"
+cost = 1500
+prereqs = ["mechanisms"]
+requires = { united = true }
+[[tech.cost_items]]
+item = "steel"
+count = 8
+[tech.unlocks]
+buildings = ["geothermal_vent", "furniture_works"]
+[[tech.unlocks.upgrades]]
+building = "geothermal_vent"
+automate = { rate = 0.6, radius = 3, beside = ["mountain", "tunnel"], capacity = 4 }
+
+[[tech]]
+id = "hydro_mills"
+name = "Hydro Mills"
+description = "A steady wheel on the bank, its race kept running by your best waterbenders."
+nation = "water"
+cost = 1500
+prereqs = ["mechanisms"]
+requires = { united = true }
+[[tech.cost_items]]
+item = "steel"
+count = 8
+[tech.unlocks]
+buildings = ["hydro_mill", "parka_works"]
+[[tech.unlocks.upgrades]]
+building = "hydro_mill"
+automate = { rate = 0.75, radius = 5, beside = ["water", "river", "lake", "canal"], capacity = 5, crew = 2, per_crew = 3 }
+
+[[tech]]
+id = "wind_farms"
+name = "Wind Farms"
+description = "A field of sails that needs no hands at all."
+nation = "air"
+cost = 1500
+prereqs = ["mechanisms"]
+requires = { united = true }
+[[tech.cost_items]]
+item = "steel"
+count = 8
+[tech.unlocks]
+buildings = ["wind_farm", "herb_house"]
+[[tech.unlocks.upgrades]]
+building = "wind_farm"
+automate = { rate = 0.5, radius = 8, capacity = 10 }

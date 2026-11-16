@@ -440,6 +440,7 @@ fn test_source(defs: &mut Defs, radius: u32, boost: f32) -> BuildingId {
         chart: None,
         archive: None,
         uses_power: false,
+        draw: 1,
         names: HashMap::new(),
         fuel: None,
         outpost: None,

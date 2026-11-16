@@ -138,6 +138,7 @@ fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) ->
         if world.building_record(anchor).is_some_and(|b| world.on_bank(b, defs)) {
             lines.push("On the bank: no fuel".to_owned());
         }
+        lines.extend(load_lines(world, defs, anchor));
         lines
     } else if def.uses_power {
         let powered = world.footprint_at(anchor).and_then(|f| world.power_for(f, defs));
@@ -169,6 +170,26 @@ fn power_lines(world: &World, defs: &Defs, anchor: Pos, building: BuildingId) ->
     } else {
         Vec::new()
     }
+}
+
+/// A running yard's load and crew (docs/design/factory-endgame.md, "Layer 4", #1030): `Load: 8
+/// of 6 draw, machines at 75%`, and on a plant `Crew: 2 of 4 Notables`.
+pub fn load_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
+    let Some(load) = world.yard_loads(defs).get(&anchor).copied() else { return Vec::new() };
+    let mut lines = vec![match load.capacity {
+        None => format!("Load: {} draw, no limit", load.draw),
+        Some(cap) if load.draw > cap => format!(
+            "Load: {} of {cap} draw, machines at {}%",
+            load.draw,
+            (load.speed() * 100.0).round() as u32
+        ),
+        Some(cap) => format!("Load: {} of {cap} draw", load.draw),
+    }];
+    let (crewed, slots) = load.crew;
+    if slots > 0 {
+        lines.push(format!("Crew: {crewed} of {slots} Notables"));
+    }
+    lines
 }
 
 /// A Hothouse's state, a fuel bunker's fill and a Lemur Roost's tally
@@ -241,10 +262,17 @@ pub fn automation_line(world: &World, defs: &Defs, anchor: Pos) -> Option<String
         .map(|&(item, got, need)| format!("{got}/{need} {}", defs.item(item).name))
         .collect();
     let pct = (done * 100.0).round() as u32;
-    Some(if short.is_empty() {
+    let line = if short.is_empty() {
         format!("Automated: {pct}%")
     } else {
         format!("Automated: Batch {}, {pct}%", short.join(", "))
+    };
+    // Its yard over capacity (#1030): every machine on it slows alike.
+    let speed = world.brownout(anchor, defs);
+    Some(if speed < 1.0 {
+        format!("{line}, browned out to {}%", (speed * 100.0).round() as u32)
+    } else {
+        line
     })
 }
 
@@ -611,7 +639,13 @@ pub fn standing_line(world: &World, defs: &Defs, unit: &Unit) -> Option<String> 
             names.push(name);
         }
     }
-    Some(format!("{}, wants {}", tier.name(), names.join(", ")))
+    let post = world
+        .crews(defs)
+        .into_iter()
+        .find(|(_, crew)| crew.contains(&unit.id))
+        .and_then(|(at, _)| world.building_at(at))
+        .map(|id| format!(", crewing the {}", defs.building(id).display_name(world.nation)));
+    Some(format!("{}, wants {}{}", tier.name(), names.join(", "), post.unwrap_or_default()))
 }
 
 /// What `tile` itself holds, ignoring any unit standing there: the Here section's fallback once
@@ -1430,6 +1464,40 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// A yard over capacity says so, and so does each machine on it (#1030).
+    #[test]
+    fn a_browned_out_yard_and_its_machines_say_how_slow() {
+        let s = Session::new(7, Nation::Fire, 64, 64);
+        let mut s = spliced(s, Some("great_works"), None);
+        let bed = s.defs.building_id("bed").unwrap();
+        let pos = s
+            .world
+            .map
+            .iter()
+            .map(|(p, _)| p)
+            .find(|p| {
+                (0..5).all(|dx| {
+                    (0..5).all(|dy| {
+                        let q = Pos::new(p.x + dx, p.y + dy);
+                        s.world.check_build(q, bed, &s.defs).is_ok()
+                    })
+                })
+            })
+            .expect("a 5x5 clearing");
+        put(&mut s, "lightning_station", pos);
+        put(&mut s, "steel_foundry", Pos::new(pos.x + 2, pos.y));
+        put(&mut s, "steel_foundry", Pos::new(pos.x, pos.y + 2));
+        assert_eq!(
+            load_lines(&s.world, &s.defs, pos),
+            vec!["Load: 8 of 6 draw, machines at 75%".to_owned()]
+        );
+        let machine = automation_line(&s.world, &s.defs, Pos::new(pos.x + 2, pos.y)).unwrap();
+        assert!(
+            machine.ends_with("browned out to 75%") || machine.contains("waiting"),
+            "{machine}"
+        );
     }
 
     /// The Oil Lamp's bunker (#678, #682): out of fish until filled, then how full it is.

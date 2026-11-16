@@ -678,6 +678,12 @@ pub struct AutomateDef {
     /// Terrains a machine's footprint ring must touch for it to run (#1037: Water's machines
     /// run along water, Earth's at the rock face). Empty: anywhere in reach.
     pub beside: Vec<Terrain>,
+    /// The draw its machines share before they brown out (docs/design/factory-endgame.md,
+    /// "Layer 4", #1030), before crew. 0: no limit, the yard of every source before plants.
+    pub capacity: u32,
+    /// Notables who can crew it (`World::crews`), each adding `per_crew` to `capacity`.
+    pub crew: u32,
+    pub per_crew: u32,
 }
 
 impl AuraDef {
@@ -761,6 +767,9 @@ pub struct BuildingDef {
     /// (`world/study.rs`) run faster while a power source is in reach (issue #428). Has no
     /// effect without a `recipe` or `seats`.
     pub uses_power: bool,
+    /// How much of an automating yard's `capacity` this machine takes while automated
+    /// (docs/design/factory-endgame.md, "Layer 4", #1030): 1 unless set; big works draw more.
+    pub draw: u32,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -1270,6 +1279,8 @@ struct RawBuilding {
     #[serde(default)]
     uses_power: bool,
     #[serde(default)]
+    draw: Option<u32>,
+    #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
     endeavor: bool,
@@ -1700,6 +1711,9 @@ impl BuildingsFile {
                     ));
                 }
             }
+            if b.draw.is_some_and(|d| !(1..=16).contains(&d)) {
+                return err(format!("building {}: draw must be 1 to 16", b.id));
+            }
             buildings.push(BuildingDef {
                 id: b.id,
                 name: b.name,
@@ -1731,6 +1745,7 @@ impl BuildingsFile {
                 chart,
                 archive,
                 uses_power: b.uses_power,
+                draw: b.draw.unwrap_or(1),
                 names: b.names,
                 fuel,
                 houses_beast: false,
@@ -2483,7 +2498,23 @@ fn link_upgrades(buildings: &mut [BuildingDef], techs: &[TechDef]) -> Result<(),
                 if let Some((other, _)) = &b.automate_upgrade {
                     return taken(*other, "automate");
                 }
-                let def = AutomateDef { rate: a.rate, radius: a.radius, beside: a.beside.clone() };
+                if a.crew > 8 || (a.crew > 0) != (a.per_crew > 0) {
+                    return err(format!(
+                        "automate crew = {} and per_crew = {} must both be set (crew at most 8)",
+                        a.crew, a.per_crew
+                    ));
+                }
+                if a.crew > 0 && a.capacity == 0 {
+                    return err("a crewed automate yard needs a capacity".to_owned());
+                }
+                let def = AutomateDef {
+                    rate: a.rate,
+                    radius: a.radius,
+                    beside: a.beside.clone(),
+                    capacity: a.capacity,
+                    crew: a.crew,
+                    per_crew: a.per_crew,
+                };
                 b.automate_upgrade = Some((TechId(t as u16), def));
             }
             if let Some(bank) = &up.bank {
@@ -2932,7 +2963,8 @@ mod tests {
         let power = lightning_station.power.expect("the Lightning Station is a power source");
         assert_eq!((power.radius, power.boost_millis), (4, 2000));
 
-        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 5);
+        // Plus the Republic era's four plants (#1030).
+        assert_eq!(defs.buildings.iter().filter(|b| b.power.is_some()).count(), 9);
     }
 
     #[test]
@@ -3333,9 +3365,9 @@ mod tests {
         assert_eq!(wares.unlocked_by, defs.tech_id("trade_wares"));
         assert_eq!(defs.item(wares.recipe.output.item).id, "wares");
         // The Republic era's goods (#1027) added alt recipes to the Forge, the Steelworks, the
-        // Smokehouse and the Tea Works too.
+        // Smokehouse and the Tea Works too, and the Herb House (#1030).
         let others = defs.buildings.iter().filter(|b| !b.alt_recipes.is_empty()).count();
-        assert_eq!(others, 5);
+        assert_eq!(others, 6);
         assert!(!defs.tech(defs.tech_id("trade_wares").unwrap()).core);
     }
 

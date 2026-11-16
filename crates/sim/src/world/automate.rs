@@ -79,6 +79,13 @@ impl World {
     /// The rate of the best automating yard the building anchored on `pos` stands in, whether
     /// or not the player took it off automation: `None` for a building automation can't touch.
     fn yard_rate(&self, pos: Pos, defs: &Defs) -> Option<f32> {
+        self.yard_of(pos, defs).map(|(_, rate)| rate)
+    }
+
+    /// The best automating yard the building anchored on `pos` stands in, as the yard's anchor
+    /// and rate: the fastest, and of two as fast the first by anchor. Its machines draw on that
+    /// yard's capacity (`World::yard_loads`).
+    pub fn yard_of(&self, pos: Pos, defs: &Defs) -> Option<(Pos, f32)> {
         if !self.has_kind(Kind::Automates) {
             return None;
         }
@@ -101,9 +108,9 @@ impl World {
                 (self.research.is_known(*tech)
                     && s.footprint().gap(foot) <= a.radius as i32
                     && touches(&a.beside))
-                .then_some(a.rate)
+                .then_some((s.anchor, a.rate))
             })
-            .reduce(f32::max)
+            .reduce(|best, next| if next.1 > best.1 { next } else { best })
     }
 
     /// `Command::SetAutomated`: puts the building anchored on `pos` on automation, or gives it
@@ -363,8 +370,14 @@ impl World {
             return;
         }
         let anchors: Vec<Pos> = self.buildings().map(|b| b.anchor).collect();
+        // The load at the tick's start: a batch finishing mid-loop doesn't change who browns out.
+        let loads = self.yard_loads(defs);
         for pos in anchors {
-            let Some(rate) = self.automated(pos, defs) else { continue };
+            if self.anchored(pos).is_none_or(|b| b.manual) {
+                continue;
+            }
+            let Some((yard, rate)) = self.yard_of(pos, defs) else { continue };
+            let rate = rate * loads.get(&yard).map_or(1.0, super::plant::YardLoad::speed);
             let Some(recipe) = self.recipe_at(pos, defs) else { continue };
             if self.needs_tending(pos, defs) {
                 if !self.jobs.iter().any(|j| j.kind == JobKind::Refuel { pos }) {
