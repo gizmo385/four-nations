@@ -1940,6 +1940,7 @@ fn describe_thing(session: &Session, thing: &Thing, pos: Pos) -> String {
         Thing::EarthTent => "earth tent".to_owned(),
         Thing::AirShield => "air shield".to_owned(),
         Thing::Sapling => "sapling".to_owned(),
+        Thing::Spirit => "friendly spirit".to_owned(),
         Thing::Link => "link line".to_owned(),
         Thing::Flow(dir) => format!("goods passing across ({dir:?})").to_lowercase(),
         Thing::Camp { trader: true, .. } => "traders".to_owned(),

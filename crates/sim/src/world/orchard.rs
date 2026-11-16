@@ -96,7 +96,8 @@ impl World {
         self.of_kind(Kind::Orchard)
             .filter_map(|b| self.orchard_def(b.anchor, defs).map(|d| (b.anchor, d)))
             .filter(|(o, d)| d.plants == kind && o.chebyshev(pos) <= d.radius as i32)
-            .map(|(_, d)| d.tend_boost)
+            // A friendly spirit's blessing on the orchard (docs/design/spirits.md, F6e).
+            .map(|(o, d)| d.tend_boost * self.blessing(o, defs))
             .fold(1.0, f32::max)
     }
 
