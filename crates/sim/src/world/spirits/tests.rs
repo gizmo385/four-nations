@@ -154,3 +154,26 @@ fn trees_felled_before_the_gate_are_never_charged() {
     minute(&mut w, &defs);
     assert_eq!(w.balance_terms().unwrap().felled, 0.0, "nor the minute after");
 }
+
+#[test]
+fn a_spirit_garden_calms_the_city_and_keeps_vines_away() {
+    let defs = Defs::bundled();
+    let mut w = busy(&defs, 30.0);
+    let garden = defs.building_id("spirit_garden").unwrap();
+    // Beside the yard: every tile a vine could take is within 4 of it.
+    w.put_building(Footprint::new(Pos::new(9, 2), 3, 3), garden, &defs);
+    minute(&mut w, &defs);
+    assert_eq!(w.balance_terms().unwrap().gardens, 1.5);
+    vine_tick(&mut w, &defs, 30.0);
+    let grown = vines(&w, &defs);
+    assert!(
+        grown.iter().all(|&p| Footprint::new(Pos::new(9, 2), 3, 3).distance(p) > 4),
+        "{grown:?}"
+    );
+    // An Air city's garden gives 2.0.
+    let mut air = city(&defs, 0, true);
+    air.nation = Nation::Air;
+    air.put_building(Footprint::new(Pos::new(2, 2), 3, 3), garden, &defs);
+    minute(&mut air, &defs);
+    assert_eq!(air.balance_terms().unwrap().gardens, 2.0);
+}

@@ -24,6 +24,12 @@ pub struct SpiritsDef {
     pub trees_calm_max: f32,
     /// The resources that count as trees: living ones calm, felled ones unsettle.
     pub trees: Vec<ResourceId>,
+    /// Calm for each Spirit Garden (F6c), or the city's nation's own figure where
+    /// `garden_calm_by_nation` names it.
+    pub calm_per_garden: f32,
+    pub garden_calm_by_nation: std::collections::BTreeMap<crate::nation::Nation, f32>,
+    /// No vine grows within this many tiles of a garden.
+    pub garden_clear: u32,
     /// The vine resource (F6b), or `None` for no vines.
     pub vines: Option<ResourceId>,
     /// Below this balance a vine grows every `vine_seconds`; below `vine_fast_below`, twice as
@@ -54,6 +60,12 @@ pub(crate) struct RawSpirits {
     trees_calm_max: f32,
     #[serde(default)]
     trees: Vec<String>,
+    #[serde(default = "calm_per_garden")]
+    calm_per_garden: f32,
+    #[serde(default)]
+    garden_calm_by_nation: std::collections::BTreeMap<crate::nation::Nation, f32>,
+    #[serde(default = "garden_clear")]
+    garden_clear: u32,
     #[serde(default)]
     vines: Option<String>,
     #[serde(default = "vine_below")]
@@ -66,6 +78,12 @@ pub(crate) struct RawSpirits {
     vine_choke: f32,
 }
 
+fn calm_per_garden() -> f32 {
+    1.5
+}
+fn garden_clear() -> u32 {
+    4
+}
 fn vine_below() -> f32 {
     40.0
 }
@@ -109,6 +127,9 @@ impl Default for SpiritsDef {
             trees_per_calm: trees_per_calm(),
             trees_calm_max: trees_calm_max(),
             trees: Vec::new(),
+            calm_per_garden: calm_per_garden(),
+            garden_calm_by_nation: Default::default(),
+            garden_clear: garden_clear(),
             vines: None,
             vine_below: vine_below(),
             vine_fast_below: vine_fast_below(),
@@ -134,6 +155,7 @@ pub(crate) fn resolve(
         ("calm_base", raw.calm_base),
         ("calm_per_trees", raw.calm_per_trees),
         ("trees_calm_max", raw.trees_calm_max),
+        ("calm_per_garden", raw.calm_per_garden),
     ] {
         if !(v.is_finite() && (0.0..=20.0).contains(&v)) {
             return err(format!("{key} = {v} must be 0 to 20"));
@@ -172,6 +194,9 @@ pub(crate) fn resolve(
         trees_per_calm: raw.trees_per_calm,
         trees_calm_max: raw.trees_calm_max,
         trees,
+        calm_per_garden: raw.calm_per_garden,
+        garden_calm_by_nation: raw.garden_calm_by_nation,
+        garden_clear: raw.garden_clear,
         vines,
         vine_below: raw.vine_below,
         vine_fast_below: raw.vine_fast_below,

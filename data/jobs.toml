@@ -463,6 +463,12 @@ calm_per_trees = 0.5
 trees_per_calm = 25
 trees_calm_max = 3.0
 trees = ["oak_tree", "fir_tree", "fruit_tree"]
+# Spirit Gardens (F6c): `calm_per_garden` each (the city's nation's own figure where
+# `garden_calm_by_nation` names one: Air Nomads' way with spirits), and no vine grows within
+# `garden_clear` tiles of one.
+calm_per_garden = 1.5
+garden_calm_by_nation = { air = 2.0 }
+garden_clear = 4
 # Spirit vines (F6b): below `vine_below`, one vine grows every `vine_seconds` beside the busiest
 # yard's machines; below `vine_fast_below`, twice as often. A machine whose edge touches one runs
 # at `vine_choke` of its speed.

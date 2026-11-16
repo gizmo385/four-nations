@@ -515,6 +515,7 @@ impl Economy {
         gather_materials(world, defs, anchor, &self.build_material_items(world, defs, &deposits));
         self.quarry_and_mine(world, defs, anchor, &deposits);
         recover_scrolls(world, defs, anchor);
+        cut_vines(world, defs, anchor);
         let plan = self.research_plan(world.nation, defs, |t| world.research().is_known(t));
         let plan = self.hold_school(world, defs, plan);
         let plan = hold_missing_bills(world, defs, plan);
@@ -862,6 +863,17 @@ fn recover_scrolls(world: &mut World, defs: &Defs, anchor: Pos) {
     let Some(scroll) = defs.item_id("ancient_scroll") else { return };
     let items = [scroll];
     let targets = nearby(anchor, SCROLL_RADIUS, world, defs, |t, defs| yields_any(t, defs, &items));
+    for pos in targets {
+        let _ = world.apply(Command::DesignateHarvest { pos }, defs);
+    }
+}
+
+/// A one-shot harvest on every spirit vine within `FORAGE_RADIUS` (docs/design/spirits.md, F6b,
+/// #1030), as a player keeps a hot city cut back: vines grow on the open ground beside the
+/// machines, which is where the town's next building would stand.
+fn cut_vines(world: &mut World, defs: &Defs, anchor: Pos) {
+    let Some(vine) = defs.spirits.vines else { return };
+    let targets = nearby(anchor, FORAGE_RADIUS, world, defs, |t, _| t.resource == Some(vine));
     for pos in targets {
         let _ = world.apply(Command::DesignateHarvest { pos }, defs);
     }

@@ -2137,3 +2137,25 @@ count = 6
 [[building.cost]]
 item = "tea"
 count = 6
+
+# --- #1030 (factory endgame F6c: Spirit Gardens) ---
+# A Spirit Garden (docs/design/spirits.md, "Layer 3"): calm for the city's balance with the
+# spirits (`[spirits] calm_per_garden`), and a ring no vine grows in. Passable: people walk its
+# paths. The design's daily tending visit is left for later.
+[[building]]
+id = "spirit_garden"
+name = "Spirit Garden"
+verb = "Build"
+work = 60.0
+passable = true
+footprint = [3, 3]
+spirit_garden = true
+[[building.cost]]
+item = "stone"
+count = 10
+[[building.cost]]
+item = "wood"
+count = 6
+[[building.cost]]
+item = "fruit"
+count = 4

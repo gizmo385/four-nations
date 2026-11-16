@@ -152,6 +152,8 @@ impl Building {
 pub(super) enum Kind {
     /// The Council Hall (#1030).
     Council,
+    /// A Spirit Garden (#1030).
+    Garden,
     Orchard,
     Farm,
     Irrigation,
@@ -224,6 +226,7 @@ impl Kind {
             (def.heat_aura_upgrade.is_some(), Kind::HeatAura),
             (def.automate_upgrade.is_some(), Kind::Automates),
             (def.council, Kind::Council),
+            (def.spirit_garden, Kind::Garden),
         ]
         .into_iter()
         .filter_map(|(is, kind)| is.then_some(kind))

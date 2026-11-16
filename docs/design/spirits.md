@@ -58,7 +58,8 @@ screen shows the meter, its trend a minute, and the two biggest terms ("Machines
 **Rule (proposed).** While balance is below **40**, every 30 seconds one vine tile grows. It
 appears on the free land tile nearest the busiest yard (the highest draw, then the first by
 anchor), among the tiles touching that yard's machines or touching an existing vine within 3
-tiles of them, never on a building's door. Ties go in tile order, and there's no RNG. Below **15** the interval halves.
+tiles of them. Never on a building's door or a tile touching it, so a door always keeps a way
+in. Ties go in tile order, and there's no RNG. Below **15** the interval halves.
 
 - A vine is a **resource on the tile** (`spirit_vines` in `data/resources.toml`). The Harvest
   tool cuts it. Cutting takes 6 seconds and yields one **spirit vine** item.
@@ -68,6 +69,8 @@ tiles of them, never on a building's door. Ties go in tile order, and there's no
 - An automated machine whose footprint ring touches a vine runs at **half speed**: "Choked by
   vines". This stacks with a brownout.
 - At balance 40 or above, vines stop growing. They don't wither, so they still need cutting.
+  The autoplay opening cuts every vine within its forage radius: left standing, vines take the
+  open ground where the town's next building would go.
 
 ## Layer 3: calming the spirits
 

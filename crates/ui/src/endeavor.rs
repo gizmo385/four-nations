@@ -174,6 +174,7 @@ fn balance_row(world: &World, defs: &Defs) -> Option<BalanceRow> {
         ("Felled trees", -t.felled),
         ("Time", t.base),
         ("Trees", t.trees),
+        ("Gardens", t.gardens),
     ];
     terms.retain(|&(_, v)| v != 0.0);
     terms.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap_or(std::cmp::Ordering::Equal));

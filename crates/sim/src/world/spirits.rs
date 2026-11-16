@@ -31,12 +31,15 @@ pub struct BalanceTerms {
     pub base: f32,
     /// Calm from living trees.
     pub trees: f32,
+    /// Calm from Spirit Gardens (F6c).
+    #[serde(default)]
+    pub gardens: f32,
 }
 
 impl BalanceTerms {
     /// Calm minus unrest: how far balance moved, before the clamp.
     pub fn net(&self) -> f32 {
-        self.base + self.trees - self.machines - self.felled
+        self.base + self.trees + self.gardens - self.machines - self.felled
     }
 }
 
@@ -109,6 +112,8 @@ impl World {
             felled: felled as f32 * s.unrest_per_tree,
             base: s.calm_base,
             trees: (trees as f32 * s.calm_per_trees).min(s.trees_calm_max),
+            gardens: self.of_kind(Kind::Garden).count() as f32
+                * s.garden_calm_by_nation.get(&self.nation).copied().unwrap_or(s.calm_per_garden),
         }
     }
 
@@ -166,12 +171,19 @@ impl World {
             }
         }
         let is_vine = |p: Pos| self.map.get(p).is_some_and(|t| t.resource == Some(vine));
-        // Never on a door: a machine choked is slowed, never shut off from its supply.
-        let doors: std::collections::BTreeSet<Pos> =
-            self.buildings().map(|b| b.footprint().entrance()).collect();
+        // Never on a door or a tile touching one, so a door always keeps a way in: a machine
+        // choked is slowed, never shut off from its supply.
+        let doors: Vec<Pos> = self.buildings().map(|b| b.footprint().entrance()).collect();
+        let by_door =
+            |p: Pos| doors.iter().any(|d| (d.x - p.x).abs() <= 1 && (d.y - p.y).abs() <= 1);
+        // Nor near a Spirit Garden (F6c).
+        let gardens: Vec<crate::geom::Footprint> =
+            self.of_kind(Kind::Garden).map(|b| b.footprint()).collect();
+        let clear = defs.spirits.garden_clear as i32;
+        let by_garden = |p: Pos| gardens.iter().any(|g| g.distance(p) <= clear);
         (lo.y..=hi.y)
             .flat_map(|y| (lo.x..=hi.x).map(move |x| Pos::new(x, y)))
-            .filter(|&p| self.vine_room(p) && !doors.contains(&p))
+            .filter(|&p| self.vine_room(p) && !by_door(p) && !by_garden(p))
             .filter(|&p| {
                 near(p, 1)
                     || (near(p, 3)
