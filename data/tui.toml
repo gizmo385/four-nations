@@ -581,6 +581,37 @@ glyph = "❀"
 ascii = "h"
 fg = [130, 210, 120]
 
+# Fusion machines (#1030, F4b).
+[building.smoke_kiln]
+glyph = "⊠"
+ascii = "K"
+fg = [220, 140, 90]
+
+[building.mountain_works]
+glyph = "⊗"
+ascii = "M"
+fg = [180, 170, 140]
+
+[building.ember_joinery]
+glyph = "⊕"
+ascii = "J"
+fg = [200, 150, 100]
+
+[building.sky_lantern_works]
+glyph = "⍋"
+ascii = "A"
+fg = [240, 200, 140]
+
+[building.river_mill]
+glyph = "⍜"
+ascii = "R"
+fg = [120, 160, 180]
+
+[building.mist_house]
+glyph = "⍥"
+ascii = "W"
+fg = [170, 210, 220]
+
 [building.steam_engine]
 glyph = "Φ"
 ascii = "E"
