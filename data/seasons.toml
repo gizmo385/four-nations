@@ -6,7 +6,7 @@
 # [calendar]:
 # - season_minutes:          in-game minutes in one season; a year is four of them.
 # - winter_warning_minutes:  how long before winter the "winter is coming" alert fires.
-# - hardy_winter_growth:     growth factor a `frost_hardy` harvest (data/jobs.toml; fishing)
+# - hardy_winter_growth:     growth factor a `frost_hardy` harvest (data/jobs.toml; shore fishing)
 #                            uses in winter, in every climate band, instead of the season or
 #                            climate factor below.
 #

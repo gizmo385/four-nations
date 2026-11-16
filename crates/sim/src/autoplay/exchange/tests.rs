@@ -100,14 +100,15 @@ fn an_aqueduct_line_runs_from_the_water_to_a_plot() {
     assert!(sited <= AQUEDUCT_TILES as u32, "{sited} tiles");
 }
 
-/// A Fire city (seed 8) played 420 minutes with the gate stood at 240 borrows techs, learns
+/// A Fire city (seed 9) played 420 minutes with the gate stood at 240 borrows techs, learns
 /// fusions, builds on the bank, makes steel and sends an airship (#764). One long run, so the
 /// checks that need a settled city share it. Seed 2 was the seed until the leaf bends became
 /// borrowable (#969): the opening then borrows three more techs first, and whether a given city
 /// loads its first airship by minute 420 is luck of the seed (most seeds don't, before or after).
+/// Seed 8 stopped sending one once wild food halved (#486); of seeds 1-24 only 9 and 20 do.
 #[test]
 fn a_united_fire_city_borrows_fuses_and_uses_what_it_learns() {
-    let (mut w, defs) = found(Nation::Fire, 8);
+    let (mut w, defs) = found(Nation::Fire, 9);
     let economy = steady();
     play(&mut w, &defs, &economy, 0, 420, 240);
     let nation = w.nation;
@@ -152,11 +153,12 @@ fn call_rain_is_not_designated_while_a_nation_has_no_caster() {
 
 /// An Earth city that learns the Steelworks makes steel (#958, #968, #1023). Before steel was its
 /// own item the recipe made metal and idled once stores held its `stock_limit` of it, which
-/// Earth's Metalbend always had. Now it eats that metal and its limit counts steel. Seed 17
-/// learns it at minute 364.
+/// Earth's Metalbend always had. Now it eats that metal and its limit counts steel. Seed 2 is the
+/// one Earth seed of 1-24 whose sweep raises it by minute 420 since wild food halved (#486);
+/// seed 17 was until then.
 #[test]
 fn an_earth_steelworks_turns_the_metalbent_metal_into_steel() {
-    let (mut w, defs) = found(Nation::Earth, 17);
+    let (mut w, defs) = found(Nation::Earth, 2);
     let economy = steady();
     play(&mut w, &defs, &economy, 0, 420, 240);
     let steelworks = defs.building_id("steelworks").unwrap();

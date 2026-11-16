@@ -43,7 +43,9 @@ fn year_two() -> Shell {
             .unwrap();
     let mut shell = Shell::for_args(&args, SIZES[0], None, 0).unwrap();
     // The stockpile fills up over the next few minutes (the owner's view was 6000 ticks in).
-    shell.play(&[keys::Step::Tick(6000)]);
+    // Since #486 thinned wild food, the opening is still researching Masonry then, so play on
+    // to 12000 ticks, past it, for the owner's "no research target" view.
+    shell.play(&[keys::Step::Tick(12000)]);
     shell
 }
 

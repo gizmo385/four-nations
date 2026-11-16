@@ -1059,8 +1059,9 @@ mod tests {
             card.care.deaths,
             card.care.close_calls,
         );
-        // 169.175 before #1009, whose Avatar milestone weighs 0.5 more (14.5) and is unmet here.
-        assert_eq!(got, (163.341, 0.1633, 0, 0), "{card:#?}");
+        // 169.175 before #1009, whose Avatar milestone weighs 0.5 more (14.5) and is unmet here;
+        // 163.341 before #486 halved wild fruit and fish.
+        assert_eq!(got, (167.019, 0.167, 0, 0), "{card:#?}");
     }
 
     /// `par` is the same run `run_economy_scored` makes for the same start and length.
