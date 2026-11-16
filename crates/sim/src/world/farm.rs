@@ -231,7 +231,8 @@ impl World {
         if let Some(g) = self.hothouse_growth(pos, defs) {
             season = season.max(g);
         }
-        base * self.irrigation_rate(pos, defs) * season
+        // A friendly spirit's blessing (docs/design/spirits.md, F6e).
+        base * self.irrigation_rate(pos, defs) * season * self.blessing(pos, defs)
     }
 
     /// The first frost of winter also takes an unharvested ripe crop (#311, called from

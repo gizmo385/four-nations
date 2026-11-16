@@ -105,6 +105,13 @@ passes. A farm plot or orchard it stands beside grows 25% faster for a minute. W
 stays above 50 the portal also adds 2.0 calm, so an open portal helps hold the city's balance.
 If balance falls below 30, the spirits leave until it recovers.
 
+**As built (F6e).** The numbers are `[spirits.portal]` in `data/jobs.toml`, all defaulted.
+Spirits come through the portal's door one a minute and wander within 12 tiles of it, a step
+every 2 seconds, on open ground. Each step is drawn from a hash of the tick, not the world's RNG,
+so spirits never shift a seed's run. Below 50 no new spirit comes, and below 30 they all leave.
+A spirit blesses the farm plots and orchards it stands beside (an orchard's blessing speeds the
+trees it tends). They draw as `✻` (`&` in ASCII), and the United City screen counts them.
+
 The portal is the era's finish line. Reaching it is a score event, as the gate is, and the
 United City screen names it.
 

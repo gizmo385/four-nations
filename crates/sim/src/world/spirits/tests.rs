@@ -211,3 +211,59 @@ fn the_portal_opens_once_when_it_stands() {
         w.endeavor_events().filter(|e| matches!(e.kind, EndeavorEventKind::PortalOpened)).count();
     assert_eq!(opened, 1);
 }
+
+/// A city with its portal open at `balance`, the portal's door at (11, 13).
+fn portal_city(defs: &Defs, balance: f32) -> World {
+    let mut w = city(defs, 0, true);
+    let portal = defs.building_id("spirit_portal").unwrap();
+    w.put_building(Footprint::new(Pos::new(10, 10), 3, 3), portal, defs);
+    w.tick += 1;
+    w.tick_spirits(defs);
+    w.spirits.balance = Some(balance);
+    w
+}
+
+#[test]
+fn spirits_come_through_an_open_portal_one_a_minute_and_leave_at_low_balance() {
+    let defs = Defs::bundled();
+    let mut w = portal_city(&defs, 100.0);
+    for _ in 0..8 {
+        minute(&mut w, &defs);
+    }
+    assert_eq!(w.wandering_spirits().len(), 5, "one per 10 above 50, at most 5");
+    assert_eq!(w.balance_terms().unwrap().portal, 2.0, "an open portal calms");
+    // At 45 nobody new comes, but nobody leaves either.
+    w.spirits.balance = Some(45.0);
+    w.spirits.felled_seen = u32::MAX; // no felling term
+    minute(&mut w, &defs);
+    assert_eq!(w.wandering_spirits().len(), 5);
+    assert_eq!(w.balance_terms().unwrap().portal, 0.0, "no calm at 50 or below");
+    // Below 30 they all go.
+    w.spirits.balance = Some(20.0);
+    minute(&mut w, &defs);
+    assert!(w.wandering_spirits().is_empty());
+}
+
+#[test]
+fn a_wandering_spirit_blesses_the_farm_plot_beside_it() {
+    let defs = Defs::bundled();
+    let mut w = portal_city(&defs, 100.0);
+    let plot = defs.building_id("farm_plot").unwrap();
+    let at = Pos::new(12, 14);
+    w.put_building(Footprint::single(at), plot, &defs);
+    let before = w.crop_growth_rate(at, &defs);
+    w.spirits.wanderers = vec![Pos::new(11, 14)];
+    let every = (defs.spirits.portal.step_seconds * TICKS_PER_SECOND as f32) as u64;
+    w.tick = (w.tick / every + 1) * every;
+    w.tick_wanderers(&defs);
+    let moved = w.wandering_spirits()[0];
+    assert_eq!(moved.chebyshev(Pos::new(11, 14)), 1, "one step");
+    assert!(Footprint::new(Pos::new(10, 10), 3, 3).distance(moved) <= 12, "near the portal");
+    // It stood beside the plot, so the plot is blessed, and the blessing runs out after a minute.
+    assert!(w.is_blessed(at));
+    assert_eq!(w.crop_growth_rate(at, &defs), before * 1.25);
+    w.spirits.wanderers.clear();
+    w.tick += 61 * TICKS_PER_SECOND as u64;
+    assert!(!w.is_blessed(at));
+    assert_eq!(w.crop_growth_rate(at, &defs), before);
+}

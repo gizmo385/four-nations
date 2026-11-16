@@ -92,6 +92,7 @@ fn describe(
         Thing::EarthTent => (LegendGroup::Buildings, "Earth tent".to_owned(), Thing::EarthTent),
         Thing::AirShield => (LegendGroup::Buildings, "Air shield".to_owned(), Thing::AirShield),
         Thing::Sapling => (LegendGroup::Plants, "Sapling".to_owned(), Thing::Sapling),
+        Thing::Spirit => (LegendGroup::People, "Friendly spirit".to_owned(), Thing::Spirit),
         Thing::Link => (LegendGroup::Buildings, "Link line".to_owned(), Thing::Link),
         Thing::Flow(_) => (
             LegendGroup::Buildings,

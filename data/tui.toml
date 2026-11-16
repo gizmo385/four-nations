@@ -819,6 +819,9 @@ flame = { glyph = "☼", ascii = "!", fg = [255, 150, 40] }
 # A young fruit tree from an orchard (#142), drawn in place of the resource's glyph until it
 # first ripens.
 sapling = { glyph = "ψ", ascii = "y", fg = [150, 210, 110] }
+# A friendly spirit come through the Spirit Portal (#1030, F6e): it wanders, and blesses the
+# fields it passes.
+spirit = { glyph = "✻", ascii = "&", fg = [200, 245, 255] }
 # A farm plot (#198), drawn in place of its building glyph while growing or ripe.
 plot_growing = { glyph = "·", ascii = ",", fg = [120, 200, 90] }
 plot_ripe = { glyph = "✶", ascii = "*", fg = [230, 200, 50] }

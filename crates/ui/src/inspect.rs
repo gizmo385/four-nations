@@ -732,6 +732,10 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
                 lines.push(Line::Detail("Sow order: standing".to_owned()));
             }
         }
+        // A friendly spirit's blessing (docs/design/spirits.md, F6e, #1030).
+        if world.is_blessed(at) {
+            lines.push(Line::Detail("Blessed by a spirit: growing faster".to_owned()));
+        }
         lines.extend(horizons_lines(world, defs, at).into_iter().map(Line::Detail));
         if let Some(def) = world.building_at(tile).map(|b| defs.building(b)) {
             lines.extend(teaching_lines(world, defs, def, at).into_iter().map(Line::Detail));

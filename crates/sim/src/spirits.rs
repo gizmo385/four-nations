@@ -39,6 +39,50 @@ pub struct SpiritsDef {
     pub vine_seconds: f32,
     /// The share of its speed a machine touching a vine keeps.
     pub vine_choke: f32,
+    /// What an open Spirit Portal does (F6e).
+    pub portal: PortalDef,
+}
+
+/// An open Spirit Portal (docs/design/spirits.md, "After it opens", F6e): its calm, the friendly
+/// spirits that wander in, and their blessing. `[spirits.portal]`; every key has a default.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PortalDef {
+    /// Calm a minute while the portal is open and balance is above `calm_above`.
+    pub calm: f32,
+    pub calm_above: f32,
+    /// One spirit for every `per` points of balance above `above`, at most `max`. One more
+    /// comes each minute until there are that many.
+    pub above: f32,
+    pub per: f32,
+    pub max: u32,
+    /// Below this balance every spirit leaves, until balance recovers past `above` again.
+    pub leave_below: f32,
+    /// How far from the portal a spirit wanders, in tiles (Chebyshev).
+    pub radius: u32,
+    /// A spirit takes a step every this many seconds.
+    pub step_seconds: f32,
+    /// A farm plot or orchard beside a spirit grows `bless_boost` times as fast for
+    /// `bless_seconds`.
+    pub bless_boost: f32,
+    pub bless_seconds: f32,
+}
+
+impl Default for PortalDef {
+    fn default() -> Self {
+        Self {
+            calm: 2.0,
+            calm_above: 50.0,
+            above: 50.0,
+            per: 10.0,
+            max: 5,
+            leave_below: 30.0,
+            radius: 12,
+            step_seconds: 2.0,
+            bless_boost: 1.25,
+            bless_seconds: 60.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -76,6 +120,8 @@ pub(crate) struct RawSpirits {
     vine_seconds: f32,
     #[serde(default = "vine_choke")]
     vine_choke: f32,
+    #[serde(default)]
+    portal: PortalDef,
 }
 
 fn calm_per_garden() -> f32 {
@@ -135,6 +181,7 @@ impl Default for SpiritsDef {
             vine_fast_below: vine_fast_below(),
             vine_seconds: vine_seconds(),
             vine_choke: vine_choke(),
+            portal: PortalDef::default(),
         }
     }
 }
@@ -202,5 +249,35 @@ pub(crate) fn resolve(
         vine_fast_below: raw.vine_fast_below,
         vine_seconds: raw.vine_seconds,
         vine_choke: raw.vine_choke,
+        portal: match check_portal(raw.portal) {
+            Ok(p) => p,
+            Err(m) => return err(m),
+        },
     })
+}
+
+fn check_portal(p: PortalDef) -> Result<PortalDef, String> {
+    let fail = |m: String| Err(format!("portal: {m}"));
+    for (key, v) in [("calm", p.calm), ("calm_above", p.calm_above), ("above", p.above)] {
+        if !(v.is_finite() && (0.0..=100.0).contains(&v)) {
+            return fail(format!("{key} = {v} must be 0 to 100"));
+        }
+    }
+    if !(p.leave_below.is_finite() && (0.0..=p.above).contains(&p.leave_below)) {
+        return fail(format!("leave_below = {} must be 0 to `above`", p.leave_below));
+    }
+    for (key, v) in
+        [("per", p.per), ("step_seconds", p.step_seconds), ("bless_seconds", p.bless_seconds)]
+    {
+        if !(v.is_finite() && v >= 0.5) {
+            return fail(format!("{key} = {v} must be at least 0.5"));
+        }
+    }
+    if !(p.bless_boost.is_finite() && (1.0..=4.0).contains(&p.bless_boost)) {
+        return fail(format!("bless_boost = {} must be 1 to 4", p.bless_boost));
+    }
+    if p.max > 20 || p.radius == 0 || p.radius > 40 {
+        return fail("max must be at most 20, and radius 1 to 40".to_owned());
+    }
+    Ok(p)
 }

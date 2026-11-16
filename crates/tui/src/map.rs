@@ -164,6 +164,8 @@ pub struct Overlays {
     /// `units`: a settler sharing the tile draws over a beast, unless the beast is the selected
     /// unit.
     beasts: BTreeMap<Pos, BeastId>,
+    /// Every tile with a friendly spirit on it (`World::wandering_spirits`, F6e, #1030).
+    spirits: BTreeSet<Pos>,
     /// Whether the selected unit is a beast, so `selected` marks a beast and not a settler.
     selected_beast: bool,
     /// Tiles with a unit holding `Rank::Master` standing on it (#360, #361, `World::rank_of`),
@@ -274,6 +276,7 @@ impl Overlays {
                 .filter_map(|u| u.beast.map(|b| (u.pos, b.id)))
                 .collect(),
             selected_beast: ui.selected_unit(session).is_some_and(Unit::is_beast),
+            spirits: world.wandering_spirits().iter().copied().collect(),
             masters: world
                 .units
                 .iter()
@@ -639,6 +642,8 @@ pub enum Thing {
     AirShield,
     /// A resource an orchard planted that hasn't grown back yet.
     Sapling,
+    /// A friendly spirit come through the Spirit Portal (F6e, #1030). Under every unit.
+    Spirit,
     /// A resource resting after being harvested, greyed until it regrows.
     RestingResource(ResourceId),
     Resource(ResourceId),
@@ -750,6 +755,8 @@ pub fn cell_look(
             selected: over.selected == Some(pos) && !over.selected_beast,
             master: over.masters.contains(&pos),
         }
+    } else if over.spirits.contains(&pos) {
+        Thing::Spirit
     } else if let Some(&(b, free)) =
         over.ghost.get(&pos).filter(|&&(_, free)| free || !palette.mono())
     {
@@ -998,6 +1005,11 @@ fn thing_look(
         }
         Thing::Sapling => {
             let s = &g.overlay.sapling;
+            (s.glyph(ascii), s.fg)
+        }
+        Thing::Spirit => {
+            mods |= Modifier::BOLD;
+            let s = &g.overlay.spirit;
             (s.glyph(ascii), s.fg)
         }
         Thing::Link => {

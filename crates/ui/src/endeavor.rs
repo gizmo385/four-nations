@@ -164,6 +164,8 @@ pub struct BalanceRow {
     pub terms: Vec<String>,
     /// The Spirit Portal has opened (F6d).
     pub portal_open: bool,
+    /// Friendly spirits wandering the city (F6e).
+    pub spirits: usize,
 }
 
 fn balance_row(world: &World, defs: &Defs) -> Option<BalanceRow> {
@@ -174,6 +176,7 @@ fn balance_row(world: &World, defs: &Defs) -> Option<BalanceRow> {
             trend: 0.0,
             terms: Vec::new(),
             portal_open: world.portal_open(),
+            spirits: world.wandering_spirits().len(),
         });
     };
     let mut terms: Vec<(&str, f32)> = vec![
@@ -182,11 +185,18 @@ fn balance_row(world: &World, defs: &Defs) -> Option<BalanceRow> {
         ("Time", t.base),
         ("Trees", t.trees),
         ("Gardens", t.gardens),
+        ("Portal", t.portal),
     ];
     terms.retain(|&(_, v)| v != 0.0);
     terms.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap_or(std::cmp::Ordering::Equal));
     let terms = terms.into_iter().take(2).map(|(n, v)| format!("{n} {v:+.1}")).collect();
-    Some(BalanceRow { value, trend: t.net(), terms, portal_open: world.portal_open() })
+    Some(BalanceRow {
+        value,
+        trend: t.net(),
+        terms,
+        portal_open: world.portal_open(),
+        spirits: world.wandering_spirits().len(),
+    })
 }
 
 /// One good residents want, on the United City screen (#1028, docs/design/factory-endgame.md

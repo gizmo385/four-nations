@@ -141,6 +141,8 @@ pub struct Overlays {
     pub flame: OverlayGlyph,
     /// A fruit tree an orchard planted that hasn't borne fruit yet (#142).
     pub sapling: OverlayGlyph,
+    /// A friendly spirit come through the Spirit Portal (F6e, #1030).
+    pub spirit: OverlayGlyph,
     /// A farm plot that has been sown and hasn't ripened yet (#198).
     pub plot_growing: OverlayGlyph,
     /// A farm plot ripe for reaping (#198).
@@ -364,6 +366,7 @@ mod tests {
         }
         out.push(("overlay.flame".into(), g.overlay.flame.glyph, g.overlay.flame.ascii));
         out.push(("overlay.sapling".into(), g.overlay.sapling.glyph, g.overlay.sapling.ascii));
+        out.push(("overlay.spirit".into(), g.overlay.spirit.glyph, g.overlay.spirit.ascii));
         out.push((
             "overlay.plot_growing".into(),
             g.overlay.plot_growing.glyph,
