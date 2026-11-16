@@ -329,6 +329,23 @@ fn paint_marks(ui: &Ui, rect: Rect, camera: &Camera, app: &App, palette: &Palett
             painter.circle_stroke(at, ring, Stroke::new(1.5_f32, Color32::WHITE));
         }
     }
+    // The whole building or site under the cursor (`UiState::cursor_footprint`), outlined so
+    // where one of several like buildings side by side ends reads at any zoom; its tiles wear
+    // the shared lighter-cursor tint too (`fn_tui::map::Mark::Footprint`).
+    if let Some(f) = state.cursor_footprint(&app.session) {
+        let (x, y) = (f.anchor.x as f32, f.anchor.y as f32);
+        let area = Rect::from_min_max(
+            camera.tile_to_screen(rect, x, y),
+            camera.tile_to_screen(rect, x + f32::from(f.w), y + f32::from(f.h)),
+        );
+        let [r, g, b] = palette.glyphs.overlay.cursor;
+        painter.rect_stroke(
+            area.expand(1.0),
+            0.0,
+            Stroke::new(1.5_f32, Color32::from_rgb(r, g, b)),
+            egui::StrokeKind::Outside,
+        );
+    }
     // The cursor's own outline, so it reads at any zoom.
     let c = camera.tile_to_screen(rect, state.cursor.x as f32, state.cursor.y as f32);
     painter.rect_stroke(

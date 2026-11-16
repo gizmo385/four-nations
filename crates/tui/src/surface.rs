@@ -2106,6 +2106,7 @@ pub(crate) fn describe_ground(session: &Session, ground: Ground) -> String {
 pub(crate) fn describe_mark(mark: &Mark) -> String {
     match mark {
         Mark::Cursor => "cursor",
+        Mark::Footprint => "footprint",
         Mark::Harvest => "harvest",
         Mark::Standing => "standing",
         Mark::Sowing => "sowing",
