@@ -82,6 +82,7 @@ mod sand_tests;
 mod season;
 #[cfg(test)]
 mod southern_tests;
+mod spirits;
 mod stand;
 mod standing;
 mod strain;
@@ -137,6 +138,7 @@ pub use power::PowerAt;
 pub use probe::{Reach, Refusals};
 use roster::Roster;
 pub use season::{Almanac, SeasonEvent, SeasonEventKind};
+pub use spirits::{BalanceTerms, Spirits};
 pub use standing::Standing;
 pub use strain::StrainEvent;
 pub use stride::{STRIDE_LOOKAHEAD, Stride};
@@ -614,6 +616,10 @@ pub struct World {
     /// (`World::council_seated`, #1030): the tick refreshes them when that changes. Derived.
     #[serde(skip)]
     council_seen: bool,
+    /// A United City's balance with the spirits (`world/spirits.rs`, docs/design/spirits.md,
+    /// #1030). Not written before the gate.
+    #[serde(default, skip_serializing_if = "Spirits::is_default")]
+    spirits: Spirits,
     /// Where the end game stands (`endeavor.rs`, #234): Dormant until every sign is met at once.
     #[serde(default)]
     endeavor: EndeavorState,
@@ -793,6 +799,7 @@ impl World {
             refusals: probe::Refusals::default(),
             roster: Roster::default(),
             council_seen: false,
+            spirits: Spirits::default(),
             endeavor: EndeavorState::Dormant,
             endeavor_log: EndeavorLog::default(),
             avatar: AvatarState::default(),
@@ -1223,6 +1230,7 @@ impl World {
         self.tick_strain(defs);
         self.tick_draw(defs);
         self.tick_standing(defs);
+        self.tick_spirits(defs);
         self.tick_orchards(defs);
         self.tick_pickers(defs);
         self.tick_farms(defs);

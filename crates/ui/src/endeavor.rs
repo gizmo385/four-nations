@@ -150,6 +150,35 @@ pub struct UnitedView {
     /// Each good residents want (#1028), in data order, less the ones no resident wants and
     /// the city neither stores nor makes; empty when the data has no wants.
     pub goods: Vec<GoodFlowRow>,
+    /// The city's balance with the spirits (docs/design/spirits.md, #1030).
+    pub balance: Option<BalanceRow>,
+}
+
+/// The balance with the spirits (#1030): its value, how far it moved last minute, and the two
+/// biggest terms that moved it, largest first ("Machines -2.5", "Trees +1.5").
+#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct BalanceRow {
+    pub value: u32,
+    pub trend: f32,
+    pub terms: Vec<String>,
+}
+
+fn balance_row(world: &World, defs: &Defs) -> Option<BalanceRow> {
+    let value = world.balance(defs)?.round() as u32;
+    let Some(t) = world.balance_terms() else {
+        return Some(BalanceRow { value, trend: 0.0, terms: Vec::new() });
+    };
+    let mut terms: Vec<(&str, f32)> = vec![
+        ("Machines", -t.machines),
+        ("Felled trees", -t.felled),
+        ("Time", t.base),
+        ("Trees", t.trees),
+    ];
+    terms.retain(|&(_, v)| v != 0.0);
+    terms.sort_by(|a, b| b.1.abs().partial_cmp(&a.1.abs()).unwrap_or(std::cmp::Ordering::Equal));
+    let terms = terms.into_iter().take(2).map(|(n, v)| format!("{n} {v:+.1}")).collect();
+    Some(BalanceRow { value, trend: t.net(), terms })
 }
 
 /// One good residents want, on the United City screen (#1028, docs/design/factory-endgame.md
@@ -811,6 +840,7 @@ fn united_view(world: &World, defs: &Defs) -> Option<UnitedView> {
         frac,
         standing: world.tier_counts(),
         goods: goods_rows(world, defs),
+        balance: balance_row(world, defs),
     })
 }
 

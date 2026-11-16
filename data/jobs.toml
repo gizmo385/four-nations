@@ -444,3 +444,18 @@ want = [
     { nation = "air", tier = "citizen", item = "tea", every_minutes = 10.0 },
     { nation = "air", tier = "notable", item = "incense", every_minutes = 15.0 },
 ]
+
+# The spirits (docs/design/spirits.md, F6 of the factory endgame, #1030). Once the Harmony Gate
+# stands, a United City's balance (0 to 100, starting at `start`) moves once a minute by calm
+# minus unrest. Unrest: `unrest_per_draw` for each point of draw on every running yard, and
+# `unrest_per_tree` for each tree felled. Calm: `calm_base`, and `calm_per_trees` for each
+# `trees_per_calm` living trees on the map, at most `trees_calm_max`. All provisional.
+[spirits]
+start = 100.0
+unrest_per_draw = 0.25
+unrest_per_tree = 1.0
+calm_base = 1.0
+calm_per_trees = 0.5
+trees_per_calm = 25
+trees_calm_max = 3.0
+trees = ["oak_tree", "fir_tree", "fruit_tree"]

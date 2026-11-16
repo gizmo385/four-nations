@@ -98,7 +98,22 @@ pub fn united_rows(u: &UnitedView, marks: &Marks) -> Vec<Row> {
 /// one row per good residents want with what the city makes and uses of it a minute.
 fn standing_rows(u: &UnitedView) -> Vec<Row> {
     let [settlers, citizens, notables] = u.standing;
-    let mut rows = vec![Row::default(), Row::text("STANDING", Tone::Title)];
+    let mut rows = Vec::new();
+    // The spirits (#1030): the balance, its trend, and what moved it most.
+    if let Some(b) = &u.balance {
+        rows.push(Row::default());
+        rows.push(Row::text("SPIRITS", Tone::Title));
+        let tone = if b.value < 40 { Tone::Warn } else { Tone::Text };
+        rows.push(Row::spans(vec![
+            ("  Balance   ".to_owned(), Tone::Text),
+            (format!("{:>3}", b.value), tone),
+            (format!("   {:+.1} a minute", b.trend), Tone::Dim),
+        ]));
+        if !b.terms.is_empty() {
+            rows.push(Row::text(format!("  {}", b.terms.join(", ")), Tone::Dim));
+        }
+    }
+    rows.extend([Row::default(), Row::text("STANDING", Tone::Title)]);
     for (name, count) in [("Notables", notables), ("Citizens", citizens), ("Settlers", settlers)] {
         rows.push(Row::spans(vec![
             (format!("  {name:<10}"), Tone::Text),

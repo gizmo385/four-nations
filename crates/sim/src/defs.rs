@@ -194,6 +194,8 @@ pub struct Defs {
     pub shore_fishing: Option<crate::jobs::ShoreFishingDef>,
     /// `[standing]` in `data/jobs.toml` (#1026): residents' wants and tiers in a United City.
     pub standing: crate::standing::StandingDef,
+    /// `[spirits]` in `data/jobs.toml` (docs/design/spirits.md, #1030): a United City's balance.
+    pub spirits: crate::spirits::SpiritsDef,
     pub jobs: JobSettings,
     /// Constructible structures, in file order; indexed by `BuildingId` (data/buildings.toml).
     pub buildings: Vec<BuildingDef>,
@@ -422,6 +424,10 @@ impl Defs {
         let (needs, foods) = parse::<NeedsFile>("needs.toml", needs)?.resolve(&resource_ids)?;
         let mut jobs_file = parse::<JobsFile>("jobs.toml", jobs)?;
         let raw_standing = jobs_file.standing.take();
+        let raw_spirits = jobs_file.spirits.take();
+        let spirits = crate::spirits::resolve(raw_spirits, |id| {
+            resources.iter().position(|r| r.id == id).map(|i| ResourceId(i as u16))
+        })?;
         let (jobs, items, harvests, shore_fishing) =
             jobs_file.resolve(&resources, &foods, &needs, &techs)?;
         let standing = crate::standing::resolve(raw_standing, &items)?;
@@ -451,6 +457,7 @@ impl Defs {
             harvests,
             shore_fishing,
             standing,
+            spirits,
             jobs,
             buildings,
             deconstruct,
