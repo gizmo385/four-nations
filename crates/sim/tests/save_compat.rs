@@ -433,8 +433,11 @@ fn a_save_carrying_the_retired_unit_variant_loads_and_drops_it() {
 #[test]
 fn a_pre_phase_5_save_gets_great_ruins_from_its_buried_lost_ruins() {
     let mut files = bundled_text();
+    // Drop only the `[resource.promote]` table: the resources after it stay, since other data
+    // names them.
     let promote = files[1].find("[resource.promote]").expect("great_ruins promotes");
-    files[1].truncate(promote);
+    let end = files[1][promote..].find("\n\n").map_or(files[1].len(), |e| promote + e);
+    files[1].replace_range(promote..end, "");
     let old = defs_from(&files);
     let defs = Defs::bundled();
     let (lost, great) =

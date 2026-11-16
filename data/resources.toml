@@ -165,3 +165,13 @@ min = 2
 max = 3
 spacing = 40              # Chebyshev, between great ruins
 size_radius = 3           # a ruin's "size" is the Land tiles in the 7x7 box around it
+
+# Spirit vines (docs/design/spirits.md, F6b of the factory endgame, #1030): never placed by the
+# map. They grow beside a United City's busiest yard while its balance with the spirits is low
+# (`[spirits]` in data/jobs.toml), slow the machines they touch, and are cut for spirit vine.
+[[resource]]
+id = "spirit_vines"
+name = "Spirit Vines"
+glyph = "%"
+chance = 0.0
+terrains = ["land"]

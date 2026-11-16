@@ -24,6 +24,15 @@ pub struct SpiritsDef {
     pub trees_calm_max: f32,
     /// The resources that count as trees: living ones calm, felled ones unsettle.
     pub trees: Vec<ResourceId>,
+    /// The vine resource (F6b), or `None` for no vines.
+    pub vines: Option<ResourceId>,
+    /// Below this balance a vine grows every `vine_seconds`; below `vine_fast_below`, twice as
+    /// often.
+    pub vine_below: f32,
+    pub vine_fast_below: f32,
+    pub vine_seconds: f32,
+    /// The share of its speed a machine touching a vine keeps.
+    pub vine_choke: f32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -45,6 +54,29 @@ pub(crate) struct RawSpirits {
     trees_calm_max: f32,
     #[serde(default)]
     trees: Vec<String>,
+    #[serde(default)]
+    vines: Option<String>,
+    #[serde(default = "vine_below")]
+    vine_below: f32,
+    #[serde(default = "vine_fast_below")]
+    vine_fast_below: f32,
+    #[serde(default = "vine_seconds")]
+    vine_seconds: f32,
+    #[serde(default = "vine_choke")]
+    vine_choke: f32,
+}
+
+fn vine_below() -> f32 {
+    40.0
+}
+fn vine_fast_below() -> f32 {
+    15.0
+}
+fn vine_seconds() -> f32 {
+    30.0
+}
+fn vine_choke() -> f32 {
+    0.5
 }
 
 fn start() -> f32 {
@@ -77,6 +109,11 @@ impl Default for SpiritsDef {
             trees_per_calm: trees_per_calm(),
             trees_calm_max: trees_calm_max(),
             trees: Vec::new(),
+            vines: None,
+            vine_below: vine_below(),
+            vine_fast_below: vine_fast_below(),
+            vine_seconds: vine_seconds(),
+            vine_choke: vine_choke(),
         }
     }
 }
@@ -110,6 +147,22 @@ pub(crate) fn resolve(
         let Some(r) = resource(id) else { return err(format!("unknown tree resource {id:?}")) };
         trees.push(r);
     }
+    let vines = match &raw.vines {
+        None => None,
+        Some(id) => match resource(id) {
+            Some(r) => Some(r),
+            None => return err(format!("unknown vine resource {id:?}")),
+        },
+    };
+    if !(0.0..=100.0).contains(&raw.vine_below) || raw.vine_fast_below > raw.vine_below {
+        return err("vine_fast_below must be at most vine_below, both 0 to 100".to_owned());
+    }
+    if !(raw.vine_seconds.is_finite() && raw.vine_seconds >= 1.0) {
+        return err(format!("vine_seconds = {} must be at least 1", raw.vine_seconds));
+    }
+    if !(raw.vine_choke > 0.0 && raw.vine_choke <= 1.0) {
+        return err(format!("vine_choke = {} must be above 0, at most 1", raw.vine_choke));
+    }
     Ok(SpiritsDef {
         start: raw.start,
         unrest_per_draw: raw.unrest_per_draw,
@@ -119,5 +172,10 @@ pub(crate) fn resolve(
         trees_per_calm: raw.trees_per_calm,
         trees_calm_max: raw.trees_calm_max,
         trees,
+        vines,
+        vine_below: raw.vine_below,
+        vine_fast_below: raw.vine_fast_below,
+        vine_seconds: raw.vine_seconds,
+        vine_choke: raw.vine_choke,
     })
 }

@@ -269,11 +269,13 @@ pub fn automation_line(world: &World, defs: &Defs, anchor: Pos) -> Option<String
     };
     // Its yard over capacity (#1030): every machine on it slows alike.
     let speed = world.brownout(anchor, defs);
-    Some(if speed < 1.0 {
+    let line = if speed < 1.0 {
         format!("{line}, browned out to {}%", (speed * 100.0).round() as u32)
     } else {
         line
-    })
+    };
+    // A spirit vine against its edge (#1030, docs/design/spirits.md) slows it too.
+    Some(if world.choked(anchor, defs) { format!("{line}, choked by vines") } else { line })
 }
 
 /// A tile inside a closed ring (`agrarian_ring`, #721, #730): `Sheltered: inside a ring of 84
