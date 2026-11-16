@@ -777,6 +777,9 @@ pub struct BuildingDef {
     /// A Spirit Garden (`spirit_garden = true`, docs/design/spirits.md, F6c, #1030): calms the
     /// spirits (`SpiritsDef::calm_per_garden`), and no vine grows near it.
     pub spirit_garden: bool,
+    /// The Spirit Portal (`spirit_portal = true`, docs/design/spirits.md, "Layer 4", F6d,
+    /// #1030): the portal opens once one stands (`World::portal_open`).
+    pub spirit_portal: bool,
     /// What each nation calls this building, if it varies (e.g. the study hall: Meditation
     /// Pavilion for Air). Empty when every nation uses the plain `name`. If set at all, every
     /// nation has an entry (`display_name` is the one place that matters).
@@ -1292,6 +1295,8 @@ struct RawBuilding {
     #[serde(default)]
     spirit_garden: bool,
     #[serde(default)]
+    spirit_portal: bool,
+    #[serde(default)]
     names: HashMap<Nation, String>,
     #[serde(default)]
     endeavor: bool,
@@ -1759,6 +1764,7 @@ impl BuildingsFile {
                 draw: b.draw.unwrap_or(1),
                 council: b.council,
                 spirit_garden: b.spirit_garden,
+                spirit_portal: b.spirit_portal,
                 names: b.names,
                 fuel,
                 houses_beast: false,

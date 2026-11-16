@@ -1518,3 +1518,17 @@ prereqs = ["mechanisms"]
 requires = { united = true }
 [tech.unlocks]
 buildings = ["spirit_garden"]
+
+# --- #1030 (factory endgame F6d: the Spirit Portal) ---------------------------------------------
+
+# The Spirit Portal (docs/design/spirits.md, "Layer 4"): only with the Council Hall standing and
+# the city's balance with the spirits held at 80 or above.
+[[tech]]
+id = "spirit_portal"
+name = "The Spirit Portal"
+description = "A door the spirits can walk through. They come only to a city at peace with them."
+cost = 2500
+prereqs = ["spirit_gardens"]
+requires = { united = true, council = true, balance = 80 }
+[tech.unlocks]
+buildings = ["spirit_portal"]

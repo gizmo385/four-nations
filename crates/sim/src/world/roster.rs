@@ -45,6 +45,7 @@ pub(super) fn build_facts<'a>(
     (kept, lost): (Vec<TechId>, Vec<TechId>),
     roster: &Roster,
     united: bool,
+    (balance, council): (Option<u32>, bool),
 ) -> research::Facts<'a> {
     research::Facts {
         scrolls_read: tallies.scrolls_read(),
@@ -56,6 +57,8 @@ pub(super) fn build_facts<'a>(
         residents: roster.residents,
         notables: roster.notables,
         united,
+        balance,
+        council,
     }
 }
 

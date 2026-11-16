@@ -177,3 +177,37 @@ fn a_spirit_garden_calms_the_city_and_keeps_vines_away() {
     minute(&mut air, &defs);
     assert_eq!(air.balance_terms().unwrap().gardens, 2.0);
 }
+
+#[test]
+fn the_portal_tech_waits_for_the_council_hall_and_high_balance() {
+    let defs = Defs::bundled();
+    let mut w = city(&defs, 0, true);
+    let portal = defs.tech(defs.tech_id("spirit_portal").unwrap());
+    let unmet = |w: &World| -> Vec<String> {
+        portal.unmet(w.nation, &w.facts(), &defs).iter().map(|c| c.to_string()).collect()
+    };
+    assert_eq!(unmet(&w), ["the Council Hall standing", "balance with the spirits at 80"]);
+    let hall = defs.building_id("council_hall").unwrap();
+    w.put_building(Footprint::new(Pos::new(2, 2), 4, 4), hall, &defs);
+    w.spirits.balance = Some(79.4);
+    assert_eq!(unmet(&w), ["balance with the spirits at 80"], "79.4 reads as 79");
+    w.spirits.balance = Some(79.5);
+    assert!(unmet(&w).is_empty());
+}
+
+#[test]
+fn the_portal_opens_once_when_it_stands() {
+    let defs = Defs::bundled();
+    let mut w = city(&defs, 0, true);
+    assert!(!w.portal_open());
+    let portal = defs.building_id("spirit_portal").unwrap();
+    w.put_building(Footprint::new(Pos::new(2, 2), 3, 3), portal, &defs);
+    w.tick += 1;
+    w.tick_spirits(&defs);
+    w.tick += 1;
+    w.tick_spirits(&defs);
+    assert!(w.portal_open());
+    let opened =
+        w.endeavor_events().filter(|e| matches!(e.kind, EndeavorEventKind::PortalOpened)).count();
+    assert_eq!(opened, 1);
+}

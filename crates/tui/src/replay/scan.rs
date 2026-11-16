@@ -72,7 +72,8 @@ pub fn marker_for(defs: &Defs, ev: &Event) -> Option<(MarkerKind, String)> {
                 | EndeavorEventKind::StageDone(_)
                 | EndeavorEventKind::TaskDone(_)
                 | EndeavorEventKind::PopulationMilestone(_)
-                | EndeavorEventKind::Complete => MarkerKind::Milestone,
+                | EndeavorEventKind::Complete
+                | EndeavorEventKind::PortalOpened => MarkerKind::Milestone,
                 EndeavorEventKind::AvatarArrived
                 | EndeavorEventKind::AvatarLeft(_)
                 | EndeavorEventKind::AvatarReturned

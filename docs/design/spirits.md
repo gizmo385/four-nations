@@ -93,6 +93,12 @@ shape. The design's stages wait on the endeavor system taking more than one ende
 | Cost | 30 spirit vines, 20 stone, 10 steel, and a Notable of each nation present when it finishes (the council's) |
 | On finishing | The portal opens. Notice: `The Spirit Portal opens. The spirits come back to the city.` |
 
+**As built (F6d).** A new research condition, `requires.balance`, reads the balance as the
+readout shows it (rounded), and `requires.council` asks for the Council Hall standing. The tech
+comes after Spirit Gardens. The portal is a landmark: one per city, never taken down. It opens
+the tick it stands, once per game, and its notice is a milestone on the replay timeline. Left
+for later: the Notable of each nation on the bill, and the score event.
+
 **After it opens.** Friendly spirits wander in, one per 10 points of balance above 50, at most 5.
 They're simple wanderers, the way beasts idle: no jobs, no needs. Each one **blesses** what it
 passes. A farm plot or orchard it stands beside grows 25% faster for a minute. While balance

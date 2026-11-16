@@ -176,6 +176,10 @@ fn card_text(condition: &Condition, facts: &Facts<'_>) -> String {
 
 fn live_text_for(condition: &Condition, facts: &Facts<'_>) -> String {
     match condition {
+        Condition::Balance(_) => match facts.balance {
+            Some(b) => format!("{condition} ({b} now)"),
+            None => condition.to_string(),
+        },
         Condition::Population(_) => format!("{condition} ({} here)", facts.population),
         Condition::Masters { count, of } => {
             let have: u32 = if of.is_empty() {
@@ -949,6 +953,10 @@ pub fn condition_lines(
     if r.united {
         all.push(Condition::United);
     }
+    if r.council {
+        all.push(Condition::Council);
+    }
+    all.extend(r.balance.map(Condition::Balance));
     if let Some(nation) = def.borrowed_from(home) {
         let need = defs.research.borrow_residents;
         let asked = r.residents.get(&nation).is_some_and(|&n| n >= need);

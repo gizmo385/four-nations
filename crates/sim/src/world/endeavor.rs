@@ -103,6 +103,9 @@ pub enum EndeavorEventKind {
     /// already carried directly to avoid (#361, docs/design/bending.md "Seeing it": "Jee is now
     /// a Firebender").
     RankUp { unit: UnitId, name: String, rank: Rank, title: String },
+    /// The Spirit Portal stands and has opened (docs/design/spirits.md, "Layer 4", F6d, #1030):
+    /// once per game (`World::portal_open`).
+    PortalOpened,
 }
 
 /// Why the Avatar left (`world/avatar.rs`, #237): named for the client's toast ("Aang has gone
