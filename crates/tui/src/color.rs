@@ -198,6 +198,8 @@ pub enum Tint {
     Irrigated,
     /// Call Rain's patch (#763): a cloud over the fields, or the one the Bend tool would call.
     Rain,
+    /// The rest of the building or site under the cursor, in Select: a lighter cursor.
+    Footprint,
 }
 
 impl Tint {
@@ -221,6 +223,9 @@ impl Tint {
 
 /// How much of a tint is mixed into the tile's own background.
 const TINT_STRENGTH: f32 = 0.5;
+
+/// How far the rest of the footprint under the cursor leans toward the cursor's own colour.
+const FOOTPRINT_STRENGTH: f32 = 0.4;
 
 /// How much of a tint the rectangle being dragged mixes in: more than a designation, so the two
 /// can be told apart where they overlap.
@@ -335,6 +340,7 @@ impl Palette {
             Tint::Powered => o.powered,
             Tint::Irrigated => o.irrigated,
             Tint::Rain => o.rain,
+            Tint::Footprint => o.cursor,
         }
     }
 
@@ -350,6 +356,8 @@ impl Palette {
             (ColorDepth::Ansi16, Tint::Clear) => self.solid[8],
             (ColorDepth::Ansi16, Tint::Remove) => self.solid[6],
             (_, Tint::Wet) => self.color(mix(base, self.tint_rgb(tint), 0.75)),
+            // Lighter than a designation: it shares the cursor's hue and must not read as one.
+            (_, Tint::Footprint) => self.color(mix(base, self.tint_rgb(tint), FOOTPRINT_STRENGTH)),
             // Only a designation takes a palette entry of its own on 256 colours; a reach is a
             // plain mix like warmth, so it never reaches `designation_256`.
             (

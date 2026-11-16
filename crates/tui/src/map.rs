@@ -5,7 +5,8 @@
 //!   or stored) > lit flame > resource > terrain or biome.
 //! * Background: cursor > a ghost's own door tile (#230), amber free or red blocked > the Build
 //!   tool's ghost (#212), green where the building fits and red where something is in the way >
-//!   the rectangle being dragged (#98), in its tool's hue > designation tint (harvest, a
+//!   the rectangle being dragged (#98), in its tool's hue > the rest of the footprint of the
+//!   building or site under the cursor, in Select, a lighter cursor > designation tint (harvest, a
 //!   harvest's standing order a shade greener, #277, a Clear mark in its own hue, #411/#426,
 //!   bend, build, stockpile) and the cast highlight share that tint > the faint box of the Remove
 //!   tool's rectangle where nothing would change (#953) > wet patch > an aura
@@ -236,6 +237,9 @@ pub struct Overlays {
     /// The production overlay's arrows (`Y`, `fn_ui::flow`, #1040), while it is on: each on a
     /// machine's edge, pointing into the touching machine its batches pass to.
     flow: BTreeMap<Pos, fn_ui::flow::Dir>,
+    /// The whole footprint of the building or site under the cursor, in Select
+    /// (`UiState::cursor_footprint`): so one of several like buildings side by side reads apart.
+    footprint: Option<fn_sim::geom::Footprint>,
 }
 
 impl Overlays {
@@ -357,6 +361,7 @@ impl Overlays {
             irrigated: fn_ui::patch::aqueduct_reach(session, cursor),
             rain: fn_ui::patch::rain_tiles(session, ui.tool, cursor),
             flow: if ui.flow_view { fn_ui::flow::arrows(session) } else { BTreeMap::new() },
+            footprint: ui.cursor_footprint(session),
         }
     }
 
@@ -668,6 +673,9 @@ pub enum Thing {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mark {
     Cursor,
+    /// The rest of the building or site the cursor is on, in Select: a lighter shade of the
+    /// cursor, so the whole of it reads as what the cursor points at.
+    Footprint,
     /// A one-off harvest designation.
     Harvest,
     /// A harvest with a standing order on it (#81, #277): tinted apart from a one-off harvest.
@@ -804,6 +812,8 @@ pub fn cell_look(
     let mut marks = Vec::new();
     if pos == ui.cursor {
         marks.push(Mark::Cursor);
+    } else if over.footprint.is_some_and(|f| f.contains(pos)) {
+        marks.push(Mark::Footprint);
     }
     if over.standing.contains(&pos) {
         // A standing order (#277) is a harvest too, but tinted apart from a one-off one.
@@ -1082,6 +1092,10 @@ fn marks_effect(marks: &[Mark], mono: bool) -> MarksEffect {
             mods |= Modifier::BOLD;
         }
     }
+    if marks.contains(&Mark::Footprint) && mono {
+        // Without colour the rest of the footprint under the cursor is underlined.
+        mods |= Modifier::UNDERLINED;
+    }
     let dragged = marks.iter().find_map(|m| match m {
         Mark::Dragged(t) => Some(*t),
         _ => None,
@@ -1142,6 +1156,9 @@ pub fn style_cell(look: &CellLook, defs: &Defs, palette: &Palette) -> TileCell {
         palette.ghost(base_bg, free)
     } else if let Some(tint) = marks.dragged {
         palette.dragged(base_bg, tint)
+    } else if look.marks.contains(&Mark::Footprint) {
+        // Over a site's own Build tint too, or a site's extent would never show.
+        palette.tinted(base_bg, Tint::Footprint)
     } else if let Some(tint) = marks.designation {
         palette.tinted(base_bg, tint)
     } else if let Some(tint) = marks.within {
@@ -1591,6 +1608,52 @@ mod tests {
             style_cell(&door_look, &s.defs, &palette).style.add_modifier,
             "door at {door_pos:?}"
         );
+    }
+
+    /// The cursor on one of two like buildings side by side marks the rest of that one's
+    /// footprint, and none of its neighbour's, so where it ends reads at a glance. Only in
+    /// Select: another tool's own marks speak for the map.
+    #[test]
+    fn the_cursor_marks_the_whole_building_it_is_on_and_not_its_twin() {
+        use fn_sim::Nation;
+        let mut s = crate::new_session(7, Nation::Earth);
+        let hall = s.defs.building_id("study_hall").unwrap();
+        let at = Pos::new(30, 30);
+        for dy in 0..3 {
+            for dx in 0..5 {
+                let t = s.world.map.get_mut(Pos::new(at.x + dx, at.y + dy)).unwrap();
+                t.terrain = Terrain::Land;
+                t.resource = None;
+            }
+        }
+        let (left, right) =
+            (Footprint::new(at, 2, 2), Footprint::new(Pos::new(at.x + 2, at.y), 2, 2));
+        s.world.put_building(left, hall, &s.defs);
+        s.world.put_building(right, hall, &s.defs);
+
+        let mut ui = UiState::new(&s, (120, 40));
+        ui.cursor = Pos::new(at.x + 1, at.y + 1);
+        let palette = Palette::new(&s.defs, Nation::Earth, ColorDepth::TrueColor, false);
+        let marked = |ui: &UiState| -> Vec<Pos> {
+            let over = Overlays::gather(&s, ui);
+            left.tiles()
+                .chain(right.tiles())
+                .filter(|&p| {
+                    cell_look(&s, ui, &palette, &over, p).unwrap().marks.contains(&Mark::Footprint)
+                })
+                .collect()
+        };
+        let expected: Vec<Pos> = left.tiles().filter(|&p| p != ui.cursor).collect();
+        assert_eq!(marked(&ui), expected);
+
+        // The marked tiles wear a background of their own, apart from the cursor's and the twin's.
+        let over = Overlays::gather(&s, &ui);
+        let bg = |p: Pos| tile_cell(&s, &ui, &palette, &over, p).unwrap().style.bg;
+        assert_ne!(bg(at), bg(right.anchor));
+        assert_ne!(bg(at), bg(ui.cursor));
+
+        ui.tool = Tool::Harvest;
+        assert!(marked(&ui).is_empty(), "no footprint mark with another tool out");
     }
 
     /// Earth Tent draws its own glyph apart from a plain flame's (#362): the AC's "each shelter

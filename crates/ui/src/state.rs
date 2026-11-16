@@ -652,6 +652,17 @@ impl UiState {
         here
     }
 
+    /// The whole footprint of the building or build site under the cursor, while the Select tool
+    /// is out and the map has the screen: every frontend marks it, so where one of several
+    /// Workshops side by side ends reads at a glance. `None` on a 1x1 one (the cursor already
+    /// covers it) and with any other tool, whose own marks (a drag, a ghost) speak for the map.
+    pub fn cursor_footprint(&self, session: &Session) -> Option<fn_sim::geom::Footprint> {
+        if self.tool != Tool::Select || self.screen.is_some() {
+            return None;
+        }
+        session.world.footprint_at(self.cursor).filter(|f| f.w > 1 || f.h > 1)
+    }
+
     /// `Enter` in the message log (#661): puts the cursor on `place` and centres the view there,
     /// as a jump to a place does. The cursor stops following a settler.
     pub fn go_to(&mut self, place: Pos) {
