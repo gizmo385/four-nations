@@ -1679,3 +1679,206 @@ count = 10
 [[building.cost]]
 item = "steel"
 count = 1
+
+# --- #1030 (factory endgame F4: power with a load, big works) ---
+# Plants (docs/design/factory-endgame.md, "Layer 4"): power sources whose yard (the unlocking
+# tech's `automate` upgrade) has a capacity in draw. A crewed plant's Notables add to it.
+#
+# Fire's Lightning Plant: Republic City's power station. Big, and crewed by Fire Notables.
+[[building]]
+id = "lightning_plant"
+name = "Lightning Plant"
+verb = "Build"
+work = 240.0
+passable = false
+footprint = [3, 3]
+[building.power]
+radius = 6
+boost = 2.0
+[[building.cost]]
+item = "brick"
+count = 20
+[[building.cost]]
+item = "steel"
+count = 6
+[[building.cost]]
+item = "tool"
+count = 2
+
+# Earth's Geothermal Vent: small and cheap, stacked along the rock.
+[[building]]
+id = "geothermal_vent"
+name = "Geothermal Vent"
+verb = "Build"
+work = 40.0
+passable = false
+footprint = [1, 1]
+beside = ["mountain", "tunnel"]
+[building.power]
+radius = 2
+boost = 1.2
+[[building.cost]]
+item = "stone"
+count = 8
+[[building.cost]]
+item = "steel"
+count = 1
+
+# Water's Hydro Mill: steady, on the bank, with a small crew of Water Notables.
+[[building]]
+id = "hydro_mill"
+name = "Hydro Mill"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+beside = ["water", "river", "lake", "canal"]
+[building.power]
+radius = 5
+boost = 1.5
+[[building.cost]]
+item = "stone"
+count = 12
+[[building.cost]]
+item = "wood"
+count = 8
+[[building.cost]]
+item = "steel"
+count = 3
+
+# Air's Wind Farm: no crew, the widest reach, the slowest machines.
+[[building]]
+id = "wind_farm"
+name = "Wind Farm"
+verb = "Build"
+work = 120.0
+passable = false
+footprint = [2, 2]
+[building.power]
+radius = 7
+boost = 1.3
+[[building.cost]]
+item = "wood"
+count = 20
+[[building.cost]]
+item = "steel"
+count = 3
+
+# Big works: 3x3 machines that do two steps in one, with a heavy draw (4 of a yard's capacity).
+#
+# Fire's Steel Foundry: metal straight to fine steelware, no steel in between.
+[[building]]
+id = "steel_foundry"
+name = "Steel Foundry"
+verb = "Build"
+work = 160.0
+passable = false
+footprint = [3, 3]
+capacity = 1
+uses_power = true
+draw = 4
+[[building.cost]]
+item = "brick"
+count = 16
+[[building.cost]]
+item = "steel"
+count = 4
+[[building.cost]]
+item = "tool"
+count = 2
+[building.recipe]
+output = "fine_steelware"
+output_count = 2
+work = 40.0
+modifier = "heating"
+input = [{ item = "metal", count = 3 }, { item = "wood", count = 3 }]
+stock_limit = 8
+
+# Earth's Furniture Works: steel and wood to furniture, the fittings made on the way.
+[[building]]
+id = "furniture_works"
+name = "Furniture Works"
+verb = "Build"
+work = 160.0
+passable = false
+footprint = [3, 3]
+capacity = 1
+uses_power = true
+draw = 4
+[[building.cost]]
+item = "stone"
+count = 20
+[[building.cost]]
+item = "steel"
+count = 4
+[[building.cost]]
+item = "tool"
+count = 2
+[building.recipe]
+output = "furniture"
+output_count = 3
+work = 40.0
+modifier = "construction"
+input = [{ item = "steel", count = 1 }, { item = "wood", count = 6 }]
+stock_limit = 15
+
+# Water's Parka Works: hide, steel and wood to parkas, the fittings made on the way.
+[[building]]
+id = "parka_works"
+name = "Parka Works"
+verb = "Build"
+work = 160.0
+passable = false
+footprint = [3, 3]
+capacity = 1
+uses_power = true
+draw = 4
+[[building.cost]]
+item = "wood"
+count = 16
+[[building.cost]]
+item = "steel"
+count = 4
+[[building.cost]]
+item = "tool"
+count = 2
+[building.recipe]
+output = "parka"
+output_count = 2
+work = 45.0
+modifier = "construction"
+input = [{ item = "hide", count = 2 }, { item = "steel", count = 1 }, { item = "wood", count = 1 }]
+stock_limit = 8
+
+# Air's Herb House: herbs to tea at scale, or incense from the same room.
+[[building]]
+id = "herb_house"
+name = "Herb House"
+verb = "Build"
+work = 160.0
+passable = false
+footprint = [3, 3]
+capacity = 1
+uses_power = true
+draw = 4
+[[building.cost]]
+item = "wood"
+count = 24
+[[building.cost]]
+item = "steel"
+count = 3
+[building.recipe]
+output = "tea"
+output_count = 4
+work = 30.0
+modifier = "construction"
+input = [{ item = "herbs", count = 3 }]
+stock_limit = 16
+[[building.alt_recipe]]
+id = "incense"
+output = "incense"
+output_count = 3
+work = 40.0
+modifier = "construction"
+input = [{ item = "herbs", count = 2 }, { item = "fruit", count = 2 }]
+stock_limit = 9
