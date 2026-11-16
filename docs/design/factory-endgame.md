@@ -529,7 +529,7 @@ matter.
 | F4. Power and big works | `draw`, `capacity`, brownout, plants crewed by Notables, 3x3 big works | Medium | Question 5 |
 | F4b. Fusion machines | Six two-nation machines | Small: phase 6's fusion pattern | F2, residents of both nations |
 | F5. The Council Hall | The capstone great work | Medium: reuses the Harmony Gate's stages | F1 |
-| F6. Spirits | Industry unsettles the spirits, vines creep, balance pushes back, then the Spirit Portal | Large | A playtest of F1 to F4 |
+| F6. Spirits | Industry unsettles the spirits, vines creep, balance pushes back, then the Spirit Portal ([spirits.md](spirits.md)) | Large | A playtest of F1 to F4 |
 
 **F1 alone is a small factory game.** Four nations' wants, eight goods, chains two or three steps
 deep, all made by hand. If that's fun, F2 to F4 make it bigger. If it isn't, F2 to F4 won't save
