@@ -255,6 +255,10 @@ pub(crate) struct JobsFile {
     /// `standing::resolve`.
     #[serde(default)]
     pub(crate) standing: Option<crate::standing::RawStanding>,
+    /// `[spirits]` (docs/design/spirits.md, #1030): taken out before `resolve` and resolved
+    /// against the resources by `spirits::resolve`.
+    #[serde(default)]
+    pub(crate) spirits: Option<crate::spirits::RawSpirits>,
 }
 
 /// `[shore_fishing]` (docs/design/horizons-phase-4.md, `southern_ways`, #727): fishing from any

@@ -762,11 +762,13 @@ impl World {
                     self.resting.insert(pos, seconds * self.knobs(defs).regrow * strain_mult);
                 }
                 None => {
+                    self.note_felled(pos, defs);
                     self.map[pos].resource = None;
                     self.map_changed();
                 }
             },
             None => {
+                self.note_felled(pos, defs);
                 self.map[pos].resource = None;
                 self.map_changed();
             }
@@ -800,6 +802,7 @@ impl World {
             self.tallies.count_harvest(item, c.count);
             self.place_ground(pos, Stack { item, count: c.count });
         }
+        self.note_felled(pos, defs);
         self.map[pos].resource = None;
         self.resting.remove(&pos);
         self.saplings.remove(&pos);
