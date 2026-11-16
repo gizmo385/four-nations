@@ -579,6 +579,9 @@ impl App {
                         Err(_) => "Nothing to keep here".to_owned(),
                     };
             }
+            InspectorAction::NextRecipe(at) => {
+                self.ui.notice = crate::recipe::switch(&mut self.session, at).unwrap_or_else(|w| w);
+            }
         }
     }
 

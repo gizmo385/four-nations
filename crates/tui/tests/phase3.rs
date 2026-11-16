@@ -71,7 +71,7 @@ fn r_switches_a_workshop_to_wares_once_the_tech_is_known_and_back() {
 #[test]
 fn r_is_listed_in_the_key_help_and_does_nothing_off_a_workshop() {
     let rows = fn_ui::keys::help_rows();
-    assert!(rows.iter().any(|r| r.keys == "R" && r.what.contains("Workshop")), "{rows:?}");
+    assert!(rows.iter().any(|r| r.keys == "R" && r.what.contains("recipe")), "{rows:?}");
     let mut a = App::new(new_session(7, Nation::Earth), SIZE);
     run(&mut a, "r");
     assert_eq!(a.ui.notice, "Can't switch recipe: nothing to switch here");

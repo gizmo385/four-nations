@@ -113,12 +113,7 @@ fn standing_rows(u: &UnitedView) -> Vec<Row> {
             rows.push(Row::text(format!("  {}", b.terms.join(", ")), Tone::Dim));
         }
         if b.portal_open {
-            let who = match b.spirits {
-                0 => "no spirits wander the city".to_owned(),
-                1 => "a friendly spirit wanders the city".to_owned(),
-                n => format!("{n} friendly spirits wander the city"),
-            };
-            rows.push(Row::text(format!("  The Spirit Portal is open: {who}."), Tone::Text));
+            rows.push(Row::text(format!("  {}", portal_line(b.spirits)), Tone::Text));
         }
     }
     rows.extend([Row::default(), Row::text("STANDING", Tone::Title)]);
@@ -325,6 +320,17 @@ pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
         rows.extend(group_rows(group, name_width, width, marks));
     }
     rows
+}
+
+/// The SPIRITS line once the Spirit Portal is open (F6d, F6e): "The Spirit Portal is open: 3
+/// friendly spirits wander the city."
+pub fn portal_line(spirits: usize) -> String {
+    let who = match spirits {
+        0 => "no spirits wander the city".to_owned(),
+        1 => "a friendly spirit wanders the city".to_owned(),
+        n => format!("{n} friendly spirits wander the city"),
+    };
+    format!("The Spirit Portal is open: {who}.")
 }
 
 #[cfg(test)]

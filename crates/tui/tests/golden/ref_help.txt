@@ -12,7 +12,7 @@
 │ Shift+Tab  Previous settler                                T       Research                                          │
 │ F          Follow the selected settler                     G       Endeavor                                          │
 │ Esc        Deselect, or open the menu                      M       Traders                                           │
-│ R          Switch a Workshop's recipe (Select)             L       Message log                                       │
+│ R          Switch a building's recipe (Select)             L       Message log                                       │
 │                                                            Y       Flow view: machines and yards                     │
 │ DESIGNATING                                                1-5     Log: one kind of line (0: all)                    │
 │ /  List the tools in the panel                             Tab     Log in --watch: next kind                         │

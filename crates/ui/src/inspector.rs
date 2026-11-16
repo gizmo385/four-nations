@@ -41,6 +41,9 @@ pub enum InspectorAction {
     /// "Keep it": takes the mark back from the finished building covering this tile
     /// (`Command::CancelDeconstruct`, #967).
     KeepIt(Pos),
+    /// "Switch recipe": sets the building covering this tile to its next recipe
+    /// (`crate::recipe::switch`, #712).
+    NextRecipe(Pos),
 }
 
 impl InspectorAction {
@@ -48,6 +51,7 @@ impl InspectorAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::KeepIt(_) => "Keep it",
+            Self::NextRecipe(_) => "Switch recipe",
         }
     }
 
@@ -55,6 +59,7 @@ impl InspectorAction {
     pub fn key(self) -> &'static str {
         match self {
             Self::KeepIt(_) => "K",
+            Self::NextRecipe(_) => "R",
         }
     }
 
@@ -62,6 +67,7 @@ impl InspectorAction {
     pub fn hint(self) -> String {
         match self {
             Self::KeepIt(_) => format!("Press {} to keep it", self.key()),
+            Self::NextRecipe(_) => format!("Press {} to switch recipe", self.key()),
         }
     }
 }
@@ -279,6 +285,7 @@ fn stockpile_text(session: &Session, pos: Pos) -> Option<String> {
 pub fn hint_text(hint: Hint) -> Option<String> {
     match hint {
         Hint::KeepIt => Some(InspectorAction::KeepIt(Pos::new(0, 0)).hint()),
+        Hint::NextRecipe => Some(InspectorAction::NextRecipe(Pos::new(0, 0)).hint()),
         Hint::SelectUnit => Some("Press Enter to select".to_owned()),
         Hint::ApplyTool(_) => None,
         Hint::StartTool(tool) => Some(format!("Press {} for the {} tool", tool.key(), tool.name())),
@@ -345,6 +352,12 @@ fn tile(session: &Session, ui: &UiState, choice: Option<BuildingId>) -> Inspecte
             Line::Hint(Hint::KeepIt) => {
                 if let Some(at) = keep_target(session, ui) {
                     rows.push(Part::Action(InspectorAction::KeepIt(at)));
+                }
+            }
+            // `R` works in Select mode only, so the button shows only there (#712).
+            Line::Hint(Hint::NextRecipe) => {
+                if ui.tool == Tool::Select {
+                    rows.push(Part::Action(InspectorAction::NextRecipe(pos)));
                 }
             }
             Line::Hint(h) => {
@@ -499,6 +512,56 @@ mod keep_it_tests {
 
     fn press_k(app: &mut App) {
         app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    }
+
+    /// A game with a Workshop standing at `(2, 2)`, the cursor on it, Trade Wares known if
+    /// `wares`.
+    fn with_workshop(wares: bool) -> (App, Pos) {
+        let mut s = Session::new(7, Nation::Earth, 64, 64);
+        let defs = s.defs.clone();
+        let at = Pos::new(2, 2);
+        s.world.put_building(
+            Footprint::new(at, 2, 2),
+            defs.building_id("workshop").unwrap(),
+            &defs,
+        );
+        if wares {
+            // Known the way a save knows it: no test-only grant reaches `fn_ui`.
+            let mut text = s.world.save(&defs).unwrap();
+            let i = defs.tech_id("trade_wares").unwrap().0 as usize;
+            let start = text.find("known:[").unwrap() + "known:[".len();
+            let end = start + text[start..].find(']').unwrap();
+            let mut known: Vec<String> = text[start..end].split(',').map(str::to_owned).collect();
+            known[i] = "true".to_owned();
+            text.replace_range(start..end, &known.join(","));
+            s.world = fn_sim::World::load(&text, &defs).unwrap();
+        }
+        let mut app = App::new(s, (120, 40));
+        app.ui.cursor = at;
+        (app, at)
+    }
+
+    #[test]
+    fn a_workshop_lists_what_it_can_make_and_offers_r_once_a_second_recipe_is_known() {
+        let (app, at) = with_workshop(false);
+        let plain = inspect(&app.session, &app.ui, None).plain();
+        let can = plain.iter().find(|t| t.starts_with("Can make: ")).expect("a Can make line");
+        assert!(can.starts_with("Can make: Tools, Wares (needs Trade Wares)"), "{can}");
+        assert!(keep_actions(&app).is_empty(), "nothing to switch to yet: {plain:?}");
+
+        let (mut app, _) = with_workshop(true);
+        let plain = inspect(&app.session, &app.ui, None).plain();
+        assert!(plain.iter().any(|t| t.starts_with("Can make: Tools, Wares")), "{plain:?}");
+        assert!(plain.contains(&"Press R to switch recipe".to_owned()), "{plain:?}");
+        assert_eq!(keep_actions(&app), [InspectorAction::NextRecipe(at)]);
+        // The button does what R does.
+        app.do_inspector_action(InspectorAction::NextRecipe(at));
+        assert_eq!(app.ui.notice, "Workshop now makes Wares");
+        let plain = inspect(&app.session, &app.ui, None).plain();
+        assert!(plain.contains(&"Making: Wares".to_owned()), "{plain:?}");
+        // Another tool hides it: R switches only in Select mode.
+        app.ui.tool = Tool::Harvest;
+        assert!(keep_actions(&app).is_empty());
     }
 
     #[test]

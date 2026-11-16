@@ -253,6 +253,12 @@ fn recipes_making(defs: &Defs, item: ItemId) -> impl Iterator<Item = &RecipeDef>
 /// those need on the way, in item order (steel for fittings, metal for steel). A raw good
 /// (wood, fish, ore) is left out: what makes it is a harvest, not a batch, so its rates would
 /// read as nothing made.
+/// [`goods_ledger`] for `session`'s city: what the Goods tab lists (the agent surface's own way
+/// in, which reads no `World` itself).
+pub fn session_goods_ledger(session: &crate::session::Session) -> Vec<LedgerRow> {
+    goods_ledger(&session.world, &session.defs)
+}
+
 pub fn goods_ledger(world: &World, defs: &Defs) -> Vec<LedgerRow> {
     let (items, wanted): (Vec<ItemId>, Vec<GoodFlowRow>) =
         wanted_goods(world, defs).into_iter().unzip();
