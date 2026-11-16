@@ -1654,12 +1654,29 @@ fn write_mcp_config(path: &Path, command: &Path, args: &[String]) -> Result {
 // Prompts
 // -------------------------------------------------------------------------------------------
 
+/// What every scored prompt asks of the model's own words (#576): a brief remark before a
+/// significant action, so the run can be read back as a monologue (the `say` lines beside the
+/// `think` summaries). Shorter than the playtest's narration, and `game problem:` lines are
+/// welcome but not asked for: the aim here is still the score.
+fn think_aloud_passage() -> String {
+    format!(
+        "Think out loud briefly as you play, in plain text between your tool calls: before a \
+         significant action (saving or changing the governor, changing the plan, running \
+         something for the first time, a big order), say in at most {words} words what you \
+         expect and why, and say so when something surprises you. Skip routine calls. People \
+         read these back later. If something about the game itself seems wrong, you may put it \
+         on a line starting \"game problem:\".",
+        words = playtest::REMARK_WORDS,
+    )
+}
+
 fn default_prompt(n: u32) -> String {
     format!(
         "You're playing The Four Nations, a colony game, through the four-nations tools. Call \
          briefing first, then observe. Keep everyone alive and grow the settlement. Give orders \
-         with act (add a short note saying why) and let time pass with end_turn. Play {n} turns, \
-         then summarise how it went."
+         with act (add a short note saying why) and let time pass with end_turn. {think} Play \
+         {n} turns, then summarise how it went.",
+        think = think_aloud_passage(),
     )
 }
 
@@ -1670,8 +1687,9 @@ fn handoff_prompt(n: u32, done_turns: u32, report: &str) -> String {
         "You're continuing the same settlement from where you left off (turn {done_turns} so \
          far), not starting a new one. Here is your own last report:\n\n{report}\n\nCall \
          observe to see where things stand now, then carry on: give orders with act (add a \
-         short note saying why) and let time pass with end_turn. Play {n} more turns, then \
-         summarise how it went."
+         short note saying why) and let time pass with end_turn. {think} Play {n} more turns, \
+         then summarise how it went.",
+        think = think_aloud_passage(),
     )
 }
 
@@ -1699,12 +1717,13 @@ fn default_script_prompt(total: u32, calls: u32) -> String {
          it with run_script for just 3-5 turns to see what it does, then for a season, and \
          once that goes well, for a year. Use inline run_script code only to look (it is \
          read-only: observe, look, cells and the like), never to act. {style} Keep everyone alive and \
-         grow the settlement, toward about {total} turns in all. After every run_script call, \
+         grow the settlement, toward about {total} turns in all. {think} After every run_script call, \
          use notes to record what you learned so it survives into the next stretch, and a line \
          starting \"SDK gap:\" for anything you wished the tools could do. This session is one \
          chunk of that: after roughly {calls} tool calls, stop and summarise how it went so the \
          next session can carry on.",
         style = script_style_passage(),
+        think = think_aloud_passage(),
     )
 }
 
@@ -1733,9 +1752,10 @@ fn scripts_handoff_prompt(
          runs the whole settlement from plan(): change what you want with the plan tool, and \
          revise the governor with save_script (don't replace it or start another) only when it \
          can't do something at all. Use inline run_script code only to look; it is read-only. \
-         {style} Record what you learn in notes (and any SDK gap), and let time pass with \
-         run_script. After roughly {calls} more tool calls, stop and summarise how it went.",
+         {style} {think} Record what you learn in notes (and any SDK gap), and let time pass \
+         with run_script. After roughly {calls} more tool calls, stop and summarise how it went.",
         style = script_style_passage(),
+        think = think_aloud_passage(),
     )
 }
 
@@ -3248,17 +3268,18 @@ mod tests {
     }
 
     /// Campaign and scored `--scripts` prompts must not change because a playtest exists: their
-    /// text, with the shared layout passage (pinned by its own tests) taken out, is pinned.
-    /// If this fails after you edited one of them on purpose, update the number; if you did not,
-    /// something is leaking playtest wording into a scored run.
+    /// text, with the shared layout passage (pinned by its own tests) and the think-aloud
+    /// passage (#576, its own test below) taken out, is pinned. If this fails after you edited
+    /// one of them on purpose, update the number; if you did not, something is leaking playtest
+    /// wording into a scored run.
     #[test]
     fn the_scored_prompts_are_byte_for_byte_what_they_were() {
         let style = script_style_passage();
-        let first = default_script_prompt(540, 30).replace(style, "<STYLE>");
-        let handoff =
-            scripts_handoff_prompt(540, 100, 30, "<LISTING>", None).replace(style, "<STYLE>");
-        let campaign = scripts_handoff_prompt(540, 100, 30, "<LISTING>", Some("<NOTE>"))
-            .replace(style, "<STYLE>");
+        let think = think_aloud_passage();
+        let strip = |p: String| p.replace(style, "<STYLE>").replace(&think, "<THINK>");
+        let first = strip(default_script_prompt(540, 30));
+        let handoff = strip(scripts_handoff_prompt(540, 100, 30, "<LISTING>", None));
+        let campaign = strip(scripts_handoff_prompt(540, 100, 30, "<LISTING>", Some("<NOTE>")));
         assert_eq!(
             [fnv(&first), fnv(&handoff), fnv(&campaign)],
             PINNED_SCORED_PROMPTS,
@@ -3276,8 +3297,27 @@ mod tests {
         assert_ne!(first, playtest::first_prompt(540, 30).replace(style, "<STYLE>"));
     }
 
+    /// Every player prompt, scored or not, turn by turn or scripted, first or handed off, asks
+    /// the model to think out loud briefly, exactly once (#576).
+    #[test]
+    fn every_player_prompt_asks_to_think_out_loud_once() {
+        let think = think_aloud_passage();
+        let prompts = [
+            default_prompt(30),
+            handoff_prompt(30, 10, "report"),
+            default_script_prompt(540, 30),
+            scripts_handoff_prompt(540, 100, 30, "(listing)", None),
+            scripts_handoff_prompt(540, 100, 30, "(listing)", Some("note")),
+        ];
+        for p in prompts {
+            assert_eq!(p.matches(&think).count(), 1, "{p}");
+        }
+        assert!(think.contains(&format!("at most {} words", playtest::REMARK_WORDS)));
+        assert!(think.contains("you may"), "game problem lines stay optional: {think}");
+    }
+
     const PINNED_SCORED_PROMPTS: [u64; 3] =
-        [529_216_101_422_545_671, 2_747_889_883_185_109_194, 17_751_177_510_856_055_539];
+        [13_134_334_755_657_027_549, 9_871_664_311_539_850_632, 18_212_369_691_177_633_557];
 
     #[test]
     fn playtest_implies_scripts_and_is_refused_with_a_campaign_a_chat_or_chunk_turns() {
