@@ -518,9 +518,9 @@ impl App {
             return;
         }
         match action {
-            // `Tab` flips the key help between its keys and its legend (#662).
+            // `Tab` steps the key help through its tabs (#662), `Shift+Tab` back.
             Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Help) => {
-                self.ui.switch_help_tab();
+                self.ui.switch_help_tab(action == Action::PrevUnit);
             }
             Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Endeavor) => {
                 self.ui.switch_city_tab(&self.session);

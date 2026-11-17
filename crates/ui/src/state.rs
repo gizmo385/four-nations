@@ -362,9 +362,9 @@ impl UiState {
         ui
     }
 
-    /// `Tab` in the key help: the other tab, from its top.
-    pub fn switch_help_tab(&mut self) {
-        self.help_tab = self.help_tab.other();
+    /// `Tab` in the key help: the next tab (`Shift+Tab`, `back`: the one before), from its top.
+    pub fn switch_help_tab(&mut self, back: bool) {
+        self.help_tab = if back { self.help_tab.other().other() } else { self.help_tab.other() };
         self.scroll = 0;
     }
 

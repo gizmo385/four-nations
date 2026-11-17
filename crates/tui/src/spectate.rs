@@ -184,8 +184,10 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
         Screen::Log | Screen::Help | Screen::Endeavor => {}
     }
     match action {
-        // `Tab` flips the key help between its keys and its legend (#662).
-        Action::NextUnit | Action::PrevUnit if screen == Screen::Help => ui.switch_help_tab(),
+        // `Tab` steps the key help through its tabs (#662), `Shift+Tab` back.
+        Action::NextUnit | Action::PrevUnit if screen == Screen::Help => {
+            ui.switch_help_tab(action == Action::PrevUnit);
+        }
         Action::NextUnit | Action::PrevUnit if screen == Screen::Endeavor => {
             ui.switch_city_tab(session);
         }
