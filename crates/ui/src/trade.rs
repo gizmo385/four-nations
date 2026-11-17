@@ -54,7 +54,7 @@ pub struct OfferRow {
     pub name: String,
     /// What the settlement hands over, once: "30 food", "20 wood and 10 food".
     pub give: String,
-    /// What it gets back, once: "20 stone", "40 knowledge", "half a newcomer's draw".
+    /// What it gets back, once: "20 stone", "40 knowledge", "half of a newcomer".
     pub get: String,
     /// "1 of 2 taken"; a request reads "taken" or "not taken".
     pub taken: String,
@@ -96,7 +96,8 @@ pub fn view(session: &Session) -> TradersView {
                 }
                 OfferKind::Request(r) => {
                     let req = &caravan.requests[usize::from(r)];
-                    (true, req.name.clone(), &req.give, reward_text(req.reward), 1)
+                    let nation = visit.united.then(|| defs.nation(visit.nation).name.as_str());
+                    (true, req.name.clone(), &req.give, reward_text(req.reward, nation), 1)
                 }
             };
             let owed = offer.taken - offer.done;
@@ -232,16 +233,19 @@ pub(crate) fn deal_words(defs: &Defs, deal: &fn_sim::trade::DealDef) -> (String,
     (and_list(&deal.give.iter().map(|g| goods_text(defs, g)).collect::<Vec<_>>()), and_list(&get))
 }
 
-/// What a request grants, in words.
-fn reward_text(reward: Reward) -> String {
+/// What a request grants, in words. A draw reward names the newcomer it brings (#1067): in the
+/// United City, `nation` (the caravan's), whose newcomer it steers; before the gate, one of your
+/// own. Either still waits for a free bed and food in stores.
+fn reward_text(reward: Reward, nation: Option<&str>) -> String {
+    let who = nation.map_or("a newcomer".to_owned(), |n| format!("a newcomer from the {n}"));
     match reward {
         Reward::Knowledge(n) => format!("{n} knowledge"),
-        Reward::Draw(milli) if milli == fn_sim::world::DRAW_ONE => "a newcomer's draw".to_owned(),
+        Reward::Draw(milli) if milli >= fn_sim::world::DRAW_ONE => who,
         Reward::Draw(milli) if milli * 2 == fn_sim::world::DRAW_ONE => {
-            "half a newcomer's draw".to_owned()
+            format!("half of {who}")
         }
         Reward::Draw(milli) => {
-            format!("{:.1} of a newcomer's draw", milli as f32 / fn_sim::world::DRAW_ONE as f32)
+            format!("{:.1} of {who}", milli as f32 / fn_sim::world::DRAW_ONE as f32)
         }
     }
 }

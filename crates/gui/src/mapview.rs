@@ -371,6 +371,7 @@ pub fn paint(ui: &Ui, rect: Rect, camera: &Camera, app: &App, palette: &Palette)
 
     let mut mesh = Mesh::default();
     let mut glyph_shapes = Vec::new();
+    let mut diagonals = Diagonals::default();
     for y in y0..y1 {
         for x in x0..x1 {
             let pos = Pos::new(x, y);
@@ -384,7 +385,8 @@ pub fn paint(ui: &Ui, rect: Rect, camera: &Camera, app: &App, palette: &Palette)
             let block = if glyphs { bg } else { block_color(&look.thing, bg, fg) };
             mesh.add_colored_rect(Rect::from_min_size(at, tile), block);
             if glyphs && let Some(links) = road_links(session, state, palette, &over, pos, &look) {
-                paint_road(&mut mesh, Rect::from_min_size(at, tile), links, bg, fg);
+                let tile = Rect::from_min_size(at, tile);
+                paint_road(&mut mesh, &mut diagonals, tile, links, bg, fg);
             } else if glyphs && cell.glyph != ' ' {
                 // Each glyph is centred in its own tile, whatever font it fell back to and
                 // whatever its advance, so nothing drifts off the grid.
@@ -396,6 +398,8 @@ pub fn paint(ui: &Ui, rect: Rect, camera: &Camera, app: &App, palette: &Palette)
         }
     }
     painter.add(Shape::mesh(mesh));
+    painter.add(Shape::mesh(diagonals.kerb));
+    painter.add(Shape::mesh(diagonals.fill));
     painter.extend(glyph_shapes);
     paint_marks(ui, rect, camera, app, palette);
 }
@@ -409,8 +413,26 @@ fn road_of(look: &CellLook, defs: &fn_sim::Defs) -> Option<fn_sim::building::Bui
     defs.building(building).track.is_some_and(|t| t.index != 1).then_some(building)
 }
 
-/// For a road tile (`road_of`), which of its four neighbours, north, east, south and west, are
-/// the same road: it joins to those. `None` for any other tile.
+/// Which neighbours of a road tile are the same road: north, east, south and west, then the
+/// diagonals north-east, south-east, south-west and north-west (#1066: a road runs diagonally).
+#[derive(Clone, Copy)]
+struct RoadLinks {
+    sides: [bool; 4],
+    corners: [bool; 4],
+}
+
+impl RoadLinks {
+    /// The diagonals the tile draws a band toward: a diagonal neighbour that neither side
+    /// between them already joins, so a corner of four road tiles is no diagonal at all.
+    fn diagonals(self) -> [bool; 4] {
+        let [n, e, s, w] = self.sides;
+        let [ne, se, sw, nw] = self.corners;
+        [ne && !n && !e, se && !s && !e, sw && !s && !w, nw && !n && !w]
+    }
+}
+
+/// For a road tile (`road_of`), which of its eight neighbours are the same road: it joins to
+/// those. `None` for any other tile.
 fn road_links(
     session: &fn_ui::Session,
     state: &fn_ui::state::UiState,
@@ -418,25 +440,63 @@ fn road_links(
     over: &Overlays,
     pos: Pos,
     look: &CellLook,
-) -> Option<[bool; 4]> {
+) -> Option<RoadLinks> {
     let road = road_of(look, &session.defs)?;
     let joins = |dx: i32, dy: i32| {
         cell_look(session, state, palette, over, Pos::new(pos.x + dx, pos.y + dy))
             .is_some_and(|n| road_of(&n, &session.defs) == Some(road))
     };
-    Some([joins(0, -1), joins(1, 0), joins(0, 1), joins(-1, 0)])
+    Some(RoadLinks {
+        sides: [joins(0, -1), joins(1, 0), joins(0, 1), joins(-1, 0)],
+        corners: [joins(1, -1), joins(1, 1), joins(-1, 1), joins(-1, -1)],
+    })
+}
+
+/// The meshes a diagonal road band goes into, kerbs under fills, painted after every tile so a
+/// band crossing into the two tiles beside the corner isn't painted over by their ground.
+#[derive(Default)]
+struct Diagonals {
+    kerb: Mesh,
+    fill: Mesh,
 }
 
 /// A road tile as a paved band in `fg` with a darker kerb, joined edge to edge toward each
 /// neighbour in `links` (playtest feedback): its `▒` glyph, centred in a square tile, left gaps
 /// between tiles and read oddly at every corner. A lone tile is a square.
-fn paint_road(mesh: &mut Mesh, tile: Rect, links: [bool; 4], bg: Color32, fg: Color32) {
+fn paint_road(
+    mesh: &mut Mesh,
+    diagonals: &mut Diagonals,
+    tile: Rect,
+    links: RoadLinks,
+    bg: Color32,
+    fg: Color32,
+) {
     let kerb = lerp_color(fg, bg, 0.55);
     let side = tile.width();
+    let corners = [tile.right_top(), tile.right_bottom(), tile.left_bottom(), tile.left_top()];
     for (inset, colour) in [(side * 0.2, kerb), (side * 0.26, fg)] {
         let middle = tile.shrink(inset);
         mesh.add_colored_rect(middle, colour);
-        let [n, e, s, w] = links;
+        // A diagonal is a band from the middle to the corner, as wide as a straight one.
+        let layer = if colour == kerb { &mut diagonals.kerb } else { &mut diagonals.fill };
+        let half = side / 2.0 - inset;
+        for (corner, _) in corners.iter().zip(links.diagonals()).filter(|(_, on)| *on) {
+            let along = (*corner - tile.center()).normalized();
+            let across = vec2(-along.y, along.x) * half;
+            let quad = [
+                tile.center() + across,
+                *corner + across,
+                *corner - across,
+                tile.center() - across,
+            ];
+            let at = layer.vertices.len() as u32;
+            for p in quad {
+                layer.colored_vertex(p, colour);
+            }
+            layer.add_triangle(at, at + 1, at + 2);
+            layer.add_triangle(at, at + 2, at + 3);
+        }
+        let [n, e, s, w] = links.sides;
         if n {
             mesh.add_colored_rect(
                 Rect::from_x_y_ranges(middle.x_range(), tile.top()..=middle.top()),

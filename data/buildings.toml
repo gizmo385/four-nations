@@ -37,8 +37,9 @@
 # - track:    a track (rail, issue #135; the Paved Road, docs/design/horizons-phase-1.md). A
 #             straight step from one tile of it onto the next tile of the same track beside it
 #             costs the step divided by `speed` (rounded on the 10-unit step grid), for every
-#             unit, and routes plan to use that. Any other step (a diagonal, road onto rail) is
-#             ordinary. Must be passable; more than one building may be a track. `speed` is
+#             unit, and routes plan to use that. With `diagonal = true` a diagonal step between
+#             two tiles of it costs the diagonal step divided by `speed` too (#1066, the road).
+#             Any other step (a diagonal on rail, road onto rail) is ordinary. Must be passable; more than one building may be a track. `speed` is
 #             above 1.0 and at most 10.
 # - fuel:     a fuel bunker (docs/design/horizons-phase-1.md, "Fuel bunkers"): `item` is burned
 #             (or `items = [a, b, ...]`, at least two, exactly one of the two keys: a Refuel haul
@@ -866,8 +867,11 @@ item = "tool"
 count = 2
 
 # Paving's road (docs/design/horizons-phase-1.md): one stone a tile, laid in lines like rail.
-# Every step along it is 1.25x faster (8 on the 10-unit step grid; 1.3 can't be represented).
-# Tearing it up gives nothing back: the refund rounds 1 stone down to 0.
+# Every straight step along it costs 6 on the 10-unit step grid (1.6x), and unlike rail it runs
+# diagonally too: a diagonal step between two road tiles costs 9 (#1066). At 1.25 (a step of 8) an
+# L-shaped road was slower than cutting across the grass diagonally, so people left it at every
+# corner; 1.5 rounds to a step of 7, which only ties. Tearing it up gives nothing back: the refund
+# rounds 1 stone down to 0.
 [[building]]
 id = "paved_road"
 name = "Paved Road"
@@ -875,7 +879,8 @@ verb = "Pave"
 work = 6.0
 passable = true
 [building.track]
-speed = 1.25
+speed = 1.6
+diagonal = true
 [[building.cost]]
 item = "stone"         # brick stands in, as for any stone cost
 count = 1

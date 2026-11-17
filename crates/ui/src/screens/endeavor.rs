@@ -88,6 +88,7 @@ pub fn united_rows(u: &UnitedView, marks: &Marks) -> Vec<Row> {
         }
         None => rows.push(Row::text("  Every milestone is reached", Tone::Dim)),
     }
+    rows.push(Row::text(format!("  {}", u.next_newcomer), Tone::Text));
     if u.standing.iter().any(|&n| n > 0) && !u.goods.is_empty() {
         rows.extend(standing_rows(u));
     }

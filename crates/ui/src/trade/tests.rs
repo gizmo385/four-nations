@@ -58,7 +58,7 @@ fn a_camped_caravan_lists_its_deals_then_its_request() {
     let request = &c.offers[3];
     assert_eq!(request.name, "Food for the families at Fire Fountain City");
     assert_eq!(request.give, "40 food");
-    assert_eq!(request.get, "half a newcomer's draw");
+    assert_eq!(request.get, "half of a newcomer");
     assert_eq!(request.taken, "not taken");
     assert!(c.offers[0].taken.starts_with("0 of "), "{:?}", c.offers[0]);
 }

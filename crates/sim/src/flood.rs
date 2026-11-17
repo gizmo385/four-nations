@@ -37,6 +37,8 @@ pub struct StepGrid {
     track: Vec<u8>,
     /// `MoveRules::track_steps`.
     track_steps: Vec<u32>,
+    /// `MoveRules::track_diagonals` (#1066).
+    track_diagonals: Vec<u32>,
     /// Connected region per tile (`UNSEEN` for impassable ones), labelled by a 4-way fill the
     /// way `Regions` is (its module doc says why that is exactly what 8-way steps without
     /// corner-cutting reach). Lets a flood answer "unreachable" without searching for it.
@@ -54,7 +56,8 @@ impl StepGrid {
         let (width, height) = (map.width(), map.height());
         let region = label_regions(width, height, &cost);
         let track_steps = rules.track_steps().to_vec();
-        Self { width, height, cost, track, track_steps, region }
+        let track_diagonals = rules.track_diagonals().to_vec();
+        Self { width, height, cost, track, track_steps, track_diagonals, region }
     }
 
     fn in_bounds(&self, p: Pos) -> bool {
@@ -67,10 +70,14 @@ impl StepGrid {
         if cost == UNSEEN {
             return None;
         }
-        if diagonal {
-            return Some(DIAGONAL * cost);
-        }
         let t = self.track[from];
+        if diagonal {
+            let along = (t != 0 && t == self.track[to])
+                .then(|| self.track_diagonals.get(usize::from(t) - 1).copied())
+                .flatten()
+                .filter(|&d| d > 0);
+            return Some(along.map_or(DIAGONAL * cost, |d| d.min(DIAGONAL * cost)));
+        }
         if t != 0
             && t == self.track[to]
             && let Some(&step) = self.track_steps.get(usize::from(t) - 1)
@@ -304,6 +311,7 @@ impl Flood {
             cost: Vec::new(),
             track: Vec::new(),
             track_steps: Vec::new(),
+            track_diagonals: Vec::new(),
             region: Vec::new(),
         });
         let limit = std::cell::Cell::new(UNSEEN);
