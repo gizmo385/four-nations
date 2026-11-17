@@ -70,6 +70,72 @@ pub fn yard_reaches(session: &Session) -> Vec<(Footprint, u32)> {
     session.world.yards(&session.defs)
 }
 
+/// The side panel's Flow section while the overlay is on (playtest, 2026-11-16: "very unclear
+/// how to use it"): what the arrows and the tint mean, the steps to a yard that runs itself, and
+/// what the machine under `cursor` is doing. Groups of `(text, tone)` lines.
+pub fn guide(session: &Session, cursor: Pos) -> Vec<Vec<(String, crate::rows::Tone)>> {
+    use crate::rows::Tone;
+    let (world, defs) = (&session.world, &session.defs);
+    let nation = world.nation;
+    let meaning = vec![
+        (
+            "Arrow: a machine hands its batches straight to the touching machine it points at."
+                .to_owned(),
+            Tone::Text,
+        ),
+        ("Tint: a yard. Machines inside it can run with no crafter.".to_owned(), Tone::Text),
+    ];
+    // Yard sources this city can raise now, and the techs that would add one.
+    let mut sources = Vec::new();
+    let mut techs = Vec::new();
+    for b in defs.buildings.iter().filter(|b| crate::build::available_to_nation(session, b)) {
+        let Some((tech, _)) = b.automate_upgrade.as_ref() else { continue };
+        if world.research().is_known(*tech) {
+            sources.push(b.display_name(nation).to_owned());
+        } else {
+            let name = defs.tech(*tech).name.clone();
+            if !techs.contains(&name) {
+                techs.push(name);
+            }
+        }
+    }
+    let steps = if sources.is_empty() {
+        let after = techs.first().map_or("a later tech".to_owned(), Clone::clone);
+        vec![(format!("Research {after} to raise your first yard."), Tone::Dim)]
+    } else {
+        vec![
+            (format!("1. Build a yard: {}.", sources.join(", ")), Tone::Text),
+            (
+                "2. Put machines in its tint, each touching the one that uses its output."
+                    .to_owned(),
+                Tone::Text,
+            ),
+            ("3. Press O on each machine to automate it.".to_owned(), Tone::Text),
+        ]
+    };
+    let yards = world.yards(defs).len();
+    let links = world.flow_links(defs).len();
+    let count = |n: usize, one: &str| {
+        if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
+    };
+    let mut here = vec![(
+        format!("{} running, {} passing goods.", count(yards, "yard"), count(links, "link")),
+        Tone::Dim,
+    )];
+    if let Some(foot) = world.footprint_at(cursor)
+        && let Some(b) = world.building_at(cursor)
+        && world.recipe_at(foot.anchor, defs).is_some()
+    {
+        let name = defs.building(b).display_name(nation);
+        let line = match crate::inspect::automation_line(world, defs, foot.anchor) {
+            Some(line) => format!("{name}: {line}"),
+            None => format!("{name}: outside every yard"),
+        };
+        here.push((line, Tone::Text));
+    }
+    vec![meaning, steps, here]
+}
+
 /// The notice the toggle leaves, on or off.
 pub fn toggled_notice(on: bool, session: &Session) -> String {
     if !on {
@@ -115,6 +181,41 @@ mod tests {
         assert!(yard_reaches(&s).is_empty());
         assert!(toggled_notice(true, &s).contains("no machine passes goods across yet"));
         assert_eq!(toggled_notice(false, &s), "Flow view off");
+    }
+
+    /// The panel explains the view: what arrows and tint mean, then the steps, or the tech to
+    /// research first while no yard can be raised; and it shows in Select mode once `Y` is on.
+    #[test]
+    fn the_flow_section_says_what_it_shows_and_how_to_use_it() {
+        let s = Session::new(7, fn_sim::Nation::Fire, 64, 64);
+        let g = guide(&s, Pos::new(0, 0));
+        let text: Vec<&str> = g.iter().flatten().map(|(t, _)| t.as_str()).collect();
+        assert!(text.iter().any(|t| t.starts_with("Arrow: ")), "{text:?}");
+        assert!(text.iter().any(|t| t.starts_with("Tint: a yard")), "{text:?}");
+        assert!(text.iter().any(|t| t.starts_with("Research ")), "no yard yet: {text:?}");
+        assert!(text.contains(&"0 yards running, 0 links passing goods."), "{text:?}");
+
+        let mut app = crate::app::App::new(s, (120, 40));
+        assert!(
+            crate::panel::SidePanel::build(
+                &app.session,
+                &app.ui,
+                &crate::rows::Marks::new(true),
+                0
+            )
+            .tool
+            .is_none()
+        );
+        app.act(crate::keys::Action::ToggleFlow);
+        let tool = crate::panel::SidePanel::build(
+            &app.session,
+            &app.ui,
+            &crate::rows::Marks::new(true),
+            0,
+        )
+        .tool
+        .expect("a Flow section");
+        assert_eq!(tool.title, "Flow view");
     }
 
     #[test]

@@ -299,9 +299,11 @@ fn spans(ui: &mut Ui, look: &Look<'_>, row: &Row, with_right: bool) {
 /// the two don't fit together). `click` makes the whole row a key.
 fn row_widget(ui: &mut Ui, look: &Look<'_>, row: &Row, click: Option<char>, clicks: &mut Clicks) {
     let right = row.right.as_ref().map_or(0, |(t, _)| t.chars().count() + 1);
-    let stacked = right > 0 && chars(&row.left) + right > look.cols;
+    // A row too long for the panel (the need flags of a big city) wraps rather than running off
+    // the edge and widening the panel past the window (playtest, 2026-11-16).
+    let stacked = chars(&row.left) + right > look.cols;
     let rect = if stacked {
-        let first = ui.add(Label::new(look.job(&row.left)).selectable(false));
+        let first = ui.add(Label::new(look.job(&row.left)).wrap().selectable(false));
         let mut rect = first.rect;
         if let Some((text, tone)) = &row.right {
             let second = ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
