@@ -248,8 +248,9 @@ fn draw_help(
             legend::draw(session, ui, palette, start, below, buf);
             (start, total)
         }
-        HelpTab::Machines => {
-            let (rows, demo) = how_to_lines(session, width, Marks::new(palette.ascii).ellipsis);
+        tab => {
+            let paras = tab.guide(session).unwrap_or_default();
+            let (rows, demo) = how_to_lines(paras, width, Marks::new(palette.ascii).ellipsis);
             let start = ui.scroll.min(rows.len().saturating_sub(shown));
             let mut p = Painter::new(buf, below, palette);
             for row in rows.iter().skip(start) {

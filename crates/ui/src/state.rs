@@ -89,7 +89,11 @@ pub enum HelpTab {
     #[default]
     Keys,
     Legend,
-    /// Walkthroughs: how to make machines run on their own (`fn_ui::flow::walkthrough`).
+    /// The guides (`HelpTab::guide`): the opening (`fn_ui::guides::getting_started`), how
+    /// settlers work (`fn_ui::guides::settlers`), and machines that run on their own
+    /// (`fn_ui::flow::walkthrough`).
+    Start,
+    Settlers,
     Machines,
 }
 
@@ -98,8 +102,20 @@ impl HelpTab {
     pub fn other(self) -> Self {
         match self {
             Self::Keys => Self::Legend,
-            Self::Legend => Self::Machines,
+            Self::Legend => Self::Start,
+            Self::Start => Self::Settlers,
+            Self::Settlers => Self::Machines,
             Self::Machines => Self::Keys,
+        }
+    }
+
+    /// A guide tab's paragraphs; `None` for Keys and Legend.
+    pub fn guide(self, session: &crate::Session) -> Option<Vec<crate::flow::Para>> {
+        match self {
+            Self::Keys | Self::Legend => None,
+            Self::Start => Some(crate::guides::getting_started(session)),
+            Self::Settlers => Some(crate::guides::settlers(session)),
+            Self::Machines => Some(crate::flow::walkthrough(session)),
         }
     }
 }
@@ -364,7 +380,11 @@ impl UiState {
 
     /// `Tab` in the key help: the next tab (`Shift+Tab`, `back`: the one before), from its top.
     pub fn switch_help_tab(&mut self, back: bool) {
-        self.help_tab = if back { self.help_tab.other().other() } else { self.help_tab.other() };
+        self.help_tab = if back {
+            self.help_tab.other().other().other().other()
+        } else {
+            self.help_tab.other()
+        };
         self.scroll = 0;
     }
 

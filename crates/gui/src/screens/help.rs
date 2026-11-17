@@ -56,7 +56,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                 .show(ui, |ui| match app.ui.help_tab {
                     HelpTab::Keys => keys_tab(ui, &look),
                     HelpTab::Legend => legend_tab(ui, &look, app, palette),
-                    HelpTab::Machines => how_to_tab(ui, &look, app, palette),
+                    tab => how_to_tab(ui, &look, app, palette, tab),
                 });
             None
         },
@@ -159,7 +159,7 @@ fn group_block(ui: &mut Ui, look: &Look<'_>, title: &str, rows: &[HelpRow]) {
 /// The walkthroughs ([`fn_ui::flow::walkthrough`]): a heading as every heading of the help is,
 /// each paragraph wrapped as egui wraps it, the example layout a row per line as the terminal
 /// draws it, and a blank row where the walkthrough has one.
-fn how_to_tab(ui: &mut Ui, look: &Look<'_>, app: &App, palette: &Palette) {
+fn how_to_tab(ui: &mut Ui, look: &Look<'_>, app: &App, palette: &Palette, tab: HelpTab) {
     use fn_ui::flow::Para;
     let text_para = |ui: &mut Ui, text: String, tone: Tone| {
         let width = ui.available_width();
@@ -169,7 +169,7 @@ fn how_to_tab(ui: &mut Ui, look: &Look<'_>, app: &App, palette: &Palette) {
         page::paint_galley(&ui.painter_at(rect), rect.min, galley, false);
         response.widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
     };
-    for para in fn_ui::flow::walkthrough(&app.session) {
+    for para in tab.guide(&app.session).unwrap_or_default() {
         match para {
             Para::Heading(t) => heading(ui, look, &t),
             Para::Text(t) => {
