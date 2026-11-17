@@ -737,7 +737,13 @@ impl Defs {
     /// `walking` rules with every track switched on at its own speed (`TrackDef`): how units
     /// move (#135, docs/design/horizons-phase-1.md). Unchanged if no building is a track.
     pub fn cart_rules(&self, walking: MoveRules) -> MoveRules {
-        walking.with_tracks(self.track_steps())
+        walking.with_tracks(self.track_steps()).with_track_diagonals(self.track_diagonals())
+    }
+
+    /// Each track's diagonal step (`TrackDef::diagonal_cost`, 0 for one that only runs
+    /// straight), in track order (#1066).
+    pub fn track_diagonals(&self) -> Vec<u32> {
+        self.buildings.iter().filter_map(|b| b.track).map(|t| t.diagonal_cost()).collect()
     }
 
     /// Each track's straight-step cost, indexed by `TrackDef::index - 1`.

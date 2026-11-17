@@ -635,7 +635,11 @@ impl World {
                 }
             }
         }
-        self.cart_rules = self.cart_rules.clone().with_tracks(defs.track_steps());
+        self.cart_rules = self
+            .cart_rules
+            .clone()
+            .with_tracks(defs.track_steps())
+            .with_track_diagonals(defs.track_diagonals());
         self.refresh_biome_speeds(defs);
     }
 

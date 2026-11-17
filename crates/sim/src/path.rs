@@ -84,6 +84,11 @@ pub struct MoveRules {
     /// `World::load` sets it again (`World::reindex_buildings`).
     #[serde(skip)]
     track_steps: Vec<u32>,
+    /// What a diagonal step between two tiles of track `i + 1` costs, or 0 where that track only
+    /// runs straight (rail; #1066 lets the Paved Road run diagonally). Same length as
+    /// `track_steps`, or empty. Not saved, like `track_steps`.
+    #[serde(skip)]
+    track_diagonals: Vec<u32>,
     /// How fast a step onto each biome is, in thousandths, indexed by `BiomeId` (`biome_speed`,
     /// #740: sand sailers cross desert at 2000). Empty, or 1000, is normal speed. Not saved: it
     /// comes from the known techs (`World::refresh_biome_speeds`).
@@ -114,6 +119,7 @@ impl Default for MoveRules {
             canal_cost,
             resources_block: true,
             track_steps: Vec::new(),
+            track_diagonals: Vec::new(),
             biome_millis: Vec::new(),
         }
     }
@@ -143,6 +149,24 @@ impl MoveRules {
         }
         self.track_steps = steps;
         self
+    }
+
+    /// Returns these rules with diagonal track steps (#1066): a diagonal step between two tiles
+    /// of track `i + 1` costs `diagonals[i]`, where that is above 0, whatever the ground.
+    pub fn with_track_diagonals(mut self, diagonals: Vec<u32>) -> Self {
+        assert!(
+            diagonals.iter().all(|&d| d <= DIAGONAL),
+            "a diagonal track step is at most {DIAGONAL}"
+        );
+        self.track_diagonals =
+            if diagonals.iter().all(|&d| d == 0) { Vec::new() } else { diagonals };
+        self
+    }
+
+    /// Each track's diagonal step, indexed by track index - 1 (0: only straight); empty if no
+    /// track runs diagonally.
+    pub fn track_diagonals(&self) -> &[u32] {
+        &self.track_diagonals
     }
 
     /// Returns these rules with each biome's step speed in thousandths (`biome_millis[i]` for
@@ -195,17 +219,24 @@ impl MoveRules {
     /// The cost of one step from `from` onto the adjacent tile `to`, in the units `find` and
     /// `Flood` minimise (`STRAIGHT` or `DIAGONAL` times the tile cost, or the track's step along a
     /// track), or `None` if `to` can't be entered. Rail only speeds a straight step: a diagonal
-    /// between two rail tiles is an ordinary diagonal, because a track doesn't run that way.
+    /// between two rail tiles is an ordinary diagonal, because rail doesn't run that way. A track
+    /// with `TrackDef::diagonal` (the Paved Road, #1066) speeds a diagonal step too.
     pub fn step_cost(&self, from: &Tile, to: &Tile, diagonal: bool) -> Option<u32> {
         let cost = self.tile_cost(to)?;
         // A biome speed (#740) scales the ground step; a track's own step still wins if cheaper.
         let speed = self.biome_speed(to.biome);
         let ground = |base: u32| (base * 1000).div_ceil(speed).max(1);
-        if diagonal {
-            return Some(ground(DIAGONAL * cost));
-        }
         let track = |t: &Tile| t.building.map_or(0, |b| b.track());
         let (a, b) = (track(from), track(to));
+        if diagonal {
+            // A track that runs diagonally (#1066, the Paved Road) speeds this step too.
+            let along = (a != 0 && a == b)
+                .then(|| self.track_diagonals.get(usize::from(a) - 1).copied())
+                .flatten()
+                .filter(|&d| d > 0);
+            let plain = ground(DIAGONAL * cost);
+            return Some(along.map_or(plain, |d| d.min(plain)));
+        }
         if a != 0
             && a == b
             && let Some(step) = self.track_step(a)
@@ -590,6 +621,26 @@ mod tests {
         for p in tiles {
             m[p].building = Some(TileBuilding::new(BuildingKey::NONE, true, index));
         }
+    }
+
+    /// A road that runs diagonally (#1066) speeds a diagonal step between two of its tiles; rail,
+    /// with no diagonal step, never does. A flood agrees with the search.
+    #[test]
+    fn a_diagonal_road_speeds_diagonal_steps_and_rail_does_not() {
+        use crate::flood::Flood;
+        let mut m = map(&["......", "......", "......", "......", "......", "......"]);
+        let diagonal: Vec<Pos> = (0..6).map(|i| Pos::new(i, i)).collect();
+        lay_track(&mut m, 2, diagonal.iter().copied());
+        let (a, b) = (Pos::new(0, 0), Pos::new(5, 5));
+        let road = MoveRules::default().with_tracks(vec![5, 6]).with_track_diagonals(vec![0, 9]);
+        let path = find(&m, a, b, &road).unwrap();
+        assert_eq!(path_cost(&m, &path, &road), 5 * 9, "five diagonal road steps");
+        assert_eq!(Flood::new(&m, a, &road).cost(b), Some(5 * 9));
+
+        let mut railed = map(&["......", "......", "......", "......", "......", "......"]);
+        lay_track(&mut railed, 1, diagonal);
+        let path = find(&railed, a, b, &road).unwrap();
+        assert_eq!(path_cost(&railed, &path, &road), 5 * DIAGONAL, "rail doesn't run diagonally");
     }
 
     #[test]

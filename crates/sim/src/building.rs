@@ -80,7 +80,7 @@ use crate::defs::{DefsError, ResourceDef, ResourceId, Terrain};
 use crate::jobs::{ItemDef, ItemId};
 use crate::nation::{Modifiers, Nation};
 use crate::needs::NeedsSettings;
-use crate::path::STRAIGHT;
+use crate::path::{DIAGONAL, STRAIGHT};
 use crate::research::{MAX_MULTIPLIER, TechDef, TechId};
 
 // `Deserialize` is `save::ids`' remapping impl (#602).
@@ -203,6 +203,9 @@ pub struct TrackDef {
     /// Consumers within this many tiles of a live run of this track are powered (#722, Metal
     /// Rail); `None` for a track that carries no power.
     pub power_reach: Option<u32>,
+    /// Whether a diagonal step between two tiles of this track is sped up too (#1066: the Paved
+    /// Road, so a road can run diagonally). Rail never runs that way.
+    pub diagonal: bool,
 }
 
 impl TrackDef {
@@ -210,6 +213,18 @@ impl TrackDef {
     /// `STRAIGHT`), rounded and never less than 1.
     pub fn step_cost(&self) -> u32 {
         ((STRAIGHT as f32 / self.speed).round() as u32).clamp(1, STRAIGHT)
+    }
+
+    /// The cost of a diagonal step between two tiles of this track, rounded, or 0 for a track
+    /// that only runs straight (`diagonal` off). Never less than the straight step times
+    /// `DIAGONAL / STRAIGHT`, rounded up, so the path search's octile estimate stays a lower
+    /// bound.
+    pub fn diagonal_cost(&self) -> u32 {
+        if !self.diagonal {
+            return 0;
+        }
+        let floor = (self.step_cost() * DIAGONAL).div_ceil(STRAIGHT);
+        ((DIAGONAL as f32 / self.speed).round() as u32).clamp(floor, DIAGONAL)
     }
 }
 
@@ -955,6 +970,8 @@ struct RawTrack {
     speed: f32,
     #[serde(default)]
     power_reach: Option<u32>,
+    #[serde(default)]
+    diagonal: bool,
 }
 
 #[derive(Deserialize)]
@@ -1715,7 +1732,12 @@ impl BuildingsFile {
                     let Ok(index) = u8::try_from(tracks + 1) else {
                         return err(format!("building {}: at most 255 tracks", b.id));
                     };
-                    Some(TrackDef { speed: d.speed, index, power_reach: d.power_reach })
+                    Some(TrackDef {
+                        speed: d.speed,
+                        index,
+                        power_reach: d.power_reach,
+                        diagonal: d.diagonal,
+                    })
                 }
             };
             for (nation, name) in &b.names {
@@ -2778,13 +2800,16 @@ mod tests {
         assert_eq!(rail.unlocked_by, defs.tech_id("earth_rail"));
         let road = defs.building(defs.building_id("paved_road").expect("paving"));
         let road_track = road.track.expect("the road is a track");
-        assert_eq!((road_track.step_cost(), road_track.index), (8, 2), "1.25x is a step of 8");
+        assert_eq!((road_track.step_cost(), road_track.index), (6, 2), "1.6x is a step of 6");
+        // The road runs diagonally too (#1066); rail never does.
+        assert_eq!((road_track.diagonal_cost(), track.diagonal_cost()), (9, 0));
         assert_eq!(road.unlocked_by, defs.tech_id("paving"));
         assert_eq!(
             defs.cart_rules(crate::MoveRules::default()).track_steps(),
-            [5, 8, 4],
+            [5, 6, 4],
             "metal rail (#722) steps 4"
         );
+        assert_eq!(defs.cart_rules(crate::MoveRules::default()).track_diagonals(), [0, 9, 0]);
 
         let one = |extra: &str, passable: bool| {
             format!(
