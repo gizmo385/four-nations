@@ -12,6 +12,7 @@ use fn_sim::building::RecipeDef;
 use fn_sim::jobs::{ItemId, JobKind};
 use fn_sim::world::{Command, SplitTo};
 
+use crate::inspect::plural;
 use crate::rows::{Marks, Row, Tone, wrap};
 use crate::session::Session;
 
@@ -58,10 +59,6 @@ pub struct BuildingView {
     pub sends: Option<String>,
     /// Extra state a crafter's or the inspector's lines would say (automation, idle).
     pub notes: Vec<String>,
-}
-
-fn plural(name: &str) -> String {
-    if name.ends_with('s') { name.to_owned() } else { format!("{name}s") }
 }
 
 /// "2 wood", "1 tool": a count and the good's name, as the good's screen words costs.
