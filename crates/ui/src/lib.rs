@@ -31,6 +31,7 @@ pub mod app;
 pub mod ask;
 pub mod bend;
 pub mod build;
+pub mod building;
 pub mod chute;
 pub mod clock;
 pub mod code;

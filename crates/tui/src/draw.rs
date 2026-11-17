@@ -158,6 +158,7 @@ pub fn hint_mode(session: &Session, ui: &UiState) -> Mode {
             Screen::Split => Mode::Split,
             Screen::Planner => Mode::Planner,
             Screen::Good => Mode::Good,
+            Screen::Building => Mode::Building,
         };
     }
     if ui.stamp.is_some() {

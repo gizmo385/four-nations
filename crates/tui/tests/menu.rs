@@ -245,13 +245,13 @@ fn r_1_to_4_and_q_do_nothing_on_the_map_or_in_a_tool() {
         assert_eq!(a.ui.prompt, None, "no prompt opens");
         assert!(!a.ui.quit && !a.reopen_embark);
         assert_eq!(a.session.world.nation, Nation::Earth);
-        // `R` opens no prompt and leaves the game alone; off a Workshop it only says so.
+        // `R` opens no prompt and leaves the game alone; off a building it only says so.
         run(&mut a, "r R");
         assert_eq!(a.ui.prompt, None, "no prompt opens");
         assert!(!a.ui.quit && !a.reopen_embark);
         assert_eq!(a.session.world.nation, Nation::Earth);
         if a.ui.tool == Tool::Select {
-            assert_eq!(a.ui.notice, "Can't switch recipe: nothing to switch here");
+            assert_eq!(a.ui.notice, "Nothing to open here");
         } else {
             assert_eq!((a.ui.clone(), text(&mut a, SIZE)), before, "after {prelude:?}");
         }

@@ -173,6 +173,8 @@ pub enum Mode {
     Planner,
     /// A good's own screen (`O` in the planner or on the Goods tab).
     Good,
+    /// A building's panel (`R` on a building that makes something, #1068).
+    Building,
     /// Stamping a plan on the map (`Enter` in the planner).
     Stamp,
     /// The SEND THE AIRSHIP box over it.
@@ -238,6 +240,7 @@ impl Mode {
             Self::Split => "SPLIT",
             Self::Planner => "PLANNER",
             Self::Good => "GOOD",
+            Self::Building => "BUILDING",
             Self::Stamp => "STAMP",
             Self::Airship => "AIRSHIP",
             Self::AirshipSend => "SEND THE AIRSHIP",
@@ -432,6 +435,10 @@ fn build() -> Vec<Entry> {
     add(&[Mode::Good], &[step], "Up/Down", "choose", None);
     add(&[Mode::Good], &[Action::Confirm], "Enter", "build it", None);
     add(&[Mode::Good], &[Action::Cancel, Action::ToggleRepeat], "Esc or O", "back", None);
+    add(&[Mode::Building], &[step], "Up/Down", "choose", None);
+    add(&[Mode::Building], &[Action::Confirm], "Enter", "make this", None);
+    add(&[Mode::Building], &[Action::ToggleRepeat], "O", "the good", None);
+    add(&[Mode::Building], &[Action::Cancel, Action::NextRecipe], "Esc or R", "close", None);
     add(&[Mode::Airship], &[step], "Up/Down", "choose", None);
     add(&[Mode::Airship], &[], "Left/Right", "nation or deal", None);
     add(&[Mode::Airship], &[Action::Faster, Action::Slower], "+/-", "times", None);
@@ -615,14 +622,9 @@ fn build() -> Vec<Entry> {
     only.set(Some(Tool::Bend));
     add(IN_TOOL, &[Action::ShowAbilities], "I", "abilities", None);
     only.set(None);
-    // Select mode's `R` on a Workshop (#712): in no hint bar, only in the key help.
-    add(
-        &[],
-        &[Action::NextRecipe],
-        "R",
-        "recipe",
-        help(units, "Switch a building's recipe (Select)"),
-    );
+    // Select mode's `R` on a building that makes something (#1068): in no hint bar, only in
+    // the key help; the inspector's own line names the key.
+    add(&[], &[Action::NextRecipe], "R", "recipes", help(units, "A building's recipes (Select)"));
     // `K` on a building marked to be taken down (#967): in no hint bar and not in the key help
     // (full at 120 by 40); the inspector's own line names the key ("Press K to keep it").
     add(&[], &[Action::KeepIt], "K", "keep it", None);

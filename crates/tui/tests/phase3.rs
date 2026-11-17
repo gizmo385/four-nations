@@ -47,34 +47,35 @@ fn with(nation: Nation, building: &str) -> (App, Pos) {
 }
 
 #[test]
-fn r_switches_a_workshop_to_wares_once_the_tech_is_known_and_back() {
+fn r_opens_a_workshops_panel_where_wares_are_picked_once_the_tech_is_known() {
     let (mut a, at) = with(Nation::Earth, "workshop");
     let frame = text(&mut a);
     assert!(frame.contains("Making: Tools"), "{frame}");
 
     run(&mut a, "r");
+    assert_eq!(a.ui.screen, Some(fn_ui::state::Screen::Building));
+    let frame = text(&mut a);
+    assert!(frame.contains("(making)") && frame.contains("needs Trade Wares"), "{frame}");
+    run(&mut a, "<down> <enter>");
     assert_eq!(a.ui.notice, "Can't switch recipe: needs Trade Wares");
-    assert!(text(&mut a).contains("Making: Tools"));
 
     let id = a.session.defs.building_id("workshop").unwrap();
     a.session.defs.buildings[id.0 as usize].alt_recipes[0].unlocked_by = None;
-    run(&mut a, "r");
+    run(&mut a, "<enter>");
     assert_eq!(a.ui.notice, "Workshop now makes Wares");
     assert_eq!(a.session.world.recipe_choice_at(at, &a.session.defs), Some(0));
+    run(&mut a, "<esc>");
+    assert_eq!(a.ui.screen, None);
     assert!(text(&mut a).contains("Making: Wares"));
-
-    run(&mut a, "r");
-    assert_eq!(a.session.world.recipe_choice_at(at, &a.session.defs), None);
-    assert!(text(&mut a).contains("Making: Tools"));
 }
 
 #[test]
-fn r_is_listed_in_the_key_help_and_does_nothing_off_a_workshop() {
+fn r_is_listed_in_the_key_help_and_does_nothing_off_a_building() {
     let rows = fn_ui::keys::help_rows();
     assert!(rows.iter().any(|r| r.keys == "R" && r.what.contains("recipe")), "{rows:?}");
     let mut a = App::new(new_session(7, Nation::Earth), SIZE);
     run(&mut a, "r");
-    assert_eq!(a.ui.notice, "Can't switch recipe: nothing to switch here");
+    assert_eq!(a.ui.notice, "Nothing to open here");
 }
 
 #[test]

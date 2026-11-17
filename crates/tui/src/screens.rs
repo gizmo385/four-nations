@@ -139,6 +139,17 @@ pub fn draw_screen(
             }
             None
         }
+        Screen::Building => {
+            if let Some(edit) = &ui.building {
+                let marks = fn_ui::rows::Marks::new(palette.ascii);
+                let width = usize::from(page.body.width);
+                let mut p = Painter::new(buf, page.body, palette);
+                for row in fn_ui::building::lines(session, edit, width, &marks) {
+                    p.row(&row);
+                }
+            }
+            None
+        }
         Screen::Split => {
             if let Some(edit) = &ui.split {
                 let mut p = Painter::new(buf, page.body, palette);
