@@ -653,8 +653,10 @@ impl Host {
                 // target, the tech's own name still shows (the bar row's own Strong text).
                 label: if let Some(copying) = side.research.copying.clone() {
                     copying
-                } else if side.research.label == "No target set" {
+                } else if side.research.label == fn_ui::research::NO_TARGET {
                     "Research: none set".to_owned()
+                } else if side.research.label == fn_ui::research::NOTHING_OPEN {
+                    "Research: nothing open".to_owned()
                 } else {
                     side.research.label
                 },

@@ -51,8 +51,10 @@ pub struct ScreenView {
     /// the screen shows this in place of the chapter and the signs.
     pub united: Option<UnitedView>,
     /// The tasks of the stage under way (#1012), in data order; empty when no stage with tasks
-    /// is under way. Read by the agent surface; the screen doesn't draw them yet.
+    /// is under way. Read by the agent surface; the screen draws them as part of `needs`.
     pub tasks: Vec<StageTaskRow>,
+    /// What the stage under way still needs ([`stage_needs`]), a line each, under the stage.
+    pub needs: Vec<String>,
 }
 
 /// One task of the gate's stage under way (#1012): a pillar, or the Arch's beam lift.
@@ -129,6 +131,57 @@ pub fn stage_tasks(world: &World, defs: &Defs) -> Vec<StageTaskRow> {
             })
         })
         .collect()
+}
+
+/// What the stage under way still needs, in words, for under the stage line (playtest
+/// feedback: the screen named the stage and nothing of what finishing it takes): its materials
+/// as delivered of its cost, its work, each of its tasks ([`stage_tasks`]), or the rite's
+/// attendance. Empty when no stage is under way.
+pub fn stage_needs(world: &World, defs: &Defs) -> Vec<String> {
+    let EndeavorState::Building(g) = world.endeavor() else { return Vec::new() };
+    let Some((_, stage)) = world.gate_stage(defs) else { return Vec::new() };
+    let mut lines = Vec::new();
+    if let Some(rite) = &stage.rite {
+        let share = (rite.attendance_share * 100.0).round();
+        lines.push(format!(
+            "Rite: {:.1} of {} minutes, while {share}% of your people stand on the plaza",
+            (g.rite_progress / 60.0).min(rite.minutes),
+            rite.minutes
+        ));
+        if g.rite_paused {
+            lines.push("Paused: too few people on the plaza".to_owned());
+        }
+        return lines;
+    }
+    if !stage.cost.is_empty() {
+        let parts: Vec<String> = stage
+            .cost
+            .iter()
+            .map(|c| {
+                let have: u32 =
+                    g.delivered.iter().filter(|s| s.item == c.item).map(|s| s.count).sum();
+                format!("{}/{} {}", have.min(c.count), c.count, defs.item(c.item).name)
+            })
+            .collect();
+        lines.push(format!("Materials: {}", parts.join(", ")));
+    }
+    if stage.work > 0.0 {
+        let done = (g.progress / stage.work * 100.0).clamp(0.0, 100.0).floor();
+        let when = if stage.cost.is_empty() { "" } else { ", once the materials are in" };
+        lines.push(format!("Work: {done:.0}% built{when}"));
+    }
+    for t in stage_tasks(world, defs) {
+        let mut needs = vec![format!("{} chi", t.chi)];
+        needs.extend(t.materials.iter().cloned());
+        lines.push(format!("{}, {}: {}. {}", t.name, t.who, needs.join(", "), capital(&t.status)));
+    }
+    lines
+}
+
+/// `text` with its first letter upper-cased.
+fn capital(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
 }
 
 /// The Endeavor screen's United City view (#442): who lives there and the next population
@@ -884,6 +937,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
             groups: Vec::new(),
             united: Some(united),
             tasks: Vec::new(),
+            needs: Vec::new(),
         };
     }
     let signs = signs(world, defs);
@@ -911,6 +965,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         groups,
         united: None,
         tasks: stage_tasks(world, defs),
+        needs: stage_needs(world, defs),
     }
 }
 
@@ -1035,6 +1090,21 @@ mod tests {
 
     fn session(nation: Nation) -> Session {
         Session::new(7, nation, 64, 64)
+    }
+
+    /// Under the stage line the screen says what the stage still needs (playtest feedback):
+    /// the Foundation's materials as delivered of its cost, and its work.
+    #[test]
+    fn the_screen_says_what_the_stage_under_way_needs() {
+        let mut s = crate::gate::tests::ready(session(Nation::Earth));
+        assert!(screen_view(&s).needs.is_empty(), "nothing is under way yet");
+        let cursor = crate::gate::tests::free_cursor(&s);
+        crate::gate::place(&mut s, cursor).expect("it fits");
+        let needs = screen_view(&s).needs;
+        assert_eq!(
+            needs,
+            ["Materials: 0/80 Stone, 0/60 Wood", "Work: 0% built, once the materials are in"]
+        );
     }
 
     /// The bundled data with "Known on the road" made easy (#439): one person, any kind of

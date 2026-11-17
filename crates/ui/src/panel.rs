@@ -327,8 +327,12 @@ fn research_row(view: &SideView, marks: &Marks) -> Row {
             Row::pair(text.clone(), Tone::Text, "[T]", Tone::Dim)
         };
     }
-    if r.frac == 0.0 && r.label == "No target set" {
+    if r.frac == 0.0 && r.label == crate::research::NO_TARGET {
         return Row::pair("Research: none set", Tone::Warn, "[T]", Tone::Dim);
+    }
+    // Nothing could be chosen: not a warning, since there is nothing to do about it here.
+    if r.frac == 0.0 && r.label == crate::research::NOTHING_OPEN {
+        return Row::pair("Research: nothing open", Tone::Dim, "[T]", Tone::Dim);
     }
     let [full, empty, flag] = meter(r.frac, BAR_CELLS, Tone::Accent, false, marks);
     Row::spans(vec![

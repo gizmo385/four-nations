@@ -133,6 +133,23 @@ impl Look<'_> {
     }
 }
 
+/// A button of the panel's (an alert's "Open research", the inspector's "Keep it", #945, #967):
+/// the panel's own font, a row high, a cell of room either side of its words and a rule round
+/// it, so it reads as a button set in the panel's grid rather than words in a tight box.
+pub(crate) fn action_button(ui: &mut Ui, look: &Look<'_>, label: &str) -> egui::Response {
+    ui.scope(|ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        ui.spacing_mut().button_padding = vec2(look.cw, 1.0);
+        let text = RichText::new(label).font(look.font.clone());
+        let button = Button::new(text)
+            .fill(look.panel)
+            .stroke(Stroke::new(1.0, look.rule))
+            .min_size(vec2(0.0, look.ch + 2.0));
+        ui.add(button).on_hover_cursor(CursorIcon::PointingHand)
+    })
+    .inner
+}
+
 fn chars(spans: &[(String, Tone)]) -> usize {
     spans.iter().map(|(t, _)| t.chars().count()).sum()
 }
@@ -464,8 +481,7 @@ fn alerts(
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(look.cw, 2.0);
                 for &action in &toast.actions {
-                    let text = RichText::new(action.label()).font(look.font.clone());
-                    if ui.add(Button::new(text).small()).clicked() {
+                    if action_button(ui, look, action.label()).clicked() {
                         actions.push(action);
                     }
                 }

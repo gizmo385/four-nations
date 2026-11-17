@@ -229,6 +229,10 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                     false,
                     Sense::hover(),
                 );
+                let cells = (ui.available_width() / look.cell.x).max(1.0) as usize;
+                for row in needs_rows(&view.needs, cells, &marks) {
+                    page::text_row(ui, &look, &row, false, Sense::hover());
+                }
                 if let Some(u) = &view.united {
                     for row in united_rows(u, &marks) {
                         page::text_row(ui, &look, &row, false, Sense::hover());

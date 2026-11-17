@@ -1393,12 +1393,18 @@ impl World {
                     defs.needs.health.max,
                 ))
             });
+            // The Avatar State sustains him: while he holds the Harmony Rite his hunger, thirst
+            // and energy stand still. His needs never pre-empt the rite (`consider_needs`), and
+            // a rite paused for attendance can last as long as the player takes, so without
+            // this he sat starving on the plaza at a floor of 1 health (playtest feedback).
+            let decay =
+                if u.is_avatar() && u.job_task == Some(Task::Rite) { 0.0 } else { need_decay };
             u.needs.tick_at_cold_healing(
                 &defs.needs,
                 TICKS_PER_SECOND,
                 u.is_sleeping(),
                 rest,
-                need_decay,
+                decay,
                 cold_hunger,
                 cold_energy,
                 healing,
