@@ -306,14 +306,25 @@ fn rail_button(
     ui.painter().rect_stroke(rect, 6.0, Stroke::new(1.0, look.line), StrokeKind::Inside);
     if size.y >= 56.0 {
         paint_icon(ui, lines, rect.center() - vec2(0.0, 8.0), 24.0, fg);
-        let text = if letter.is_empty() { name.to_owned() } else { format!("{name} {letter}") };
+        // The name alone along the bottom, and the key in the top corner as on a narrow rail:
+        // "Stockpile P" ran wider than the button (playtest, 2026-11-16).
         ui.painter().text(
             rect.center_bottom() - vec2(0.0, 5.0),
             Align2::CENTER_BOTTOM,
-            text,
+            name,
             FontId::new(10.0, FontFamily::Monospace),
             fg,
         );
+        if !letter.is_empty() {
+            let colour = if active { look.on_accent } else { look.dim };
+            ui.painter().text(
+                rect.right_top() + vec2(-4.0, 3.0),
+                Align2::RIGHT_TOP,
+                letter,
+                FontId::new(10.0, FontFamily::Monospace),
+                colour,
+            );
+        }
     } else {
         paint_icon(ui, lines, rect.center(), 22.0, fg);
         if !letter.is_empty() {
