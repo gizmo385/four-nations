@@ -89,14 +89,17 @@ pub enum HelpTab {
     #[default]
     Keys,
     Legend,
+    /// Walkthroughs: how to make machines run on their own (`fn_ui::flow::walkthrough`).
+    HowTo,
 }
 
 impl HelpTab {
-    /// The other tab.
+    /// The next tab, wrapping from the last to the first.
     pub fn other(self) -> Self {
         match self {
             Self::Keys => Self::Legend,
-            Self::Legend => Self::Keys,
+            Self::Legend => Self::HowTo,
+            Self::HowTo => Self::Keys,
         }
     }
 }

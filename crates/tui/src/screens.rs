@@ -23,7 +23,7 @@ use crate::widgets::{Marks, Painter};
 // What the screens say and how far they scroll is `fn_ui`'s (#857); this module draws them.
 pub use fn_ui::screens::{
     COLUMN_GAP, HELP_HEAD_ROWS, LegendRows, TWO_COLUMNS_FROM, body_rows, help_lines, help_tabs,
-    kind_tone, line_count, lines, no_legend, text_size, title,
+    how_to_lines, kind_tone, line_count, lines, no_legend, text_size, title,
 };
 
 /// How many rows the key help's Legend tab has at `width`: the legend of the map in view.
@@ -206,6 +206,15 @@ fn draw_help(
             let start = ui.scroll.min(total.saturating_sub(shown));
             legend::draw(session, ui, palette, start, below, buf);
             (start, total)
+        }
+        HelpTab::HowTo => {
+            let rows = how_to_lines(session, width, Marks::new(palette.ascii).ellipsis);
+            let start = ui.scroll.min(rows.len().saturating_sub(shown));
+            let mut p = Painter::new(buf, below, palette);
+            for row in rows.iter().skip(start) {
+                p.row(row);
+            }
+            (start, rows.len())
         }
     };
     fn_ui::text::window_label("", start, shown, total)

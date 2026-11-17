@@ -56,6 +56,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                 .show(ui, |ui| match app.ui.help_tab {
                     HelpTab::Keys => keys_tab(ui, &look),
                     HelpTab::Legend => legend_tab(ui, &look, app, palette),
+                    HelpTab::HowTo => how_to_tab(ui, &look, app),
                 });
             None
         },
@@ -78,7 +79,10 @@ fn tabs(ui: &mut Ui, look: &Look<'_>, open: HelpTab) -> Vec<KeyEvent> {
             let text = RichText::new(name).font(look.font.clone()).color(look.format(tone).color);
             let button = Button::new(text).selected(tab == open).min_size(vec2(0.0, look.cell.y));
             if ui.add(button).on_hover_cursor(CursorIcon::PointingHand).clicked() && tab != open {
-                keys.push(key(KeyCode::Tab));
+                // `Tab` steps to the next tab, so a click is as many as it takes to get there.
+                let at = |t: HelpTab| HELP_TABS.iter().position(|(x, _)| *x == t).unwrap_or(0);
+                let steps = (at(tab) + HELP_TABS.len() - at(open)) % HELP_TABS.len();
+                keys.extend(std::iter::repeat_n(key(KeyCode::Tab), steps));
             }
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -150,6 +154,30 @@ fn group_block(ui: &mut Ui, look: &Look<'_>, title: &str, rows: &[HelpRow]) {
         response.widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
     }
     ui.add_space(look.cell.y);
+}
+
+/// The walkthroughs ([`fn_ui::flow::walkthrough`]): a heading as every heading of the help is,
+/// each paragraph wrapped as egui wraps it, and a blank row where the walkthrough has one.
+fn how_to_tab(ui: &mut Ui, look: &Look<'_>, app: &App) {
+    for (text, tone) in fn_ui::flow::walkthrough(&app.session) {
+        if text.is_empty() {
+            ui.add_space(look.cell.y);
+        } else if tone == Tone::Title {
+            heading(ui, look, &text);
+        } else {
+            let width = ui.available_width();
+            let galley = ui.painter().layout(
+                text.clone(),
+                look.font.clone(),
+                look.format(tone).color,
+                width,
+            );
+            let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::hover());
+            page::paint_galley(&ui.painter_at(rect), rect.min, galley, false);
+            response.widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
+            ui.add_space(look.cell.y * 0.3);
+        }
+    }
 }
 
 fn legend_tab(ui: &mut Ui, look: &Look<'_>, app: &App, palette: &Palette) {
