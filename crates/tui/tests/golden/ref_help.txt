@@ -1,5 +1,5 @@
 ┏──────────────────────────────────────────────────── ◆ KEY HELP ◆ ────────────────────────────────────────────────────┓
-│ [Keys]  Legend                                                                                          Tab switches │
+│ [Keys]  Legend  How to                                                                                  Tab switches │
 │                                                                                                                      │
 │ CURSOR AND VIEW                                            TIME                                                      │
 │ Arrows or WASD  Move 1 tile (Shift: 10)                    Space   Pause or run                                      │

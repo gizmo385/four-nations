@@ -70,70 +70,161 @@ pub fn yard_reaches(session: &Session) -> Vec<(Footprint, u32)> {
     session.world.yards(&session.defs)
 }
 
-/// The side panel's Flow section while the overlay is on (playtest, 2026-11-16: "very unclear
-/// how to use it"): what the arrows and the tint mean, the steps to a yard that runs itself, and
-/// what the machine under `cursor` is doing. Groups of `(text, tone)` lines.
+/// The yard source this city would raise: the first it can build whose tech is known, else the
+/// first it could build at all, with that tech's name and its yard.
+fn source(session: &Session) -> Option<(String, String, bool, &fn_sim::building::AutomateDef)> {
+    let (world, defs) = (&session.world, &session.defs);
+    let mut all =
+        defs.buildings.iter().filter(|b| crate::build::available_to_nation(session, b)).filter_map(
+            |b| {
+                let (tech, def) = b.automate_upgrade.as_ref()?;
+                let known = world.research().is_known(*tech);
+                Some((
+                    b.display_name(world.nation).to_owned(),
+                    defs.tech(*tech).name.clone(),
+                    known,
+                    def,
+                ))
+            },
+        );
+    let first = all.next()?;
+    if first.2 {
+        return Some(first);
+    }
+    Some(all.find(|s| s.2).unwrap_or(first))
+}
+
+/// The side panel's Flow section while the overlay is on (playtest, 2026-11-16: "a lot of text
+/// to always show in the sidebar"): one status line, what the machine under `cursor` is doing,
+/// and, until a yard runs, the next step and where the walkthrough is ([`walkthrough`], the key
+/// help's How to tab). Groups of `(text, tone)` lines.
 pub fn guide(session: &Session, cursor: Pos) -> Vec<Vec<(String, crate::rows::Tone)>> {
     use crate::rows::Tone;
     let (world, defs) = (&session.world, &session.defs);
-    let nation = world.nation;
-    let meaning = vec![
-        (
-            "Arrow: a machine hands its batches straight to the touching machine it points at."
-                .to_owned(),
-            Tone::Text,
-        ),
-        ("Tint: a yard. Machines inside it can run with no crafter.".to_owned(), Tone::Text),
-    ];
-    // Yard sources this city can raise now, and the techs that would add one.
-    let mut sources = Vec::new();
-    let mut techs = Vec::new();
-    for b in defs.buildings.iter().filter(|b| crate::build::available_to_nation(session, b)) {
-        let Some((tech, _)) = b.automate_upgrade.as_ref() else { continue };
-        if world.research().is_known(*tech) {
-            sources.push(b.display_name(nation).to_owned());
-        } else {
-            let name = defs.tech(*tech).name.clone();
-            if !techs.contains(&name) {
-                techs.push(name);
-            }
-        }
-    }
-    let steps = if sources.is_empty() {
-        let after = techs.first().map_or("a later tech".to_owned(), Clone::clone);
-        vec![(format!("Research {after} to raise your first yard."), Tone::Dim)]
-    } else {
-        vec![
-            (format!("1. Build a yard: {}.", sources.join(", ")), Tone::Text),
-            (
-                "2. Put machines in its tint, each touching the one that uses its output."
-                    .to_owned(),
-                Tone::Text,
-            ),
-            ("3. Press O on each machine to automate it.".to_owned(), Tone::Text),
-        ]
-    };
     let yards = world.yards(defs).len();
     let links = world.flow_links(defs).len();
     let count = |n: usize, one: &str| {
         if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
     };
-    let mut here = vec![(
-        format!("{} running, {} passing goods.", count(yards, "yard"), count(links, "link")),
-        Tone::Dim,
-    )];
+    let mut lines = Vec::new();
+    if yards == 0 {
+        let next = match source(session) {
+            Some((name, _, true, _)) => format!("No yard yet: build a {name}."),
+            Some((_, tech, false, _)) => format!("No yard yet: research {tech} first."),
+            None => "No yard yet: a later tech raises one.".to_owned(),
+        };
+        lines.push((next, Tone::Text));
+    } else {
+        lines.push((
+            format!("{} running, {} passing goods.", count(yards, "yard"), count(links, "link")),
+            Tone::Dim,
+        ));
+    }
     if let Some(foot) = world.footprint_at(cursor)
         && let Some(b) = world.building_at(cursor)
         && world.recipe_at(foot.anchor, defs).is_some()
     {
-        let name = defs.building(b).display_name(nation);
+        let name = defs.building(b).display_name(world.nation);
         let line = match crate::inspect::automation_line(world, defs, foot.anchor) {
             Some(line) => format!("{name}: {line}"),
             None => format!("{name}: outside every yard"),
         };
-        here.push((line, Tone::Text));
+        lines.push((line, Tone::Text));
     }
-    vec![meaning, steps, here]
+    if yards == 0 {
+        lines.push(("How to set one up: ? then Tab to How to.".to_owned(), Tone::Dim));
+    }
+    vec![lines]
+}
+
+/// The key help's How to tab (playtest, 2026-11-17: "I had a brick kiln and couldn't figure out
+/// what to do"): how to make machines run on their own and pass goods along, step by step, in
+/// this city's own names (its yard source, the tech that raises it, its machines). Each entry is
+/// a paragraph; a `Tone::Title` one is a heading and an empty one a blank row.
+pub fn walkthrough(session: &Session) -> Vec<(String, crate::rows::Tone)> {
+    use crate::rows::Tone;
+    let (world, defs) = (&session.world, &session.defs);
+    let machines: Vec<String> = defs
+        .buildings
+        .iter()
+        .filter(|b| b.uses_power && b.recipe.is_some())
+        .filter(|b| crate::build::available_to_nation(session, b))
+        .take(4)
+        .map(|b| b.display_name(world.nation).to_owned())
+        .collect();
+    let mut out = vec![("Machines that run on their own".to_owned(), Tone::Title)];
+    out.push((
+        format!(
+            "A machine is a building with a recipe, such as {}. Normally a settler has to work \
+             inside it. Inside a yard it runs with nobody there, and settlers only haul its \
+             goods in and out.",
+            machines.join(", ")
+        ),
+        Tone::Text,
+    ));
+    out.push((String::new(), Tone::Text));
+    let Some((name, tech, known, def)) = source(session) else {
+        out.push(("No tech this city can reach raises a yard yet.".to_owned(), Tone::Dim));
+        return out;
+    };
+    let done = if known { " (done)" } else { "" };
+    out.push((format!("1. Research {tech} on the Research screen (T){done}."), Tone::Text));
+    let mut build = format!(
+        "2. Build a {name}. Its yard is the tinted area up to {} tiles around it, shown while \
+         the flow view (Y) is on.",
+        def.radius
+    );
+    if def.beside.iter().any(|t| t.is_water()) {
+        build.push_str(" A machine in it runs only if it touches water.");
+    } else if def.beside.contains(&fn_sim::defs::Terrain::Mountain) {
+        build.push_str(" A machine in it runs only if it touches rock (a mountain or tunnel).");
+    }
+    out.push((build, Tone::Text));
+    out.push((
+        format!(
+            "3. Build machines inside the tint, or keep ones already there. A finished machine \
+             in a yard switches over by itself, with nothing to press, and runs at {}% of a \
+             settler's speed. Its panel reads \"Automated\".",
+            (def.rate * 100.0).round() as u32
+        ),
+        Tone::Text,
+    ));
+    out.push((
+        "4. Keep its inputs in your stores. Haulers bring each batch in, and the goods it makes \
+         are carried to stores. A machine waiting on a missing input says which one."
+            .to_owned(),
+        Tone::Text,
+    ));
+    out.push((
+        "5. To skip the hauling, make machines touch. When one makes what a touching machine \
+         uses, each batch passes straight across, shown as an arrow in the flow view. For \
+         example, a Smelter touching a Forge hands its metal straight to the Forge."
+            .to_owned(),
+        Tone::Text,
+    ));
+    out.push((
+        "6. Keep a few tools in stores. Every few batches a machine wears and waits for a \
+         settler to bring one."
+            .to_owned(),
+        Tone::Text,
+    ));
+    out.push((String::new(), Tone::Text));
+    if def.capacity > 0 {
+        out.push((
+            format!(
+                "A {name}'s yard has room for about {} small machines (big works take more). \
+                 Past that, every machine in it slows down.",
+                def.capacity
+            ),
+            Tone::Dim,
+        ));
+    }
+    out.push((
+        "O on a machine in a yard hands it back to a settler, or puts it back on its own."
+            .to_owned(),
+        Tone::Dim,
+    ));
+    out
 }
 
 /// The notice the toggle leaves, on or off.
@@ -183,17 +274,20 @@ mod tests {
         assert_eq!(toggled_notice(false, &s), "Flow view off");
     }
 
-    /// The panel explains the view: what arrows and tint mean, then the steps, or the tech to
-    /// research first while no yard can be raised; and it shows in Select mode once `Y` is on.
+    /// The panel stays short: the next step while no yard runs and where the walkthrough is;
+    /// and it shows in Select mode once `Y` is on. The walkthrough names the city's own tech.
     #[test]
     fn the_flow_section_says_what_it_shows_and_how_to_use_it() {
         let s = Session::new(7, fn_sim::Nation::Fire, 64, 64);
         let g = guide(&s, Pos::new(0, 0));
         let text: Vec<&str> = g.iter().flatten().map(|(t, _)| t.as_str()).collect();
-        assert!(text.iter().any(|t| t.starts_with("Arrow: ")), "{text:?}");
-        assert!(text.iter().any(|t| t.starts_with("Tint: a yard")), "{text:?}");
-        assert!(text.iter().any(|t| t.starts_with("Research ")), "no yard yet: {text:?}");
-        assert!(text.contains(&"0 yards running, 0 links passing goods."), "{text:?}");
+        assert_eq!(text.len(), 2, "{text:?}");
+        assert!(text[0].starts_with("No yard yet: research "), "{text:?}");
+        assert!(text[1].contains("How to"), "{text:?}");
+        let how: Vec<String> = walkthrough(&s).into_iter().map(|(t, _)| t).collect();
+        assert!(how.iter().any(|t| t.starts_with("1. Research Great Works")), "{how:?}");
+        assert!(how.iter().any(|t| t.contains("Brick Kiln")), "{how:?}");
+        assert!(how.iter().any(|t| t.starts_with("2. Build a Lightning Station")), "{how:?}");
 
         let mut app = crate::app::App::new(s, (120, 40));
         assert!(

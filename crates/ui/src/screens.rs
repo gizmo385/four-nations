@@ -47,6 +47,9 @@ pub fn row_count(
     if screen == Screen::Help && ui.help_tab == HelpTab::Legend {
         return legend(session, ui, width);
     }
+    if screen == Screen::Help && ui.help_tab == HelpTab::HowTo {
+        return how_to_lines(session, width, '…').len();
+    }
     if screen == Screen::Endeavor {
         return endeavor::tab_lines(session, ui, width, &Marks::new(false)).len();
     }
@@ -141,7 +144,8 @@ pub const TWO_COLUMNS_FROM: usize = 96;
 pub const COLUMN_GAP: usize = 2;
 
 /// The key help's tabs, left to right, and the words on each.
-pub const HELP_TABS: [(HelpTab, &str); 2] = [(HelpTab::Keys, "Keys"), (HelpTab::Legend, "Legend")];
+pub const HELP_TABS: [(HelpTab, &str); 3] =
+    [(HelpTab::Keys, "Keys"), (HelpTab::Legend, "Legend"), (HelpTab::HowTo, "How to")];
 
 /// What the tab strip says `Tab` does, flush right.
 pub const TAB_NOTE: &str = "Tab switches";
@@ -152,10 +156,28 @@ pub fn help_tabs(tab: HelpTab) -> Row {
     let name = |(this, text): (HelpTab, &str)| {
         if this == tab { (format!("[{text}]"), Tone::Title) } else { (text.to_owned(), Tone::Dim) }
     };
-    let [keys, legend] = HELP_TABS.map(name);
-    let mut row = Row::spans(vec![keys, ("  ".to_owned(), Tone::Text), legend]);
+    let [keys, legend, how] = HELP_TABS.map(name);
+    let gap = || ("  ".to_owned(), Tone::Text);
+    let mut row = Row::spans(vec![keys, gap(), legend, gap(), how]);
     row.right = Some((TAB_NOTE.to_owned(), Tone::Dim));
     row
+}
+
+/// The key help's How to tab as rows `width` cells wide: [`crate::flow::walkthrough`]'s
+/// paragraphs wrapped, a heading in upper case.
+pub fn how_to_lines(session: &Session, width: usize, ellipsis: char) -> Vec<Row> {
+    let mut out = Vec::new();
+    for (text, tone) in crate::flow::walkthrough(session) {
+        if text.is_empty() {
+            out.push(Row::text(String::new(), Tone::Text));
+        } else if tone == Tone::Title {
+            out.push(Row::text(text.to_uppercase(), Tone::Title));
+        } else {
+            let lines = crate::rows::wrap(&text, width, usize::MAX, ellipsis);
+            out.extend(lines.into_iter().map(|l| Row::text(l, tone)));
+        }
+    }
+    out
 }
 
 /// The key help's groups, each with its rows, in the order the help lists them: what a window
@@ -357,7 +379,7 @@ mod tests {
 
     #[test]
     fn the_tab_strip_brackets_the_open_tab() {
-        assert_eq!(help_tabs(HelpTab::Keys).plain(), "[Keys]  Legend Tab switches");
-        assert_eq!(help_tabs(HelpTab::Legend).plain(), "Keys  [Legend] Tab switches");
+        assert_eq!(help_tabs(HelpTab::Keys).plain(), "[Keys]  Legend  How to Tab switches");
+        assert_eq!(help_tabs(HelpTab::Legend).plain(), "Keys  [Legend]  How to Tab switches");
     }
 }

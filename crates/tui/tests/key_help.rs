@@ -83,10 +83,13 @@ fn tab_switches_between_keys_and_legend() {
     assert_eq!(a.ui.help_tab, HelpTab::Legend);
     assert!(text(&mut a, size).contains("Keys  [Legend]"));
     run(&mut a, "<tab>");
+    assert_eq!(a.ui.help_tab, HelpTab::HowTo);
+    assert!(text(&mut a, size).contains("MACHINES THAT RUN ON THEIR OWN"));
+    run(&mut a, "<tab>");
     assert_eq!(a.ui.help_tab, HelpTab::Keys);
-    // Shift+Tab goes the same way; the tab is not kept when the screen closes.
+    // Shift+Tab goes back; the tab is not kept when the screen closes.
     run(&mut a, "<s-tab>");
-    assert_eq!(a.ui.help_tab, HelpTab::Legend);
+    assert_eq!(a.ui.help_tab, HelpTab::HowTo);
     run(&mut a, "? ?");
     assert_eq!(a.ui.help_tab, HelpTab::Keys, "reopens on the keys");
     // Tab never selects a settler behind the screen.
