@@ -139,12 +139,13 @@ impl Look<'_> {
 pub(crate) fn action_button(ui: &mut Ui, look: &Look<'_>, label: &str) -> egui::Response {
     ui.scope(|ui| {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        ui.spacing_mut().button_padding = vec2(look.cw, 1.0);
+        ui.spacing_mut().button_padding = vec2(look.cw * 1.5, 4.0);
         let text = RichText::new(label).font(look.font.clone());
         let button = Button::new(text)
             .fill(look.panel)
             .stroke(Stroke::new(1.0, look.rule))
-            .min_size(vec2(0.0, look.ch + 2.0));
+            .corner_radius(4.0)
+            .min_size(vec2(0.0, look.ch + 8.0));
         ui.add(button).on_hover_cursor(CursorIcon::PointingHand)
     })
     .inner
@@ -173,7 +174,7 @@ pub fn show(
         ui.max_rect().shrink(1.0),
         fill(palette.theme.accent),
     );
-    egui::Frame::NONE.inner_margin(Margin::symmetric(PAD, PAD / 2)).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(Margin::symmetric(PAD * 2, PAD)).show(ui, |ui| {
         let width = ui.available_width();
         let look = Look {
             palette,
@@ -185,7 +186,8 @@ pub fn show(
             rule: fill(palette.theme.accent_soft),
             next: Cell::new(0),
         };
-        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        // A little air between rows (playtest, 2026-11-16: the panel felt boxed in).
+        ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
 
         let inspected = fn_ui::inspector::inspect(&app.session, &app.ui, model.choice);
         // The foot first, so what is left is the sections': a bottom panel as tall as its content
@@ -251,8 +253,9 @@ fn title(ui: &mut Ui, look: &Look<'_>, text: &str) {
 /// A button for the header: a key as a click.
 fn button(ui: &mut Ui, look: &Look<'_>, text: &str, hint: &str) -> bool {
     let text = RichText::new(text).font(look.font.clone());
+    ui.spacing_mut().button_padding = vec2(look.cw, 3.0);
     let response =
-        ui.add(Button::new(text).min_size(vec2(look.ch * 1.6, look.ch))).on_hover_text(hint);
+        ui.add(Button::new(text).min_size(vec2(look.ch * 1.8, look.ch + 6.0))).on_hover_text(hint);
     response.clicked()
 }
 
@@ -262,6 +265,7 @@ fn header(ui: &mut Ui, look: &Look<'_>, model: &SidePanel, paused: bool, clicks:
     ui.horizontal(|ui| {
         spans(ui, look, state, false);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
             // Right to left: the last added sits leftmost.
             if button(ui, look, "+", "+ faster") {
                 clicks.push(key('+'));
@@ -356,6 +360,8 @@ pub(crate) fn heading_cased(
     click: Option<char>,
     clicks: &mut Clicks,
 ) {
+    // Each section stands a little apart from the one above.
+    ui.add_space(look.ch * 0.6);
     // On touch (#979) a heading that is a link is a finger tall and taps anywhere along it.
     let touch = click.is_some() && crate::controls::touch_rows(ui.ctx());
     let height = if touch { crate::controls::row_height(ui.ctx(), look.ch) } else { look.ch };
@@ -478,8 +484,9 @@ fn alerts(
         if let Some(toast) = open.get(i)
             && !toast.actions.is_empty()
         {
+            ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(look.cw, 2.0);
+                ui.spacing_mut().item_spacing = vec2(look.cw, 4.0);
                 for &action in &toast.actions {
                     if action_button(ui, look, action.label()).clicked() {
                         actions.push(action);

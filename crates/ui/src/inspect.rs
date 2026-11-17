@@ -357,8 +357,10 @@ pub fn teaching_lines(world: &World, defs: &Defs, def: &BuildingDef, at: Pos) ->
 }
 
 /// "Tool" as "Tools" and "Wares" as "Wares": an item named as what a building makes.
-fn plural(name: &str) -> String {
-    if name.ends_with('s') { name.to_owned() } else { format!("{name}s") }
+/// `name` for many: "Tools", but "Wares", "Furniture" and "Jewellery" as they are.
+pub(crate) fn plural(name: &str) -> String {
+    let mass = ["s", "ure", "ery"].iter().any(|end| name.ends_with(end));
+    if mass { name.to_owned() } else { format!("{name}s") }
 }
 
 /// A production building with a second recipe says which it is on (docs/design/horizons-phase-3.md,
