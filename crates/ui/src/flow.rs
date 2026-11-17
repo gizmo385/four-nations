@@ -94,49 +94,6 @@ fn source(session: &Session) -> Option<(String, String, bool, &fn_sim::building:
     Some(all.find(|s| s.2).unwrap_or(first))
 }
 
-/// The side panel's Flow section while the overlay is on (playtest, 2026-11-16: "a lot of text
-/// to always show in the sidebar"): one status line, what the machine under `cursor` is doing,
-/// and, until a yard runs, the next step and where the walkthrough is ([`walkthrough`], the key
-/// help's How to tab). Groups of `(text, tone)` lines.
-pub fn guide(session: &Session, cursor: Pos) -> Vec<Vec<(String, crate::rows::Tone)>> {
-    use crate::rows::Tone;
-    let (world, defs) = (&session.world, &session.defs);
-    let yards = world.yards(defs).len();
-    let links = world.flow_links(defs).len();
-    let count = |n: usize, one: &str| {
-        if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
-    };
-    let mut lines = Vec::new();
-    if yards == 0 {
-        let next = match source(session) {
-            Some((name, _, true, _)) => format!("No yard yet: build a {name}."),
-            Some((_, tech, false, _)) => format!("No yard yet: research {tech} first."),
-            None => "No yard yet: a later tech raises one.".to_owned(),
-        };
-        lines.push((next, Tone::Text));
-    } else {
-        lines.push((
-            format!("{} running, {} passing goods.", count(yards, "yard"), count(links, "link")),
-            Tone::Dim,
-        ));
-    }
-    if let Some(foot) = world.footprint_at(cursor)
-        && let Some(b) = world.building_at(cursor)
-        && world.recipe_at(foot.anchor, defs).is_some()
-    {
-        let name = defs.building(b).display_name(world.nation);
-        let line = match crate::inspect::automation_line(world, defs, foot.anchor) {
-            Some(line) => format!("{name}: {line}"),
-            None => format!("{name}: outside every yard"),
-        };
-        lines.push((line, Tone::Text));
-    }
-    if yards == 0 {
-        lines.push(("How to set one up: ? then Tab to How to.".to_owned(), Tone::Dim));
-    }
-    vec![lines]
-}
-
 /// The key help's How to tab (playtest, 2026-11-17: "I had a brick kiln and couldn't figure out
 /// what to do"): how to make machines run on their own and pass goods along, step by step, in
 /// this city's own names (its yard source, the tech that raises it, its machines). Each entry is
@@ -227,21 +184,26 @@ pub fn walkthrough(session: &Session) -> Vec<(String, crate::rows::Tone)> {
     out
 }
 
-/// The notice the toggle leaves, on or off.
+/// The notice the toggle leaves, on or off (playtest, 2026-11-17: the side panel stays out of
+/// it): how many yards run and links pass goods, or where the walkthrough is while no yard runs.
 pub fn toggled_notice(on: bool, session: &Session) -> String {
     if !on {
         return "Flow view off".into();
     }
-    let links = session.world.flow_links(&session.defs).len();
-    match links {
-        0 => "Flow view on: no machine passes goods across yet. Tinted: each yard's reach".into(),
-        1 => {
-            "Flow view on: 1 machine passes goods across (arrow). Tinted: each yard's reach".into()
-        }
-        n => {
-            format!("Flow view on: {n} links pass goods across (arrows). Tinted: each yard's reach")
-        }
+    let (world, defs) = (&session.world, &session.defs);
+    let yards = world.yards(defs).len();
+    if yards == 0 {
+        return "Flow view on: no yard yet. How to set one up: ? then Tab to How to".into();
     }
+    let links = world.flow_links(defs).len();
+    let count = |n: usize, one: &str| {
+        if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") }
+    };
+    format!(
+        "Flow view on: {} (tinted), {} passing goods (arrows)",
+        count(yards, "yard"),
+        count(links, "link")
+    )
 }
 
 #[cfg(test)]
@@ -270,46 +232,30 @@ mod tests {
         let s = Session::new(7, fn_sim::Nation::Fire, 64, 64);
         assert!(arrows(&s).is_empty());
         assert!(yard_reaches(&s).is_empty());
-        assert!(toggled_notice(true, &s).contains("no machine passes goods across yet"));
+        assert!(toggled_notice(true, &s).contains("no yard yet"));
         assert_eq!(toggled_notice(false, &s), "Flow view off");
     }
 
-    /// The panel stays short: the next step while no yard runs and where the walkthrough is;
-    /// and it shows in Select mode once `Y` is on. The walkthrough names the city's own tech.
+    /// The walkthrough names the city's own tech, yard and machines; the side panel stays out
+    /// of the flow view, and the toggle's notice points at the walkthrough.
     #[test]
-    fn the_flow_section_says_what_it_shows_and_how_to_use_it() {
+    fn the_walkthrough_names_the_city_s_own_things_and_the_panel_stays_out() {
         let s = Session::new(7, fn_sim::Nation::Fire, 64, 64);
-        let g = guide(&s, Pos::new(0, 0));
-        let text: Vec<&str> = g.iter().flatten().map(|(t, _)| t.as_str()).collect();
-        assert_eq!(text.len(), 2, "{text:?}");
-        assert!(text[0].starts_with("No yard yet: research "), "{text:?}");
-        assert!(text[1].contains("How to"), "{text:?}");
         let how: Vec<String> = walkthrough(&s).into_iter().map(|(t, _)| t).collect();
         assert!(how.iter().any(|t| t.starts_with("1. Research Great Works")), "{how:?}");
         assert!(how.iter().any(|t| t.contains("Brick Kiln")), "{how:?}");
         assert!(how.iter().any(|t| t.starts_with("2. Build a Lightning Station")), "{how:?}");
 
         let mut app = crate::app::App::new(s, (120, 40));
-        assert!(
-            crate::panel::SidePanel::build(
-                &app.session,
-                &app.ui,
-                &crate::rows::Marks::new(true),
-                0
-            )
-            .tool
-            .is_none()
-        );
         app.act(crate::keys::Action::ToggleFlow);
-        let tool = crate::panel::SidePanel::build(
+        assert!(app.ui.notice.contains("How to"), "{}", app.ui.notice);
+        let panel = crate::panel::SidePanel::build(
             &app.session,
             &app.ui,
             &crate::rows::Marks::new(true),
             0,
-        )
-        .tool
-        .expect("a Flow section");
-        assert_eq!(tool.title, "Flow view");
+        );
+        assert!(panel.tool.is_none());
     }
 
     #[test]
