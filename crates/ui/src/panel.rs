@@ -484,7 +484,23 @@ fn tool_section(
 ) -> Option<ToolSection> {
     let list = ui.tool_list.is_some();
     if view.tool == Tool::Select && !list {
-        return None;
+        // The flow view (`Y`) explains itself here while it's on.
+        if !ui.flow_view {
+            return None;
+        }
+        let blocks = crate::flow::guide(session, ui.cursor)
+            .into_iter()
+            .map(|b| b.into_iter().map(|(t, tone)| ToolLine::Text(t, tone)).collect())
+            .collect();
+        return Some(ToolSection {
+            title: "Flow view".to_owned(),
+            right: "[Y]".to_owned(),
+            tool: Tool::Select,
+            list: false,
+            repeating: false,
+            blocks,
+            keep: 2,
+        });
     }
     let state = ToolState {
         tool: ui.tool,
