@@ -18,7 +18,7 @@ use crate::page;
 use crate::research;
 use crate::saves;
 use crate::state::{HelpTab, Screen, UiState};
-use crate::widgets::{Marks, Painter};
+use crate::widgets::{Marks, Painter, Tone, ToneStyle};
 
 // What the screens say and how far they scroll is `fn_ui`'s (#857); this module draws them.
 pub use fn_ui::screens::{
@@ -176,6 +176,47 @@ pub fn draw_screen(
     page.position(buf, palette, position.as_deref());
 }
 
+/// The Machines tab's example map over the blank rows saved for it from row `at`, as many of its
+/// rows as show below the scroll (`start`): its tiles, a blank row, and the key.
+fn draw_demo(
+    session: &Session,
+    palette: &Palette,
+    demo: &fn_ui::flow::Demo,
+    at: usize,
+    start: usize,
+    body: Rect,
+    buf: &mut Buffer,
+) {
+    let (tiles, key) = legend::demo_cells(session, palette, demo);
+    let x0 = body.x + fn_ui::screens::HOW_TO_INDENT as u16;
+    let right = body.right();
+    let row_y = |i: usize| {
+        let i = (at + i).checked_sub(start)?;
+        (i < usize::from(body.height)).then(|| body.y + i as u16)
+    };
+    for (i, row) in tiles.iter().enumerate() {
+        let Some(y) = row_y(i) else { continue };
+        for (dx, cell) in row.iter().enumerate() {
+            let x = x0 + dx as u16;
+            if x < right {
+                buf.set_string(x, y, cell.glyph.to_string(), cell.style);
+            }
+        }
+    }
+    let Some(y) = row_y(tiles.len() + 1) else { return };
+    let text = Tone::Dim.style(palette);
+    let mut x = x0;
+    for (cell, name) in key {
+        if x + 2 >= right {
+            break;
+        }
+        buf.set_string(x, y, cell.glyph.to_string(), cell.style);
+        let room = usize::from(right - x - 2);
+        buf.set_stringn(x + 2, y, &name, room, text);
+        x += 2 + name.chars().count() as u16 + 3;
+    }
+}
+
 /// The key help: its tab strip, a blank row, then the open tab's rows from the scroll. Returns the
 /// position for the bottom edge (`None` when everything fits).
 fn draw_help(
@@ -207,12 +248,15 @@ fn draw_help(
             legend::draw(session, ui, palette, start, below, buf);
             (start, total)
         }
-        HelpTab::HowTo => {
-            let rows = how_to_lines(session, width, Marks::new(palette.ascii).ellipsis);
+        HelpTab::Machines => {
+            let (rows, demo) = how_to_lines(session, width, Marks::new(palette.ascii).ellipsis);
             let start = ui.scroll.min(rows.len().saturating_sub(shown));
             let mut p = Painter::new(buf, below, palette);
             for row in rows.iter().skip(start) {
                 p.row(row);
+            }
+            if let Some((at, demo)) = demo {
+                draw_demo(session, palette, &demo, at, start, below, buf);
             }
             (start, rows.len())
         }

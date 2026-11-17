@@ -47,8 +47,8 @@ pub fn row_count(
     if screen == Screen::Help && ui.help_tab == HelpTab::Legend {
         return legend(session, ui, width);
     }
-    if screen == Screen::Help && ui.help_tab == HelpTab::HowTo {
-        return how_to_lines(session, width, '…').len();
+    if screen == Screen::Help && ui.help_tab == HelpTab::Machines {
+        return how_to_lines(session, width, '…').0.len();
     }
     if screen == Screen::Endeavor {
         return endeavor::tab_lines(session, ui, width, &Marks::new(false)).len();
@@ -145,7 +145,7 @@ pub const COLUMN_GAP: usize = 2;
 
 /// The key help's tabs, left to right, and the words on each.
 pub const HELP_TABS: [(HelpTab, &str); 3] =
-    [(HelpTab::Keys, "Keys"), (HelpTab::Legend, "Legend"), (HelpTab::HowTo, "How to")];
+    [(HelpTab::Keys, "Keys"), (HelpTab::Legend, "Legend"), (HelpTab::Machines, "Machines")];
 
 /// What the tab strip says `Tab` does, flush right.
 pub const TAB_NOTE: &str = "Tab switches";
@@ -163,11 +163,18 @@ pub fn help_tabs(tab: HelpTab) -> Row {
     row
 }
 
-/// The key help's How to tab as rows `width` cells wide: [`crate::flow::walkthrough`]'s
-/// paragraphs wrapped, a heading in upper case, the example layout as it is.
-pub fn how_to_lines(session: &Session, width: usize, ellipsis: char) -> Vec<Row> {
+/// The key help's Machines tab as rows `width` cells wide: [`crate::flow::walkthrough`]'s
+/// paragraphs wrapped, a heading in upper case, and blank rows where the example map goes: its
+/// tiles, then a key naming each building. With them, the row the example starts on, for the
+/// frontend to draw it over ([`HOW_TO_INDENT`] cells in).
+pub fn how_to_lines(
+    session: &Session,
+    width: usize,
+    ellipsis: char,
+) -> (Vec<Row>, Option<(usize, crate::flow::Demo)>) {
     use crate::flow::Para;
     let mut out = Vec::new();
+    let mut demo = None;
     let wrapped = |out: &mut Vec<Row>, text: &str, tone| {
         let lines = crate::rows::wrap(text, width, usize::MAX, ellipsis);
         out.extend(lines.into_iter().map(|l| Row::text(l, tone)));
@@ -177,12 +184,19 @@ pub fn how_to_lines(session: &Session, width: usize, ellipsis: char) -> Vec<Row>
             Para::Heading(t) => out.push(Row::text(t.to_uppercase(), Tone::Title)),
             Para::Text(t) => wrapped(&mut out, &t, Tone::Text),
             Para::Note(t) => wrapped(&mut out, &t, Tone::Dim),
-            Para::Art(t) => out.push(Row::text(t, Tone::Accent)),
+            Para::Demo(d) => {
+                let rows = d.h as usize + 3;
+                demo = Some((out.len(), d));
+                out.extend((0..rows).map(|_| Row::text(String::new(), Tone::Text)));
+            }
             Para::Blank => out.push(Row::text(String::new(), Tone::Text)),
         }
     }
-    out
+    (out, demo)
 }
+
+/// How far in the Machines tab's example map draws, in cells.
+pub const HOW_TO_INDENT: usize = 2;
 
 /// The key help's groups, each with its rows, in the order the help lists them: what a window
 /// that lays the keys out itself (wrapping the wording as it likes) shows.
@@ -383,7 +397,7 @@ mod tests {
 
     #[test]
     fn the_tab_strip_brackets_the_open_tab() {
-        assert_eq!(help_tabs(HelpTab::Keys).plain(), "[Keys]  Legend  How to Tab switches");
-        assert_eq!(help_tabs(HelpTab::Legend).plain(), "Keys  [Legend]  How to Tab switches");
+        assert_eq!(help_tabs(HelpTab::Keys).plain(), "[Keys]  Legend  Machines Tab switches");
+        assert_eq!(help_tabs(HelpTab::Legend).plain(), "Keys  [Legend]  Machines Tab switches");
     }
 }

@@ -90,7 +90,7 @@ pub enum HelpTab {
     Keys,
     Legend,
     /// Walkthroughs: how to make machines run on their own (`fn_ui::flow::walkthrough`).
-    HowTo,
+    Machines,
 }
 
 impl HelpTab {
@@ -98,8 +98,8 @@ impl HelpTab {
     pub fn other(self) -> Self {
         match self {
             Self::Keys => Self::Legend,
-            Self::Legend => Self::HowTo,
-            Self::HowTo => Self::Keys,
+            Self::Legend => Self::Machines,
+            Self::Machines => Self::Keys,
         }
     }
 }

@@ -227,6 +227,59 @@ pub fn draw(
     lines.len()
 }
 
+/// The Machines tab's example map (`fn_ui::flow::Demo`, playtest 2026-11-17: "use the actual game
+/// icons"): each tile as the map draws it, on the ground the city's first settler stands on,
+/// with the yard's tint and the flow arrow; then a key, each building's glyph with its name.
+pub fn demo_cells(
+    session: &Session,
+    palette: &Palette,
+    demo: &fn_ui::flow::Demo,
+) -> (Vec<Vec<crate::map::TileCell>>, Vec<(crate::map::TileCell, String)>) {
+    use crate::map::Ground;
+    let (world, defs) = (&session.world, &session.defs);
+    let land = world
+        .units
+        .first()
+        .and_then(|u| world.map.get(u.pos))
+        .map_or(Ground::Terrain(fn_sim::Terrain::Coast), |t| Ground::Biome(t.biome));
+    let rows = (0..demo.h)
+        .map(|y| {
+            (0..demo.w)
+                .map(|x| {
+                    let p = Pos::new(x, y);
+                    let ground = match demo.beside {
+                        Some(t) if y == demo.h - 1 => Ground::Terrain(t),
+                        _ => land,
+                    };
+                    let thing = if demo.arrow.0 == p {
+                        Thing::Flow(demo.arrow.1)
+                    } else if let Some(b) = demo.building_at(p) {
+                        Thing::Building { building: b, rail_mask: None }
+                    } else {
+                        Thing::Ground
+                    };
+                    let marks = if demo.tinted(p) { vec![Mark::Powered] } else { Vec::new() };
+                    style_cell(&CellLook { thing, ground, marks }, defs, palette)
+                })
+                .collect()
+        })
+        .collect();
+    let mut key: Vec<(crate::map::TileCell, String)> = Vec::new();
+    for &(b, _) in &demo.buildings {
+        let name = defs.building(b).display_name(world.nation).to_owned();
+        if key.iter().any(|(_, n)| *n == name) {
+            continue;
+        }
+        let look = CellLook {
+            thing: Thing::Building { building: b, rail_mask: None },
+            ground: land,
+            marks: Vec::new(),
+        };
+        key.push((style_cell(&look, defs, palette), name));
+    }
+    (rows, key)
+}
+
 #[cfg(test)]
 mod tests {
     use fn_sim::Nation;
