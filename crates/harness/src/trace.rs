@@ -289,7 +289,7 @@ const STORES: usize = 29;
 /// One minute's row.
 fn row(m: &Minute<'_>, marks: &BTreeMap<UnitId, char>, defs: &Defs) -> String {
     let world = m.world;
-    let mut reasons = [0u32; 7];
+    let mut reasons = [0u32; 8];
     let mut needs = Vec::new();
     for u in world.units.iter().filter(|u| u.is_settler()) {
         let occ = Occupation::read(world, u.id, defs).unwrap_or(Occupation::Idle);
@@ -339,8 +339,16 @@ fn or_dash(s: String) -> String {
 }
 
 /// The idle reasons in the order a row lists them; slot 0 (busy) is never printed.
-const REASON_NAMES: [&str; 7] =
-    ["busy", "no work", "unreachable", "out of chi", "stockpile full", "too hurt", "unexplained"];
+const REASON_NAMES: [&str; 8] = [
+    "busy",
+    "no work",
+    "unreachable",
+    "out of chi",
+    "stockpile full",
+    "too hurt",
+    "unexplained",
+    "no materials",
+];
 
 fn reason_slot(o: Occupation) -> usize {
     match o {
@@ -351,6 +359,7 @@ fn reason_slot(o: Occupation) -> usize {
         Occupation::StockpileFull => 4,
         Occupation::TooHurt => 5,
         Occupation::Idle => 6,
+        Occupation::NoMaterials => 7,
     }
 }
 

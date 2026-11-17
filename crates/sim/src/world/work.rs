@@ -181,6 +181,9 @@ pub enum IdleReason {
     /// is below `data/harm.toml`'s `[settings] fit_for_heavy` (`World::fit_for_heavy_work`,
     /// issue #388).
     TooHurt,
+    /// The open work in reach is build sites, and the next item one of them needs is nowhere:
+    /// in no stockpile and on no ground (#1076). Names that item.
+    NoMaterials(ItemId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1944,12 +1947,17 @@ impl World {
         let flood = self.flood_from(i);
         let mut rooms: Vec<(ItemId, bool)> = Vec::new();
         let (mut chi_blocked, mut room_blocked, mut too_hurt) = (false, false, false);
+        let mut materials: Option<ItemId> = None;
         for job in unclaimed {
             match self.check_job(i, job.kind, &flood, &mut rooms, None, defs) {
                 Check::Take(..) => return None,
                 Check::Barred(Some(IdleReason::StockpileFull)) => room_blocked = true,
                 Check::Barred(Some(IdleReason::OutOfChi)) => chi_blocked = true,
                 Check::Barred(Some(IdleReason::TooHurt)) => too_hurt = true,
+                // The first site's item names the reason; jobs are weighed in queue order.
+                Check::Barred(Some(IdleReason::NoMaterials(item))) => {
+                    materials.get_or_insert(item);
+                }
                 Check::Barred(_) | Check::Skip => {}
             }
         }
@@ -1959,6 +1967,8 @@ impl World {
             IdleReason::OutOfChi
         } else if too_hurt {
             IdleReason::TooHurt
+        } else if let Some(item) = materials {
+            IdleReason::NoMaterials(item)
         } else {
             IdleReason::Unreachable
         })

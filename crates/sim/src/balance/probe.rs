@@ -174,6 +174,8 @@ pub enum Occupation {
     OutOfChi,
     StockpileFull,
     TooHurt,
+    /// Idle beside build sites whose next item is nowhere (`IdleReason::NoMaterials`, #1076).
+    NoMaterials,
     /// Idle for no reason `World::idle_reason` names.
     Idle,
 }
@@ -193,6 +195,7 @@ impl Occupation {
             (None, Some(IdleReason::OutOfChi)) => Self::OutOfChi,
             (None, Some(IdleReason::StockpileFull)) => Self::StockpileFull,
             (None, Some(IdleReason::TooHurt)) => Self::TooHurt,
+            (None, Some(IdleReason::NoMaterials(_))) => Self::NoMaterials,
             (None, None) => Self::Idle,
         }
     }

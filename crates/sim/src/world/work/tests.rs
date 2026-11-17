@@ -1323,3 +1323,38 @@ fn a_failed_claim_is_retried_once_what_blocked_it_changes() {
     w.tick(&defs);
     assert!(w.units[0].task().is_some(), "the door is open now");
 }
+
+/// A build site whose next item is nowhere at all (a bed with no wood in any stockpile or on
+/// the ground, #1076) reads `NoMaterials` naming the item, not a bare `None`, and nobody claims
+/// it. Once wood is in stores, the same unit claims it.
+#[test]
+fn idle_reason_names_the_material_a_build_site_is_missing() {
+    let rows = ["........."; 5];
+    let (mut w, defs) = setup(Nation::Earth, &rows, &[at(1, 1)]);
+    let bed = defs.building_id("bed").unwrap();
+    let wood = defs.item_id("wood").unwrap();
+    let job = w.designate_build(at(5, 2), bed, &defs).unwrap();
+    for _ in 0..50 {
+        w.tick(&defs);
+    }
+    assert_eq!(w.job(job).unwrap().claimed_by, None, "nothing to fetch, so nobody claims it");
+    assert_eq!(w.idle_reason(UnitId(0), &defs), Some(IdleReason::NoMaterials(wood)));
+
+    w.designate_stockpile(at(0, 4)).unwrap();
+    w.stored.insert(at(0, 4), Stack { item: wood, count: 5 });
+    run_until(&mut w, &defs, 2000, |w| w.job(job).is_some_and(|j| j.claimed_by.is_some()));
+    assert_eq!(w.job(job).unwrap().claimed_by, Some(UnitId(0)));
+}
+
+/// A starved build site no longer holds settlers back from other work (#1076): with a bed that
+/// has no wood anywhere nearer, the unit takes the tree farther off instead of claiming and
+/// abandoning the site.
+#[test]
+fn a_build_site_with_no_materials_does_not_block_other_work() {
+    let (mut w, defs) = setup(Nation::Earth, &WOODS, &[at(1, 2)]);
+    let bed = defs.building_id("bed").unwrap();
+    w.designate_build(at(2, 0), bed, &defs).unwrap();
+    let chop = w.designate_harvest(at(7, 2), &defs).unwrap();
+    w.tick(&defs);
+    assert_eq!(w.job(chop).unwrap().claimed_by, Some(UnitId(0)));
+}
