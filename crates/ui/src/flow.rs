@@ -94,93 +94,127 @@ fn source(session: &Session) -> Option<(String, String, bool, &fn_sim::building:
     Some(all.find(|s| s.2).unwrap_or(first))
 }
 
+/// A piece of the How to tab ([`walkthrough`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Para {
+    Heading(String),
+    /// Wrapped to the page.
+    Text(String),
+    /// Wrapped, dimmer: a side note.
+    Note(String),
+    /// A line of the example layout: never wrapped, drawn as is in a fixed-width font.
+    Art(String),
+    Blank,
+}
+
+/// Two machines this city can build where the first makes what the second uses (a Smelter and a
+/// Forge), as names and the good, and whether they are the city's own: the example for touching
+/// machines. Any nation's pair if the city has none of its own yet.
+fn chain(session: &Session) -> (String, String, String, bool) {
+    let (world, defs) = (&session.world, &session.defs);
+    let machines = |own: bool| {
+        defs.buildings
+            .iter()
+            .filter(|b| b.uses_power && b.recipe.is_some() && !b.endeavor)
+            .filter(move |b| !own || crate::build::available_to_nation(session, b))
+            .collect::<Vec<_>>()
+    };
+    for own in [true, false] {
+        let list = machines(own);
+        for a in &list {
+            let made = a.recipe.as_ref().map(|r| r.output.item);
+            for b in &list {
+                let Some(r) = b.recipe.as_ref() else { continue };
+                if a.id != b.id && r.inputs.iter().any(|c| Some(c.item) == made) {
+                    let good = made.map_or_else(String::new, |i| defs.item(i).name.to_lowercase());
+                    let name =
+                        |d: &fn_sim::building::BuildingDef| d.display_name(world.nation).to_owned();
+                    return (name(a), name(b), good, own);
+                }
+            }
+        }
+    }
+    ("Smelter".into(), "Forge".into(), "metal".into(), false)
+}
+
 /// The key help's How to tab (playtest, 2026-11-17: "I had a brick kiln and couldn't figure out
-/// what to do"): how to make machines run on their own and pass goods along, step by step, in
-/// this city's own names (its yard source, the tech that raises it, its machines). Each entry is
-/// a paragraph; a `Tone::Title` one is a heading and an empty one a blank row.
-pub fn walkthrough(session: &Session) -> Vec<(String, crate::rows::Tone)> {
-    use crate::rows::Tone;
+/// what to do"; then "phrased incredibly strangely ... include an example layout"): how to make
+/// machines run on their own, in this city's own names (its yard source, the tech that raises
+/// it, its machines), with a drawn layout of a yard and two touching machines.
+pub fn walkthrough(session: &Session) -> Vec<Para> {
     let (world, defs) = (&session.world, &session.defs);
     let machines: Vec<String> = defs
         .buildings
         .iter()
         .filter(|b| b.uses_power && b.recipe.is_some())
         .filter(|b| crate::build::available_to_nation(session, b))
-        .take(4)
+        .take(3)
         .map(|b| b.display_name(world.nation).to_owned())
         .collect();
-    let mut out = vec![("Machines that run on their own".to_owned(), Tone::Title)];
-    out.push((
-        format!(
-            "A machine is a building with a recipe, such as {}. Normally a settler has to work \
-             inside it. Inside a yard it runs with nobody there, and settlers only haul its \
-             goods in and out.",
-            machines.join(", ")
-        ),
-        Tone::Text,
-    ));
-    out.push((String::new(), Tone::Text));
+    let examples = match machines.len() {
+        1 => format!("like the {}", machines[0]),
+        _ => format!("{}...", machines.join(", ")),
+    };
+    let mut out = vec![
+        Para::Heading("Machines that run on their own".to_owned()),
+        Para::Text(format!(
+            "A machine ({examples}) normally needs a settler inside. In a yard it runs by itself."
+        )),
+        Para::Blank,
+    ];
     let Some((name, tech, known, def)) = source(session) else {
-        out.push(("No tech this city can reach raises a yard yet.".to_owned(), Tone::Dim));
+        out.push(Para::Note("Nothing your city can research raises a yard yet.".to_owned()));
         return out;
     };
     let done = if known { " (done)" } else { "" };
-    out.push((format!("1. Research {tech} on the Research screen (T){done}."), Tone::Text));
-    let mut build = format!(
-        "2. Build a {name}. Its yard is the tinted area up to {} tiles around it, shown while \
-         the flow view (Y) is on.",
-        def.radius
-    );
+    out.push(Para::Text(format!("1. Research {tech} (T){done}.")));
+    let mut build =
+        format!("2. Build a {name}. Its yard is the tinted area around it when Y is on.");
     if def.beside.iter().any(|t| t.is_water()) {
-        build.push_str(" A machine in it runs only if it touches water.");
+        build.push_str(" Machines in it must touch water.");
     } else if def.beside.contains(&fn_sim::defs::Terrain::Mountain) {
-        build.push_str(" A machine in it runs only if it touches rock (a mountain or tunnel).");
+        build.push_str(" Machines in it must touch rock.");
     }
-    out.push((build, Tone::Text));
-    out.push((
-        format!(
-            "3. Build machines inside the tint, or keep ones already there. A finished machine \
-             in a yard switches over by itself, with nothing to press, and runs at {}% of a \
-             settler's speed. Its panel reads \"Automated\".",
-            (def.rate * 100.0).round() as u32
-        ),
-        Tone::Text,
+    out.push(Para::Text(build));
+    out.push(Para::Text(format!(
+        "3. Build machines in the yard. They switch over once built, at {}% speed.",
+        (def.rate * 100.0).round() as u32
+    )));
+    out.push(Para::Text(
+        "4. Keep their inputs in stockpiles. Settlers carry goods in and out.".to_owned(),
     ));
-    out.push((
-        "4. Keep its inputs in your stores. Haulers bring each batch in, and the goods it makes \
-         are carried to stores. A machine waiting on a missing input says which one."
-            .to_owned(),
-        Tone::Text,
-    ));
-    out.push((
-        "5. To skip the hauling, make machines touch. When one makes what a touching machine \
-         uses, each batch passes straight across, shown as an arrow in the flow view. For \
-         example, a Smelter touching a Forge hands its metal straight to the Forge."
-            .to_owned(),
-        Tone::Text,
-    ));
-    out.push((
-        "6. Keep a few tools in stores. Every few batches a machine wears and waits for a \
-         settler to bring one."
-            .to_owned(),
-        Tone::Text,
-    ));
-    out.push((String::new(), Tone::Text));
+    let (from, to, good, own) = chain(session);
+    let whose = if own { "" } else { " (another nation's machines)" };
+    out.push(Para::Text(format!(
+        "5. Build machines side by side to skip the carrying. A {from} next to a {to}{whose} \
+         hands over its {good} directly."
+    )));
+    out.push(Para::Text("6. Keep tools in stockpiles. Worn machines wait for one.".to_owned()));
+    out.push(Para::Blank);
+    // The example: the source, and the two machines touching inside its tint.
+    let a = format!("[{from}]");
+    let b = format!("[{to}]");
+    let src = format!("[{name}]");
+    let inner = (src.chars().count()).max(a.chars().count() + 1 + b.chars().count()) + 4;
+    let edge = format!("  {}", ".".repeat(inner + 4));
+    let row = |text: String| format!("  .  {text:<inner$}.");
+    out.push(Para::Art(edge.clone()));
+    out.push(Para::Art(row(src)));
+    out.push(Para::Art(row(String::new())));
+    out.push(Para::Art(row(format!("{a}>{b}"))));
+    out.push(Para::Art(edge));
+    out.push(Para::Note(format!(
+        "The dots are the {name}'s yard. The {from} touches the {to}, so its {good} goes \
+         straight in (the > arrow with Y on)."
+    )));
+    out.push(Para::Blank);
     if def.capacity > 0 {
-        out.push((
-            format!(
-                "A {name}'s yard has room for about {} small machines (big works take more). \
-                 Past that, every machine in it slows down.",
-                def.capacity
-            ),
-            Tone::Dim,
-        ));
+        out.push(Para::Note(format!(
+            "A {name}'s yard runs about {} machines before they slow down.",
+            def.capacity
+        )));
     }
-    out.push((
-        "O on a machine in a yard hands it back to a settler, or puts it back on its own."
-            .to_owned(),
-        Tone::Dim,
-    ));
+    out.push(Para::Note("O on a machine in a yard turns its automation off or on.".to_owned()));
     out
 }
 
@@ -241,8 +275,14 @@ mod tests {
     #[test]
     fn the_walkthrough_names_the_city_s_own_things_and_the_panel_stays_out() {
         let s = Session::new(7, fn_sim::Nation::Fire, 64, 64);
-        let how: Vec<String> = walkthrough(&s).into_iter().map(|(t, _)| t).collect();
-        assert!(how.iter().any(|t| t.starts_with("1. Research Great Works")), "{how:?}");
+        let how: Vec<String> = walkthrough(&s)
+            .into_iter()
+            .map(|p| match p {
+                Para::Heading(t) | Para::Text(t) | Para::Note(t) | Para::Art(t) => t,
+                Para::Blank => String::new(),
+            })
+            .collect();
+        assert!(how.iter().any(|t| t.starts_with("1. Research Great Works (T)")), "{how:?}");
         assert!(how.iter().any(|t| t.contains("Brick Kiln")), "{how:?}");
         assert!(how.iter().any(|t| t.starts_with("2. Build a Lightning Station")), "{how:?}");
 

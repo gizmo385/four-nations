@@ -164,17 +164,21 @@ pub fn help_tabs(tab: HelpTab) -> Row {
 }
 
 /// The key help's How to tab as rows `width` cells wide: [`crate::flow::walkthrough`]'s
-/// paragraphs wrapped, a heading in upper case.
+/// paragraphs wrapped, a heading in upper case, the example layout as it is.
 pub fn how_to_lines(session: &Session, width: usize, ellipsis: char) -> Vec<Row> {
+    use crate::flow::Para;
     let mut out = Vec::new();
-    for (text, tone) in crate::flow::walkthrough(session) {
-        if text.is_empty() {
-            out.push(Row::text(String::new(), Tone::Text));
-        } else if tone == Tone::Title {
-            out.push(Row::text(text.to_uppercase(), Tone::Title));
-        } else {
-            let lines = crate::rows::wrap(&text, width, usize::MAX, ellipsis);
-            out.extend(lines.into_iter().map(|l| Row::text(l, tone)));
+    let wrapped = |out: &mut Vec<Row>, text: &str, tone| {
+        let lines = crate::rows::wrap(text, width, usize::MAX, ellipsis);
+        out.extend(lines.into_iter().map(|l| Row::text(l, tone)));
+    };
+    for para in crate::flow::walkthrough(session) {
+        match para {
+            Para::Heading(t) => out.push(Row::text(t.to_uppercase(), Tone::Title)),
+            Para::Text(t) => wrapped(&mut out, &t, Tone::Text),
+            Para::Note(t) => wrapped(&mut out, &t, Tone::Dim),
+            Para::Art(t) => out.push(Row::text(t, Tone::Accent)),
+            Para::Blank => out.push(Row::text(String::new(), Tone::Text)),
         }
     }
     out

@@ -157,25 +157,33 @@ fn group_block(ui: &mut Ui, look: &Look<'_>, title: &str, rows: &[HelpRow]) {
 }
 
 /// The walkthroughs ([`fn_ui::flow::walkthrough`]): a heading as every heading of the help is,
-/// each paragraph wrapped as egui wraps it, and a blank row where the walkthrough has one.
+/// each paragraph wrapped as egui wraps it, the example layout a row per line as the terminal
+/// draws it, and a blank row where the walkthrough has one.
 fn how_to_tab(ui: &mut Ui, look: &Look<'_>, app: &App) {
-    for (text, tone) in fn_ui::flow::walkthrough(&app.session) {
-        if text.is_empty() {
-            ui.add_space(look.cell.y);
-        } else if tone == Tone::Title {
-            heading(ui, look, &text);
-        } else {
-            let width = ui.available_width();
-            let galley = ui.painter().layout(
-                text.clone(),
-                look.font.clone(),
-                look.format(tone).color,
-                width,
-            );
-            let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::hover());
-            page::paint_galley(&ui.painter_at(rect), rect.min, galley, false);
-            response.widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
-            ui.add_space(look.cell.y * 0.3);
+    use fn_ui::flow::Para;
+    let text_para = |ui: &mut Ui, text: String, tone: Tone| {
+        let width = ui.available_width();
+        let galley =
+            ui.painter().layout(text.clone(), look.font.clone(), look.format(tone).color, width);
+        let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::hover());
+        page::paint_galley(&ui.painter_at(rect), rect.min, galley, false);
+        response.widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
+    };
+    for para in fn_ui::flow::walkthrough(&app.session) {
+        match para {
+            Para::Heading(t) => heading(ui, look, &t),
+            Para::Text(t) => {
+                text_para(ui, t, Tone::Text);
+                ui.add_space(look.cell.y * 0.3);
+            }
+            Para::Note(t) => {
+                text_para(ui, t, Tone::Dim);
+                ui.add_space(look.cell.y * 0.3);
+            }
+            Para::Art(t) => {
+                page::text_row(ui, look, &Row::text(t, Tone::Accent), false, Sense::hover());
+            }
+            Para::Blank => ui.add_space(look.cell.y),
         }
     }
 }
