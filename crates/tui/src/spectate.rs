@@ -179,6 +179,8 @@ fn screen_action(ui: &mut UiState, session: &Session, action: Action) -> bool {
         Screen::Planner | Screen::Good => {
             unreachable!("the spectator never opens the planner or a good's screen")
         }
+        // `input::spectator_allowed` refuses `Action::NextRecipe`, and `Enter` only selects.
+        Screen::Building => unreachable!("the spectator never opens a building's panel"),
         Screen::Log | Screen::Help | Screen::Endeavor => {}
     }
     match action {

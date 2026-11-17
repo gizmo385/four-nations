@@ -817,7 +817,8 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
             lines.extend(power_lines(world, defs, at, building).into_iter().map(Line::Detail));
         }
         lines.extend(recipe_lines(world, defs, at).into_iter().map(Line::Detail));
-        if can_switch_recipe(world, defs, at) {
+        // A building that makes something opens its panel (#1068).
+        if world.recipe_at(at, defs).is_some() {
             lines.push(Line::Hint(Hint::NextRecipe));
         }
         lines.extend(archive_lines(world, defs, at).into_iter().map(Line::Detail));

@@ -16,12 +16,10 @@
 │                                                                                                                      │
 │ PEOPLE                                                                                                               │
 │   Population                           █░░░░░░░░░      2/16                                                          │
-│   Spare beds and food draw newcomers                                                                                 │
 │ ✓ Everyone has a bed                   ██████████       2/2                                                          │
 │                                                                                                                      │
 │ BUILDINGS                                                                                                            │
 │   One of every building                █░░░░░░░░░      1/11                                                          │
-│   Raise something new                                                                                                │
 │                                                                                                                      │
 │ KNOWLEDGE                                                                                                            │
 │   Earth Kingdom branch                 ░░░░░░░░░░       0/6                                                          │
@@ -29,12 +27,14 @@
 │                                                                                                                      │
 │ STORES AND HARVESTS                                                                                                  │
 │   Food in stores                       ░░░░░░░░░░     0/150                                                          │
-│   Stockpile food                                                                                                     │
 │   Stone in stores                      ░░░░░░░░░░     0/200                                                          │
 │   Quarry outcrops and foothill boulders (bricks count)                                                               │
 │   Ore mined                            ░░░░░░░░░░      0/40                                                          │
 │   Mine gold veins ($); tunnels yield more                                                                            │
 │                                                                                                                      │
 │ BENDING                                                                                                              │
-┗───────────────────────────────────────────────────────────────────────────────────────────────────────── 1-37 of 42 ─┛
+│   Bending masters (8 bends in 3 forms) ░░░░░░░░░░       0/3                                                          │
+│   Closest: Juni 0 of 8 bends, 0 of 3 forms; Shen 0 of 8 bends, 0 of 3 forms                                          │
+│   Designate a bend (B) on a tile a bender can work - credit to whoever channels it                                   │
+┗───────────────────────────────────────────────────────────────────────────────────────────────────────── 1-37 of 39 ─┛
  ENDEAVOR  Up/Down scroll · Enter place or plan · Esc or G close · X withdraw · PgUp/PgDn page            PAUSED ? keys

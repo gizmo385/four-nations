@@ -41,8 +41,8 @@ pub enum InspectorAction {
     /// "Keep it": takes the mark back from the finished building covering this tile
     /// (`Command::CancelDeconstruct`, #967).
     KeepIt(Pos),
-    /// "Switch recipe": sets the building covering this tile to its next recipe
-    /// (`crate::recipe::switch`, #712).
+    /// "Recipes": opens the panel of the building covering this tile (`crate::building`,
+    /// #1068), where its recipe is picked.
     NextRecipe(Pos),
 }
 
@@ -51,7 +51,7 @@ impl InspectorAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::KeepIt(_) => "Keep it",
-            Self::NextRecipe(_) => "Switch recipe",
+            Self::NextRecipe(_) => "Recipes",
         }
     }
 
@@ -67,7 +67,7 @@ impl InspectorAction {
     pub fn hint(self) -> String {
         match self {
             Self::KeepIt(_) => format!("Press {} to keep it", self.key()),
-            Self::NextRecipe(_) => format!("Press {} to switch recipe", self.key()),
+            Self::NextRecipe(_) => format!("Press {} for its recipes", self.key()),
         }
     }
 }
@@ -542,24 +542,22 @@ mod keep_it_tests {
     }
 
     #[test]
-    fn a_workshop_lists_what_it_can_make_and_offers_r_once_a_second_recipe_is_known() {
+    fn a_workshop_lists_what_it_can_make_and_its_button_opens_the_panel() {
         let (app, at) = with_workshop(false);
         let plain = inspect(&app.session, &app.ui, None).plain();
         let can = plain.iter().find(|t| t.starts_with("Can make: ")).expect("a Can make line");
         assert!(can.starts_with("Can make: Tools, Wares (needs Trade Wares)"), "{can}");
-        assert!(keep_actions(&app).is_empty(), "nothing to switch to yet: {plain:?}");
+        assert!(plain.contains(&"Press R for its recipes".to_owned()), "{plain:?}");
+        assert_eq!(keep_actions(&app), [InspectorAction::NextRecipe(at)]);
 
         let (mut app, _) = with_workshop(true);
-        let plain = inspect(&app.session, &app.ui, None).plain();
-        assert!(plain.iter().any(|t| t.starts_with("Can make: Tools, Wares")), "{plain:?}");
-        assert!(plain.contains(&"Press R to switch recipe".to_owned()), "{plain:?}");
-        assert_eq!(keep_actions(&app), [InspectorAction::NextRecipe(at)]);
-        // The button does what R does.
+        // The button does what R does: the building's panel.
         app.do_inspector_action(InspectorAction::NextRecipe(at));
-        assert_eq!(app.ui.notice, "Workshop now makes Wares");
-        let plain = inspect(&app.session, &app.ui, None).plain();
-        assert!(plain.contains(&"Making: Wares".to_owned()), "{plain:?}");
-        // Another tool hides it: R switches only in Select mode.
+        assert_eq!(app.ui.screen, Some(crate::state::Screen::Building));
+        assert_eq!(app.ui.building.map(|b| b.at), Some(at));
+        app.ui.screen = None;
+        app.ui.building = None;
+        // Another tool hides it: R opens it only in Select mode.
         app.ui.tool = Tool::Harvest;
         assert!(keep_actions(&app).is_empty());
     }

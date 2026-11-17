@@ -76,6 +76,10 @@ pub enum Screen {
     /// `O` on a good in the planner or on the Goods tab: the good's own screen (`crate::good`),
     /// what makes it, what uses it and every way to get more. [`UiState::good`] holds it.
     Good,
+    /// `R` on a building that makes something in Select mode, or `Enter` on one with nobody
+    /// inside (#1068): its recipes to pick from, its crafters, its batch and its goods in stores
+    /// (`crate::building`). [`UiState::building`] holds it.
+    Building,
 }
 
 /// The two tabs of the key help (`?`, #662): the keys, and the legend of the map's glyphs. `Tab`
@@ -262,6 +266,9 @@ pub struct UiState {
     pub planner: Option<crate::planner::PlanEdit>,
     /// The good's screen: the good, the way under the pointer and where `Esc` goes back to.
     pub good: Option<crate::good::GoodEdit>,
+    /// The building panel's building and pointer. `Some` while the panel (or a good's screen
+    /// opened from it) is open.
+    pub building: Option<crate::building::BuildingEdit>,
     /// A plan being stamped on the map (`crate::stamp`): its ghost block follows the cursor
     /// (its top-left). `Some` exactly while stamping.
     pub stamp: Option<crate::stamp::StampEdit>,
@@ -340,6 +347,7 @@ impl UiState {
             split: None,
             planner: None,
             good: None,
+            building: None,
             stamp: None,
             goods_cursor: 0,
             save_slots: Vec::new(),

@@ -978,6 +978,17 @@ pub fn screen_view(session: &Session) -> ScreenView {
             _ => groups.push(GroupView { heading: heading.to_owned(), signs: vec![row] }),
         }
     }
+    // A hint the chapter already gives above (its population, buildings and food signs share
+    // the endeavor's own hints) is said once, there (Chris's playtest, 2026-11-16: "lots of
+    // orange text").
+    let chapter = chapter_view(world, defs);
+    let said: Vec<String> =
+        chapter.iter().flat_map(|c| &c.signs).filter_map(|s| s.hint.clone()).collect();
+    for row in groups.iter_mut().flat_map(|g| &mut g.signs) {
+        if row.hint.as_ref().is_some_and(|h| said.contains(h)) {
+            row.hint = None;
+        }
+    }
     ScreenView {
         name: defs.endeavor.name.clone(),
         description: defs.endeavor.description.clone(),
@@ -987,7 +998,7 @@ pub fn screen_view(session: &Session) -> ScreenView {
         frac: share(met, total),
         stage: stage(world, defs),
         action: crate::gate::action(session).map(|a| a.hint().to_owned()),
-        chapter: chapter_view(world, defs),
+        chapter,
         groups,
         united: None,
         tasks: stage_tasks(world, defs),
@@ -1236,7 +1247,11 @@ mod tests {
         let pop = &v.groups[0].signs[0];
         assert_eq!(pop.value, format!("{}/16", s.world.units.len()));
         assert!(!pop.met);
-        assert_eq!(pop.hint.as_deref(), Some("Spare beds and food draw newcomers"));
+        // The chapter says it first, so the sign below doesn't say it again.
+        let chapter = v.chapter.as_ref().expect("the chapter is open");
+        let first = chapter.signs.iter().find(|r| r.name == "Population").unwrap();
+        assert_eq!(first.hint.as_deref(), Some("Spare beds and food draw newcomers"));
+        assert_eq!(pop.hint, None);
         assert!((pop.frac - s.world.units.len() as f32 / 16.0).abs() < 1e-6);
     }
 
@@ -1287,8 +1302,12 @@ mod tests {
         let v = screen_view(&s);
         let row = &v.groups[1].signs[0];
         assert_eq!(row.name, "One of every building");
-        // Too many kinds are missing to name them all, so the data's own hint shows instead.
-        assert_eq!(row.hint.as_deref(), Some("Raise something new"));
+        // Too many kinds are missing to name them all, so the data's own hint shows instead,
+        // once: on the chapter's own buildings sign, not again here.
+        let chapter = v.chapter.as_ref().expect("the chapter is open");
+        let hints: Vec<_> = chapter.signs.iter().filter_map(|r| r.hint.as_deref()).collect();
+        assert!(hints.contains(&"Raise something new"), "{hints:?}");
+        assert_eq!(row.hint, None);
     }
 
     /// #663: the Gate's second row says what is needed in words, and falls back to the

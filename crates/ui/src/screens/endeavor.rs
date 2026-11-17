@@ -46,8 +46,9 @@ fn sign_rows(sign: &SignRow, name_width: usize, width: usize, marks: &Marks) -> 
                 Tone::Text,
             ));
         }
+        // Dim, as advice: a warning's colour said it was urgent when it isn't (playtest).
         if let Some(hint) = &sign.hint {
-            rows.push(Row::text(format!("  {hint}"), Tone::Warn));
+            rows.push(Row::text(format!("  {hint}"), Tone::Dim));
         }
     }
     rows
@@ -433,7 +434,7 @@ mod tests {
         let pop = rows.iter().find(|r| r.plain().contains("Population")).unwrap();
         assert_eq!(pop.left[0].1, Tone::Dim, "not yet met");
         let hint = rows.iter().find(|r| r.plain().contains("Spare beds")).unwrap();
-        assert_eq!(hint.left[0].1, Tone::Warn);
+        assert_eq!(hint.left[0].1, Tone::Dim);
     }
 
     /// The masters sign carries its own "Closest" row (in plain text, not a warning) right
@@ -456,7 +457,7 @@ mod tests {
             hint.plain(),
             "  Designate a bend (B) on a tile a bender can work - credit to whoever channels it"
         );
-        assert_eq!(hint.left[0].1, Tone::Warn);
+        assert_eq!(hint.left[0].1, Tone::Dim);
     }
 
     /// Every sign's bar is 10 cells, as the selection bar's meters are.

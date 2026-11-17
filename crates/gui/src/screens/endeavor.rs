@@ -83,8 +83,10 @@ fn sign(ui: &mut Ui, look: &Look<'_>, sign: &SignRow, name_width: usize, marks: 
         page::paint_row(&painter, look, &row, area, false);
     };
     span(0, 2, Row::text(mark, mark_tone));
-    span(2, name_width, Row::text(sign.name.clone(), name_tone));
-    let bar_at = 2 + name_width + 1;
+    span(2, name_width + 1, Row::text(sign.name.clone(), name_tone));
+    // Clear of the name: a window's glyphs run a touch wider than a cell, so a long name needs
+    // more than one cell of room.
+    let bar_at = 2 + name_width + 2 + name_width / 12;
     let fill = gauge::tone_color(look, if sign.met { Tone::Ok } else { Tone::Accent });
     let bar = gauge::rect(at(bar_at), rect.center().y, BAR_CELLS, cell);
     gauge::paint(&painter, bar, sign.frac, fill, gauge::track(look), false);
@@ -104,7 +106,7 @@ fn sign(ui: &mut Ui, look: &Look<'_>, sign: &SignRow, name_width: usize, marks: 
         note(ui, look, &line, Tone::Text);
     }
     if let Some(hint) = &sign.hint {
-        note(ui, look, hint, Tone::Warn);
+        note(ui, look, hint, Tone::Dim);
     }
 }
 

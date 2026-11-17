@@ -249,9 +249,9 @@ impl App {
                 }
             }
             Action::ToggleRepeat => {}
-            // `R` switches the Workshop under the cursor in Select mode (#712); in a tool it does
-            // nothing, like `F`.
-            Action::NextRecipe if self.ui.tool == Tool::Select => self.next_recipe(),
+            // `R` opens the panel of the building under the cursor in Select mode (#1068), where
+            // its recipe is picked; in a tool it does nothing, like `F`.
+            Action::NextRecipe if self.ui.tool == Tool::Select => self.open_building(),
             Action::NextRecipe => {}
             // `K` keeps the building the inspector shows marked to be taken down (#967).
             Action::KeepIt => {
@@ -514,6 +514,9 @@ impl App {
         if self.ui.screen == Some(Screen::Good) && self.good_key(action) {
             return;
         }
+        if self.ui.screen == Some(Screen::Building) && self.building_key(action) {
+            return;
+        }
         match action {
             // `Tab` flips the key help between its keys and its legend (#662).
             Action::NextUnit | Action::PrevUnit if self.ui.screen == Some(Screen::Help) => {
@@ -580,7 +583,8 @@ impl App {
                     };
             }
             InspectorAction::NextRecipe(at) => {
-                self.ui.notice = crate::recipe::switch(&mut self.session, at).unwrap_or_else(|w| w);
+                self.ui.cursor = at;
+                self.open_building();
             }
         }
     }
@@ -811,6 +815,7 @@ impl App {
                     | Screen::Split
                     | Screen::Planner
                     | Screen::Good
+                    | Screen::Building
             )
         }) else {
             return;
@@ -1531,9 +1536,63 @@ impl App {
         true
     }
 
-    fn next_recipe(&mut self) {
-        self.ui.notice =
-            crate::recipe::switch(&mut self.session, self.ui.cursor).unwrap_or_else(|why| why);
+    /// `R` in Select mode (#1068): the panel of the building under the cursor, or a notice saying
+    /// why there is none.
+    fn open_building(&mut self) {
+        match crate::building::open(&self.session, self.ui.cursor) {
+            Ok(edit) => {
+                self.ui.tool_list = None;
+                self.ui.scroll = 0;
+                self.ui.building = Some(edit);
+                self.ui.screen = Some(Screen::Building);
+            }
+            Err(why) => self.ui.notice = why,
+        }
+    }
+
+    /// What a key does on the building panel; whether it was one the panel took. Up and Down move
+    /// the pointer over the recipes, `Enter` sets the one under it, `O` opens its good's screen
+    /// (which comes back here), `V` the Split screen on a machine, `Esc` or `R` close.
+    fn building_key(&mut self, action: Action) -> bool {
+        let Some(mut edit) = self.ui.building else { return false };
+        match action {
+            Action::Move { dy, .. } if dy != 0 => {
+                crate::building::step(&self.session, &mut edit, dy.signum());
+            }
+            Action::Confirm => {
+                self.ui.notice =
+                    crate::building::pick(&mut self.session, &edit).unwrap_or_else(|why| why);
+                self.ui.status = self.ui.notice.clone();
+                self.ui.status_badge = Some(" BUILDING ");
+            }
+            Action::ToggleRepeat => {
+                if let Some(row) = crate::building::chosen(&self.session, &edit) {
+                    self.ui.building = Some(edit);
+                    self.open_good(row.output, Screen::Building);
+                }
+                return true;
+            }
+            Action::ShowSplit => {
+                if let Ok(split) = crate::split::open(&self.session, edit.at) {
+                    self.ui.building = None;
+                    self.ui.split = Some(split);
+                    self.ui.screen = Some(Screen::Split);
+                } else {
+                    self.ui.status = "Nothing to split: no touching machine takes it".to_owned();
+                    self.ui.status_badge = Some(" BUILDING ");
+                }
+                return true;
+            }
+            Action::Cancel | Action::NextRecipe => {
+                self.ui.building = None;
+                self.ui.screen = None;
+                return true;
+            }
+            Action::Move { .. } | Action::Jump { .. } => {}
+            _ => return false,
+        }
+        self.ui.building = Some(edit);
+        true
     }
 
     /// `X` in the Research screen (#712): clears the research target so the Archive's scholars
@@ -1602,6 +1661,12 @@ impl App {
                 self.ui.airship = Some(picks);
                 self.ui.screen = Some(Screen::Airship);
                 return;
+            }
+            // So does a building that makes something (#1068): its panel.
+            if self.ui.selectable_here(&self.session).is_empty()
+                && crate::building::open(&self.session, self.ui.cursor).is_ok()
+            {
+                return self.open_building();
             }
             self.ui.select_here(&self.session);
             return;
