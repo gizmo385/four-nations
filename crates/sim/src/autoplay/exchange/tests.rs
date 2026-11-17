@@ -100,15 +100,16 @@ fn an_aqueduct_line_runs_from_the_water_to_a_plot() {
     assert!(sited <= AQUEDUCT_TILES as u32, "{sited} tiles");
 }
 
-/// A Fire city (seed 9) played 420 minutes with the gate stood at 240 borrows techs, learns
-/// fusions, builds on the bank, makes steel and sends an airship (#764). One long run, so the
-/// checks that need a settled city share it. Seed 2 was the seed until the leaf bends became
-/// borrowable (#969): the opening then borrows three more techs first, and whether a given city
-/// loads its first airship by minute 420 is luck of the seed (most seeds don't, before or after).
-/// Seed 8 stopped sending one once wild food halved (#486); of seeds 1-24 only 9 and 20 do.
+/// A Fire city played 420 minutes with the gate stood at 240 borrows techs, learns fusions,
+/// builds on the bank, makes steel and keeps drawing newcomers (#764). One long run, so the checks
+/// that need a settled city share it. Which seed manages all of it is luck: seed 2 was the seed
+/// until the leaf bends became borrowable (#969), seed 8 until wild food halved (#486), and seed 9
+/// until settlers stopped claiming build sites whose materials are nowhere (#1076), which
+/// reshuffles who works what. On seeds 1-24 that change left steel on 7 seeds against 5 before
+/// and Steam Engines on the bank on 5 against 6; seed 24 does everything here.
 #[test]
 fn a_united_fire_city_borrows_fuses_and_uses_what_it_learns() {
-    let (mut w, defs) = found(Nation::Fire, 9);
+    let (mut w, defs) = found(Nation::Fire, 24);
     let economy = steady();
     play(&mut w, &defs, &economy, 0, 420, 240);
     let nation = w.nation;
@@ -117,15 +118,23 @@ fn a_united_fire_city_borrows_fuses_and_uses_what_it_learns() {
     };
     assert!(learned(|t, n| t.borrowed_from(n).is_some()) >= 3, "borrowed techs");
     assert!(learned(|t, _| t.is_fusion()) >= 2, "fusions");
-    let tally = |name: &str| w.tallies().school(name);
-    assert!(tally("steel_made") > 0, "the Steelworks made metal");
-    assert!(tally("voyages") > 0, "an airship sailed");
+    assert!(w.tallies().school("steel_made") > 0, "the Steelworks made metal");
     let engine = defs.building_id("steam_engine").unwrap();
     assert!(
         w.buildings().any(|b| b.id == engine && w.on_bank(b, &defs)),
         "a Steam Engine stands on the bank"
     );
     assert!(w.population() > 30, "newcomers kept coming: {}", w.population());
+}
+
+/// The same opening sends an airship by minute 420 (#764). Few seeds load one in time (of 1-24,
+/// 9 and 20 did before #1076, and 20 after); seed 20 does.
+#[test]
+fn a_united_fire_city_sends_an_airship() {
+    let (mut w, defs) = found(Nation::Fire, 20);
+    let economy = steady();
+    play(&mut w, &defs, &economy, 0, 420, 240);
+    assert!(w.tallies().school("voyages") > 0, "an airship sailed");
 }
 
 /// Call Rain is a joint bend whose second nation is always a newcomer, and a newcomer ranks up

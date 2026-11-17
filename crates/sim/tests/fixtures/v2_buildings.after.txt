@@ -3,8 +3,8 @@ deaths 0 buried 1
 
 [units]
 0 Goro (16,14) inside Some((16, 12)) task [Craft] carrying - hunger 82.290 thirst 73.434 energy 86.727 health 100.000 chi 100.000
-1 Ran (22,2) inside None task [] carrying - hunger 82.290 thirst 73.434 energy 86.727 health 100.000 chi 100.000
-2 Fumio (6,15) inside None task [] carrying - hunger 82.290 thirst 73.434 energy 86.727 health 100.000 chi 100.000
+1 Ran (6,16) inside None task [] carrying - hunger 82.290 thirst 73.434 energy 86.727 health 100.000 chi 100.000
+2 Fumio (5,14) inside None task [] carrying - hunger 82.290 thirst 73.434 energy 86.727 health 100.000 chi 100.000
 3 Kuzon (16,6) inside Some((16, 4)) task [Study] carrying - hunger 82.290 thirst 73.434 energy 86.727 health 100.000 chi 100.000
 4 Kiyoshi (16,6) inside Some((16, 4)) task [Study] carrying - hunger 82.290 thirst 73.434 energy 86.727 health 100.000 chi 100.000
 5 Saki (20,6) inside Some((20, 4)) task [Chart] carrying - hunger 82.290 thirst 73.434 energy 86.727 health 100.000 chi 100.000
@@ -73,7 +73,7 @@ flames [Flame { pos: Pos { x: 26, y: 20 }, radius: 3, seconds_left: 334.4, abili
 (10,6) building Some("campfire") footprint Some((10, 6, 1, 1)) resource None sapling false
 (12,6) building Some("healing_hut") footprint Some((12, 5, 2, 2)) resource None sapling false
 (13,6) building Some("healing_hut") footprint Some((12, 5, 2, 2)) resource None sapling false
-(19,9) building None footprint None resource Some("fruit_tree") sapling true
+(20,9) building None footprint None resource Some("fruit_tree") sapling true
 (22,10) building None footprint None resource Some("fruit_tree") sapling true
 (16,12) building Some("forge") footprint Some((16, 12, 2, 2)) resource None sapling false
 (17,12) building Some("forge") footprint Some((16, 12, 2, 2)) resource None sapling false

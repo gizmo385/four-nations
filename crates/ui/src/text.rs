@@ -155,7 +155,8 @@ pub fn caster_label(rank: Option<Rank>, count: usize) -> String {
 
 /// "Idle" with nothing designated for anyone at all, else why this particular unit has nothing
 /// to do right now (`World::idle_reason`, #337): "Idle: no reachable job", "Idle: out of chi",
-/// "Idle: stockpile full", "Idle: too hurt for heavy work" (#388). A unit genuinely idle for a
+/// "Idle: stockpile full", "Idle: too hurt for heavy work" (#388), "Idle: build sites need Ice"
+/// (#1076). A unit genuinely idle for a
 /// moment too brief to explain (`None`, the odd tick between a job becoming claimable and
 /// `claim_job` actually taking it) reads the same bare "Idle". One that can reach no water, no
 /// stockpile and not the settlement's heart reads "Idle: walled in" ahead of all of those
@@ -175,6 +176,9 @@ fn describe_idle(world: &World, defs: &Defs, unit: &Unit) -> String {
         Some(IdleReason::OutOfChi) => "Idle: out of chi".to_owned(),
         Some(IdleReason::StockpileFull) => "Idle: stockpile full".to_owned(),
         Some(IdleReason::TooHurt) => "Idle: too hurt for heavy work".to_owned(),
+        Some(IdleReason::NoMaterials(item)) => {
+            format!("Idle: build sites need {}", defs.item(item).name)
+        }
     }
 }
 
@@ -527,6 +531,34 @@ mod tests {
         }
         let unit = s.world.units.iter().find(|u| u.task().is_none()).expect("one stays idle");
         assert_eq!(describe_task(&s.world, &s.defs, unit), "Idle: stockpile full");
+    }
+
+    /// A bed designated with no wood anywhere reads "Idle: build sites need Wood" (#1076), not a
+    /// bare "Idle".
+    #[test]
+    fn an_idle_unit_names_the_material_a_build_site_is_missing() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Grid, Nation, Pos, Terrain, Tile, World};
+        let defs = Defs::bundled();
+        let map = Grid::from_fn(10, 3, |_| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: Terrain::Land,
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(0, 1)], &defs);
+        let bed = defs.building_id("bed").unwrap();
+        let mut s =
+            Session { world, defs, clock: crate::clock::Clock::default(), bend_choice: None };
+        s.apply(Command::DesignateBuild { pos: Pos::new(6, 1), building: bed }).unwrap();
+        s.tick_n(20);
+        assert_eq!(
+            describe_task(&s.world, &s.defs, &s.world.units[0]),
+            "Idle: build sites need Wood"
+        );
     }
 
     #[test]

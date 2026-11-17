@@ -358,9 +358,24 @@ impl World {
             }
             // Reachable as soon as the site itself is and nothing it still needs cleared
             // (`site_ready`, `docs/design/clearing.md`, issue #425), whether or not its
-            // materials are yet: a unit will wait on those, as a resting harvest does.
+            // materials are in stores yet: a unit fetches them as they come.
+            // But not while the next thing it needs is nowhere at all, in no stockpile and on no
+            // ground (#1076): `run_build` would only abandon it, and claiming it anyway hid why
+            // the settler was idle. Barred, it reads "needs materials" and the unit is free for
+            // other work. The Harmony Gate keeps its own rules (`run_gate_build`).
             JobKind::Build { pos } => {
-                self.site_ready(pos, defs).then(|| free(StandRule::Building(pos))).flatten()
+                if !self.site_ready(pos, defs) {
+                    return None;
+                }
+                let bar = match self.next_shortfall(pos, defs) {
+                    Some((_, item, _))
+                        if !self.is_gate(pos) && !self.any_source_for(item, defs) =>
+                    {
+                        Bar::Reason(Some(IdleReason::NoMaterials(item)))
+                    }
+                    _ => Bar::Free,
+                };
+                Some(Gate { stand: StandRule::Building(pos), bar })
             }
             // Not reachable at all with nothing queued to study toward: nobody should claim a
             // seat that would only idle there (#284). A seat is a place inside (#227), so the
