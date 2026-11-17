@@ -250,6 +250,12 @@ pub fn show(
 /// The close button in `at`: a click sets `out.close`.
 fn close_button(ui: &mut Ui, look: &Look<'_>, at: Rect, out: &mut Outcome) {
     ui.scope_builder(UiBuilder::new().max_rect(at), |ui| {
+        // Never wrapped: "Close" over "[Esc]" stood a row taller than the edge and covered the
+        // body's first row (the traders' time left, playtest feedback).
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        // Half a cell either side and none above or below, so it stays inside the cell high,
+        // two cells wide margin `show` gives it.
+        ui.spacing_mut().button_padding = vec2(look.cell.x * 0.5, 0.0);
         let text = RichText::new(CLOSE).font(look.font.clone());
         let button = Button::new(text).fill(look.panel).min_size(at.size());
         out.close |= ui.add(button).on_hover_cursor(CursorIcon::PointingHand).clicked();

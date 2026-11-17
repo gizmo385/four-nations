@@ -13,11 +13,11 @@
 //! - **The heading is a name**, in its own case: it is pinned above the scroll, so what the
 //!   inspector describes is always in sight.
 
-use eframe::egui::{Align, Button, CursorIcon, Label, Layout, ProgressBar, RichText, Ui, vec2};
+use eframe::egui::{Align, Label, Layout, ProgressBar, Ui, vec2};
 use fn_tui::widgets::Tone;
 use fn_ui::inspector::{Inspected, InspectorAction, Part};
 
-use crate::side::{Clicks, Look, heading_cased, key};
+use crate::side::{Clicks, Look, action_button, heading_cased, key};
 
 /// A meter bar is this many cells wide, as in the terminal.
 const BAR_CELLS: f32 = 10.0;
@@ -96,12 +96,9 @@ fn show_part(ui: &mut Ui, look: &Look<'_>, part: &Part, clicks: &mut Clicks) {
 /// An action of the inspector as a button ("Keep it", #967). Its click comes back as the key the
 /// terminal presses for it, as every click of the panel does.
 fn button(ui: &mut Ui, look: &Look<'_>, action: InspectorAction, clicks: &mut Clicks) {
-    let text = RichText::new(action.label()).font(look.font.clone());
-    let response = ui.add(Button::new(text).small());
-    if response.hovered() {
-        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-    }
-    if response.clicked()
+    // A little air above, so it doesn't sit on the line it acts on.
+    ui.add_space(look.ch * 0.25);
+    if action_button(ui, look, action.label()).clicked()
         && let Some(c) = action.key().chars().next()
     {
         clicks.push(key(c.to_ascii_lowercase()));

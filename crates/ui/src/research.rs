@@ -103,14 +103,23 @@ fn rate_text(base: f64, study: f64) -> String {
     }
 }
 
+/// The research label with no target while one could be chosen.
+pub const NO_TARGET: &str = "No target set";
+
+/// The research label with no target and none to choose: every tech in reach is known, or the
+/// rest wait on conditions ([`anything_to_research`]).
+pub const NOTHING_OPEN: &str = "Nothing to research now";
+
 pub fn research_status(world: &World, defs: &Defs) -> ResearchStatus {
     let research = world.research();
     let (base, study) = effective_rate(world, defs);
     let rate = rate_text(base, study);
     let pool = points(research.pool_millis());
     let Some(&front) = research.queue().first() else {
+        // With nothing that could be chosen, there is no target to ask for (playtest feedback).
+        let label = if anything_to_research(world, defs) { NO_TARGET } else { NOTHING_OPEN };
         return ResearchStatus {
-            label: "No target set".to_owned(),
+            label: label.to_owned(),
             frac: 0.0,
             pool: format!("{pool:.0} pts banked"),
             rate,
@@ -271,6 +280,20 @@ impl TechState {
             Self::Lost => "Lost",
         }
     }
+}
+
+/// Whether any tech could be chosen as the research target right now: one `set_target` would
+/// take (`Research::set_target` checks prereqs' conditions, schools, teachings and a borrowed
+/// tech's residents). The "No research target" alert (#656) waits on this, so it never asks for
+/// a choice there is none of. Tries each tech on one copy of the research: a refused target
+/// leaves it as it was.
+pub fn anything_to_research(world: &World, defs: &Defs) -> bool {
+    let mut research = world.research().clone();
+    let facts = world.facts();
+    (0..defs.techs.len()).any(|i| {
+        let tech = TechId(i as u16);
+        !research.is_known(tech) && research.set_target(tech, world.nation, &facts, defs).is_ok()
+    })
 }
 
 pub fn tech_state(

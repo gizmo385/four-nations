@@ -584,6 +584,12 @@ pub struct UnitView {
     pub bending: String,
 }
 
+/// The Avatar's rank, in place of a nation's title: he is judged by no nation's ranks.
+pub const AVATAR_RANK: &str = "Avatar";
+
+/// The Avatar's mastery line, in place of progress to a rank he never needs.
+pub const AVATAR_MASTERY: &str = "Master of all four elements";
+
 pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
     let defs = &session.defs;
     let s = &defs.needs;
@@ -592,19 +598,28 @@ pub fn unit_view(session: &Session, unit: &Unit) -> UnitView {
         NeedView { label, frac, status: need_status(frac, low) }
     };
     let low = |n: NeedDef| n.low / s.max();
-    // The Avatar (#237) reads "The Avatar - guest of <nation>", not his own name and nation
-    // (#242, the closed client issue #243's own wording): he belongs to no nation of his own,
-    // and `nation_of` already falls back to the settlement's for exactly this case.
+    // The Avatar (#237) reads "Aang - the Avatar, guest of <nation>": his own name, as every
+    // alert already calls him (`endeavor::describe_event`), and no nation of his own (#242);
+    // `nation_of` already falls back to the settlement's for exactly this case.
     let own_nation = session.world.nation_of(unit);
     let host = defs.nation(own_nation).name.clone();
     let (name, nation) = if unit.is_avatar() {
-        ("The Avatar".to_owned(), format!("guest of {host}"))
+        let name = defs.endeavor.avatar.as_ref().map_or("The Avatar", |a| a.name.as_str());
+        (name.to_owned(), format!("the Avatar, guest of {host}"))
     } else {
         (unit.name.clone(), host)
     };
     let progress = session.world.rank_of(unit, defs);
-    let rank_title = defs.mastery.title(own_nation, progress.rank).to_owned();
-    let mastery_line = crate::text::mastery_line(progress, defs.mastery.master_chi);
+    // The Avatar never casts anything rank-gated (`World::rank_of`), so the host nation's
+    // ranks mean nothing for him: he read "Student" (playtest feedback). He is the Avatar.
+    let (rank_title, mastery_line) = if unit.is_avatar() {
+        (AVATAR_RANK.to_owned(), AVATAR_MASTERY.to_owned())
+    } else {
+        (
+            defs.mastery.title(own_nation, progress.rank).to_owned(),
+            crate::text::mastery_line(progress, defs.mastery.master_chi),
+        )
+    };
     let bending = crate::text::bending_words(&rank_title, progress.bends);
     UnitView {
         id: unit.id,
@@ -1143,16 +1158,17 @@ mod tests {
         assert_eq!(v.needs[0].status, Status::Ok);
     }
 
-    /// The Avatar (#237, #242) reads "The Avatar - guest of <nation>" in place of his own name
-    /// and nation, whatever nation hosts him; an ordinary settler keeps its own.
+    /// The Avatar (#237, #242) reads "Aang - the Avatar, guest of <nation>", whatever nation
+    /// hosts him, with no nation's rank; an ordinary settler keeps its own name, nation and rank.
     #[test]
     fn the_avatar_reads_as_a_guest_of_the_settlement_s_nation() {
         use fn_sim::world::Guest;
         let mut s = Session::new(7, Nation::Water, 64, 64);
         s.world.units[0].guest = Some(Guest::Avatar);
         let v = unit_view(&s, &s.world.units[0]);
-        assert_eq!(v.name, "The Avatar");
-        assert_eq!(v.nation, "guest of Water Tribes");
+        assert_eq!(v.name, "Aang");
+        assert_eq!(v.nation, "the Avatar, guest of Water Tribes");
+        assert_eq!((v.rank_title.as_str(), v.mastery_line.as_str()), (AVATAR_RANK, AVATAR_MASTERY));
 
         let settler = unit_view(&s, &s.world.units[1]);
         assert_eq!(settler.name, s.world.units[1].name);

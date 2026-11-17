@@ -417,7 +417,12 @@ impl Alerts {
         // No research target with points banked (#656): also a standing condition, so a line
         // is logged when it is raised, not every call while it stays so.
         let banked = (world.research().pool_millis() / MILLIS_PER_POINT) as u32;
-        if world.research().queue().is_empty() && banked > 0 {
+        // Only while there is something to choose (playtest feedback): with every reachable
+        // tech known, or the rest waiting on conditions, the line would point at nothing.
+        if world.research().queue().is_empty()
+            && banked > 0
+            && crate::research::anything_to_research(world, &session.defs)
+        {
             if self.research_idle.is_none() {
                 let text = describe_research_idle(banked);
                 fresh.push(((world.tick, RESEARCH_ORDER), Line::new(Kind::Research, text, None)));

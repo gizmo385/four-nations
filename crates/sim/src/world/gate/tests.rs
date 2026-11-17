@@ -404,6 +404,30 @@ fn a_full_plaza_is_enough_even_when_the_share_asks_for_more() {
     assert_eq!(events.last(), Some(&&EndeavorEventKind::Complete));
 }
 
+/// The Avatar State sustains him (playtest feedback): while he holds the rite his hunger,
+/// thirst and energy stand still, however long a pause for attendance lasts. Before, he sat on
+/// the plaza starving, held up only by his floor of 1 health.
+#[test]
+fn the_avatar_s_needs_stand_still_while_he_holds_the_rite() {
+    // Every settler must attend and there is no food for them, so the rite never finishes.
+    let defs = defs_with_rite(60.0, 1.0);
+    let mut w = world(Nation::Earth, 3, &defs);
+    begin(&mut w, &defs);
+    run_until(&mut w, &defs, 3_000, |w| {
+        w.units.iter().any(|u| u.is_avatar() && u.job_task == Some(Task::Rite))
+    });
+    let i = w.units.iter().position(Unit::is_avatar).expect("he is here");
+    w.units[i].needs.hunger = 30.0;
+    w.units[i].needs.thirst = 30.0;
+    w.units[i].needs.energy = 30.0;
+    for _ in 0..2_000 {
+        w.tick(&defs);
+    }
+    let avatar = w.units.iter().find(|u| u.is_avatar()).expect("he never leaves mid-rite");
+    assert_eq!(avatar.job_task, Some(Task::Rite));
+    assert_eq!((avatar.needs.hunger, avatar.needs.thirst, avatar.needs.energy), (30.0, 30.0, 30.0));
+}
+
 #[test]
 fn a_death_during_the_rite_resets_its_progress() {
     let defs = defs_with_rite(0.2, 0.5); // 12 seconds of attendance, out of 3 settlers.

@@ -166,7 +166,7 @@ pub fn withdraw(session: &mut Session) -> Result<String, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use fn_sim::jobs::JobKind;
     use fn_sim::world::EndeavorState;
     use fn_sim::{Nation, World};

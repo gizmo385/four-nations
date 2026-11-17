@@ -310,6 +310,7 @@ pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
     }
     rows.push(Row::default());
     rows.push(Row::text(v.stage.clone(), Tone::Strong));
+    rows.extend(needs_rows(&v.needs, width, marks));
     // What can be done with the gate now (#643): place it once Ready, withdraw it until work
     // starts. The whole line is the hint.
     if let Some(action) = &v.action {
@@ -320,6 +321,16 @@ pub fn lines(session: &Session, width: usize, marks: &Marks) -> Vec<Row> {
         rows.extend(group_rows(group, name_width, width, marks));
     }
     rows
+}
+
+/// What the stage under way still needs (`crate::endeavor::stage_needs`), under the stage line:
+/// each line wrapped and indented two cells.
+pub fn needs_rows(needs: &[String], width: usize, marks: &Marks) -> Vec<Row> {
+    needs
+        .iter()
+        .flat_map(|need| wrap(need, width.saturating_sub(2), usize::MAX, marks.ellipsis))
+        .map(|line| Row::text(format!("  {line}"), Tone::Text))
+        .collect()
 }
 
 /// The SPIRITS line once the Spirit Portal is open (F6d, F6e): "The Spirit Portal is open: 3
