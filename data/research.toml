@@ -69,7 +69,7 @@ borrow_residents = 3                 # residents of its nation needed to borrow 
 id = "fire_making"
 core = true
 name = "Fire Making"
-description = "Keep a flame alive: cook food and stay warm."
+description = "Build a campfire to cook food and keep warm."
 cost = 25
 # Later: jobs = ["cook"]
 [tech.unlocks]
@@ -87,7 +87,7 @@ cost = 25
 id = "fishing"
 core = true
 name = "Fishing"
-description = "Nets, lines and the patience to use them."
+description = "Catch fish from good fishing spots."
 cost = 25
 [tech.unlocks]
 jobs = ["fish_spot"]
@@ -127,7 +127,7 @@ prereqs = ["fire_making"]
 id = "carpentry"
 core = true
 name = "Carpentry"
-description = "Saws, joints and the workbench: build in wood."
+description = "Build a workshop for tools, and build a little faster."
 cost = 60
 prereqs = ["shelter"]
 # The workbench: a shared Workshop makes tools from wood (issue #369,
@@ -165,7 +165,7 @@ buildings = ["herb_garden"]
 id = "writing"
 core = true
 name = "Writing"
-description = "Set knowledge down in scrolls so it outlives the teller."
+description = "Study goes faster, and study halls get two more seats."
 cost = 120
 prereqs = ["pottery"]
 [tech.unlocks]
@@ -178,7 +178,7 @@ seats = 2                  # added to the building's own `seats`
 id = "prospecting"
 core = true
 name = "Prospecting"
-description = "Read the colour and weight of rock to know where gold hides."
+description = "Find and mine gold veins and seams."
 cost = 250
 prereqs = ["stoneworking"]
 # Gates gold mining the same way stoneworking gates stone (#383, docs/design/materials.md):
@@ -259,7 +259,7 @@ buildings = ["mine_shaft"]
 id = "earth_rail"
 core = true
 name = "Earth Rail"
-description = "Stone carts pushed along rails by earthbenders, as in Ba Sing Se."
+description = "Lay rail that earthbenders push carts along. Haulers carry more."
 nation = "earth"
 teachable = true
 cost = 250
@@ -274,7 +274,7 @@ modifiers = { carry_capacity = 1.25 }
 id = "seismic_sense"
 core = true
 name = "Seismic Sense"
-description = "Feel the earth for what lies beneath, and for hot springs to turn mills."
+description = "Sense what is under the ground, and build mills on hot springs."
 nation = "earth"
 cost = 250
 prereqs = ["tunneling"]
@@ -289,7 +289,7 @@ buildings = ["hot_spring_mill"]
 id = "metalbending"
 core = true
 name = "Metalbending"
-description = "Bend the earth still left in metal."
+description = "Bend metal, and dig deep mines."
 nation = "earth"
 cost = 500
 prereqs = ["seismic_sense", "masonry"]
@@ -339,7 +339,7 @@ modifiers = { construction = 1.15 }
 id = "smelting"
 core = true
 name = "Smelting"
-description = "Draw metal out of ore with steady firebending heat."
+description = "Build a smelter to turn ore into metal. Firebending heat works better."
 nation = "fire"
 teachable = true
 cost = 120
@@ -352,7 +352,7 @@ modifiers = { heating = 1.2 }
 id = "dancing_dragon"
 core = true
 name = "Dancing Dragon"
-description = "The Sun Warriors' teaching: fire is life and energy, not rage."
+description = "Firebenders learn Inner Fire, and heat works better."
 nation = "fire"
 cost = 250
 prereqs = ["smelting"]
@@ -377,7 +377,7 @@ modifiers = { power_generation = 1.25 }
 id = "lightning_generation"
 core = true
 name = "Lightning Generation"
-description = "Firebenders feed lightning into a power station, Republic City style."
+description = "Build a lightning station, a strong power source."
 nation = "fire"
 cost = 500
 prereqs = ["dancing_dragon", "steam_engines"]
@@ -468,7 +468,7 @@ buildings = ["fishing_dock"]
 id = "spirit_oasis"
 core = true
 name = "Spirit Oasis"
-description = "A still pool where push and pull find balance, restoring chi and spirits."
+description = "Waterbenders work faster."
 nation = "water"
 cost = 500
 prereqs = ["healing", "tide_mills"]
@@ -484,7 +484,7 @@ modifiers = { water_work = 1.25 }
 id = "orchards"
 core = true
 name = "Orchards"
-description = "Plant and tend fruit trees for food that needs no fire."
+description = "Plant orchards for fruit."
 nation = "air"
 teachable = true
 cost = 25
@@ -498,7 +498,7 @@ buildings = ["orchard"]
 id = "meditation"
 core = true
 name = "Meditation"
-description = "Quiet the mind; chi flows and lessons come easier."
+description = "Study and chi recovery go faster. Airbenders learn Air Shield."
 nation = "air"
 cost = 60
 # It raises chi regeneration and study speed, and the study hall exists from the start (named
@@ -513,7 +513,7 @@ abilities = ["air_shield"]
 id = "gliders"
 core = true
 name = "Gliders"
-description = "Glider staffs carry airbenders over the land."
+description = "Airbenders glide, and everyone moves a little faster."
 nation = "air"
 cost = 60
 prereqs = ["carpentry"]
@@ -526,7 +526,7 @@ modifiers = { move_speed = 1.15 }
 id = "windmills"
 core = true
 name = "Windmills"
-description = "Catch the wind to grind grain into more food."
+description = "Build windmills for power, and airbenders learn Lift."
 nation = "air"
 cost = 120
 prereqs = ["gliders", "farming"]
@@ -556,7 +556,7 @@ modifiers = { move_speed = 1.2 }
 id = "wind_turbines"
 core = true
 name = "Wind Turbines"
-description = "Airbenders spin turbines that power workshops."
+description = "Build wind turbines to power workshops."
 nation = "air"
 teachable = true
 cost = 250
@@ -572,7 +572,7 @@ modifiers = { power_generation = 1.25 }
 id = "sky_bison"
 core = true
 name = "Sky Bison"
-description = "Befriend sky bison to haul loads and fly far."
+description = "Build a bison stable. Haulers carry more."
 nation = "air"
 cost = 500
 prereqs = ["meditation", "air_scooter"]
@@ -590,7 +590,7 @@ modifiers = { carry_capacity = 1.3 }
 [[tech]]
 id = "paving"
 name = "Paving"
-description = "Lay dressed stone so people and carts move faster."
+description = "Lay paved roads that people walk faster on, even diagonally."
 cost = 120
 prereqs = ["masonry"]
 [tech.unlocks]
@@ -599,7 +599,7 @@ buildings = ["paved_road"]
 [[tech]]
 id = "calendar"
 name = "Calendar"
-description = "Count the days to the frost and keep the fields sown."
+description = "See when the frost comes, and set fields to re-sow themselves."
 cost = 250
 prereqs = ["writing"]
 [tech.unlocks]
@@ -608,7 +608,7 @@ features = ["almanac", "standing_sow"]
 [[tech]]
 id = "lemur_keeping"
 name = "Lemur Keeping"
-description = "Winged lemurs pick ripe fruit and carry it home."
+description = "Build a lemur roost. Lemurs pick ripe fruit and bring it back."
 nation = "air"
 teachable = true
 cost = 120
@@ -619,7 +619,7 @@ buildings = ["lemur_roost"]
 [[tech]]
 id = "oil_lamps"
 name = "Oil Lamps"
-description = "Burn fish oil in stone lamps for heat where no trees grow."
+description = "Build oil lamps that burn fish oil for heat."
 nation = "water"
 teachable = true
 cost = 120
@@ -630,7 +630,7 @@ buildings = ["oil_lamp"]
 [[tech]]
 id = "hothouses"
 name = "Hothouses"
-description = "Brick and glass rooms keep crops growing through winter."
+description = "Build hothouses so crops keep growing in winter."
 nation = "fire"
 teachable = true
 cost = 250
@@ -641,7 +641,7 @@ buildings = ["hothouse"]
 [[tech]]
 id = "omashu_chutes"
 name = "Omashu Chutes"
-description = "Earthbenders cut stone slides that carry goods down the mountain."
+description = "Build stone chutes that slide goods downhill."
 nation = "earth"
 teachable = true
 cost = 250
@@ -654,7 +654,7 @@ buildings = ["chute"]
 [[tech]]
 id = "waystations"
 name = "Waystations"
-description = "Raise a shelter with food, water and beds for crews far from home."
+description = "Build waystations with food, water and beds for crews far from home."
 cost = 250
 prereqs = ["cartography"]
 [tech.unlocks]
@@ -663,7 +663,7 @@ buildings = ["waystation"]
 [[tech]]
 id = "canals"
 name = "Canals"
-description = "Waterbenders cut channels that bring the river to the fields."
+description = "Waterbenders carve canals that water nearby fields."
 nation = "water"
 teachable = true
 cost = 250
@@ -675,7 +675,7 @@ abilities = ["carve_canal"]
 [[tech]]
 id = "wind_gates"
 name = "Wind Gates"
-description = "Paired towers where airbenders ride the wind from one to the other."
+description = "Build paired wind gates that carry people between them."
 nation = "air"
 teachable = true
 cost = 250
@@ -687,7 +687,7 @@ buildings = ["wind_gate"]
 [[tech]]
 id = "cargo_balloons"
 name = "Cargo Balloons"
-description = "Hot-air balloons carry goods between two docks over any ground."
+description = "Build balloon docks that carry goods between two points."
 nation = "fire"
 teachable = true
 cost = 500
@@ -698,7 +698,7 @@ buildings = ["balloon_dock"]
 [[tech]]
 id = "herding"
 name = "Herding"
-description = "Raise beasts of burden to carry loads on the long trips."
+description = "Build a stable for pack beasts that carry loads on long trips."
 nations = ["earth", "fire", "water"]
 cost = 250
 prereqs = ["farming"]
@@ -710,7 +710,7 @@ buildings = ["stable"]
 [[tech]]
 id = "badgermole_ways"
 name = "Badgermole Ways"
-description = "Badgermoles dig the tunnels that taught the first earthbenders."
+description = "Build a badgermole den. Badgermoles dig tunnels."
 nation = "earth"
 cost = 500
 prereqs = ["tunneling", "seismic_sense"]
@@ -722,7 +722,7 @@ buildings = ["badgermole_den"]
 [[tech]]
 id = "tea_ceremony"
 name = "Tea Ceremony"
-description = "Brew herbs into tea for guests, and the traders stay a while."
+description = "Build a tea house. Traders stay longer."
 cost = 120
 prereqs = ["herbalism", "pottery"]
 # The Tea House (#710, docs/design/horizons-phase-3.md, "`tea_ceremony`"): a herb bunker that,
@@ -738,7 +738,7 @@ buildings = ["tea_house"]
 [[tech]]
 id = "trade_wares"
 name = "Trade Wares"
-description = "Carve bowls, boxes and toys that traders pay well for."
+description = "Workshops can make wares, which traders pay well for."
 cost = 250
 prereqs = ["carpentry"]
 requires = { chapter = "known_on_the_road" }
@@ -750,7 +750,7 @@ recipe = "wares"
 [[tech]]
 id = "archives"
 name = "Archives"
-description = "Keep a hall of records, and copy what the scholars know for the traders."
+description = "Build an archive that copies scrolls to sell to traders."
 cost = 500
 prereqs = ["writing"]
 # The Archive (#709, docs/design/horizons-phase-3.md, "`archives`"): more seats for the study
@@ -770,7 +770,7 @@ question = "Temple or sky?"
 [[tech]]
 id = "high_temple"
 name = "High Temple"
-description = "Raise a temple on the peak, where chi and study come easily."
+description = "Build a high temple on a peak for faster study and chi."
 nation = "air"
 cost = 1000
 prereqs = ["sky_bison"]
@@ -784,7 +784,7 @@ buildings = ["high_temple"]
 [[tech]]
 id = "nomad_way"
 name = "Nomad Way"
-description = "Build light, pack up whole, and follow fresh land."
+description = "Pack buildings up whole and set them down somewhere else."
 nation = "air"
 cost = 1000
 prereqs = ["sky_bison"]
@@ -805,7 +805,7 @@ question = "North or South?"
 [[tech]]
 id = "northern_city"
 name = "Northern City"
-description = "Cut ice like stone, and raise a city of it at the water's edge."
+description = "Ice counts as stone for building."
 nation = "water"
 cost = 1000
 prereqs = ["spirit_oasis"]
@@ -821,7 +821,7 @@ stands_for = "stone"
 [[tech]]
 id = "southern_ways"
 name = "Southern Ways"
-description = "Range the whole coast in small camps that keep the crews warm and fed."
+description = "Fish from any shore. Waystations are free and shelter six."
 nation = "water"
 cost = 1000
 prereqs = ["spirit_oasis"]
@@ -848,7 +848,7 @@ question = "Which city?"
 [[tech]]
 id = "agrarian_ring"
 name = "Agrarian Ring"
-description = "Ring the fields in stone, and winter stays outside the walls."
+description = "Ring gates. Fields inside a closed ring of walls are sheltered from winter."
 nation = "earth"
 cost = 1000
 prereqs = ["metalbending"]
@@ -863,7 +863,7 @@ features = ["sheltered_rings"]
 [[tech]]
 id = "metal_city"
 name = "Metal City"
-description = "Lay rails of bent metal that carry goods and power through the mountain."
+description = "Lay metal rail, and hot spring mills give 50% more power."
 nation = "earth"
 cost = 1000
 prereqs = ["metalbending"]
@@ -888,7 +888,7 @@ question = "What is fire for?"
 [[tech]]
 id = "sun_warriors"
 name = "Sun Warriors"
-description = "Learn fire from the dragons: flames that need no fuel, and warmth that heals."
+description = "Campfires heal and restore chi, and hothouses need no fuel."
 nation = "fire"
 cost = 1000
 prereqs = ["lightning_generation"]
@@ -907,7 +907,7 @@ fuel_free = true
 [[tech]]
 id = "great_works"
 name = "Great Works"
-description = "Lightning drives the machines, and the yard runs with no hands at the bench."
+description = "Lightning stations run nearby machines with no crafter."
 nation = "fire"
 cost = 1000
 prereqs = ["lightning_generation"]
@@ -927,7 +927,7 @@ automate = { rate = 1.0, radius = 4, capacity = 6 }    # radius from the footpri
 [[tech]]
 id = "pai_sho"
 name = "Pai Sho"
-description = "Learn the old game, and the White Lotus learns of you."
+description = "Build a Pai Sho table. The White Lotus takes notice."
 cost = 250
 requires = { chapter = "known_on_the_road" }
 [tech.teaching]
@@ -937,7 +937,7 @@ buildings = ["pai_sho_table"]
 [[tech]]
 id = "crystal_growing"
 name = "Crystal Growing"
-description = "Coax glowing crystals from the walls of the tunnels."
+description = "Build a crystal grotto in the tunnels to grow glow crystals."
 nation = "earth"
 cost = 250
 prereqs = ["tunneling"]
@@ -951,7 +951,7 @@ buildings = ["crystal_grotto"]
 [[tech]]
 id = "spirit_library"
 name = "Spirit Library"
-description = "Wan Shi Tong's foxes come to study beside your scholars."
+description = "A fox spirit comes to study in each study hall."
 cost = 250
 prereqs = ["writing"]
 [tech.teaching]
@@ -963,7 +963,7 @@ spirit_seats = 1
 [[tech]]
 id = "spirit_water"
 name = "Spirit Water"
-description = "Water from the spirit oasis, kept for the one who can't be saved any other way."
+description = "Each healing hut keeps one vial a year to save someone who would die."
 nation = "water"
 cost = 250
 prereqs = ["healing"]
@@ -978,7 +978,7 @@ vials_per_year = 1
 [[tech]]
 id = "sandbending"
 name = "Sandbending"
-description = "Shape the desert's sand into sails, roads and blocks of stone."
+description = "Build sandstone works, and move twice as fast on desert."
 nation = "earth"
 cost = 250
 prereqs = ["earth_shaping"]
@@ -991,7 +991,7 @@ biome_speed = { desert = 2.0 }   # sand sailers: steps onto desert are twice as 
 [[tech]]
 id = "plantbending"
 name = "Plantbending"
-description = "Draw the water through the roots and wake the tired soil."
+description = "Waterbenders learn Regrow to restore tired ground."
 nation = "water"
 teachable = true
 cost = 250
@@ -1003,7 +1003,7 @@ abilities = ["regrow"]
 [[tech]]
 id = "spirit_projection"
 name = "Spirit Projection"
-description = "Leave the body behind in meditation, and see what the land hides."
+description = "Airbenders learn Project to scout the map from afar."
 nation = "air"
 teachable = true
 cost = 250
@@ -1017,7 +1017,7 @@ abilities = ["project"]
 [[tech]]
 id = "sun_stone"
 name = "Sun Stone"
-description = "The Sun Warriors' stone gathers the summer sun for firebenders."
+description = "Build a sun stone. Nearby chi returns twice as fast in spring and summer."
 nation = "fire"
 cost = 250
 prereqs = ["dancing_dragon"]
@@ -1028,7 +1028,7 @@ buildings = ["sun_stone"]
 [[tech]]
 id = "hot_springs"
 name = "Hot Springs"
-description = "Build baths over the springs, where the mountain's heat rises."
+description = "Build bathhouses by the rock. A bath restores energy and keeps out the cold."
 nation = "fire"
 cost = 250
 prereqs = ["brickmaking"]
@@ -1042,7 +1042,7 @@ buildings = ["bathhouse"]
 [[tech]]
 id = "guru_teachings"
 name = "Guru Teachings"
-description = "Open the seven chakras, and let chi flow freely."
+description = "Masters spend a quarter less chi."
 nation = "air"
 cost = 250
 prereqs = ["meditation"]
@@ -1064,7 +1064,7 @@ empty_scroll_knowledge = 100
 [[tech]]
 id = "star_charts"
 name = "Star Charts"
-description = "Chart the moon, the sun and the winds, and know the days a bender's chi runs high."
+description = "See which days give benders more chi."
 cost = 500
 prereqs = ["calendar", "cartography"]
 [tech.unlocks]
@@ -1079,7 +1079,7 @@ features = ["celestial_days"]
 [[tech]]
 id = "steelworks"
 name = "Steelworks"
-description = "Earth reads the ore and Fire holds the heat. Nothing is lost in the slag."
+description = "Build a steelworks that makes steel and fittings."
 fusion = ["earth", "fire"]
 cost = 1000
 prereqs = ["prospecting"]
@@ -1101,7 +1101,7 @@ recipe = "fittings"
 [[tech]]
 id = "aqueducts"
 name = "Aqueducts"
-description = "Earth raises the channel and Water fills it. The river goes where the fields are."
+description = "Build aqueducts that carry water to fields and drinking spots."
 fusion = ["earth", "water"]
 cost = 1000
 prereqs = ["masonry", "farming"]
@@ -1120,7 +1120,7 @@ buildings = ["aqueduct"]
 [[tech]]
 id = "steam_power"
 name = "Steam Power"
-description = "Water feeds the boiler and Fire keeps it hot. Engines on the bank never run dry."
+description = "Steam engines by the water never need refuelling."
 fusion = ["fire", "water"]
 cost = 1000
 prereqs = ["steam_engines"]
@@ -1141,7 +1141,7 @@ bank = { beside = ["water", "river", "lake", "canal"], radius = 4 }
 [[tech]]
 id = "cloudbending"
 name = "Cloudbending"
-description = "Water lifts the sea into the sky and Air carries the cloud inland."
+description = "Call rain over dry fields."
 fusion = ["water", "air"]
 cost = 1000
 prereqs = ["farming"]
@@ -1161,7 +1161,7 @@ abilities = ["call_rain"]
 [[tech]]
 id = "airships"
 name = "Airships"
-description = "Fire lifts the hull and Air steers it. Our own traders go out to the world."
+description = "Build an airship dock and send your own traders to other nations."
 fusion = ["fire", "air"]
 cost = 1000
 prereqs = ["cartography"]
@@ -1180,7 +1180,7 @@ buildings = ["airship_dock"]
 [[tech]]
 id = "sky_lifts"
 name = "Sky Lifts"
-description = "Earth anchors the towers in the rock and Air keeps the cars aloft."
+description = "Build paired sky lifts between rock faces that carry people and loads."
 fusion = ["earth", "air"]
 cost = 1000
 prereqs = ["masonry", "carpentry"]
@@ -1201,7 +1201,7 @@ buildings = ["sky_lift"]
 [[tech]]
 id = "lanterncraft"
 name = "Lanterncraft"
-description = "Every Fire home keeps a flame of its own, and the best smiths make the steel to hold it."
+description = "Forges make lanterns and steelworks make fine steelware."
 nation = "fire"
 cost = 600
 prereqs = ["smelting"]
@@ -1218,7 +1218,7 @@ recipe = "steelware"
 [[tech]]
 id = "smokehouses"
 name = "Smokehouses"
-description = "Smoke the catch so it keeps, and tan the skins for coats against the cold."
+description = "Build a smokehouse for smoked fish and hides. Workshops can make parkas."
 nation = "water"
 cost = 600
 prereqs = ["water_travel"]
@@ -1233,7 +1233,7 @@ recipe = "parkas"
 [[tech]]
 id = "joinery"
 name = "Joinery"
-description = "Tables and chairs joined to last a lifetime, and stone cut fine enough to wear."
+description = "Workshops can make furniture and jewellery."
 nation = "earth"
 cost = 600
 prereqs = ["tunneling"]
@@ -1250,7 +1250,7 @@ recipe = "jewellery"
 [[tech]]
 id = "tea_works"
 name = "Tea Works"
-description = "Dry the leaves in the high wind, and burn sweet smoke at the shrines."
+description = "Build tea works for tea and incense."
 nation = "air"
 cost = 600
 prereqs = ["orchards"]
@@ -1268,7 +1268,7 @@ buildings = ["tea_works"]
 [[tech]]
 id = "mechanisms"
 name = "Mechanisms"
-description = "Gears and shafts take the work from tired hands, wherever the power reaches."
+description = "Mills run nearby machines with no crafter."
 cost = 1000
 prereqs = []
 requires = { united = true }
@@ -1293,7 +1293,7 @@ automate = { rate = 0.5, radius = 6, capacity = 4 }
 [[tech]]
 id = "freight_lines"
 name = "Freight Lines"
-description = "A cart on rail, pushed by an earthbender, carries a load no hauler could."
+description = "Build freight stations that carry heavy goods far."
 nation = "earth"
 cost = 1000
 prereqs = []
@@ -1304,7 +1304,7 @@ buildings = ["freight_station"]
 [[tech]]
 id = "flumes"
 name = "Flumes"
-description = "Cut the channel, bend the water, and let the river do the carrying."
+description = "Build flumes that float goods between two points by the water."
 nation = "water"
 cost = 1000
 prereqs = []
@@ -1315,7 +1315,7 @@ buildings = ["flume"]
 [[tech]]
 id = "wind_tubes"
 name = "Wind Tubes"
-description = "A held gust down a straight tube, faster than anyone can run."
+description = "Build wind tubes that blow light goods along a straight line, fast."
 nation = "air"
 cost = 1000
 prereqs = []
@@ -1333,7 +1333,7 @@ buildings = ["wind_tube"]
 [[tech]]
 id = "lightning_plants"
 name = "Lightning Plants"
-description = "Your finest firebenders crew the plant, and the whole city hums."
+description = "Build lightning plants and steel foundries. The plant runs machines on its own."
 nation = "fire"
 cost = 1500
 prereqs = ["mechanisms"]
@@ -1350,7 +1350,7 @@ automate = { rate = 1.0, radius = 6, capacity = 4, crew = 4, per_crew = 3 }
 [[tech]]
 id = "geothermal_vents"
 name = "Geothermal Vents"
-description = "Small vents bored into the rock, one beside the next, each turning a shaft."
+description = "Build geothermal vents and furniture works. The vents run machines on their own."
 nation = "earth"
 cost = 1500
 prereqs = ["mechanisms"]
@@ -1367,7 +1367,7 @@ automate = { rate = 0.6, radius = 3, beside = ["mountain", "tunnel"], capacity =
 [[tech]]
 id = "hydro_mills"
 name = "Hydro Mills"
-description = "A steady wheel on the bank, its race kept running by your best waterbenders."
+description = "Build hydro mills and parka works. The mills run machines on their own."
 nation = "water"
 cost = 1500
 prereqs = ["mechanisms"]
@@ -1384,7 +1384,7 @@ automate = { rate = 0.75, radius = 5, beside = ["water", "river", "lake", "canal
 [[tech]]
 id = "wind_farms"
 name = "Wind Farms"
-description = "A field of sails that needs no hands at all."
+description = "Build wind farms and herb houses. The farms run machines on their own."
 nation = "air"
 cost = 1500
 prereqs = ["mechanisms"]
@@ -1406,7 +1406,7 @@ automate = { rate = 0.5, radius = 8, capacity = 10 }
 [[tech]]
 id = "smoke_kilns"
 name = "Smoke Kilns"
-description = "One fire, two crafts: Fire shapes the lantern while Water smokes the catch."
+description = "Build a smoke kiln for lanterns and smoked fish."
 fusion = ["fire", "water"]
 cost = 1000
 prereqs = ["mechanisms"]
@@ -1420,7 +1420,7 @@ buildings = ["smoke_kiln"]
 [[tech]]
 id = "mountain_works"
 name = "Mountain Works"
-description = "Earth cuts the timber true and Air dries the herbs on the high wind."
+description = "Build mountain works for furniture, tea and incense."
 fusion = ["earth", "air"]
 cost = 1000
 prereqs = ["mechanisms"]
@@ -1434,7 +1434,7 @@ buildings = ["mountain_works"]
 [[tech]]
 id = "ember_joinery"
 name = "Ember Joinery"
-description = "Earth's joints and Fire's metalwork, at one bench that never cools."
+description = "Build an ember joinery for lanterns and furniture."
 fusion = ["fire", "earth"]
 cost = 1000
 prereqs = ["mechanisms"]
@@ -1448,7 +1448,7 @@ buildings = ["ember_joinery"]
 [[tech]]
 id = "sky_lanterns"
 name = "Sky Lanterns"
-description = "Fire lights the paper and Air lifts it; the same hearth steeps the tea."
+description = "Build sky lantern works for lanterns and tea."
 fusion = ["fire", "air"]
 cost = 1000
 prereqs = ["mechanisms"]
@@ -1462,7 +1462,7 @@ buildings = ["sky_lantern_works"]
 [[tech]]
 id = "river_mills"
 name = "River Mills"
-description = "Water turns the saw and Earth sets the frame; the race carries the smoke away."
+description = "Build a river mill for furniture and smoked fish."
 fusion = ["earth", "water"]
 cost = 1000
 prereqs = ["mechanisms"]
@@ -1476,7 +1476,7 @@ buildings = ["river_mill"]
 [[tech]]
 id = "mist_houses"
 name = "Mist Houses"
-description = "Water's steam and Air's breeze: the fish smoke slow and the tea leaves curl."
+description = "Build a mist house for smoked fish and tea."
 fusion = ["water", "air"]
 cost = 1000
 prereqs = ["mechanisms"]
@@ -1495,7 +1495,7 @@ buildings = ["mist_house"]
 [[tech]]
 id = "republic_council"
 name = "The Republic Council"
-description = "A seat for every nation, and a hall to hold them. The city governs itself."
+description = "Build the Council Hall. Once it stands, the council meets."
 cost = 2000
 prereqs = ["mechanisms"]
 requires = { united = true, notables = { air = 2, water = 2, earth = 2, fire = 2 } }
@@ -1512,7 +1512,7 @@ buildings = ["council_hall"]
 [[tech]]
 id = "spirit_gardens"
 name = "Spirit Gardens"
-description = "A quiet place of stone and fruit trees. The spirits rest easier near it."
+description = "Build spirit gardens to keep the spirits calm. No vines grow near them."
 cost = 1000
 prereqs = ["mechanisms"]
 requires = { united = true }
@@ -1526,7 +1526,7 @@ buildings = ["spirit_garden"]
 [[tech]]
 id = "spirit_portal"
 name = "The Spirit Portal"
-description = "A door the spirits can walk through. They come only to a city at peace with them."
+description = "Build the Spirit Portal, the last great work. The spirits must be at peace."
 cost = 2500
 prereqs = ["spirit_gardens"]
 requires = { united = true, council = true, balance = 80 }

@@ -192,7 +192,7 @@ fn a_short_window_scrolls_the_list_and_says_where() {
     let mut app = GuiApp::with_shell(game(Nation::Earth, "i"));
     let total = abilities(&state(app.shell()).session).len();
     let mut h = Harness::builder()
-        .with_size(egui::vec2(640.0, 240.0))
+        .with_size(egui::vec2(640.0, 200.0))
         .with_context_setup(fn_gui::setup)
         .build_ui(|ui| app.show(ui));
     h.run_steps(3);

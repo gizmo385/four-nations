@@ -369,7 +369,26 @@ pub fn unlock_parts(
             .filter_map(|b| defs.building_id(b))
             .map(|b| defs.building(b).display_name(nation).to_owned()),
     );
-    parts.extend(def.unlocks.upgrades.iter().filter_map(|u| {
+    // Power sources that start running nearby machines (#1037) are named together, in one short
+    // phrase: three full sentences ran off the research screen (playtest, 2026-11-16). The
+    // building's own inspector says how far it reaches and where it must stand.
+    let automators: Vec<String> = def
+        .unlocks
+        .upgrades
+        .iter()
+        .filter(|u| u.automate.is_some())
+        .filter_map(|u| defs.building_id(&u.building))
+        .map(|b| defs.building(b).display_name(nation).to_owned())
+        .collect();
+    if !automators.is_empty() {
+        let (verb, names) = match automators.as_slice() {
+            [one] => ("runs", one.clone()),
+            [init @ .., last] => ("run", format!("{} and {last}", init.join(", "))),
+            [] => unreachable!(),
+        };
+        parts.push(format!("{names} {verb} nearby machines with no crafter"));
+    }
+    parts.extend(def.unlocks.upgrades.iter().filter(|u| u.automate.is_none()).filter_map(|u| {
         if let (Some(item), Some(target)) = (&u.item, &u.stands_for) {
             // "Ice pays for stone" (#726).
             let name = |id: &str| defs.item_id(id).map(|i| defs.item(i).name.clone());
@@ -421,21 +440,6 @@ pub fn unlock_parts(
         }
         if u.fuel_free == Some(true) {
             return Some(format!("{} needs no fuel", b.display_name(nation)));
-        }
-        if let Some(a) = &u.automate {
-            // Water's race and Earth's face (#1037): a machine must touch the water or the rock.
-            let along = if a.beside.is_empty() {
-                ""
-            } else if a.beside.contains(&fn_sim::defs::Terrain::Mountain) {
-                " at the rock"
-            } else {
-                " along the water"
-            };
-            return Some(format!(
-                "Machines within {} tiles of a {}{along} run with no crafter",
-                a.radius,
-                b.display_name(nation)
-            ));
         }
         if let Some(boost) = u.boost {
             // "Hot Spring Mill powers x1.5" (#722).

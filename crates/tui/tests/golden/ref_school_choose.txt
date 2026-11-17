@@ -33,7 +33,7 @@
 │                                 3 scrolls read                                                                       │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Metal City                                                                               Locked · 1000 pts + 8 Metal │
-│ Lay rails of bent metal that carry goods and power through the mountain.                                             │
+│ Lay metal rail, and hot spring mills give 50% more power.                                                            │
 │ Needs Metalbending                                                                                                   │
 │ School: Which city? Choosing one closes the other for the rest of the game.                                          │
 ┗───────────────────────────────────────────────────────────────────────────────────────────────────── tiers 3-6 of 6 ─┛
