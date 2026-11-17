@@ -324,7 +324,7 @@ pub fn toggled_notice(on: bool, session: &Session) -> String {
     let (world, defs) = (&session.world, &session.defs);
     let yards = world.yards(defs).len();
     if yards == 0 {
-        return "Flow view on: no yard yet. ? then Tab to Machines shows how to set one up".into();
+        return "Flow view on: no yard yet. ? then Tab to Machines shows how to build one".into();
     }
     let links = world.flow_links(defs).len();
     let count = |n: usize, one: &str| {

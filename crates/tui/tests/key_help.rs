@@ -83,6 +83,12 @@ fn tab_switches_between_keys_and_legend() {
     assert_eq!(a.ui.help_tab, HelpTab::Legend);
     assert!(text(&mut a, size).contains("Keys  [Legend]"));
     run(&mut a, "<tab>");
+    assert_eq!(a.ui.help_tab, HelpTab::Start);
+    assert!(text(&mut a, size).contains("GETTING STARTED"));
+    run(&mut a, "<tab>");
+    assert_eq!(a.ui.help_tab, HelpTab::Settlers);
+    assert!(text(&mut a, size).contains("You don't give settlers orders."));
+    run(&mut a, "<tab>");
     assert_eq!(a.ui.help_tab, HelpTab::Machines);
     assert!(text(&mut a, size).contains("MACHINES THAT RUN ON THEIR OWN"));
     run(&mut a, "<tab>");

@@ -78,16 +78,16 @@ fn the_legend_tab_lists_the_map_glyphs_and_tab_switches() {
     drop(h);
     assert_eq!(state(&app).ui.help_tab, HelpTab::Legend);
 
-    // The same as the key: Tab on the keyboard from the Legend tab goes on to Machines, which
-    // walks through machines.
+    // The same as the key: Tab on the keyboard from the Legend tab goes on to Getting
+    // started, the first guide.
     let mut h = harness(&mut app);
     h.key_press(egui::Key::Tab);
     h.run_steps(3);
-    h.get_by_label("MACHINES THAT RUN ON THEIR OWN");
+    h.get_by_label("GETTING STARTED");
     drop(h);
-    assert_eq!(state(&app).ui.help_tab, HelpTab::Machines);
+    assert_eq!(state(&app).ui.help_tab, HelpTab::Start);
 
-    // Clicking Keys from Machines steps round to it, as Tab would.
+    // Clicking Keys from Getting started steps round to it, as Tab would.
     let mut h = harness(&mut app);
     h.get_by_label("Keys").click();
     h.run_steps(3);

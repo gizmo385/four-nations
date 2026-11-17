@@ -47,8 +47,10 @@ pub fn row_count(
     if screen == Screen::Help && ui.help_tab == HelpTab::Legend {
         return legend(session, ui, width);
     }
-    if screen == Screen::Help && ui.help_tab == HelpTab::Machines {
-        return how_to_lines(session, width, '…').0.len();
+    if screen == Screen::Help
+        && let Some(paras) = ui.help_tab.guide(session)
+    {
+        return how_to_lines(paras, width, '…').0.len();
     }
     if screen == Screen::Endeavor {
         return endeavor::tab_lines(session, ui, width, &Marks::new(false)).len();
@@ -144,8 +146,13 @@ pub const TWO_COLUMNS_FROM: usize = 96;
 pub const COLUMN_GAP: usize = 2;
 
 /// The key help's tabs, left to right, and the words on each.
-pub const HELP_TABS: [(HelpTab, &str); 3] =
-    [(HelpTab::Keys, "Keys"), (HelpTab::Legend, "Legend"), (HelpTab::Machines, "Machines")];
+pub const HELP_TABS: [(HelpTab, &str); 5] = [
+    (HelpTab::Keys, "Keys"),
+    (HelpTab::Legend, "Legend"),
+    (HelpTab::Start, "Getting started"),
+    (HelpTab::Settlers, "Settlers"),
+    (HelpTab::Machines, "Machines"),
+];
 
 /// What the tab strip says `Tab` does, flush right.
 pub const TAB_NOTE: &str = "Tab switches";
@@ -156,19 +163,23 @@ pub fn help_tabs(tab: HelpTab) -> Row {
     let name = |(this, text): (HelpTab, &str)| {
         if this == tab { (format!("[{text}]"), Tone::Title) } else { (text.to_owned(), Tone::Dim) }
     };
-    let [keys, legend, how] = HELP_TABS.map(name);
-    let gap = || ("  ".to_owned(), Tone::Text);
-    let mut row = Row::spans(vec![keys, gap(), legend, gap(), how]);
+    let mut spans = Vec::new();
+    for (i, tab) in HELP_TABS.into_iter().enumerate() {
+        if i > 0 {
+            spans.push(("  ".to_owned(), Tone::Text));
+        }
+        spans.push(name(tab));
+    }
+    let mut row = Row::spans(spans);
     row.right = Some((TAB_NOTE.to_owned(), Tone::Dim));
     row
 }
 
-/// The key help's Machines tab as rows `width` cells wide: [`crate::flow::walkthrough`]'s
-/// paragraphs wrapped, a heading in upper case, and blank rows where the example map goes: its
+/// A guide tab ([`HelpTab::guide`]) as rows `width` cells wide: its paragraphs wrapped, a heading in upper case, and blank rows where the example map goes: its
 /// tiles, then a key naming each building. With them, the row the example starts on, for the
 /// frontend to draw it over ([`HOW_TO_INDENT`] cells in).
 pub fn how_to_lines(
-    session: &Session,
+    paras: Vec<crate::flow::Para>,
     width: usize,
     ellipsis: char,
 ) -> (Vec<Row>, Option<(usize, crate::flow::Demo)>) {
@@ -179,7 +190,7 @@ pub fn how_to_lines(
         let lines = crate::rows::wrap(text, width, usize::MAX, ellipsis);
         out.extend(lines.into_iter().map(|l| Row::text(l, tone)));
     };
-    for para in crate::flow::walkthrough(session) {
+    for para in paras {
         match para {
             Para::Heading(t) => out.push(Row::text(t.to_uppercase(), Tone::Title)),
             Para::Text(t) => wrapped(&mut out, &t, Tone::Text),
@@ -397,7 +408,13 @@ mod tests {
 
     #[test]
     fn the_tab_strip_brackets_the_open_tab() {
-        assert_eq!(help_tabs(HelpTab::Keys).plain(), "[Keys]  Legend  Machines Tab switches");
-        assert_eq!(help_tabs(HelpTab::Legend).plain(), "Keys  [Legend]  Machines Tab switches");
+        assert_eq!(
+            help_tabs(HelpTab::Keys).plain(),
+            "[Keys]  Legend  Getting started  Settlers  Machines Tab switches"
+        );
+        assert_eq!(
+            help_tabs(HelpTab::Legend).plain(),
+            "Keys  [Legend]  Getting started  Settlers  Machines Tab switches"
+        );
     }
 }

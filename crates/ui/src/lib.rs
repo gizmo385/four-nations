@@ -40,6 +40,7 @@ pub mod endeavor;
 pub mod flow;
 pub mod gate;
 pub mod good;
+pub mod guides;
 pub mod input;
 pub mod inspect;
 pub mod inspector;
