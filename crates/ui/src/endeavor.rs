@@ -205,6 +205,8 @@ pub struct UnitedView {
     pub goods: Vec<GoodFlowRow>,
     /// The city's balance with the spirits (docs/design/spirits.md, #1030).
     pub balance: Option<BalanceRow>,
+    /// Who the next newcomer will be and what they wait for ([`next_newcomer`], #1067).
+    pub next_newcomer: String,
 }
 
 /// The balance with the spirits (#1030): its value, how far it moved last minute, and the two
@@ -219,6 +221,29 @@ pub struct BalanceRow {
     pub portal_open: bool,
     /// Friendly spirits wandering the city (F6e).
     pub spirits: usize,
+}
+
+/// The United City's next newcomer, in words (#1067, playtest feedback: trading brought no one
+/// and nothing said why): whose nation a caravan's request has steered them to, or "any
+/// nation" for draw nobody steered, then what they still wait for: a free bed, food in stores,
+/// or draw. "Next newcomer: Earth Kingdom. Waits for a free bed."
+pub fn next_newcomer(world: &World, defs: &Defs) -> String {
+    let who = world
+        .steered_draw()
+        .first()
+        .map_or("any nation".to_owned(), |&(n, _)| defs.nation(n).name.clone());
+    let food = defs.needs.growth.food_per_newcomer;
+    let waits = if !world.has_room_for_newcomer(defs) {
+        "Waits for a free bed.".to_owned()
+    } else if world.stored_food(defs) < food {
+        format!("Waits for {food} food in stores.")
+    } else if world.draw() < fn_sim::world::DRAW_ONE {
+        let share = world.draw() * 100 / fn_sim::world::DRAW_ONE;
+        format!("Draw {share}%. A caravan's request brings one of its nation.")
+    } else {
+        "On the way.".to_owned()
+    };
+    format!("Next newcomer: {who}. {waits}")
 }
 
 fn balance_row(world: &World, defs: &Defs) -> Option<BalanceRow> {
@@ -918,6 +943,7 @@ fn united_view(world: &World, defs: &Defs) -> Option<UnitedView> {
         standing: world.tier_counts(),
         goods: goods_rows(world, defs),
         balance: balance_row(world, defs),
+        next_newcomer: next_newcomer(world, defs),
     })
 }
 
@@ -1104,6 +1130,21 @@ mod tests {
         assert_eq!(
             needs,
             ["Materials: 0/80 Stone, 0/60 Wood", "Work: 0% built, once the materials are in"]
+        );
+    }
+
+    /// The next newcomer line (#1067): who a request steered them to, and what they wait for.
+    #[test]
+    fn the_next_newcomer_line_names_the_steered_nation_and_what_it_waits_for() {
+        let mut s = session(Nation::Water);
+        assert_eq!(
+            next_newcomer(&s.world, &s.defs),
+            "Next newcomer: any nation. Waits for a free bed."
+        );
+        s.world.add_steered_draw(Nation::Fire, fn_sim::world::DRAW_ONE, &s.defs);
+        assert_eq!(
+            next_newcomer(&s.world, &s.defs),
+            "Next newcomer: Fire Nation. Waits for a free bed."
         );
     }
 

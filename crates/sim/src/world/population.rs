@@ -109,7 +109,7 @@ impl World {
     /// growth gated by food alone. A bed that is destroyed, or a settler who dies, changes the
     /// answer at the next check; nobody is evicted when capacity drops below the headcount, growth
     /// just pauses. Reachability doesn't matter here, as no particular unit is looking for a bed.
-    pub(super) fn has_room_for_newcomer(&self, defs: &Defs) -> bool {
+    pub fn has_room_for_newcomer(&self, defs: &Defs) -> bool {
         let settlers = self.residents().count() as u32;
         self.bed_capacity(defs) > settlers
     }
