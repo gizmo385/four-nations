@@ -56,7 +56,7 @@ pub fn show(ui: &mut Ui, app: &App, palette: &Palette, metrics: &Metrics) -> Vec
                 .show(ui, |ui| match app.ui.help_tab {
                     HelpTab::Keys => keys_tab(ui, &look),
                     HelpTab::Legend => legend_tab(ui, &look, app, palette),
-                    HelpTab::HowTo => how_to_tab(ui, &look, app),
+                    HelpTab::Machines => how_to_tab(ui, &look, app, palette),
                 });
             None
         },
@@ -159,7 +159,7 @@ fn group_block(ui: &mut Ui, look: &Look<'_>, title: &str, rows: &[HelpRow]) {
 /// The walkthroughs ([`fn_ui::flow::walkthrough`]): a heading as every heading of the help is,
 /// each paragraph wrapped as egui wraps it, the example layout a row per line as the terminal
 /// draws it, and a blank row where the walkthrough has one.
-fn how_to_tab(ui: &mut Ui, look: &Look<'_>, app: &App) {
+fn how_to_tab(ui: &mut Ui, look: &Look<'_>, app: &App, palette: &Palette) {
     use fn_ui::flow::Para;
     let text_para = |ui: &mut Ui, text: String, tone: Tone| {
         let width = ui.available_width();
@@ -180,8 +180,41 @@ fn how_to_tab(ui: &mut Ui, look: &Look<'_>, app: &App) {
                 text_para(ui, t, Tone::Dim);
                 ui.add_space(look.cell.y * 0.3);
             }
-            Para::Art(t) => {
-                page::text_row(ui, look, &Row::text(t, Tone::Accent), false, Sense::hover());
+            Para::Demo(demo) => {
+                let (tiles, key) = fn_tui::legend::demo_cells(&app.session, palette, &demo);
+                let indent = fn_ui::screens::HOW_TO_INDENT as f32 * look.cell.x;
+                // Square tiles, as the map draws them, a little larger than a line of text.
+                let tile = vec2(look.cell.y, look.cell.y) * 1.5;
+                for row in &tiles {
+                    let size = vec2(ui.available_width(), tile.y);
+                    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+                    for (dx, cell) in row.iter().enumerate() {
+                        let at = rect.min + vec2(indent + dx as f32 * tile.x, 0.0);
+                        paint_tile(ui, look, cell.glyph, cell.style, Rect::from_min_size(at, tile));
+                    }
+                }
+                ui.add_space(look.cell.y * 0.5);
+                let size = vec2(ui.available_width(), look.cell.y);
+                let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+                let mut x = rect.left() + indent;
+                for (cell, name) in &key {
+                    let at = Rect::from_min_size(pos2(x, rect.top()), look.cell);
+                    paint_tile(ui, look, cell.glyph, cell.style, at);
+                    let painter = ui.painter_at(rect);
+                    let text = painter.layout_job(look.job(&[(name.clone(), Tone::Dim)]));
+                    page::paint_galley(
+                        &painter,
+                        pos2(x + 2.0 * look.cell.x, rect.top()),
+                        text,
+                        false,
+                    );
+                    x += (name.chars().count() + 5) as f32 * look.cell.x;
+                }
+                let label: Vec<String> =
+                    key.iter().map(|(c, n)| format!("{} {n}", c.glyph)).collect();
+                response
+                    .widget_info(|| WidgetInfo::labeled(egui::Role::Label, true, label.join(", ")));
+                ui.add_space(look.cell.y);
             }
             Para::Blank => ui.add_space(look.cell.y),
         }
@@ -210,6 +243,24 @@ fn legend_tab(ui: &mut Ui, look: &Look<'_>, app: &App, palette: &Palette) {
             }
         }
     }
+}
+
+/// One map tile's glyph centred in `rect`, in its colours and on its background, as the map
+/// draws it.
+fn paint_tile(ui: &Ui, look: &Look<'_>, glyph: char, style: ratatui::style::Style, rect: Rect) {
+    let painter = ui.painter_at(rect);
+    if let Some(bg) = style.bg {
+        painter.rect_filled(rect, 0.0, to_egui(bg, Color32::TRANSPARENT));
+    }
+    let mut format = look.format(Tone::Text);
+    format.color = style.fg.map_or(Color32::WHITE, |c| to_egui(c, Color32::WHITE));
+    format.font_id.size = rect.height() * 0.8;
+    let mut job = egui::text::LayoutJob::default();
+    job.append(&glyph.to_string(), 0.0, format);
+    let galley = painter.layout_job(job);
+    let at = rect.center() - galley.size() / 2.0;
+    let bold = style.add_modifier.contains(Modifier::BOLD);
+    page::paint_galley(&painter, at, galley, bold);
 }
 
 /// One glyph as the map draws it (its colours, bold if it is), and its name beside it.
