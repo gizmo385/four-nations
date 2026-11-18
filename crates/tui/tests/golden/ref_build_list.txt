@@ -21,7 +21,7 @@
 │   Hall of Records  20 Wood, 12 Stone, 2 Tool  2x2   Archives                                                         │
 │   Ring Gate        4 Stone, 2 Wood            1x1   Agrarian Ring                                                    │
 │   Metal Rail       1 Metal, 1 Stone           1x1   Metal City                                                       │
-│                                                                                                                      │
+│   Earth Tent       4 Stone                    1x1   Earth Tents                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

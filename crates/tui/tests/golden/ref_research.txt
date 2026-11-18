@@ -6,8 +6,8 @@
 │                                                                                                                      │
 │  ◇ Shelter                    · Carpentry                  · Writing                    · Earthen Walls              │
 │    Available · 25 pts           Locked · 60 pts              Locked · 120 pts             Locked · 120 pts           │
-│    Leads to Carpentry           Needs Shelter                Needs Pottery                Needs Earth Shaping,       │
-│                                                                                           Masonry                    │
+│    Leads to Carpentry,          Needs Shelter                Needs Pottery                Needs Earth Shaping,       │
+│    Earth Tents                                                                            Masonry                    │
 │                                                                                                                      │
 │  ◇ Fishing                    · Herbalism                  · Tunneling                  · Seismic Sense              │
 │    Available · 25 pts           Locked · 120 pts             Locked · 120 pts             Locked · 250 pts           │
@@ -20,16 +20,16 @@
 │  ◇ Farming                    ◇ Earth Shaping              · Trade Wares                · Calendar                   │
 │    Available · 60 pts           Available · 60 pts           Locked · 250 pts             Locked · 250 pts           │
 │    Farm Plot                    Earthworks x1.2,             Needs Carpentry,             Needs Writing              │
-│                                 Earth Tent                   Known on the road                                       │
+│                                 Camp Shelter                 Known on the road                                       │
 │                                                                                                                      │
 │                               · Herding                                                 · Archives                   │
 │                                 Locked · 250 pts                                          Locked · 500 pts           │
 │                                 Needs Farming                                             Needs Writing,             │
 │                                                                                           3 scrolls read             │
 │                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
+│                               · Earth Tents                                                                          │
+│                                 Locked · 60 pts                                                                      │
+│                                 Needs Shelter                                                                        │
 │                                                                                                                      │
 │                                                                                                                      │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤

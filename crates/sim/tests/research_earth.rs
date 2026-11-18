@@ -57,13 +57,36 @@ fn metalbending_unlocks_metalbend() {
     assert_eq!(ability.unlocked_by, defs.tech_id("metalbending"));
 }
 
-/// Earth Tent (#362): a stone shelter, unlocked by the same tech that speeds up Raise Earth.
+/// Camp Shelter (#362, id `earth_tent`): a timed stone shelter, unlocked by the same tech that
+/// speeds up Raise Earth.
 #[test]
-fn earth_shaping_unlocks_earth_tent() {
+fn earth_shaping_unlocks_camp_shelter() {
     let defs = Defs::bundled();
     let ability = defs.ability(defs.ability_id("earth_tent").expect("earth_tent is defined"));
     assert_eq!(ability.nation, Nation::Earth);
     assert_eq!(ability.unlocked_by, defs.tech_id("earth_shaping"));
+}
+
+/// Earth's shelter path matches Water's: Shelter leads to `earth_tents`, which unlocks the Earth
+/// Tent, a building people sleep in (a bed, like the igloo) built from stone, for Earth only.
+#[test]
+fn earth_tents_follows_shelter_and_unlocks_a_bed_for_earth_only() {
+    let defs = Defs::bundled();
+    let tech = defs.tech_id("earth_tents").expect("earth_tents is data");
+    let shelter = defs.tech_id("shelter").unwrap();
+    assert_eq!(defs.tech(tech).prereqs, vec![shelter], "Shelter leads to it");
+    let id = defs.building_id("earth_tent").expect("the Earth Tent is a building");
+    let tent = defs.building(id);
+    assert_eq!(tent.unlocked_by, Some(tech));
+    let bed = tent.bed.as_ref().expect("people sleep in an Earth Tent");
+    let igloo = defs.building(defs.building_id("igloo").unwrap());
+    assert_eq!(bed.sleep_bonus, igloo.bed.as_ref().unwrap().sleep_bonus, "the igloo's twin");
+    let stone = defs.item_id("stone").unwrap();
+    assert!(tent.cost.iter().all(|c| c.item == stone), "built from stone");
+    for n in Nation::ALL {
+        let reachable = defs.techs_for(n).any(|(t, _)| t == tech);
+        assert_eq!(reachable, n == Nation::Earth, "{n:?}");
+    }
 }
 
 #[test]
