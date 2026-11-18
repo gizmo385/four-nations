@@ -1,0 +1,12 @@
+/home/user/four-nations/target-old/release/deps/ratatui-d6f662144987a114.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/prelude.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets/stateful_widget_ref.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets/widget_ref.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/init.rs
+
+/home/user/four-nations/target-old/release/deps/libratatui-d6f662144987a114.rlib: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/prelude.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets/stateful_widget_ref.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets/widget_ref.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/init.rs
+
+/home/user/four-nations/target-old/release/deps/libratatui-d6f662144987a114.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/prelude.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets/stateful_widget_ref.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets/widget_ref.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/init.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/prelude.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets/stateful_widget_ref.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/widgets/widget_ref.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ratatui-0.30.2/src/init.rs:

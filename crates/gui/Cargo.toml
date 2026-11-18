@@ -18,8 +18,8 @@ ratatui = { version = "0.30", default-features = false }
 # glow (OpenGL), not wgpu: a smaller build, and it runs on Mesa's software renderer under Xvfb
 # for screenshots. The cells are painted by `fn_gui::cells` (#872), so nothing holds egui back.
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
-# egui 0.37 no longer bundles its monochrome emoji fonts by default, and the data's `⌖` and `⛩`
-# are only in them (`fonts.rs` has the other symbols). Only the feature: eframe brings egui.
+# egui 0.37 no longer bundles its monochrome emoji fonts by default, and the data's `⌖` is only
+# in them (`fonts.rs` has the other symbols). Only the feature: eframe brings egui.
 egui = { version = "0.37", default-features = false, features = ["monochrome_emoji_fonts"] }
 # `std::time::Instant` panics on wasm32; web-time is std's on native and `performance.now()` on
 # the web (#843's egui-in-the-browser check).
