@@ -343,6 +343,7 @@ impl Frame {
     fn show_inside(&mut self, root: &mut Ui, shell: &mut Shell, palette: &Palette) {
         let touch = self.controls.force_touch || crate::controls::touch_device(root.ctx());
         crate::controls::set_touch_rows(root.ctx(), touch);
+        crate::controls::fit_for_touch(root, touch);
         let metrics = Metrics::new(root.ctx());
         let window = root.available_rect_before_wrap();
         let (cols, rows) = metrics.grid_in(window.size());
@@ -584,7 +585,7 @@ impl Frame {
             let mut keys = Vec::new();
             let controls = &mut self.controls;
             egui::Panel::bottom("hints")
-                .exact_size(crate::controls::BAR_HEIGHT)
+                .exact_size(crate::controls::bar_height(root.ctx()))
                 .resizable(false)
                 .show_separator_line(false)
                 .frame(egui::Frame::NONE.fill(panel_fill))
@@ -639,7 +640,7 @@ impl Frame {
                     &mut self.controls,
                 );
                 self.keys.extend(keys);
-                notices_at.min.y += crate::controls::FLOAT_HEIGHT + 6.0;
+                notices_at.min.y += crate::controls::float_height(ui.ctx()) + 6.0;
             } else if !rail && live {
                 crate::controls::corner_more(ui.ctx(), map_rect, palette, &mut self.controls);
             }
@@ -711,7 +712,8 @@ impl Frame {
                 if crate::controls::drawer_close(ui, palette, drawer.min) {
                     close = true;
                 }
-                let body = Rect::from_min_max(drawer.min + vec2(0.0, 28.0), drawer.max);
+                let header = crate::controls::drawer_header(ui.ctx());
+                let body = Rect::from_min_max(drawer.min + vec2(0.0, header), drawer.max);
                 ui.scope_builder(UiBuilder::new().max_rect(body), |ui| {
                     ui.set_clip_rect(body);
                     clicks = side::show(ui, app, palette, metrics, live, &mut actions);

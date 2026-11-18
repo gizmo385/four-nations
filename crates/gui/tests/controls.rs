@@ -79,6 +79,20 @@ fn the_action_bar_offers_the_modes_buttons() {
     assert!(done.primary && done.keys == vec![esc()]);
 }
 
+/// A rectangle marked out and waiting (where a tap or drag stops on touch): Cancel, and the
+/// tool's own verb as the `Enter` that issues it.
+#[test]
+fn a_waiting_rectangle_offers_cancel_and_the_tools_confirm() {
+    let labels = |app: &App| actions(app).iter().map(|a| a.label).collect::<Vec<_>>();
+    assert_eq!(labels(&app_state("h <enter>")), ["Repeat", "Cancel", "Harvest"]);
+    assert_eq!(labels(&app_state("p <enter>")), ["Cancel", "Stockpile"]);
+    let buttons = actions(&app_state("p <enter>"));
+    assert_eq!(buttons[0].keys, vec![esc()]);
+    let go = &buttons[1];
+    assert!(go.primary);
+    assert_eq!(go.keys, vec![KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)]);
+}
+
 #[test]
 fn a_speed_is_the_steps_to_it_and_a_start() {
     let running = app_state("");
