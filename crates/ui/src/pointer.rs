@@ -14,6 +14,14 @@
 //! - **An abandoned press** (a second finger on a touch screen) drops a rectangle's corner and
 //!   applies nothing: [`Pointer::abandon`].
 //!
+//! **Confirm first** ([`Pointer::set_confirm`], [`tap`]; on touch screens): a finger can't hover
+//! to see where a tool lands, and a pan that started as a one-finger drag used to issue the
+//! rectangle it drew. So with confirm on, a tool's tap or drag stops one key short. A tap sets
+//! the corner on its tile (a one-tile rectangle) and a drag leaves its rectangle drawn, anchor
+//! set, cursor on the far corner; the Gate's tap only moves its ghost. Nothing is issued until
+//! the `Enter` the window's confirm button stands for. A new press with a tool drops the waiting
+//! rectangle (`Esc`) and starts again, so a wrong tap is undone by tapping where it should be.
+//!
 //! Everything goes through the keys themselves (`App::key`), so a click issues exactly the
 //! command the keyboard path would and nothing here duplicates the tools' logic. While a drag is
 //! under way the anchor is set, so the map draws the live rectangle in the tool's hue as it does
@@ -33,6 +41,9 @@ pub struct Pointer {
     /// Whether this press has become a rectangle (the pointer left its first tile with a tool
     /// that has one).
     dragging: bool,
+    /// Stop one key short of applying (see the module docs): the window's confirm button
+    /// sends the last `Enter`.
+    confirm: bool,
 }
 
 /// Which pointer button a click is.
@@ -80,6 +91,39 @@ fn activate(app: &mut App) {
     enter(app);
 }
 
+/// Confirm first: a rectangle tool's waiting rectangle is dropped (`Esc` drops just the corner),
+/// so the next press starts afresh.
+fn drop_waiting(app: &mut App) {
+    if app.ui.linking.is_none() && has_rectangle(app.ui.tool) && app.ui.anchor.is_some() {
+        esc(app);
+    }
+}
+
+/// A tap with confirm first, on the tile the cursor was just put on: as [`activate`] but one key
+/// short with a tool. A rectangle tool sets the corner here (a one-tile rectangle waiting for
+/// its `Enter`); the Gate only moves its ghost; Select and linking act at once, as they place
+/// nothing.
+fn activate_short(app: &mut App) {
+    if app.ui.linking.is_some() || app.ui.tool == Tool::Select {
+        return activate(app);
+    }
+    if app.ui.tool == Tool::Gate {
+        return;
+    }
+    if app.ui.anchor.is_none() {
+        enter(app);
+    }
+}
+
+/// A tap on `pos` with confirm first (see the module docs): a waiting rectangle is dropped, then
+/// the tap sets a new one-tile one (or moves the Gate's ghost, or selects in Select).
+pub fn tap(app: &mut App, pos: Pos) {
+    let mut p = Pointer::new();
+    p.set_confirm(true);
+    p.down(app, pos);
+    p.up(app, pos);
+}
+
 /// A right click: `Esc` with a tool (drop the corner, else leave the tool). In Select it does
 /// nothing (the right button pans there, and `Esc` would open the game menu).
 pub fn cancel(app: &mut App) {
@@ -92,6 +136,11 @@ pub fn cancel(app: &mut App) {
 impl Pointer {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Turns confirm-first on or off (see the module docs).
+    pub fn set_confirm(&mut self, on: bool) {
+        self.confirm = on;
     }
 
     /// Whether a drag is making a rectangle right now.
@@ -111,6 +160,9 @@ impl Pointer {
             self.dragging = false;
             esc(app);
             return;
+        }
+        if self.confirm {
+            drop_waiting(app);
         }
         self.down = Some(pos);
         self.dragging = false;
@@ -146,11 +198,12 @@ impl Pointer {
         }
         app.ui.point_at(pos);
         if std::mem::take(&mut self.dragging) {
-            if app.ui.anchor.is_some() {
+            // Confirm first: the rectangle stays drawn, waiting for its `Enter`.
+            if app.ui.anchor.is_some() && !self.confirm {
                 enter(app);
             }
         } else if pos == start {
-            activate(app);
+            if self.confirm { activate_short(app) } else { activate(app) }
         }
         app.dirty = true;
     }

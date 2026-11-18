@@ -72,6 +72,14 @@ over:
 | Pinch | zoom about the fingers' midpoint | zoom | wheel |
 | Long-press (0.5 s, < 10 pt of movement) | the tile's tooltip, until the finger lifts | the same | hover |
 
+- **Confirm first** (owner playtest, 2026-11-18: "it's pretty easy to place things where I don't
+  want"). With a tool, a tap or a one-finger drag only marks out where the tool would apply: the
+  tile or rectangle stays drawn and the bottom bar shows **Cancel** and the tool's own verb
+  (Harvest, Build, Place for the Gate...), which is the `Enter` that issues it. A new tap or drag
+  replaces what was waiting. A mouse still applies at once.
+- A tap may wander 16 pt between down and up and still be a tap (egui's default is 6 pt, which
+  dropped a rolling fingertip's tap as a drag or a scroll). On touch every button is at least
+  44 pt tall: the bottom bar, the floating time controls, the drawer's tab and close chevron.
 - A second finger landing during a one-finger rectangle drag cancels the rectangle: no command is
   issued for it.
 - A long press shows the tooltip without moving the cursor, as hover does, and lifting dismisses

@@ -21,7 +21,8 @@
 //! Touch (#977, [`crate::touch`]): a tap is a click and one finger drags as the left button
 //! does. Two fingers pan and pinch-zoom about their midpoint, and a rectangle in progress is
 //! dropped when the second lands. A long press shows the tile's tooltip until the finger lifts,
-//! and never applies a tool.
+//! and never applies a tool. A tool's tap or drag only marks out where it would apply; the action
+//! bar's confirm button issues it (`fn_ui::pointer`, "Confirm first").
 
 use eframe::egui::{
     self, Color32, FontFamily, FontId, Mesh, PointerButton, Pos2, Rect, RichText, Sense, Shape,
@@ -168,6 +169,10 @@ impl MapView {
             }
         }
 
+        // On touch a tool's tap or drag waits for the action bar's confirm button
+        // (`fn_ui::pointer`, "Confirm first"): a finger can't hover to see where it lands.
+        let confirm = crate::controls::touch_rows(ui.ctx());
+        self.pointer.set_confirm(confirm);
         let rectangle_tool = acts && !matches!(app.ui.tool, Tool::Select | Tool::Gate);
         let primary_pans = !rectangle_tool;
         if live
@@ -202,7 +207,11 @@ impl MapView {
         {
             let tile = self.camera.screen_to_tile(rect, p);
             if response.clicked_by(PointerButton::Primary) {
-                pointer::click_with(app, tile, pointer::Button::Primary);
+                if confirm {
+                    pointer::tap(app, tile);
+                } else {
+                    pointer::click_with(app, tile, pointer::Button::Primary);
+                }
             } else if response.clicked_by(PointerButton::Secondary) {
                 pointer::click_with(app, tile, pointer::Button::Secondary);
             }

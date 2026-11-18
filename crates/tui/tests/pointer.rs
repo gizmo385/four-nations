@@ -196,3 +196,94 @@ fn an_abandoned_drag_drops_the_corner_and_marks_nothing() {
     assert!(app.session.world.command_log().is_empty(), "nothing was marked");
     assert_eq!(app.ui.anchor, None);
 }
+
+/// The nearest tile with a resource on it to the cursor, for a harvest to mark.
+fn resource_near(app: &App) -> Pos {
+    let w = &app.session.world;
+    let (w0, h0) = (w.map.width(), w.map.height());
+    let c = app.ui.cursor;
+    (0..h0)
+        .flat_map(|y| (0..w0).map(move |x| Pos::new(x, y)))
+        .filter(|&p| w.map.get(p).is_some_and(|t| t.resource.is_some()))
+        .min_by_key(|p| (p.x - c.x).abs() + (p.y - c.y).abs())
+        .expect("a resource")
+}
+
+/// Confirm first (touch): a tap with a tool marks out its tile and issues nothing; the confirm
+/// button's `Enter` then issues exactly the click's command.
+#[test]
+fn a_tap_with_a_tool_waits_for_enter_then_matches_a_click() {
+    let mut mouse = game();
+    let target = resource_near(&mouse);
+    play(&mut mouse, "h");
+    pointer::click(&mut mouse, target);
+
+    let mut finger = game();
+    play(&mut finger, "h");
+    pointer::tap(&mut finger, target);
+    assert!(finger.session.world.command_log().is_empty(), "a tap alone marks nothing");
+    assert_eq!((finger.ui.anchor, finger.ui.cursor), (Some(target), target), "it waits");
+    play(&mut finger, "<enter>");
+    assert_eq!(finger.session.world.command_log(), mouse.session.world.command_log());
+    assert_eq!(finger.ui.anchor, None);
+}
+
+/// Confirm first: a second tap moves the waiting tile instead of stretching a rectangle to it,
+/// so a missed tap is fixed by tapping again.
+#[test]
+fn a_second_tap_moves_the_waiting_tile() {
+    let mut app = game();
+    play(&mut app, "h");
+    let start = app.ui.cursor;
+    let (a, b) = (Pos::new(start.x - 4, start.y), Pos::new(start.x + 3, start.y + 2));
+    pointer::tap(&mut app, a);
+    pointer::tap(&mut app, b);
+    assert_eq!((app.ui.tool, app.ui.anchor, app.ui.cursor), (Tool::Harvest, Some(b), b));
+    assert!(app.session.world.command_log().is_empty());
+}
+
+/// Confirm first: a drag leaves its rectangle drawn and issues nothing until `Enter`, which then
+/// issues what the mouse's drag did.
+#[test]
+fn a_confirm_first_drag_waits_for_enter_then_matches_a_mouse_drag() {
+    let mut mouse = game();
+    let start = mouse.ui.cursor;
+    let (a, b) = (Pos::new(start.x - 6, start.y - 3), Pos::new(start.x - 1, start.y + 1));
+    play(&mut mouse, "h");
+    pointer::drag(&mut mouse, a, b);
+    assert!(!mouse.session.world.command_log().is_empty(), "the rectangle marked something");
+
+    let mut finger = game();
+    play(&mut finger, "h");
+    let mut p = Pointer::new();
+    p.set_confirm(true);
+    p.down(&mut finger, a);
+    p.moved(&mut finger, b);
+    p.up(&mut finger, b);
+    assert!(finger.session.world.command_log().is_empty(), "nothing yet");
+    assert_eq!((finger.ui.anchor, finger.ui.cursor), (Some(a), b), "the rectangle waits");
+    play(&mut finger, "<enter>");
+    assert_eq!(finger.session.world.command_log(), mouse.session.world.command_log());
+}
+
+/// Confirm first: `Esc` (the Cancel button) drops the waiting rectangle and keeps the tool.
+#[test]
+fn cancel_drops_the_waiting_rectangle() {
+    let mut app = game();
+    play(&mut app, "h");
+    let at = app.ui.cursor;
+    pointer::tap(&mut app, Pos::new(at.x + 2, at.y));
+    play(&mut app, "<esc>");
+    assert_eq!((app.ui.tool, app.ui.anchor), (Tool::Harvest, None));
+    assert!(app.session.world.command_log().is_empty());
+}
+
+/// Confirm first changes nothing in Select: a tap selects as a click does.
+#[test]
+fn a_tap_in_select_mode_selects_as_a_click_does() {
+    let mut app = game();
+    let at = settler(&app);
+    app.ui.point_at(Pos::new(at.x + 6, at.y));
+    pointer::tap(&mut app, at);
+    assert!(app.ui.selected.is_some());
+}
