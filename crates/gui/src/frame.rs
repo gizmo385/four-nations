@@ -320,7 +320,10 @@ impl Frame {
                     let through = self.dismissed_through;
                     self.dismissed.retain(|&id| id > through);
                 }
-                notices::Click::Act(action) => self.view_actions.push(action),
+                notices::Click::Act(id, action) => {
+                    self.view_actions.push(action);
+                    self.dismissed.push(id);
+                }
             }
         }
     }
@@ -346,7 +349,14 @@ impl Frame {
         crate::controls::fit_for_touch(root, touch);
         let metrics = Metrics::new(root.ctx());
         let window = root.available_rect_before_wrap();
-        let (cols, rows) = metrics.grid_in(window.size());
+        // A screen drawn in cells has no buttons of its own: on touch a bar of its keys sits
+        // under it ([`Frame::show_cells`]), so the cells get the rest.
+        let keys_bar = if touch && matches!(surface(shell), Surface::CellsFull) {
+            crate::controls::bar_height(root.ctx())
+        } else {
+            0.0
+        };
+        let (cols, rows) = metrics.grid_in(window.size() - vec2(0.0, keys_bar));
         let (cols, rows) = (cols.max(MIN_WIDTH), rows.max(MIN_HEIGHT));
         if self.size != (cols, rows) {
             shell.resize(cols, rows);
@@ -396,6 +406,15 @@ impl Frame {
         (cols, rows): (u16, u16),
     ) {
         self.hint_text.clear();
+        if crate::controls::touch_rows(root.ctx()) {
+            let mut keys = Vec::new();
+            egui::Panel::bottom("cells-keys")
+                .exact_size(crate::controls::bar_height(root.ctx()))
+                .resizable(false)
+                .frame(egui::Frame::NONE.fill(Color32::BLACK))
+                .show(root, |ui| keys = crate::controls::cells_keys(ui, palette));
+            self.keys.extend(keys);
+        }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(Color32::BLACK)).show(
             root,
             |ui| {
@@ -641,6 +660,14 @@ impl Frame {
                 );
                 self.keys.extend(keys);
                 notices_at.min.y += crate::controls::float_height(ui.ctx()) + 6.0;
+                // Clear of the drawer's tab on the right edge, which a notice used to cover.
+                notices_at.max.x -= crate::controls::drawer_tab_width(ui.ctx());
+            } else if compact && self.controls.drawer_open {
+                // Beside the open drawer, not over it.
+                notices_at.max.x -= PANEL_DEFAULT.min(map_rect.width() * 0.75);
+                if !rail && live {
+                    crate::controls::corner_more(ui.ctx(), map_rect, palette, &mut self.controls);
+                }
             } else if !rail && live {
                 crate::controls::corner_more(ui.ctx(), map_rect, palette, &mut self.controls);
             }

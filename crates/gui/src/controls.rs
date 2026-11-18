@@ -61,7 +61,7 @@ pub fn fit_for_touch(root: &mut Ui, touch: bool) {
 
 /// The action bar's height: [`BAR_HEIGHT`], or room for [`TARGET`]-tall buttons on touch.
 pub fn bar_height(ctx: &egui::Context) -> f32 {
-    if touch_rows(ctx) { TARGET + 8.0 } else { BAR_HEIGHT }
+    if touch_rows(ctx) { TARGET } else { BAR_HEIGHT }
 }
 
 /// The window's own state for the controls between frames.
@@ -491,6 +491,11 @@ pub fn float_time(
     keys
 }
 
+/// The closed drawer's tab's width: on touch, wide enough for a thumb on the screen's edge.
+pub fn drawer_tab_width(ctx: &egui::Context) -> f32 {
+    if touch_rows(ctx) { 40.0 } else { 28.0 }
+}
+
 /// The closed drawer's tab on the map's right edge (#979, board 1), with the open-alert count:
 /// a tap opens the drawer.
 pub fn drawer_tab(
@@ -501,8 +506,7 @@ pub fn drawer_tab(
     controls: &mut Controls,
 ) {
     let look = Look::new(palette);
-    // On touch the tab is wide enough for a thumb on the screen's edge.
-    let size = if touch_rows(ctx) { vec2(40.0, 72.0) } else { vec2(28.0, 64.0) };
+    let size = vec2(drawer_tab_width(ctx), if touch_rows(ctx) { 72.0 } else { 64.0 });
     egui::Area::new(egui::Id::unique("fn_gui drawer tab"))
         .fixed_pos(pos2(map.right() - size.x, map.center().y - size.y / 2.0))
         .order(egui::Order::Foreground)
@@ -590,6 +594,35 @@ fn text_button(
     let r = ui.add(button);
     r.widget_info(|| WidgetInfo::labeled(egui::Role::Button, true, name));
     r
+}
+
+/// On touch, the bar under a screen drawn in cells (the Building and Split screens, the planner,
+/// the LOST TEACHING box...), which has no buttons of its own: its arrows, `Enter` and `Esc`,
+/// the keys every such screen reads. Returns the keys tapped.
+pub fn cells_keys(ui: &mut Ui, palette: &Palette) -> Vec<KeyEvent> {
+    let look = Look::new(palette);
+    let mut keys = Vec::new();
+    let height = bar_height(ui.ctx()) - 4.0;
+    ui.horizontal_centered(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.add_space(6.0);
+            let buttons: [(&str, &str, KeyCode, bool); 6] = [
+                ("Close", "Close", KeyCode::Esc, true),
+                ("OK", "OK (Enter)", KeyCode::Enter, false),
+                ("▶", "Right", KeyCode::Right, false),
+                ("◀", "Left", KeyCode::Left, false),
+                ("▼", "Down", KeyCode::Down, false),
+                ("▲", "Up", KeyCode::Up, false),
+            ];
+            for (label, name, code, filled) in buttons {
+                if text_button(ui, &look, label, name, height, filled).clicked() {
+                    keys.push(key(code));
+                }
+            }
+        });
+    });
+    keys
 }
 
 /// The action bar, in `ui` (a bottom panel): the badge, the shortest hint, [`actions`], and

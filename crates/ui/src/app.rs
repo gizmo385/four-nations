@@ -1632,6 +1632,27 @@ impl App {
         }
     }
 
+    /// Where nobody can be selected under the cursor, opens what stands there: a dock's screen
+    /// (#763) or a building's panel (#1068), as `Enter` does. Whether one opened. A tap on the map
+    /// uses it too (`crate::pointer`), so a tap on a workshop opens its recipes.
+    pub fn open_place_here(&mut self) -> bool {
+        if !self.ui.selectable_here(&self.session).is_empty() {
+            return false;
+        }
+        if let Some(picks) = airship::open(&self.session, self.ui.cursor) {
+            self.ui.tool_list = None;
+            self.ui.scroll = 0;
+            self.ui.airship = Some(picks);
+            self.ui.screen = Some(Screen::Airship);
+            return true;
+        }
+        if crate::building::open(&self.session, self.ui.cursor).is_ok() {
+            self.open_building();
+            return true;
+        }
+        false
+    }
+
     /// `Enter`. In Select mode it selects the unit under the cursor (again: the next one on that
     /// tile). In a tool the first sets a corner, the second applies the tool to every tile of the
     /// rectangle through `fn_ui`'s shared logic, and the tool stays active for the next one. The
@@ -1652,21 +1673,8 @@ impl App {
                 self.ui.alerts.notices_mut().dismiss(id);
                 return;
             }
-            // A dock with nobody on it opens its screen (#763) where a unit would be selected.
-            if self.ui.selectable_here(&self.session).is_empty()
-                && let Some(picks) = airship::open(&self.session, self.ui.cursor)
-            {
-                self.ui.tool_list = None;
-                self.ui.scroll = 0;
-                self.ui.airship = Some(picks);
-                self.ui.screen = Some(Screen::Airship);
+            if self.open_place_here() {
                 return;
-            }
-            // So does a building that makes something (#1068): its panel.
-            if self.ui.selectable_here(&self.session).is_empty()
-                && crate::building::open(&self.session, self.ui.cursor).is_ok()
-            {
-                return self.open_building();
             }
             self.ui.select_here(&self.session);
             return;

@@ -9,7 +9,9 @@
 //! - **The tool section**: the active tool's groups of lines, or the tool list (`/`).
 //! - **The inspector** ([`crate::inspector`], #882) closes the panel above the seed line: its
 //!   heading is pinned and its body scrolls in a slot of its own, at most two fifths of the
-//!   panel, so it is never trimmed and the sections above keep the rest.
+//!   panel, so it is never trimmed and the sections above keep the rest. In a compact window
+//!   (a phone, where the panel is a drawer) the whole panel is one scroll instead, with the
+//!   inspector under the header.
 //!
 //! The panel never touches the game. A click returns the keys it stands for ([`Clicks`]), and
 //! the window feeds them to the shell as if typed (docs/design/egui-frontend.md, "Mouse"): the
@@ -190,6 +192,31 @@ pub fn show(
         ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
 
         let inspected = fn_ui::inspector::inspect(&app.session, &app.ui, model.choice);
+        // On a phone (a compact window, where the panel is the drawer) the panel is one scroll,
+        // the inspector straight under the header: two scrolling slots left each a sliver of a
+        // short screen (playtest, 2026-11-18), and what was just tapped is what the drawer is
+        // opened for (a workshop's Recipes button).
+        if !crate::controls::wide(ui.ctx().content_rect()) {
+            crate::style::scroll_vertical()
+                .id_salt("side-sections")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    title(ui, &look, &model.title);
+                    header(ui, &look, &model, app.session.clock.paused, &mut clicks);
+                    inspector::title(ui, &look, &inspected);
+                    inspector::body(ui, &look, &inspected, &mut clicks);
+                    glance(ui, &look, &model.settlement, &mut clicks);
+                    alerts(ui, &look, &model.alerts, app, (&mut clicks, &mut *actions));
+                    if let Some(tool) = &model.tool {
+                        tool_section(ui, &look, tool, &mut clicks);
+                    }
+                    let seed = look.text(&model.footer, Tone::Dim);
+                    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                        ui.add(Label::new(seed).selectable(false));
+                    });
+                });
+            return;
+        }
         // The foot first, so what is left is the sections': a bottom panel as tall as its content
         // (the inspector's heading, its body, the seed line), the body scrolling past two fifths
         // of the panel.
