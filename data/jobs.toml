@@ -296,6 +296,12 @@ work = 30.0
 modifier = "earthworks"
 tunnel_count = 5
 risk = 0.03
+# A mined vein seeps back (#1030 playtest): gold veins were used up for good, so a city with no
+# Deep Mine (everyone but Earth) had about 150 ore for a whole game, and the Republic era's goods,
+# steel and the Council Hall all run on metal. `frost_hardy` keeps a vein out of the plants'
+# winter: frost doesn't reset it, and it regrows at the flat winter rate.
+regrow = 1800.0
+frost_hardy = true
 
 # Foothill boulders (#349, docs/design/materials.md, section 2): open land, no tunnel bonus since
 # a boulder isn't rock to bore into. count raised above the doc's starting 3 alongside stone's
