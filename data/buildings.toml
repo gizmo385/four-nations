@@ -668,6 +668,17 @@ work = 30.0
 modifier = "construction"
 input = [{ item = "metal", count = 1 }, { item = "stone", count = 1 }]
 stock_limit = 6
+# Lanterns at a Workshop too (#1030 playtest): `lanterncraft`. Only the home-only `forging`
+# raises a Forge, so a city that borrowed Lanterncraft from its Fire residents had the recipe and
+# nowhere to make it. Slower than the Forge's: no forge heat.
+[[building.alt_recipe]]
+id = "lanterns"
+output = "lantern"
+output_count = 1
+work = 30.0
+modifier = "construction"
+input = [{ item = "metal", count = 1 }, { item = "wood", count = 1 }]
+stock_limit = 10
 # Parkas for Water's Notables (#1027): `smokehouses`, after the gate.
 [[building.alt_recipe]]
 id = "parkas"

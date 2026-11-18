@@ -1201,7 +1201,7 @@ buildings = ["sky_lift"]
 [[tech]]
 id = "lanterncraft"
 name = "Lanterncraft"
-description = "Forges make lanterns and steelworks make fine steelware."
+description = "Forges and workshops make lanterns, and steelworks make fine steelware."
 nation = "fire"
 cost = 600
 prereqs = ["smelting"]
@@ -1210,6 +1210,9 @@ requires = { united = true }
 [tech.unlocks]
 [[tech.unlocks.upgrades]]
 building = "forge"
+recipe = "lanterns"
+[[tech.unlocks.upgrades]]
+building = "workshop"
 recipe = "lanterns"
 [[tech.unlocks.upgrades]]
 building = "steelworks"
