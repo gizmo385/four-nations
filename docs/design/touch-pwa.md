@@ -80,6 +80,8 @@ over:
 - A tap may wander 16 pt between down and up and still be a tap (egui's default is 6 pt, which
   dropped a rolling fingertip's tap as a drag or a scroll). On touch every button is at least
   44 pt tall: the bottom bar, the floating time controls, the drawer's tab and close chevron.
+- A tap in Select on a building nobody stands on opens what `Enter` would there: a workshop's
+  recipes, a dock's screen (playtest, 2026-11-18).
 - A second finger landing during a one-finger rectangle drag cancels the rectangle: no command is
   issued for it.
 - A long press shows the tooltip without moving the cursor, as hover does, and lifting dismisses
@@ -116,6 +118,12 @@ over:
 - **The drawer** (board 2) slides over the map from the right, the panel's normal 300 pt, and
   closes with its chevron or a tap on the map. Closed, it leaves a tab on the right edge with the
   open-alert count. Opening it doesn't pause the game.
+- **The drawer is one scroll** (playtest, 2026-11-18): the docked panel's pinned inspector slot
+  left each part a sliver of a phone's height, so in a compact window the panel scrolls as one,
+  the inspector under the header. Corner notices keep to two fifths of the map's width, clear of
+  the drawer and its tab, and a notice's button dismisses it, as `Enter` on it does.
+- **Screens still drawn in cells** (Building, Split, the planner, Airship, LOST TEACHING) get a
+  bar of their keys on touch: arrows, OK (`Enter`) and Close (`Esc`).
 - **Everything scrolls.** The side panel's sections, the inspector, every full-screen page (Build,
   Research, Abilities, Traders, Saves, Nation, Endeavor, the log, the key help), the title and
   embark steps, and the boxes scroll when they are taller than the window, by drag on touch and

@@ -150,3 +150,52 @@ fn on_touch_close_is_a_finger_sized_target() {
     assert!(tap(true, 5.0), "a tap just under it does too");
     assert!(tap(false, -4.0), "a click on the mouse's button closes it");
 }
+
+/// A game with a workshop on the free 2x2 spot nearest the first settler, its Building screen
+/// (recipes) open: a screen drawn in cells.
+fn workshop_screen() -> Shell {
+    let mut s = fn_tui::new_session(7, Nation::Earth);
+    let id = s.defs.building_id("workshop").unwrap();
+    let bed = s.defs.building_id("bed").unwrap();
+    let home = s.world.units[0].pos;
+    let at = s
+        .world
+        .map
+        .iter()
+        .map(|(p, _)| p)
+        .filter(|&p| {
+            [(0, 0), (1, 0), (0, 1), (1, 1)].iter().all(|&(dx, dy)| {
+                let q = fn_sim::Pos::new(p.x + dx, p.y + dy);
+                q != home && s.world.check_build(q, bed, &s.defs).is_ok()
+            })
+        })
+        .min_by_key(|p| ((p.x - home.x).pow(2) + (p.y - home.y).pow(2), p.x, p.y))
+        .expect("room near home");
+    s.world.put_building(fn_sim::geom::Footprint::new(at, 2, 2), id, &s.defs);
+    let mut shell = Shell::new_game(s, (120, 40), None);
+    let Mode::Game(game) = &mut shell.mode else { panic!("a game") };
+    fn_ui::pointer::tap(game, at);
+    assert_eq!(game.ui.screen, Some(fn_ui::state::Screen::Building), "a tap opened it");
+    shell
+}
+
+/// On touch a screen drawn in cells (the workshop's recipes, playtest 2026-11-18: "you can't
+/// actually close the recipes page") has a bar of its keys under it, and Close closes it.
+#[test]
+fn on_touch_a_cells_screen_has_a_bar_of_its_keys_and_close_closes_it() {
+    let mut app = GuiApp::with_shell(workshop_screen());
+    app.frame_mut().controls.force_touch = true;
+    let mut h = harness(&mut app, PHONE);
+    for label in ["Close", "OK (Enter)", "Up", "Down"] {
+        assert!(h.query_by_label(label).is_some(), "{label}");
+    }
+    h.get_by_label("Close").click();
+    h.run_steps(3);
+    drop(h);
+    assert_eq!(state(&app).ui.screen, None, "closed");
+
+    // With a mouse there is no bar: the screen's own hint row says the keys.
+    let mut app = GuiApp::with_shell(workshop_screen());
+    let h = harness(&mut app, PHONE);
+    assert!(h.query_by_label("OK (Enter)").is_none());
+}

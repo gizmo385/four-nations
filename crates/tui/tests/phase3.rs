@@ -140,3 +140,18 @@ fn the_research_screen_lists_the_conditions_a_tech_needs() {
     assert!(frame.contains("Known on the road"), "{frame}");
     assert!(frame.contains("3 scrolls read"), "{frame}");
 }
+
+/// A tap or click on a workshop nobody stands on opens its panel (playtest, 2026-11-18: the
+/// recipes were hard to reach on a phone), with a notice up too: the click is the workshop's,
+/// not the notice's `Enter`.
+#[test]
+fn a_click_on_a_workshop_opens_its_panel() {
+    let (mut app, at) = with(Nation::Earth, "workshop");
+    app.ui.go_to(Pos::new(at.x + 6, at.y + 6));
+    fn_tui::pointer::click(&mut app, at);
+    assert_eq!(app.ui.screen, Some(fn_ui::state::Screen::Building));
+    run(&mut app, "<esc>");
+    assert_eq!(app.ui.screen, None);
+    fn_tui::pointer::tap(&mut app, at);
+    assert_eq!(app.ui.screen, Some(fn_ui::state::Screen::Building), "a tap too");
+}

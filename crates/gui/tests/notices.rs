@@ -52,7 +52,7 @@ fn state(app: &GuiApp) -> &fn_ui::app::App {
 }
 
 #[test]
-fn a_caravan_notice_appears_jumps_the_camera_and_is_dismissed() {
+fn a_caravan_notice_appears_and_its_button_jumps_the_camera_and_dismisses_it() {
     let mut app = GuiApp::with_shell(caravan_game());
     let camp = state(&app).session.world.caravan().expect("camped").camp;
     let h = harness(&mut app);
@@ -68,19 +68,13 @@ fn a_caravan_notice_appears_jumps_the_camera_and_is_dismissed() {
     let mut h = harness(&mut app);
     h.get_by_label("Jump to caravan").click();
     h.run_steps(3);
-    // The notice stays: acting on it is not dismissing it.
-    assert!(h.query_by_label("◆ Fire Nation traders").is_some());
+    // Acting on it is done with it (playtest, 2026-11-18), as `Enter` on the top notice is.
+    assert!(h.query_by_label("◆ Fire Nation traders").is_none(), "the button dismissed it");
     drop(h);
     let after = app.frame().camera().expect("the map has a camera").centre;
     assert_ne!(before, after, "the camera moved");
     assert_eq!(after, egui::vec2(camp.x as f32 + 0.5, camp.y as f32 + 0.5), "to the camp");
     assert_eq!(state(&app).ui.cursor, camp);
-
-    let mut h = harness(&mut app);
-    h.get_by_label("✕").click();
-    h.run_steps(3);
-    assert!(h.query_by_label("◆ Fire Nation traders").is_none(), "dismissed");
-    drop(h);
     assert!(!state(&app).ui.alerts.notices().any());
 }
 

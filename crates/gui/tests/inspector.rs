@@ -98,8 +98,9 @@ fn with_nothing_selected_it_is_the_tile_under_the_cursor() {
     assert!(h.query_all_by_role(egui::accesskit::Role::ProgressIndicator).next().is_none());
 }
 
-/// A short window scrolls the inspector instead of trimming it: every row is still there, and the
-/// seed line stays at the panel's foot.
+/// A short window scrolls the inspector instead of trimming it: every row is still there. In a
+/// compact window (the drawer) the panel is one scroll, so the seed line ends it rather than
+/// being pinned at the foot (playtest, 2026-11-18).
 #[test]
 fn a_short_panel_scrolls_the_inspector_instead_of_trimming_it() {
     let mut app = GuiApp::with_shell(game());
@@ -112,7 +113,8 @@ fn a_short_panel_scrolls_the_inspector_instead_of_trimming_it() {
     }
     assert!(h.query_by_label_contains("Standing on").is_some(), "the last row is not trimmed");
     let seed = h.get_by_label("seed 7").rect();
-    assert!(seed.max.y <= 260.0, "the seed line is in the window: {seed:?}");
+    let chi = h.get_by_label("Chi").rect();
+    assert!(seed.min.y > chi.max.y, "the seed line ends the one scroll: {seed:?}");
 }
 
 /// A game with a bed standing on a free tile, the cursor on it, and `marked` or not for take-down.
