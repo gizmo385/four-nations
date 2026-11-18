@@ -652,6 +652,12 @@ glyph = "Ϟ"
 ascii = "Z"
 fg = [250, 230, 90]
 
+# Earth's stone tent (`earth_tents`): a bed, Earth's twin of the igloo.
+[building.earth_tent]
+glyph = "⌂"
+ascii = "n"
+fg = [176, 150, 110]
+
 # --- Water Tribe ---
 [building.igloo]
 glyph = "⌂"
@@ -825,7 +831,7 @@ spirit = { glyph = "✻", ascii = "&", fg = [200, 245, 255] }
 # A farm plot (#198), drawn in place of its building glyph while growing or ripe.
 plot_growing = { glyph = "·", ascii = ",", fg = [120, 200, 90] }
 plot_ripe = { glyph = "✶", ascii = "*", fg = [230, 200, 50] }
-# Earth Tent and Air Shield (#362): shelters, not flames, so each gets its own look apart from
+# Camp Shelter (the `earth_tent` bend) and Air Shield (#362): shelters, not flames, so each gets its own look apart from
 # the plain `flame` above.
 earth_tent = { glyph = "▲", ascii = "t", fg = [168, 140, 90] }
 air_shield = { glyph = "○", ascii = "s", fg = [210, 230, 235] }

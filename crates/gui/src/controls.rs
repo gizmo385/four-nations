@@ -33,8 +33,36 @@ pub const WIDE: (f32, f32) = (1000.0, 600.0);
 /// The rail's width: names (wide) or icons only.
 pub const RAIL_WIDE: f32 = 76.0;
 pub const RAIL_NARROW: f32 = 56.0;
-/// The action bar's height.
+/// The action bar's height with a mouse; on touch it is [`bar_height`].
 pub const BAR_HEIGHT: f32 = 40.0;
+/// How far a finger may wander between down and up and still be a tap, in points. egui's own
+/// 6 points suits a mouse; a fingertip rolls further than that on a quick tap, and a tap that
+/// went past it was dropped as a drag (or, in a scrolling list, as a scroll).
+pub const TAP_SLOP: f32 = 16.0;
+/// egui's click distance, for a mouse.
+const CLICK_SLOP: f32 = 6.0;
+
+/// Sizes egui for a finger this frame, or back for a mouse: buttons at least [`TARGET`] tall
+/// (`interact_size`) and the click distance [`TAP_SLOP`]. `root` is this frame's root `Ui`, which
+/// took its copy of the style before the frame began; the context's style is set too, for the
+/// areas (notices, the More sheet, boxes) drawn from it.
+pub fn fit_for_touch(root: &mut Ui, touch: bool) {
+    let ctx = root.ctx().clone();
+    let height = if touch { TARGET } else { crate::style::spacing().interact_size.y };
+    if ctx.global_style().spacing.interact_size.y != height {
+        ctx.all_styles_mut(|s| s.spacing.interact_size.y = height);
+    }
+    root.style_mut().spacing.interact_size.y = height;
+    let slop = if touch { TAP_SLOP } else { CLICK_SLOP };
+    if ctx.options(|o| o.input_options.max_click_dist) != slop {
+        ctx.options_mut(|o| o.input_options.max_click_dist = slop);
+    }
+}
+
+/// The action bar's height: [`BAR_HEIGHT`], or room for [`TARGET`]-tall buttons on touch.
+pub fn bar_height(ctx: &egui::Context) -> f32 {
+    if touch_rows(ctx) { TARGET + 8.0 } else { BAR_HEIGHT }
+}
 
 /// The window's own state for the controls between frames.
 #[derive(Clone, Copy, Debug, Default)]
@@ -135,8 +163,26 @@ fn action(label: &'static str, name: &'static str, keys: Vec<KeyEvent>) -> Actio
     Action { label, name, keys, primary: false }
 }
 
+/// The confirm button's label for `tool`: the tool's own verb, so the button says what it does.
+fn confirm_label(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Select => "Select",
+        Tool::Harvest => "Harvest",
+        Tool::Remove => "Remove",
+        Tool::Clear => "Clear",
+        Tool::Stockpile => "Stockpile",
+        Tool::Bend => "Bend",
+        Tool::Build => "Build",
+        Tool::Sow => "Sow",
+        Tool::Gate => "Place",
+    }
+}
+
 /// The action bar's buttons for `app`'s mode (docs/design/touch-pwa.md §4): in Select the
-/// settlers and the panel's sections, with a tool its Repeat (Harvest) and Done.
+/// settlers and the panel's sections, with a tool its Repeat (Harvest) and Done. With a
+/// rectangle marked out and waiting (on touch a tap or drag stops there, `fn_ui::pointer`), or
+/// the Gate's ghost on the map: Cancel and the tool's own confirm button, the `Enter` that
+/// issues it.
 pub fn actions(app: &App) -> Vec<Action> {
     if app.ui.tool == Tool::Select && app.ui.anchor.is_none() {
         return vec![
@@ -150,6 +196,14 @@ pub fn actions(app: &App) -> Vec<Action> {
     let mut out = Vec::new();
     if app.ui.tool == Tool::Harvest {
         out.push(action("Repeat", "Repeat", vec![ch('o')]));
+    }
+    let waiting =
+        app.ui.tool != Tool::Select && app.ui.linking.is_none() && app.ui.anchor.is_some();
+    if waiting || app.ui.tool == Tool::Gate {
+        let label = confirm_label(app.ui.tool);
+        out.push(action("Cancel", "Cancel", vec![key(KeyCode::Esc)]));
+        out.push(Action { primary: true, ..action(label, label, vec![key(KeyCode::Enter)]) });
+        return out;
     }
     out.push(Action { primary: true, ..action("Done", "Done", back_to_select(app)) });
     out
@@ -376,16 +430,22 @@ pub fn corner_more(ctx: &egui::Context, map: Rect, palette: &Palette, controls: 
         .fixed_pos(map.left_top() + vec2(6.0, 6.0))
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            let r = rail_button(ui, &look, vec2(32.0, 32.0), MORE_ICON, ("More", ""), false);
+            let side = if touch_rows(ctx) { TARGET } else { 32.0 };
+            let r = rail_button(ui, &look, vec2(side, side), MORE_ICON, ("More", ""), false);
             if r.clicked() {
                 controls.more_open = true;
             }
         });
 }
 
-/// How tall the floating time controls are ([`float_time`]), so what else sits in the map's
-/// top-right corner can start below them.
+/// How tall the floating time controls are with a mouse ([`float_time`]).
 pub const FLOAT_HEIGHT: f32 = 36.0;
+
+/// How tall the floating time controls are ([`float_time`]), so what else sits in the map's
+/// top-right corner can start below them: a finger's [`TARGET`] on touch.
+pub fn float_height(ctx: &egui::Context) -> f32 {
+    if touch_rows(ctx) { TARGET + 4.0 } else { FLOAT_HEIGHT }
+}
 
 /// In a compact window with the drawer closed (#979, board 1): pause, slower and faster at the
 /// map's top-right corner, and More when the rail (whose bar has its own) is off. Returns the
@@ -402,7 +462,7 @@ pub fn float_time(
     let look = Look::new(palette);
     let mut keys = Vec::new();
     let paused = app.session.clock.paused;
-    let h = FLOAT_HEIGHT - 4.0;
+    let h = float_height(ctx) - 4.0;
     egui::Area::new(egui::Id::unique("fn_gui float time"))
         .pivot(egui::Align2::RIGHT_TOP)
         .fixed_pos(map.right_top() + vec2(-6.0, 6.0))
@@ -441,7 +501,8 @@ pub fn drawer_tab(
     controls: &mut Controls,
 ) {
     let look = Look::new(palette);
-    let size = vec2(28.0, 64.0);
+    // On touch the tab is wide enough for a thumb on the screen's edge.
+    let size = if touch_rows(ctx) { vec2(40.0, 72.0) } else { vec2(28.0, 64.0) };
     egui::Area::new(egui::Id::unique("fn_gui drawer tab"))
         .fixed_pos(pos2(map.right() - size.x, map.center().y - size.y / 2.0))
         .order(egui::Order::Foreground)
@@ -488,10 +549,15 @@ pub fn drawer_tab(
         });
 }
 
+/// The height of the open drawer's header, where its close chevron sits: a finger's on touch.
+pub fn drawer_header(ctx: &egui::Context) -> f32 {
+    if touch_rows(ctx) { TARGET } else { 28.0 }
+}
+
 /// The open drawer's close chevron, in `ui` at `rect`'s top-left. Returns whether it was tapped.
 pub fn drawer_close(ui: &mut Ui, palette: &Palette, at: Pos2) -> bool {
     let look = Look::new(palette);
-    let rect = Rect::from_min_size(at, vec2(TARGET, 28.0));
+    let rect = Rect::from_min_size(at, vec2(TARGET, drawer_header(ui.ctx())));
     let r = ui.interact(rect, ui.scope_id().with("fn_gui drawer close"), Sense::click());
     let painter = ui.painter_at(rect);
     let colour = if r.hovered() { look.text } else { look.dim };
@@ -499,7 +565,7 @@ pub fn drawer_close(ui: &mut Ui, palette: &Palette, at: Pos2) -> bool {
         rect.left_center() + vec2(8.0, 0.0),
         Align2::LEFT_CENTER,
         "›",
-        egui::FontId::monospace(18.0),
+        egui::FontId::monospace(if touch_rows(ui.ctx()) { 24.0 } else { 18.0 }),
         colour,
     );
     r.widget_info(|| WidgetInfo::labeled(egui::Role::Button, true, "Close panel"));
@@ -552,7 +618,8 @@ pub fn action_bar(
         let buttons = actions(app);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.add_space(6.0);
-            let size = vec2(BAR_HEIGHT - 8.0, BAR_HEIGHT - 8.0);
+            let height = bar_height(ui.ctx()) - 8.0;
+            let size = vec2(height, height);
             let r = rail_button(
                 ui,
                 &look,
@@ -584,9 +651,7 @@ pub fn action_bar(
                 shown -= 1;
             }
             for a in buttons[..shown].iter().rev() {
-                if text_button(ui, &look, a.label, a.name, BAR_HEIGHT - 8.0, a.primary).clicked()
-                    && live
-                {
+                if text_button(ui, &look, a.label, a.name, height, a.primary).clicked() && live {
                     keys.extend(a.keys.clone());
                 }
             }

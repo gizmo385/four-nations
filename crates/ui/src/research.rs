@@ -1248,7 +1248,7 @@ mod tests {
         let earth_shaping = s.defs.tech_id("earth_shaping").unwrap();
         let shaping_card = card(earth_shaping);
         assert_eq!(shaping_card.state, TechState::Available);
-        assert_eq!(shaping_card.unlock, "Earthworks x1.2, Earth Tent");
+        assert_eq!(shaping_card.unlock, "Earthworks x1.2, Camp Shelter");
         assert_eq!(shaping_card.needs, "");
     }
 

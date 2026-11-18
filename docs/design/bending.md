@@ -540,7 +540,7 @@ What the audit shows:
 
 | Nation | Economy | Building and access | Survival | Expression (adept) | Master technique |
 |---|---|---|---|---|---|
-| Earth | Bore Tunnel, Seismic Sense, Metalbend | Raise Earth | **Earth Tent** | **Stone Lanterns** | **Causeway** |
+| Earth | Bore Tunnel, Seismic Sense, Metalbend | Raise Earth | **Camp Shelter** (was Earth Tent) | **Stone Lanterns** | **Causeway** |
 | Water | Water the Land | **Cut Ice** | **Draw Water**, Healing Water (#125) | **Moon Festival** | **Ice Bridge** |
 | Fire | (its kiln, smelter and forge) | **Weld** | Hearthflame, Inner Fire | **Fire Days** | **Eternal Flame** |
 | Air | Wind Carry, Glide | **Lift** | **Air Shield**, Air Scooter | **Airball** | **Whirlwind** |
@@ -552,7 +552,7 @@ New abilities are in bold. Fire's economy stays its buildings, which is its pill
 
 | Ability | Unlock | Chi | Channel | Effect | What it does | Why it's fun, and its limit |
 |---|---|---|---|---|---|---|
-| **Earth Tent** | earth_shaping (60) | 30 | 8 s ÷ earthworks | `heat_source`, `cooks = false` | Toph's tent: a stone shelter. Sleepers within 1 tile get warm sleep (×1.4) and no cold, for 12 min × earthworks (30 min for Earth) | Earth sleeps warm at a far quarry in winter. It isn't a bed: it doesn't count for growth or the bed sign |
+| **Camp Shelter** (id `earth_tent`, was Earth Tent) | earth_shaping (60) | 30 | 8 s ÷ earthworks | `heat_source`, `cooks = false` | Toph's tent: a stone shelter. Sleepers within 1 tile get warm sleep (×1.4) and no cold, for 12 min × earthworks (30 min for Earth) | Earth sleeps warm at a far quarry in winter. It isn't a bed: it doesn't count for growth or the bed sign |
 | **Cut Ice** | ice_construction (120) | 30 | 10 s ÷ water_work | `draw_item` (new) | Freezes and cuts a fresh water or sea tile beside the bender into 4 `ice`, dropped on the bender's tile | Water's own building material. The igloo costs 4 ice instead of 4 wood. Other ice uses are #357's call |
 | **Draw Water** | irrigation (60) | 30 | 8 s ÷ water_work | `reshape`, `revert_minutes` | Pulls groundwater up into a pool: an empty Land tile becomes a Ford for 10 min × water_work (23 min for Water), then dries | A drink beside the stockpile, and a fresh-water source for Water the Land away from rivers. Water's kit starts to combine |
 | **Healing Water** | healing (120) | 40 | 8 s ÷ water_work | `heal` (new, #125) | Every hurt unit within 2 tiles regains 30 × water_work health | Rescues a starving camp after the food arrives. Only valid while someone in range is hurt, so it can't be spammed. #125 keeps the hut and the healer job |
@@ -682,7 +682,7 @@ the Earth branch researched:
 ```
 +- BEND ----------------- [B] -+
 | >Raise Earth       6 benders |
-|  Earth Tent        6 benders |
+|  Camp Shelter      6 benders |
 |  Bore Tunnel       6 benders |
 |  Stone Lanterns     2 adepts |
 |  Causeway         no master  |

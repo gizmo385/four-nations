@@ -217,8 +217,9 @@ cost = 60
 prereqs = ["stoneworking"]
 # Raise Earth, the nation's signature ability, is available from the start and earthworks scales
 # its channel time, so this tech makes fords faster (bending.md). A separate level/raise-terrain
-# designation is future work. It also unlocks Earth Tent (#362, docs/design/bending.md "More
-# abilities and the route to mastery"): a stone shelter that keeps sleepers warm far from a fire.
+# designation is future work. It also unlocks Camp Shelter (#362, docs/design/bending.md "More
+# abilities and the route to mastery"): a timed stone shelter that keeps sleepers warm far from a
+# fire. Earth's real shelter, a building people sleep in, is the Earth Tent from `earth_tents`.
 [tech.unlocks]
 modifiers = { earthworks = 1.2 }
 abilities = ["earth_tent"]
@@ -1535,3 +1536,18 @@ prereqs = ["spirit_gardens"]
 requires = { united = true, council = true, balance = 80 }
 [tech.unlocks]
 buildings = ["spirit_portal"]
+
+# --- Earth's shelter: the Earth Tent ------------------------------------------------------------
+
+# Earth's answer to Water's `ice_construction` igloo: after Shelter, a stone dome people sleep
+# in. It is a bed like the igloo (counts for growth and the bed sign), built from stone instead
+# of ice. Not `core`, so the Harmony Gate's signs are unchanged.
+[[tech]]
+id = "earth_tents"
+name = "Earth Tents"
+description = "Raise stone tents where people sleep warm and dry."
+nation = "earth"
+cost = 60
+prereqs = ["shelter"]
+[tech.unlocks]
+buildings = ["earth_tent"]

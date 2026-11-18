@@ -162,14 +162,15 @@ fn call_rain_is_not_designated_while_a_nation_has_no_caster() {
 
 /// An Earth city that learns the Steelworks makes steel (#958, #968, #1023). Before steel was its
 /// own item the recipe made metal and idled once stores held its `stock_limit` of it, which
-/// Earth's Metalbend always had. Now it eats that metal and its limit counts steel. Seed 2 is the
-/// one Earth seed of 1-24 whose sweep raises it by minute 420 since wild food halved (#486);
-/// seed 17 was until then.
+/// Earth's Metalbend always had. Now it eats that metal and its limit counts steel. Seed 2 was the
+/// one Earth seed of 1-24 whose sweep raised it by minute 420 after wild food halved (#486); once
+/// Earth's home tree gained `earth_tents` no seed of 1-40 did by then, so this plays seed 17 to
+/// minute 500.
 #[test]
 fn an_earth_steelworks_turns_the_metalbent_metal_into_steel() {
-    let (mut w, defs) = found(Nation::Earth, 2);
+    let (mut w, defs) = found(Nation::Earth, 17);
     let economy = steady();
-    play(&mut w, &defs, &economy, 0, 420, 240);
+    play(&mut w, &defs, &economy, 0, 500, 240);
     let steelworks = defs.building_id("steelworks").unwrap();
     assert!(w.buildings().any(|b| b.id == steelworks), "the sweep raised the Steelworks");
     assert!(w.tallies().school("steel_made") > 0);
