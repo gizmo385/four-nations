@@ -82,12 +82,16 @@ fn bore_at(w: &mut World, defs: &Defs, pos: Pos) {
     assert_eq!(w.bend_events().next_back().unwrap().outcome, BendOutcome::Done);
 }
 
-/// Mines the resource on `pos` and returns how many of `item` it dropped (nothing is
+/// Mines the resource on `pos` once and returns how many of `item` it dropped (nothing is
 /// stockpiled, so the yield stays on the ground).
 fn mine(w: &mut World, defs: &Defs, pos: Pos, item: ItemId) -> u32 {
+    let dropped = |w: &World| -> u32 {
+        w.ground_items().filter(|(_, s)| s.item == item).map(|(_, s)| s.count).sum()
+    };
     w.apply(Command::DesignateHarvest { pos }, defs).unwrap();
-    run_until(w, defs, 4000, |w| w.map[pos].resource.is_none());
-    w.ground_items().filter(|(_, s)| s.item == item).map(|(_, s)| s.count).sum()
+    // A vein regrows (#1030), so it stays on the map: done once its yield is on the ground.
+    run_until(w, defs, 4000, |w| dropped(w) > 0);
+    dropped(w)
 }
 
 #[test]
@@ -172,8 +176,11 @@ fn a_tunnel_reaches_a_vein_deep_inside_the_mountain() {
         let pos = at(x, 2);
         bore_at(&mut w, &defs, pos);
     }
-    run_until(&mut w, &defs, 6000, |w| w.map[at(8, 3)].resource.is_none());
-    let mined: u32 = w.ground_items().filter(|(_, s)| s.item == gold).map(|(_, s)| s.count).sum();
+    let dropped = |w: &World| -> u32 {
+        w.ground_items().filter(|(_, s)| s.item == gold).map(|(_, s)| s.count).sum()
+    };
+    run_until(&mut w, &defs, 6000, |w| dropped(w) > 0);
+    let mined = dropped(&w);
     let h = defs.harvest(defs.resource_id("gold_vein").unwrap()).unwrap();
     assert_eq!(mined, h.tunnel_count.unwrap(), "mined from inside the mountain");
 }
@@ -220,9 +227,11 @@ fn mining_stays_open_to_every_nation_without_tunneling() {
             assert!(r.is_ok(), "{nation:?} at {pos:?}: {r:?}");
         }
         let gold = item(&defs, "gold_ore");
-        run_until(&mut w, &defs, 6000, |w| w.map[at(4, 3)].resource.is_none());
-        let mined: u32 =
-            w.ground_items().filter(|(_, s)| s.item == gold).map(|(_, s)| s.count).sum();
+        let dropped = |w: &World| -> u32 {
+            w.ground_items().filter(|(_, s)| s.item == gold).map(|(_, s)| s.count).sum()
+        };
+        run_until(&mut w, &defs, 6000, |w| dropped(w) > 0);
+        let mined = dropped(&w);
         assert_eq!(mined, vein_count, "{nation:?}");
     }
 }
@@ -316,4 +325,27 @@ fn a_chained_line_mid_bore_round_trips_through_a_save() {
     for x in 4..=6 {
         assert_eq!(loaded.map[at(x, 2)].terrain, Terrain::Tunnel, "x={x}");
     }
+}
+
+/// A mined gold vein stays on the map and can be mined again once it has regrown (#1030): ore
+/// used to run out for good outside Earth's Deep Mines, and the Republic era runs on metal.
+#[test]
+fn a_mined_vein_regrows_and_can_be_mined_again() {
+    let defs = Defs::bundled();
+    let h = defs.harvest(defs.resource_id("gold_vein").unwrap()).unwrap();
+    let regrow = h.regrow.expect("gold veins regrow");
+    let gold = item(&defs, "gold_ore");
+    let pos = at(4, 3);
+    let mut w = world(Nation::Fire, false, &defs);
+    assert_eq!(mine(&mut w, &defs, pos, gold), h.count);
+    assert!(w.map[pos].resource.is_some(), "the vein is still there");
+    let limit = (regrow * crate::world::TICKS_PER_SECOND as f32 * 3.0) as u64;
+    w.apply(Command::DesignateHarvest { pos }, &defs).unwrap();
+    let total = |w: &World| -> u32 {
+        w.ground_items().filter(|(_, s)| s.item == gold).map(|(_, s)| s.count).sum()
+    };
+    let start = w.tick;
+    run_until(&mut w, &defs, limit, |w| total(w) >= 2 * h.count);
+    let waited = (w.tick - start) as f32 / crate::world::TICKS_PER_SECOND as f32;
+    assert!(waited >= regrow * 0.5, "mined again after only {waited} s");
 }
