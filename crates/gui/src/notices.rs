@@ -24,14 +24,17 @@ use crate::color::to_egui;
 /// A notice box's width and the gap between boxes and from the map's edge, in points.
 const WIDTH: f32 = 340.0;
 const GAP: f32 = 6.0;
+/// The tallest a notice's buttons get, even on touch.
+const SHORT: f32 = 32.0;
 
 /// What a click on a notice asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Click {
     /// The close button of the notice with this id.
     Dismiss(u64),
-    /// One of its action buttons.
-    Act(NoticeAction),
+    /// One of its action buttons, on the notice with this id: the action, then the notice is
+    /// dismissed, as `Enter` on the top notice does.
+    Act(u64, NoticeAction),
     /// "Dismiss all", on the "+N more" row.
     DismissAll,
 }
@@ -43,7 +46,10 @@ pub fn apply(app: &mut App, clicks: &[Click]) {
             Click::Dismiss(id) => {
                 app.ui.alerts.notices_mut().dismiss(id);
             }
-            Click::Act(action) => app.do_notice_action(action),
+            Click::Act(id, action) => {
+                app.do_notice_action(action);
+                app.ui.alerts.notices_mut().dismiss(id);
+            }
             Click::DismissAll => app.ui.alerts.notices_mut().dismiss_all(),
         }
     }
@@ -64,7 +70,9 @@ pub fn show(
         return clicks;
     }
     let fill = |rgb| to_egui(palette.token(rgb), Color32::BLACK);
-    let width = WIDTH.min(area.width() - 2.0 * GAP).max(0.0);
+    // On a phone the boxes take at most two fifths of the map's width, so the map stays seen.
+    let cap = if crate::controls::wide(ctx.content_rect()) { WIDTH } else { area.width() * 0.4 };
+    let width = WIDTH.min(cap).min(area.width() - 2.0 * GAP).max(200.0_f32.min(area.width()));
     let dim = to_egui(palette.token(palette.theme.dim), Color32::GRAY);
     Area::new(Id::unique("corner-notices"))
         .order(Order::Foreground)
@@ -73,6 +81,10 @@ pub fn show(
         .interactable(live)
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, GAP);
+            // Buttons here are a little under a finger's height, so a notice stays a few lines
+            // tall (playtest, 2026-11-18: they took too much of a phone's map); their taps reach
+            // past them by the item spacing.
+            ui.spacing_mut().interact_size.y = ui.spacing().interact_size.y.min(SHORT);
             ui.set_width(width);
             for notice in notices.shown() {
                 let edge = match notice.kind {
@@ -122,7 +134,9 @@ fn one(
     let text_colour = to_egui(palette.token(palette.theme.text), Color32::WHITE);
     let font = metrics.font.clone();
     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-        let close = Button::new(RichText::new("✕").font(font.clone())).frame(false);
+        let close = Button::new(RichText::new("✕").font(font.clone()))
+            .frame(false)
+            .min_size(vec2(SHORT, metrics.cell.y));
         let response = ui.add(close).on_hover_text("Dismiss (Del)");
         if response.hovered() {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
@@ -147,7 +161,7 @@ fn one(
         ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
         for &action in &notice.actions {
             if ui.button(RichText::new(action.label()).font(font.clone())).clicked() {
-                clicks.push(Click::Act(action));
+                clicks.push(Click::Act(notice.id, action));
             }
         }
     });

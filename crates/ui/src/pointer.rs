@@ -2,8 +2,9 @@
 //! rules, in tiles and not pixels or cells, so every frontend (an egui window, the web canvas,
 //! later the terminal) works out which tile is under its pointer and hands that in.
 //!
-//! - **Select, a click** points at the tile, then `Enter` if a unit can be selected there, else
-//!   `Esc` if one is selected (deselect). A click on bare ground with nothing selected does
+//! - **Select, a click** points at the tile, then `Enter` if a unit can be selected there; else
+//!   it opens what stands there, a building's recipes or a dock's screen, as `Enter` would
+//!   (`App::open_place_here`); else `Esc` if one is selected (deselect). A click on bare ground with nothing selected does
 //!   nothing: `Esc` would open the game menu.
 //! - **A tool, a click** is a one-tile apply: `Enter` `Enter` on that tile (with a corner already
 //!   set, the click is the second corner: one `Enter`; the Gate and a chute's foot take one).
@@ -80,6 +81,8 @@ fn activate(app: &mut App) {
     if app.ui.tool == Tool::Select {
         if !app.ui.selectable_here(&app.session).is_empty() {
             enter(app);
+        } else if app.open_place_here() {
+            app.dirty = true;
         } else if app.ui.selected.is_some() {
             esc(app);
         }
