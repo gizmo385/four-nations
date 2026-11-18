@@ -473,7 +473,8 @@ ascii = "U"
 fg = [255, 200, 60]
 
 [building.bathhouse]
-glyph = "♨"
+# Not the emoji it used to be: terminals with a colour emoji font drew it two cells wide over its neighbours (#1030 playtest replays).
+glyph = "⊍"
 ascii = "B"
 fg = [230, 140, 120]
 
@@ -690,13 +691,15 @@ fg = [140, 190, 220]
 
 # The Hot Spring Mill (#448): Earth's weak power source, built against the rock.
 [building.hot_spring_mill]
-glyph = "♨"
+# Not the emoji it used to be: terminals with a colour emoji font drew it two cells wide over its neighbours (#1030 playtest replays).
+glyph = "ϑ"
 ascii = "h"
 fg = [214, 160, 110]
 
 # --- The endeavor (#236, #242) ---
 [building.harmony_gate]
-glyph = "⛩"
+# Not the emoji it used to be: terminals with a colour emoji font drew it two cells wide over its neighbours (#1030 playtest replays).
+glyph = "∏"
 ascii = "G"
 fg = [240, 214, 120]
 

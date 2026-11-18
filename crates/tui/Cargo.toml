@@ -24,7 +24,9 @@ fn_runfmt = { path = "../runfmt" }
 fn_ui = { path = "../ui" }
 ratatui = { version = "0.30", default-features = false }
 serde = { workspace = true }
-serde_json = { workspace = true }
+# The score cache must read back the exact f64 it wrote (`runs::cached_score`); without this
+# the last digit can drift whenever fn_tui is built on its own, without fn_agent's features.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 toml = { workspace = true }
 unicode-width = "0.2"
 
