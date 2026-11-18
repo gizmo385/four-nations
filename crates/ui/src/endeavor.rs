@@ -10,7 +10,7 @@ use fn_sim::jobs::{ItemId, JobKind};
 use fn_sim::world::{
     AvatarLeaveReason, EndeavorEvent, EndeavorEventKind, EndeavorState, SignProgress,
 };
-use fn_sim::{Defs, Pos, World};
+use fn_sim::{Defs, Nation, Pos, World};
 
 use crate::session::Session;
 use crate::text::compass_distance;
@@ -418,11 +418,29 @@ fn wanted_goods(world: &World, defs: &Defs) -> Vec<(ItemId, GoodFlowRow)> {
             continue;
         }
         seen.push(want.item);
-        let floor = want.tier.down().unwrap_or(want.tier);
-        let wanting = world
-            .residents()
-            .filter(|u| world.nation_of(u) == want.nation && world.tier_of(u) >= floor)
-            .count();
+        // Everyone who holds or climbs toward this good, by nation: a Notable's foreign wants
+        // count too, so a Citizen good shows the other nations that want it (#1030 playtest:
+        // Furniture read "4 Earth" while Air Citizens waited on it for Notable).
+        let mut by_nation = [0usize; Nation::ALL.len()];
+        for u in world.residents() {
+            let (nation, tier) = (world.nation_of(u), world.tier_of(u));
+            let st = &defs.standing;
+            let wants = st.keep(nation, tier).into_iter().chain(st.aim(nation, tier));
+            if wants.into_iter().any(|(item, _)| item == want.item)
+                && let Some(i) = Nation::ALL.iter().position(|&n| n == nation)
+            {
+                by_nation[i] += 1;
+            }
+        }
+        let wanting: usize = by_nation.iter().sum();
+        let mut order: Vec<usize> = (0..Nation::ALL.len()).collect();
+        // The good's own nation first, then the rest in the usual order.
+        order.sort_by_key(|&i| Nation::ALL[i] != want.nation);
+        let parts: Vec<String> = order
+            .into_iter()
+            .filter(|&i| by_nation[i] > 0 || Nation::ALL[i] == want.nation && wanting == 0)
+            .map(|i| format!("{} {}", by_nation[i], Nation::ALL[i].title()))
+            .collect();
         let (made, used) = world.goods_rate(want.item);
         let stores = world.stored_total(want.item);
         // A good no one here wants, and the city neither has nor makes, is only noise.
@@ -436,7 +454,7 @@ fn wanted_goods(world: &World, defs: &Defs) -> Vec<(ItemId, GoodFlowRow)> {
                 made,
                 used,
                 stores,
-                wanted_by: format!("{wanting} {}", want.nation.title()),
+                wanted_by: parts.join(", "),
                 short: stores == 0 && wanting > 0,
             },
         ));

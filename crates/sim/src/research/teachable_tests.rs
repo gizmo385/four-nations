@@ -257,3 +257,33 @@ fn a_requires_residents_on_a_teachable_tech_is_the_larger_of_the_two() {
     // Fire itself, researching its own tech, is asked the 5 too.
     assert_eq!(defs.tech(t).unmet(Nation::Fire, &have(4), &defs).len(), 1);
 }
+
+/// A borrowed tech's recipe or upgrade must land on a building the borrower can raise: one the
+/// tech itself unlocks, or a shared, fusion or borrowed-first tech does (for a recipe, one of the
+/// buildings it is given to). The playtest of #1030
+/// found Lanterncraft borrowed by a Water city with no Forge to make lanterns in, since only the
+/// home-only `forging` built one.
+#[test]
+fn a_borrowed_techs_upgrades_land_on_buildings_the_borrower_can_raise() {
+    let defs = Defs::bundled();
+    for t in defs.techs.iter().filter(|t| t.teachable) {
+        let id = defs.tech_id(&t.id).unwrap();
+        let mut reach: Vec<&TechDef> = vec![t];
+        reach.extend(defs.borrow_prereqs(id).into_iter().map(|p| &defs.techs[p.0 as usize]));
+        reach.extend(defs.techs.iter().filter(|o| {
+            o.fusion.is_some() || (o.nation.is_none() && o.nations.is_empty() && o.school.is_none())
+        }));
+        let raisable = |b: &String| reach.iter().any(|o| o.unlocks.buildings.contains(b));
+        let ups = || t.unlocks.upgrades.iter().filter(|u| !u.building.is_empty());
+        // A recipe given to several buildings needs only one of them raisable.
+        for up in ups() {
+            assert!(
+                ups().any(|o| o.recipe.is_some() && o.recipe == up.recipe && raisable(&o.building))
+                    || raisable(&up.building),
+                "{}: a borrower can't raise a {}",
+                t.id,
+                up.building
+            );
+        }
+    }
+}
