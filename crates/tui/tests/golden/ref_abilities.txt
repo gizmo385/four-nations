@@ -4,7 +4,7 @@
 │   Bore Tunnel               Needs Tunneling                                                                          │
 │   Seismic Sense             Needs Seismic Sense                                                                      │
 │   Metalbend                 Needs Metalbending                                                                       │
-│   Earth Tent                Needs Earth Shaping                                                                      │
+│   Camp Shelter              Needs Earth Shaping                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

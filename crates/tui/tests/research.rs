@@ -427,7 +427,8 @@ fn the_chosen_card_wears_a_quiet_background_never_reverse_video() {
         [ColorDepth::TrueColor, ColorDepth::Indexed256, ColorDepth::Ansi16, ColorDepth::Never]
     {
         let mut a = app(7, Nation::Earth, SIZE);
-        run(&mut a, "t <down>");
+        // Fishing: a three-row card (Shelter's "Leads to" line wraps to a fourth for Earth).
+        run(&mut a, "t <down> <down>");
         let p = Palette::new(&a.session.defs, Nation::Earth, depth, false);
         let buf = render_app(&mut a, &p, SIZE);
         // The page: every row but the status line, which has its own badges.

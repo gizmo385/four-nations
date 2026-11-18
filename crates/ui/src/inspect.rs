@@ -1834,7 +1834,7 @@ mod tests {
         }
         assert!(s.world.is_lit(pos), "the tent should finish raising");
         let line = bending_status_line(&s.world, &s.defs, pos).expect("a lit shelter");
-        assert!(line.starts_with("Earth Tent:"), "{line}");
+        assert!(line.starts_with("Camp Shelter:"), "{line}");
         assert!(!line.starts_with("Lit:"), "{line}");
     }
 

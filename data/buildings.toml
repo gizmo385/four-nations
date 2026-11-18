@@ -2187,3 +2187,20 @@ count = 20
 [[building.cost]]
 item = "steel"
 count = 10
+
+# --- Earth's shelter: the Earth Tent ---
+# Unlocked by `earth_tents` (data/research.toml), which follows Shelter. Toph's tent made to
+# last: a stone dome people sleep in, Earth's twin of Water's igloo, with the same numbers but
+# stone in place of ice.
+[[building]]
+id = "earth_tent"
+name = "Earth Tent"
+verb = "Build"
+work = 30.0
+passable = true
+[building.bed]
+sleep_bonus = 1.6
+seek_tiles = 30
+[[building.cost]]
+item = "stone"
+count = 4

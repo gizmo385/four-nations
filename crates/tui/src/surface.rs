@@ -2081,7 +2081,7 @@ fn describe_thing(session: &Session, thing: &Thing, pos: Pos) -> String {
         }
         Thing::Item(item) => defs.item(*item).name.clone(),
         Thing::Flame => "flame".to_owned(),
-        Thing::EarthTent => "earth tent".to_owned(),
+        Thing::EarthTent => "camp shelter".to_owned(),
         Thing::AirShield => "air shield".to_owned(),
         Thing::Sapling => "sapling".to_owned(),
         Thing::Spirit => "friendly spirit".to_owned(),
