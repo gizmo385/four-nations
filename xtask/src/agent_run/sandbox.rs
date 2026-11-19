@@ -86,9 +86,18 @@ pub(super) fn new_session_id() -> String {
 
 /// A `claude` command ready for its flags: the given binary, run from the run's empty sandbox
 /// directory, with a session id of our choosing.
+/// Claude Code's MCP start-up timeout for agent runs, in milliseconds (10 minutes).
+const MCP_TIMEOUT_MS: &str = "600000";
+
 pub(super) fn claude_command(bin: &str, run_dir: &Path, session_id: &str) -> Result<Command> {
     let mut cmd = Command::new(bin);
     cmd.current_dir(dir_for(run_dir)?).args(["--session-id", session_id]);
+    // A resumed chunk's `fn_agent serve --resume` replays the whole log before it answers, about
+    // 50 seconds at turn 2,300 of a full game: past Claude Code's default MCP start-up timeout,
+    // so the chunk ran with no game tools at all. Give it minutes unless the caller set one.
+    if std::env::var_os("MCP_TIMEOUT").is_none() {
+        cmd.env("MCP_TIMEOUT", MCP_TIMEOUT_MS);
+    }
     Ok(cmd)
 }
 
