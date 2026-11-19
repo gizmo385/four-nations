@@ -93,6 +93,9 @@
 //!                      --attempts means N more, --max-usd this invocation's cap. Refused for a
 //!                      folder with no ledger, or whose track's horizon or seeds no longer match
 //!                      the tracks file (those scores wouldn't be comparable).
+//!   --continue DIR     with --scripts or --playtest: carries on the run in DIR (one whose
+//!                      agent-run died, say in a container restart) from its next chunk,
+//!                      with the same options it was started with.
 //!   --control GOV[@PLAN]  with --track or --resume: also play this fixed governor (and plan,
 //!                      the `agent-compare` syntax) with no model on the track's seeds, and show
 //!                      it in the owner's table beside par and the do-nothing control. Repeatable.
@@ -213,7 +216,16 @@ pub fn run(args: &[&str]) -> Result {
     cargo_build_release(&repo, &["fn_agent", "fn_tui"])?;
 
     let runs = runs_dir();
-    let dir = make_run_dir(&runs, &opts)?;
+    let dir = match &opts.continue_dir {
+        Some(d) => {
+            let d = sandbox::absolute(d);
+            if !d.join("run.jsonl").is_file() {
+                return Err(format!("--continue: no run.jsonl in {}", d.display()));
+            }
+            d
+        }
+        None => make_run_dir(&runs, &opts)?,
+    };
     say(&format!("run folder: {}", dir.display()));
 
     let agent_bin = repo.join("target/release/fn_agent");
@@ -302,6 +314,9 @@ struct Opts {
     attempts: Option<u32>,
     /// `--resume DIR` (#530): continue the campaign in this folder.
     resume_dir: Option<PathBuf>,
+    /// `--continue DIR`: carry on a `--scripts` or `--playtest` run whose `agent-run` died (a
+    /// container restart, say) in its own folder, from the next chunk.
+    continue_dir: Option<PathBuf>,
     /// `--tracks FILE` (#530): a tracks file other than `data/tracks.toml`.
     tracks_file: Option<PathBuf>,
     /// `--control GOVERNOR.rhai[@PLAN.json]` (#572), repeatable: fixed strategies played with no
@@ -417,6 +432,7 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
         track: None,
         attempts: None,
         resume_dir: None,
+        continue_dir: None,
         tracks_file: None,
         controls: Vec::new(),
         no_par: false,
@@ -499,6 +515,9 @@ fn parse_args_with(args: &[&str], entropy: Entropy) -> Result<Opts> {
             "--resume" => {
                 o.resume_dir = Some(PathBuf::from(take_value(args, &mut i, "--resume")?));
             }
+            "--continue" => {
+                o.continue_dir = Some(PathBuf::from(take_value(args, &mut i, "--continue")?));
+            }
             "--tracks" => {
                 o.tracks_file = Some(PathBuf::from(take_value(args, &mut i, "--tracks")?));
             }
@@ -567,6 +586,9 @@ fn validate(o: &Opts) -> Result {
         return Err("--chunk-turns and --scripts can't be combined; --scripts chunks by round \
                      trips (--chunk-calls)"
             .into());
+    }
+    if o.continue_dir.is_some() && !o.scripts {
+        return Err("--continue only applies with --scripts or --playtest".into());
     }
     if o.carry_dir.is_some() && !o.scripts {
         return Err("--carry only applies with --scripts".into());
@@ -1844,6 +1866,22 @@ fn read_log_lines(path: &Path) -> std::io::Result<Vec<LogLine>> {
 
 /// How many turns `run.jsonl` has completed so far (the highest `turn` line's own `index`, 0
 /// with none yet or no log file).
+/// The number after the highest `chunk-N.json` in `dir` (1 when there is none).
+fn next_chunk(dir: &Path) -> u32 {
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| {
+                    let name = e.ok()?.file_name().into_string().ok()?;
+                    name.strip_prefix("chunk-")?.strip_suffix(".json")?.parse::<u32>().ok()
+                })
+                .max()
+                .unwrap_or(0)
+        })
+        .unwrap_or(0)
+        + 1
+}
+
 fn turns_done(dir: &Path) -> Result<u32> {
     let log = dir.join("run.jsonl");
     if !log.is_file() {
@@ -2445,7 +2483,8 @@ fn run_scripts_chunked(
 ) -> Result {
     let target = o.turns;
     let calls = o.chunk_calls;
-    let mut n: u32 = 1;
+    // A continued run (`--continue`) resumes its log from the chunk after the last one started.
+    let mut n: u32 = if o.continue_dir.is_some() { next_chunk(dir).max(2) } else { 1 };
     // Turns per chunk vary a lot with how mature the library is, so this backstop can't be
     // sized from `calls` the way `run_chunked`'s is from `size`: one extra chunk per turn, plus
     // headroom. The cap and the no-progress rule are what bound a run in practice.
@@ -2849,6 +2888,26 @@ mod tests {
 
     fn write_lines(path: &Path, lines: &[&str]) {
         fs::write(path, lines.join("\n") + "\n").unwrap();
+    }
+
+    #[test]
+    fn next_chunk_counts_after_the_highest_chunk_file() {
+        let dir = tempdir();
+        assert_eq!(next_chunk(&dir), 1);
+        for name in ["chunk-1.json", "chunk-3.json", "chunk-x.json", "notes.json"] {
+            fs::write(dir.join(name), "{}").unwrap();
+        }
+        assert_eq!(next_chunk(&dir), 4);
+    }
+
+    #[test]
+    fn continue_needs_scripts_or_playtest() {
+        let o = parse_args(&["--continue", "/tmp/r", "--max-usd", "1"]).unwrap();
+        let err = validate(&o).unwrap_err();
+        assert!(err.contains("--continue only applies"), "{err}");
+        let o = parse_args(&["--continue", "/tmp/r", "--playtest", "--max-usd", "1"]).unwrap();
+        validate(&o).unwrap();
+        assert_eq!(o.continue_dir, Some(PathBuf::from("/tmp/r")));
     }
 
     #[test]
