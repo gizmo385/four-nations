@@ -749,6 +749,16 @@ pub fn tile_lines(session: &Session, tool: Tool, tile: Pos) -> Option<Lines> {
         lines.push(Line::Title(format!("{} (under construction)", report.name)));
         lines.push(Line::Detail(report.materials));
         lines.push(Line::Detail(report.work));
+        // A site nobody can get to, or whose next material is only where nobody working it can
+        // fetch it from, says so rather than just its bill (#1095).
+        if world.site_unreachable(tile, defs) == Some(true) {
+            lines.push(Line::Detail("Unreachable: no settler can reach it".to_owned()));
+        } else if let Some(item) = world.site_stranded_item(tile, defs) {
+            lines.push(Line::Detail(format!(
+                "Waiting: no {} it can be reached from",
+                defs.item(item).name.to_lowercase()
+            )));
+        }
         if let Some(anchor) = world.footprint_at(tile).map(|f| f.anchor) {
             lines.extend(pair_lines(world, defs, anchor).into_iter().map(Line::Detail));
         }

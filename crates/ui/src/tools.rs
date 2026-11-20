@@ -710,7 +710,7 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
     };
     // So `job_unreachable` below has an answer even for the very first designation in a fresh
     // game, before any idle unit's own job search would otherwise have warmed the cache (#337).
-    if reach && matches!(tool, Tool::Harvest | Tool::Stockpile) {
+    if reach && matches!(tool, Tool::Harvest | Tool::Stockpile | Tool::Build) {
         session.world.ensure_regions();
     }
     let (mut done, mut refused, mut unreachable, mut first) = (0, 0, 0, 0);
@@ -769,6 +769,13 @@ fn run_order(session: &mut Session, order: Order, reach: bool) -> Report {
                     if reach
                         && matches!(tool, Tool::Harvest | Tool::Stockpile)
                         && session.world.job_unreachable(pos) == Some(true)
+                    {
+                        unreachable += 1;
+                    }
+                    // A site across a river or on a shut-off coast never gets a delivery (#1095).
+                    if reach
+                        && tool == Tool::Build
+                        && session.world.site_unreachable(pos, &session.defs) == Some(true)
                     {
                         unreachable += 1;
                     }
@@ -1218,6 +1225,47 @@ mod tests {
         assert!(notice.ends_with(')'), "{notice}");
 
         assert_eq!(apply_rect(&mut s, Tool::Select, pos, to, false, None), "");
+    }
+
+    /// #1095: a site placed across water from every settler is counted unreachable in the
+    /// notice and says so when inspected.
+    #[test]
+    fn a_site_across_the_water_says_it_cannot_be_reached_or_supplied() {
+        use fn_sim::defs::BiomeId;
+        use fn_sim::{Defs, Grid, Nation, Terrain, Tile, World};
+
+        use crate::clock::Clock;
+        use crate::inspect::{Line, tile_lines};
+
+        let defs = Defs::bundled();
+        let rows = ["....~....", "....~....", "....~....", "....~....", "....~...."];
+        let map = Grid::from_fn(rows[0].len() as i32, rows.len() as i32, |p| Tile {
+            elevation: 100,
+            temperature: 128,
+            moisture: 128,
+            terrain: if rows[p.y as usize].as_bytes()[p.x as usize] == b'~' {
+                Terrain::Water
+            } else {
+                Terrain::Land
+            },
+            biome: BiomeId(0),
+            resource: None,
+            building: None,
+        });
+        let world = World::with_map(1, map, Nation::Earth, &[Pos::new(1, 1)], &defs);
+        let mut s = Session { world, defs, clock: Clock::default(), bend_choice: None };
+        let bed = s.defs.building_id("bed").unwrap();
+        let far = Pos::new(6, 2);
+        let notice = apply_rect(&mut s, Tool::Build, far, far, false, Some(bed));
+        assert!(notice.contains("1 unreachable"), "{notice}");
+        let unreachable = Line::Detail("Unreachable: no settler can reach it".to_owned());
+        assert!(tile_lines(&s, Tool::Select, far).unwrap().contains(&unreachable));
+
+        // One on the settlers' own side isn't.
+        let near = Pos::new(2, 3);
+        let notice = apply_rect(&mut s, Tool::Build, near, near, false, Some(bed));
+        assert!(!notice.contains("unreachable"), "{notice}");
+        assert!(!tile_lines(&s, Tool::Select, near).unwrap().contains(&unreachable));
     }
 
     /// A harvest designated on an island nobody can reach says so in the notice (#337:

@@ -903,6 +903,63 @@ impl World {
         self.stored.values().any(|s| s.item == item) || self.ground.values().any(|s| s.item == item)
     }
 
+    /// The walkable regions a unit working the site anchored on `pos` stands in: its footprint
+    /// for a walkable building, the ring around it for a solid one (`work_area`). `None` before
+    /// the connectivity cache is warm.
+    fn site_regions(
+        &self,
+        pos: Pos,
+        defs: &Defs,
+    ) -> Option<std::collections::BTreeSet<crate::regions::RegionId>> {
+        let regions = self.regions.as_ref()?;
+        let (foot, inside) = self.work_area(pos, defs);
+        let tiles: Vec<Pos> = if inside { foot.tiles().collect() } else { foot.ring().collect() };
+        Some(tiles.into_iter().filter_map(|p| regions.region(p)).collect())
+    }
+
+    /// Whether no settler can get to the build site anchored on `pos` at all (#1095): no tile a
+    /// builder would stand on shares a region with any unit, so it sits across a river or on a
+    /// shut-off coast and never gets a delivery. `None` with no site there, or before the
+    /// connectivity cache is warm (`ensure_regions`); a frontend should then say nothing.
+    pub fn site_unreachable(&self, pos: Pos, defs: &Defs) -> Option<bool> {
+        let (anchor, _) = self.site_at(pos)?;
+        let regions = self.regions.as_ref()?;
+        let areas = self.site_regions(anchor, defs)?;
+        Some(!self.units.iter().any(|u| regions.region(u.pos).is_some_and(|r| areas.contains(&r))))
+    }
+
+    /// The material the build site anchored on `pos` waits on next, when some of it (or a
+    /// stand-in for it) is in stores or on the ground, but none where a hauler working the site
+    /// could fetch it from (#1095: "Stone: stores 801 but only 7 in nearby stockpile"). `None`
+    /// when it waits on nothing, when there's none of it anywhere (idle settlers say that,
+    /// #1076), when some is within reach, or before the connectivity cache is warm.
+    pub fn site_stranded_item(&self, pos: Pos, defs: &Defs) -> Option<ItemId> {
+        let (anchor, _) = self.site_at(pos)?;
+        let (_, item, _) = self.next_shortfall(anchor, defs)?;
+        let regions = self.regions.as_ref()?;
+        let mut wanted = self.stand_ins(defs).for_target(item, defs);
+        wanted.push(item);
+        let holds = |s: &Stack| wanted.contains(&s.item) && s.count > 0;
+        let stacks: Vec<Pos> = self
+            .stored
+            .iter()
+            .chain(self.ground.iter())
+            .filter(|(_, s)| holds(s))
+            .map(|(&p, _)| p)
+            .collect();
+        if stacks.is_empty() {
+            return None;
+        }
+        let areas = self.site_regions(anchor, defs)?;
+        // A stack is fetched from its own tile or one beside it (`stand_tile`).
+        let near = |p: Pos| {
+            std::iter::once(p)
+                .chain(Footprint::single(p).ring())
+                .any(|q| regions.region(q).is_some_and(|r| areas.contains(&r)))
+        };
+        (!stacks.into_iter().any(near)).then_some(item)
+    }
+
     /// `any_source`, but also true if a stand-in for `item` (brick for stone, issue #371) is
     /// anywhere. Used before paying for a flood to fetch a build or endeavor cost.
     pub(super) fn any_source_for(&self, item: ItemId, defs: &Defs) -> bool {

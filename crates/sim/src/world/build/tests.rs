@@ -1173,3 +1173,28 @@ fn a_paved_road_is_its_own_track_and_refunds_nothing() {
     let stone = defs.item_id("stone").unwrap();
     assert!(w.ground.values().all(|s| s.item != stone), "no stone comes back");
 }
+
+/// #1095: a site across water from every settler is unreachable, and a reachable site whose
+/// only wood sits in a stockpile across that water names the wood as stranded. Wood on its own
+/// side clears both.
+#[test]
+fn a_site_across_water_is_unreachable_and_its_stranded_material_named() {
+    let rows = ["....~....", "....~....", "....~....", "....~....", "....~...."];
+    let (mut w, defs) = setup(&rows, &[at(1, 1)]);
+    let bed = defs.building_id("bed").unwrap();
+    let wood = defs.item_id("wood").unwrap();
+    assert!(defs.building(bed).cost.iter().any(|c| c.item == wood), "a bed takes wood");
+    w.designate_build(at(6, 2), bed, &defs).unwrap();
+    w.designate_build(at(2, 3), bed, &defs).unwrap();
+    w.ensure_regions();
+    assert_eq!(w.site_unreachable(at(6, 2), &defs), Some(true));
+    assert_eq!(w.site_unreachable(at(2, 3), &defs), Some(false));
+    // No wood anywhere: nothing is stranded (idle settlers already say it's missing).
+    assert_eq!(w.site_stranded_item(at(2, 3), &defs), None);
+    w.zones.insert(at(7, 4));
+    w.stored.insert(at(7, 4), Stack { item: wood, count: 10 });
+    assert_eq!(w.site_stranded_item(at(2, 3), &defs), Some(wood));
+    w.zones.insert(at(0, 4));
+    w.stored.insert(at(0, 4), Stack { item: wood, count: 1 });
+    assert_eq!(w.site_stranded_item(at(2, 3), &defs), None);
+}
