@@ -165,6 +165,15 @@ pub fn stage_needs(world: &World, defs: &Defs) -> Vec<String> {
             .collect();
         lines.push(format!("Materials: {}", parts.join(", ")));
     }
+    // Nobody builds while a tile of the footprint still holds a tree or rock (#1106).
+    for p in world.gate_to_clear(defs) {
+        let what = world
+            .map
+            .get(p)
+            .and_then(|t| t.resource)
+            .map_or("something", |r| defs.resource(r).name.as_str());
+        lines.push(format!("Waiting for the {what} at ({}, {}) to be cleared", p.x, p.y));
+    }
     if stage.work > 0.0 {
         let done = (g.progress / stage.work * 100.0).clamp(0.0, 100.0).floor();
         let when = if stage.cost.is_empty() { "" } else { ", once the materials are in" };
@@ -1156,9 +1165,15 @@ mod tests {
         let cursor = crate::gate::tests::free_cursor(&s);
         crate::gate::place(&mut s, cursor).expect("it fits");
         let needs = screen_view(&s).needs;
+        // This seed's spot holds a boulder and a tree, which must go first (#1106).
         assert_eq!(
             needs,
-            ["Materials: 0/80 Stone, 0/60 Wood", "Work: 0% built, once the materials are in"]
+            [
+                "Materials: 0/80 Stone, 0/60 Wood",
+                "Waiting for the Boulder at (33, 28) to be cleared",
+                "Waiting for the Oak Tree at (32, 29) to be cleared",
+                "Work: 0% built, once the materials are in"
+            ]
         );
     }
 
