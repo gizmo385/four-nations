@@ -737,6 +737,15 @@ impl World {
         if has_door && !self.door_walkable(entrance) && self.clear_target(entrance, defs).is_err() {
             return Some((entrance, Blocker::Entrance));
         }
+        // A solid building's site is still walkable ground until it's finished, so the check
+        // above passes a door that lands inside one; once that building stands, nobody can reach
+        // the door again (#1092: a Steelworks placed with its door on a Smelter site never got a
+        // crafter). Refuse it now, as the finished building would be.
+        if has_door
+            && self.site_at(entrance).is_some_and(|(_, s)| !defs.building(s.building).passable)
+        {
+            return Some((entrance, Blocker::Entrance));
+        }
         foot.tiles().find(|&p| self.door_owner(p, defs).is_some()).map(|p| (p, Blocker::Entrance))
     }
 

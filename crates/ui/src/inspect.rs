@@ -237,12 +237,33 @@ fn horizons_lines(world: &World, defs: &Defs, anchor: Pos) -> Vec<String> {
     if let Some(p) = world.pickers_at(anchor) {
         lines.push(format!("Picked: {}  Eaten: {}", p.picked, p.eaten));
     }
+    lines.extend(door_line(world, defs, anchor));
     lines.extend(automation_line(world, defs, anchor));
     lines.extend(crate::split::sends_line(world, defs, anchor));
     if world.needs_tending(anchor, defs) {
         lines.push("Needs tending: waiting for a tool".to_owned());
     }
     lines
+}
+
+/// `Door blocked by Smelter: nobody can get in` (#1092): a building with a door
+/// (`BuildingDef::capacity`) whose door tile can't be walked onto, so no crafter, student or
+/// patient can reach it. Placement refuses this now, but a save from before can still hold one,
+/// and a resource can grow over a door. `None` for a building with no door or a clear one.
+pub fn door_line(world: &World, defs: &Defs, anchor: Pos) -> Option<String> {
+    let b = world.building_at(anchor)?;
+    if defs.building(b).capacity == 0 {
+        return None;
+    }
+    let door = world.footprint_at(anchor)?.entrance();
+    if world.door_walkable(door) {
+        return None;
+    }
+    let by = world
+        .building_at(door)
+        .or_else(|| world.build_site(door).map(|(id, ..)| id))
+        .map(|id| format!(" by {}", defs.building(id).display_name(world.nation)));
+    Some(format!("Door blocked{}: nobody can get in", by.unwrap_or_default()))
 }
 
 /// A recipe building in an automating yard (`great_works`, #725, #730): `Automated: Batch 2/3
@@ -1594,6 +1615,28 @@ mod tests {
         );
     }
 
+    /// A building whose door another one covers says so (#1092), and one with a clear door
+    /// says nothing about it.
+    #[test]
+    fn a_building_whose_door_is_covered_names_what_covers_it() {
+        let mut s = Session::new(7, Nation::Fire, 64, 64);
+        let pos = spot(&s);
+        let above = Pos::new(pos.x, pos.y - 2);
+        // The upper Smelter's door is (pos.x, pos.y): the lower one's top-left tile.
+        put(&mut s, "smelter", pos);
+        put(&mut s, "smelter", above);
+        assert!(
+            details(&s, above).contains(&"Door blocked by Smelter: nobody can get in".to_owned()),
+            "{:?}",
+            details(&s, above)
+        );
+        // One with a walkable door says nothing.
+        let lower_door = s.world.footprint_at(pos).unwrap().entrance();
+        if s.world.door_walkable(lower_door) {
+            assert_eq!(door_line(&s.world, &s.defs, pos), None);
+        }
+    }
+
     /// The Oil Lamp's bunker (#678, #682): out of fish until filled, then how full it is.
     #[test]
     fn a_lamp_says_how_much_fish_it_holds_or_that_it_is_out() {
@@ -1712,7 +1755,10 @@ mod tests {
         let pos = spot(&s);
         put(&mut s, "waystation", pos);
         let want = ["Pantry empty".to_owned(), "Beds: 0/2 taken".to_owned()];
-        assert_eq!(details(&s, pos)[1..], want);
+        // Put down with no placement check, its door here lands on a tree (#1092's line).
+        let lines: Vec<String> =
+            details(&s, pos)[1..].iter().filter(|l| !l.starts_with("Door")).cloned().collect();
+        assert_eq!(lines, want);
     }
 
     /// A pair's first end, placed and not yet built (#698): it says it has no partner yet.

@@ -647,6 +647,37 @@ fn a_footprint_may_not_cover_another_doorway() {
     assert!(w.designate_build(at(3, 2), hall, &defs).is_ok());
 }
 
+/// #1092: the other order. A building whose own door would land inside a solid building's
+/// *site* is refused too, though a site's tiles are still walkable: once that building stands,
+/// the door is buried and no crafter can ever reach it (a Steelworks placed with its door on a
+/// Smelter site never got one). A walkable building's site, like a road's, doesn't count.
+#[test]
+fn a_door_may_not_land_inside_a_solid_site() {
+    let (mut w, mut defs) = setup(&GRID, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    // The first site: footprint (2..4, 2..4).
+    w.designate_build(at(2, 2), hall, &defs).unwrap();
+    // Anchored on (2, 0), the second hall's footprint (2..4, 0..2) is free and covers no door,
+    // but its own door at (2, 2) is the first site's top-left tile.
+    assert!(w.door_walkable(at(2, 2)), "the site's ground is still walkable");
+    assert_eq!(
+        w.check_build(at(2, 0), hall, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 2), why: Blocker::Entrance })
+    );
+    // Once finished, the same tile stays refused.
+    w.complete_site(at(2, 2), &defs);
+    assert_eq!(
+        w.check_build(at(2, 0), hall, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 2), why: Blocker::Entrance })
+    );
+    // A walkable building's site leaves the door free.
+    let (mut w, mut defs) = setup(&GRID, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    defs.buildings[hall.0 as usize].passable = true;
+    w.designate_build(at(2, 2), hall, &defs).unwrap();
+    assert!(w.check_build(at(2, 0), hall, &defs).is_ok());
+}
+
 /// Only buildings that can be entered have doors: solid 1x1 buildings with no capacity stack in a
 /// column (a north-south wall) and sit with water right below them.
 #[test]

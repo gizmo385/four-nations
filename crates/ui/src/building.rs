@@ -211,6 +211,7 @@ pub fn view(session: &Session, edit: &BuildingEdit) -> BuildingView {
         None
     };
     let mut notes = Vec::new();
+    notes.extend(crate::inspect::door_line(world, defs, at));
     notes.extend(crate::inspect::automation_line(world, defs, at));
     if world.craft_idle(at, defs)
         && let Some(r) = recipe
