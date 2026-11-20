@@ -41,8 +41,9 @@ pub fn list() -> Vec<Value> {
         }),
         json!({
             "name": "observe",
-            "description": "Turn, clock, season, tool, notice, people, research, stores, \
-                             stockpile capacity (tiles designated, how many hold something, and \
+            "description": "Turn, clock, season, tool, notice, people, research (with \
+                             notes: what a tech held at 100% waits for, such as an item bill), \
+                             stores, stockpile capacity (tiles designated, how many hold something, and \
                              the per-tile cap), endeavor, the cursor's own tile and alerts since \
                              the last turn. Free: changes nothing and takes no game time.",
             "inputSchema": empty,

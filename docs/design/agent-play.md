@@ -157,7 +157,7 @@ styles is a prerequisite.
 {"turn": 7, "turns_left": 353, "clock": "02:20", "season": "Spring",
  "tool": "Harvest", "notice": "Designated 9 tiles to harvest",
  "people": {"total": 6, "activity": {"Harvest": 4, "Idle": 2}, "needs": {}},
- "research": {"label": "Masonry", "pool": "", "rate": ""},
+ "research": {"label": "Mechanisms", "pool": "", "rate": "", "notes": ["Waiting for 8 Tool"]},
  "stores": [], "stockpile": {"tiles": 4, "used": 1, "cap": 20},
  "endeavor": {"met": 0, "of": 9, "next": ["10 people"]},
  "cursor": {"x": 91, "y": 63, "lines": ["Oak Tree", "Plains - Land (91, 63)", "Chop: 4 Wood - 8s"]},

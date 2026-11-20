@@ -533,8 +533,20 @@ pub fn detail_rows(session: &Session, card: &TechCard, marks: &Marks, width: usi
             rows.push(Row::text(piece, tone));
         }
     }
+    rows.extend(step_rows(card, marks, width));
     rows.extend(waiting_rows(session, card, marks, width));
     rows
+}
+
+/// The detail strip's rows for a bill item stores hold none of (#1098): the first step still
+/// missing before the city can make it, "Steel: needs a Steelworks, from Steelworks research,
+/// which needs 3 Fire residents (0 live here)" (`TechCard::steps`).
+fn step_rows(card: &TechCard, marks: &Marks, width: usize) -> Vec<Row> {
+    card.steps
+        .iter()
+        .flat_map(|line| wrap(line, width.max(1), usize::MAX, marks.ellipsis))
+        .map(|piece| Row::text(piece, Tone::Warn))
+        .collect()
 }
 
 /// "500/500 pts + 4 Tool": [`cost_text`] with the points already worded.
@@ -646,6 +658,7 @@ fn newcomer_detail(
             push(&mut rows, &format!("Needs {}.", join_and(&asks)), tone);
         }
     }
+    rows.extend(step_rows(card, marks, width));
     rows
 }
 
@@ -799,6 +812,7 @@ mod tests {
             closed: String::new(),
             items: String::new(),
             bill: String::new(),
+            steps: Vec::new(),
             school: None,
             teaching: None,
             newcomer: None,
