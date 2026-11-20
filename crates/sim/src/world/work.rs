@@ -603,6 +603,17 @@ impl World {
     /// Puts a stack on the ground at `near`, or the closest free tile (one with no other kind of
     /// item, and not a stockpile tile), and queues a haul for it.
     pub(super) fn place_ground(&mut self, near: Pos, stack: Stack) {
+        self.place_ground_where(near, stack, |_| true);
+    }
+
+    /// `place_ground`, on the nearest tile that also passes `ok`. False, with nothing placed, if
+    /// no tile within `GROUND_SEARCH_RADIUS` does.
+    pub(super) fn place_ground_where(
+        &mut self,
+        near: Pos,
+        stack: Stack,
+        ok: impl Fn(Pos) -> bool,
+    ) -> bool {
         for r in 0..=GROUND_SEARCH_RADIUS {
             for dy in -r..=r {
                 for dx in -r..=r {
@@ -611,7 +622,7 @@ impl World {
                     }
                     let p = Pos::new(near.x + dx, near.y + dy);
                     let Some(tile) = self.map.get(p) else { continue };
-                    if !self.rules.passable(tile) || self.zones.contains(&p) {
+                    if !self.rules.passable(tile) || self.zones.contains(&p) || !ok(p) {
                         continue;
                     }
                     match self.ground.get_mut(&p) {
@@ -622,12 +633,13 @@ impl World {
                         Some(_) => continue,
                     }
                     self.ensure_haul_job(p);
-                    return;
+                    return true;
                 }
             }
         }
         // Nowhere within reach: the items are lost. Only possible on a map that is solid
         // obstacles for 8 tiles around, so not worth a fallback.
+        false
     }
 
     /// How many more of `item` a stockpile tile can take.

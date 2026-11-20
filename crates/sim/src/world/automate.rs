@@ -452,7 +452,7 @@ impl World {
                 let left =
                     self.pass_across(pos, Stack { item: output.item, count: output.count }, defs);
                 if left.count > 0 {
-                    self.place_ground(pos, left);
+                    self.place_output(pos, left);
                 }
                 self.tallies.count_school("automated_batches", 1);
                 if self.united()
