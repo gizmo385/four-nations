@@ -287,8 +287,13 @@ impl World {
         let free: Vec<UnitId> = if def.passable {
             Vec::new()
         } else {
-            self.regions();
-            self.units.iter().map(|u| u.id).filter(|&id| !self.walled_in(id)).collect()
+            let open = self.open_regions();
+            let regions = self.regions.as_ref().expect("just computed");
+            self.units
+                .iter()
+                .filter(|u| regions.region(u.pos).is_some_and(|r| open.contains(&r)))
+                .map(|u| u.id)
+                .collect()
         };
         self.put_building(foot, building, defs);
         if !def.passable {
@@ -348,45 +353,50 @@ impl World {
         self.units[i].move_progress = 0.0;
     }
 
-    /// After a solid building went up: each of `free` (the units that could reach water, a
-    /// stockpile or the settlement's heart a moment ago) that now can't is walled in by it (#583:
-    /// a settler wandered into a pocket whose only way out ran through a site, and starved
-    /// there once it finished; #559 makes buildings solid, #490's `would_strand` only keeps
-    /// the opening from building such a thing, not a player). It steps to the nearest tile
-    /// that can reach one of them, as a unit on the footprint steps off it (`clear_footprint`),
-    /// and replans. Whatever else stays walled in is left where it is: if no such tile exists
-    /// at all there is nowhere to put it, and it reads "Idle: walled in" and trips `balance`'s
-    /// Stranded flag like any other sealed settler.
+    /// The walkable regions that hold a stockpile tile or a tile at the settlement's heart:
+    /// where a settler can get food from, or will be brought food to. Brings the connectivity
+    /// cache up to date first.
+    fn open_regions(&mut self) -> std::collections::BTreeSet<crate::regions::RegionId> {
+        let anchor = self.settlement_anchor();
+        let regions = self.regions().clone();
+        let mut open = std::collections::BTreeSet::new();
+        for (p, _) in self.map.iter() {
+            let Some(region) = regions.region(p) else { continue };
+            if p.chebyshev(anchor) <= 1 || self.zones.contains(&p) {
+                open.insert(region);
+            }
+        }
+        open
+    }
+
+    /// After a solid building went up: each of `free` (the units that could reach a stockpile
+    /// or the settlement's heart a moment ago) that now can't is shut in by it (#583: a settler
+    /// wandered into a pocket whose only way out ran through a site, and starved there once it
+    /// finished; #559 makes buildings solid, #490's `would_strand` only keeps the opening from
+    /// building such a thing, not a player). It steps to the nearest tile that can reach one of
+    /// them, as a unit on the footprint steps off it (`clear_footprint`), and replans.
+    ///
+    /// A pocket with a river beside it used to count as open, because #583 asked only whether
+    /// the settler could reach water, a stockpile *or* the heart. Three settlers starved in one
+    /// with 395 cabbage in stores (#1093, `sonnet-air-full` on seed 7: mountains, a river and two
+    /// finished buildings round 16 tiles), so water alone no longer counts. Whatever else stays
+    /// shut in is left where it is: if no such tile exists at all there is nowhere to put it.
     ///
     /// The building still goes up: refusing it would mean a unit's wandering decides what the
     /// player may build.
     fn free_walled_in(&mut self, free: &[UnitId]) {
-        self.regions();
+        let open = self.open_regions();
+        let regions = self.regions.clone().expect("just computed");
+        let shut = |p: Pos| !regions.region(p).is_some_and(|r| open.contains(&r));
         let trapped: Vec<usize> = (0..self.units.len())
-            .filter(|&i| free.contains(&self.units[i].id) && self.walled_in(self.units[i].id))
+            .filter(|&i| free.contains(&self.units[i].id) && shut(self.units[i].pos))
             .collect();
-        if trapped.is_empty() {
-            return;
-        }
-        let anchor = self.settlement_anchor();
-        let regions = self.regions().clone();
-        // The regions that hold water to drink, a stockpile or the settlement's heart.
-        let mut open = std::collections::BTreeSet::new();
-        for (p, _) in self.map.iter() {
-            let Some(region) = regions.region(p) else { continue };
-            if p.chebyshev(anchor) <= 1
-                || self.zones.contains(&p)
-                || self.map.neighbors(p, true).any(|q| self.map[q].terrain.is_water())
-            {
-                open.insert(region);
-            }
-        }
         for i in trapped {
             let from = self.units[i].pos;
             let to = self
                 .map
                 .iter()
-                .filter(|&(p, _)| regions.region(p).is_some_and(|r| open.contains(&r)))
+                .filter(|&(p, _)| !shut(p))
                 .map(|(p, _)| p)
                 .min_by_key(|p| (p.chebyshev(from), p.y, p.x));
             if let Some(to) = to {
@@ -663,7 +673,7 @@ impl World {
     /// or there is at most one to join. A step between two ring neighbours is always an
     /// orthogonal one, so the run is a real path. A diagonal neighbour only matters next to the
     /// two orthogonal ones it touches, which a unit needs to step on or off it anyway.
-    fn ring_stays_joined(&self, map: &TileMap, at: Pos) -> bool {
+    pub(super) fn ring_stays_joined(&self, map: &TileMap, at: Pos) -> bool {
         const RING: [(i32, i32); 8] =
             [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
         let open = RING.map(|(dx, dy)| {

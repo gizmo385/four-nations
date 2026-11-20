@@ -310,7 +310,16 @@ impl World {
         let by_garden = |p: Pos| gardens.iter().any(|g| g.distance(p) <= clear);
         (lo.y..=hi.y)
             .flat_map(|y| (lo.x..=hi.x).map(move |x| Pos::new(x, y)))
-            .filter(|&p| self.vine_room(p) && !by_door(p) && !by_garden(p))
+            // Nor where it would split the ground around it (`ring_stays_joined`), so vines never
+            // close a pocket: three settlers starved in one, vines and buildings round 9 tiles,
+            // with 7,800 food in stores (#1093, `opus-water-republic`), and 9 steel were sealed
+            // in another (#1094).
+            .filter(|&p| {
+                self.vine_room(p)
+                    && !by_door(p)
+                    && !by_garden(p)
+                    && self.ring_stays_joined(&self.map, p)
+            })
             .filter(|&p| {
                 near(p, 1)
                     || (near(p, 3)

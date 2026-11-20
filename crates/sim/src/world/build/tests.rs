@@ -1198,3 +1198,23 @@ fn a_site_across_water_is_unreachable_and_its_stranded_material_named() {
     w.stored.insert(at(0, 4), Stack { item: wood, count: 1 });
     assert_eq!(w.site_stranded_item(at(2, 3), &defs), None);
 }
+
+/// #1093: the #583 pocket with water beside it. Being able to drink isn't enough: the settler
+/// shut in east of the hall can reach no stockpile and not the heart, so it would starve with
+/// food in stores (three settlers did, `sonnet-air-full`, seed 7). It is moved out like any other.
+#[test]
+fn a_pocket_with_water_but_no_stores_still_counts_as_shut_in() {
+    let rows = ["^^^^^^^^^^", "^.......~^", "^.......~^", "^^^^.^^^^^"];
+    let (mut w, mut defs) = setup(&rows, &[at(1, 1), at(7, 1)]);
+    let hall = hall_2x2(&mut defs);
+    w.start = Some(at(1, 1));
+    w.zones.insert(at(1, 2));
+    w.units[1].claim_retry_at = u64::MAX;
+    w.units[1].idle_until = u64::MAX;
+    w.designate_build(at(4, 1), hall, &defs).unwrap();
+    nearly_done(&mut w, &defs, at(4, 1));
+    run_until(&mut w, &defs, 4000, |w| w.building_at(at(4, 1)).is_some());
+    let reach = w.reach(UnitId(1)).unwrap();
+    assert!(reach.anchor && reach.stockpile == Some(true), "moved to the stores' side");
+    assert!(w.units[1].pos.x <= 3, "{:?}", w.units[1].pos);
+}

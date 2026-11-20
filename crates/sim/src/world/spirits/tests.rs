@@ -267,3 +267,21 @@ fn a_wandering_spirit_blesses_the_farm_plot_beside_it() {
     assert!(!w.is_blessed(at));
     assert_eq!(w.crop_growth_rate(at, &defs), before);
 }
+
+/// #1093: vines never close a pocket. However long they grow round the busy yard, every
+/// walkable tile is still one walk from every other: settlers walled in by vines and buildings
+/// starved with food in stores (`opus-water-republic`), and output was sealed in (#1094).
+#[test]
+fn growing_vines_never_wall_off_any_ground() {
+    let defs = Defs::bundled();
+    let mut w = busy(&defs, 10.0);
+    for _ in 0..300 {
+        vine_tick(&mut w, &defs, 15.0);
+    }
+    assert!(vines(&w, &defs).len() > 20, "they did grow: {}", vines(&w, &defs).len());
+    let flood = crate::flood::Flood::new(&w.map, Pos::new(20, 8), &w.rules);
+    let walkable: Vec<Pos> =
+        w.map.iter().filter(|(_, t)| w.rules.passable(t)).map(|(p, _)| p).collect();
+    let cut: Vec<Pos> = walkable.into_iter().filter(|&p| flood.cost(p).is_none()).collect();
+    assert!(cut.is_empty(), "walled off: {cut:?}");
+}

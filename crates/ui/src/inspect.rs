@@ -1073,6 +1073,36 @@ mod tests {
         assert!(!lines.iter().any(|l| matches!(l, Line::Detail(d) if d.contains("(4, 4)"))));
     }
 
+    /// #1093: a hungry settler shut in a pocket that has water but no way to the stores reads
+    /// "Idle: can't reach the stores to eat", not "no reachable job".
+    #[test]
+    fn a_hungry_settler_cut_off_from_the_stores_says_so() {
+        let defs = Defs::bundled();
+        let (home, pocket) = (Pos::new(2, 2), Pos::new(8, 8));
+        let mut map = field(12, 12, 128, None);
+        for dy in -2i32..=2 {
+            for dx in -2i32..=2 {
+                if dx.abs() == 2 || dy.abs() == 2 {
+                    map[Pos::new(pocket.x + dx, pocket.y + dy)].terrain = Terrain::Mountain;
+                }
+            }
+        }
+        map[Pos::new(pocket.x + 1, pocket.y + 1)].terrain = Terrain::Water;
+        let world = World::with_map(1, map, Nation::Earth, &[home, pocket], &defs);
+        let mut s = custom_session(defs, world);
+        s.apply(Command::DesignateStockpile { pos: Pos::new(3, 3) }).unwrap();
+        s.world.map_changed();
+        let i = s.world.units.iter().position(|u| u.pos == pocket).unwrap();
+        s.world.units[i].needs.hunger = 0.0;
+        let lines = tooltip_lines(&s, Tool::Select, pocket).unwrap();
+        assert!(
+            lines.iter().any(
+                |l| matches!(l, Line::Detail(d) if d.contains("Idle: can't reach the stores"))
+            ),
+            "{lines:?}"
+        );
+    }
+
     /// #583: a settler ringed in by rock reads "Idle: walled in", on the selection bar's line and
     /// on the tooltip (the agent's `inspect`), instead of "no reachable job"; its neighbour in
     /// the open keeps the plain "Idle".
