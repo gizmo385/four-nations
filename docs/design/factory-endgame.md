@@ -181,7 +181,7 @@ Five tiers. Each one lets a city serve a higher tier of resident, or more nation
 | Tier | Unlocked by | Adds | What it serves |
 |---|---|---|---|
 | 1. **Hand work** (ships) | The existing techs | Forge, Kiln, Smelter, Workshop, plus F1's new recipe buildings (Smokehouse, Tea Works). A crafter works every batch | Citizens of your own nation |
-| 2. **Mechanisms** | `mechanisms`, post-gate shared, 1,000 points plus steel | Recipe buildings in your nation's power reach run themselves (shapes below). Touching machines pass batches across. Machines wear, and a settler tends them | More Citizens than hands allow |
+| 2. **Mechanisms** | `mechanisms`, post-gate shared, 1,000 points plus 8 tools (was steel, #1098: every nation makes tools alone) | Recipe buildings in your nation's power reach run themselves (shapes below). Touching machines pass batches across. Machines wear, and a settler tends them | More Citizens than hands allow |
 | 3. **Freight** | One tech per nation, 1,000 points | Earth's freight line, Water's flume, Air's wind tube. Fire has the Balloon Dock already | Chains that span the map: rock face to yard, river to city |
 | 4. **Power and big works** | One tech per nation, after tier 2 | Plants with a capacity, crewed by Notables (layer 4). **Big works**: 3x3 machines that do two steps in one (steel to fittings to furniture, or herbs to tea and incense), with a heavy draw | Notables' fine goods at scale |
 | 5. **Fusion machines** | Six fusions in phase 6's pattern: two nations, 3 residents of each, 1,000 points plus tools | One machine per pair that makes both nations' goods well. Examples: a **Smoke Kiln** (Fire and Water: lanterns and smoked fish from one fire), a **Mountain Works** (Earth and Air: furniture and incense) | Notables' foreign goods without buying them |
@@ -451,7 +451,7 @@ right, and fusion machines name the residents they still need.
 |                                                                                                  |
 | 1 HAND WORK            2 MECHANISMS          3 FREIGHT             4 POWER, BIG WORKS            |
 |   Forge          ok      Mechanisms     ok      Freight lines  50%    Lightning plants           |
-|   Kiln           ok      1,000 + 4 steel        1,000 points          1,000 + 6 steel            |
+|   Kiln           ok      1,000 + 8 tools        1,000 points          1,000 + 6 steel            |
 |   Smelter        ok      Yard runs itself,      Carts on rail,        Notables crew it;          |
 |   Workshop       ok      touching machines      40 a minute           machines draw load         |
 |   Smokehouse     ok      pass goods along                              Big works (3x3)           |

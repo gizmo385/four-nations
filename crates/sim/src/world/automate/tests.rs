@@ -170,12 +170,34 @@ fn mechanisms_runs_each_nations_machines_at_its_own_rate() {
     }
 }
 
+/// #1098: Mechanisms is the one tech every nation's machines hang on, so its bill must be
+/// something each nation makes alone: an item a building of a shared tech makes, one with no
+/// nation, no fusion and no residents to wait for. Steel (the Earth + Fire fusion) held Water,
+/// Earth and Air for 500 to 1,500 turns.
 #[test]
-fn mechanisms_is_shared_waits_for_the_gate_and_bills_steel() {
+fn mechanisms_is_shared_waits_for_the_gate_and_bills_what_every_nation_makes() {
     let defs = Defs::bundled();
     let t = defs.tech(defs.tech_id("mechanisms").unwrap());
     assert!(t.nation.is_none() && t.requires.united);
-    assert!(t.cost_items.iter().any(|c| defs.item(c.item).id == "steel"));
+    assert!(!t.cost_items.is_empty());
+    for line in &t.cost_items {
+        let made_alone = defs.buildings.iter().any(|b| {
+            let makes = b
+                .recipe
+                .iter()
+                .chain(b.alt_recipes.iter().map(|a| &a.recipe))
+                .any(|r| r.output.item == line.item);
+            let shared = b.unlocked_by.is_none_or(|u| {
+                let u = defs.tech(u);
+                u.nation.is_none()
+                    && !u.is_fusion()
+                    && u.requires.residents.is_empty()
+                    && !u.requires.united
+            });
+            makes && shared
+        });
+        assert!(made_alone, "{} can't be made by every nation alone", defs.item(line.item).id);
+    }
     // Fire's own yard keeps Great Works, at the best rate.
     let station = defs.building(defs.building_id("lightning_station").unwrap());
     let (tech, a) = station.automate_upgrade.as_ref().unwrap();

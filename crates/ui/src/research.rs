@@ -3,7 +3,8 @@
 //! see is the sim's (`Defs::techs_for`). Choosing a tech issues `Command::SetResearch`; `fn_sim`
 //! does the rest (`docs/design/research.md`).
 
-use fn_sim::building::ArchiveDef;
+use fn_sim::building::{ArchiveDef, BuildingId};
+use fn_sim::jobs::ItemId;
 use fn_sim::research::{Condition, Facts, Feature, MILLIS_PER_POINT, Research, TechDef, TechId};
 use fn_sim::world::{Command, ExchangeEntry, ExchangeKind, ExchangeNeed, ExchangeStanding};
 use fn_sim::{Defs, Nation, World};
@@ -233,6 +234,108 @@ fn bill_status(world: &World, defs: &Defs, tech: TechId) -> Option<String> {
         Some(&(item, got, need)) => format!("Waiting for {} {}", need - got, defs.item(item).name),
         None => format!("{} on the way", bill_text(world.research(), defs, tech)),
     })
+}
+
+/// The first step still missing before the city can make `item` (#1098), as a bill line's
+/// hint: "Steel: build a Steelworks", "Steel: needs a Steelworks, from Steelworks research,
+/// which needs 3 Fire residents (0 live here)", "Gold Ore: gather it from gold veins". `None`
+/// while a standing building makes it, so it is on its way, and for a readable item (scrolls
+/// come to a hall on their own).
+///
+/// Only buildings this nation can build or may unlock count (`build::available_to_nation`): a
+/// Steelworks for every nation once the gate stands, a Smelter only for Fire or once Smelting is
+/// borrowed. The first such building in file order that makes it wins.
+pub fn missing_step(session: &Session, item: ItemId) -> Option<String> {
+    let (world, defs) = (&session.world, &session.defs);
+    let nation = world.nation;
+    if defs.item(item).is_readable() {
+        return None;
+    }
+    let name = &defs.item(item).name;
+    if world
+        .buildings()
+        .any(|b| world.recipe_at(b.anchor, defs).is_some_and(|r| r.output.item == item))
+    {
+        return None;
+    }
+    // Every building in reach that makes it, with the tech that still locks the recipe (the
+    // building's own, else the alternate recipe's), if any.
+    let mut locked: Option<(BuildingId, TechId)> = None;
+    for (i, def) in defs.buildings.iter().enumerate() {
+        if !crate::build::available_to_nation(session, def) {
+            continue;
+        }
+        let main = def.recipe.iter().filter(|r| r.output.item == item).map(|_| None);
+        let alts =
+            def.alt_recipes.iter().filter(|a| a.recipe.output.item == item).map(|a| a.unlocked_by);
+        let Some(recipe_tech) = main.chain(alts).next() else { continue };
+        let id = BuildingId(i as u16);
+        let building = def.display_name(nation);
+        match def
+            .unlocked_by
+            .filter(|&t| !world.is_unlocked(Some(t)))
+            .or(recipe_tech.filter(|&t| !world.is_unlocked(Some(t))))
+        {
+            None if world.buildings().any(|b| b.id == id) => {
+                return Some(format!("{name}: set a {building} to make it"));
+            }
+            None => return Some(format!("{name}: build a {building}")),
+            Some(tech) => {
+                locked.get_or_insert((id, tech));
+            }
+        }
+    }
+    if let Some((id, tech)) = locked {
+        let def = defs.tech(tech);
+        let needs = missing_needs(world.research(), &world.facts(), defs, def);
+        let building = defs.building(id).display_name(nation);
+        let mut text = format!("{name}: needs a {building}, from {} research", def.name);
+        if !needs.is_empty() {
+            text.push_str(&format!(", which needs {}", needs.join(", ")));
+        }
+        return Some(text);
+    }
+    let gathered: Vec<String> = defs
+        .harvests
+        .iter()
+        .filter(|h| h.item == item)
+        .map(|h| format!("{}s", defs.resource(h.resource).name.to_lowercase()))
+        .collect();
+    if !gathered.is_empty() {
+        return Some(format!("{name}: gather it from {}", gathered.join(" or ")));
+    }
+    let united = world.united();
+    let sellers: Vec<&str> = defs.trade.schedule.as_ref().map_or_else(Vec::new, |schedule| {
+        let visitors: Vec<Nation> = schedule.visitors(nation, united).collect();
+        defs.trade
+            .caravans_for(united)
+            .iter()
+            .filter(|c| visitors.contains(&c.nation))
+            .filter(|c| c.deals.iter().any(|d| d.get.iter().any(|&(i, _)| i == item)))
+            .map(|c| c.nation.title())
+            .collect()
+    });
+    if !sellers.is_empty() {
+        return Some(format!("{name}: buy it from {} caravans", sellers.join(" or ")));
+    }
+    Some(format!("{name}: nothing here can make it yet"))
+}
+
+/// The first step still missing for each item of `def`'s bill that stores hold none of and
+/// that is still owed (`missing_step`), in the bill's order. Empty for a known tech and for one
+/// with no items.
+pub fn bill_steps(session: &Session, tech: TechId) -> Vec<String> {
+    let (world, defs) = (&session.world, &session.defs);
+    if world.research().is_known(tech) {
+        return Vec::new();
+    }
+    world
+        .research()
+        .bill(tech, defs)
+        .into_iter()
+        .filter(|&(item, got, need)| got < need && world.stored_total(item) == 0)
+        .filter_map(|(item, _, _)| missing_step(session, item))
+        .collect()
 }
 
 /// `X` on the Research screen: empties the research queue so the scholars scribe
@@ -554,6 +657,10 @@ pub struct TechCard {
     /// Delivered against needed for each bill line while the bill is started or the tech is
     /// queued, "Metal 5/8" (`bill_text`); empty otherwise.
     pub bill: String,
+    /// For each bill item stores hold none of, the first step still missing before the city can
+    /// make it (`bill_steps`, #1098): "Steel: needs a Steelworks, from Steelworks research,
+    /// which needs 3 Fire residents (0 live here)". Empty for a known tech.
+    pub steps: Vec<String>,
     /// Where it sits in its school's fork, for a school option; `None` for every other tech.
     pub school: Option<SchoolSlot>,
     /// What it is in the TEACHINGS column (#743); `None` for every card of the tiers.
@@ -768,6 +875,7 @@ fn tech_card(session: &Session, facts: &fn_sim::research::Facts<'_>, id: TechId)
         closed: closed_reason(research, defs, id).unwrap_or_default(),
         items: cost_items_text(defs, def),
         bill: bill_text(research, defs, id),
+        steps: bill_steps(session, id),
         school: def.school.map(|school| {
             let mate = defs.school_mates(id).next();
             SchoolSlot {
@@ -797,6 +905,7 @@ fn teachings_column(session: &Session, facts: &fn_sim::research::Facts<'_>) -> V
         closed: String::new(),
         items: String::new(),
         bill: String::new(),
+        steps: Vec::new(),
         school: None,
         teaching: Some(row),
         newcomer: None,
@@ -933,6 +1042,7 @@ fn newcomer_card(session: &Session, facts: &Facts<'_>, entry: &ExchangeEntry) ->
         closed: String::new(),
         items: cost_items_text(defs, def),
         bill: bill_text(research, defs, entry.tech),
+        steps: bill_steps(session, entry.tech),
         school: None,
         teaching: None,
         newcomer: Some(Newcomer {
@@ -1348,5 +1458,34 @@ mod tests {
         assert!(page.titles[0].ends_with(" here"), "{:?}", page.titles);
         // Nothing queued: no waiting row.
         assert_eq!(research_status(&s.world, &s.defs).waiting, None);
+    }
+
+    /// #1098: a bill item the city can't make yet names the first step still missing, so a
+    /// player isn't left at 100% with no idea what the research waits for.
+    #[test]
+    fn a_bill_item_names_the_first_missing_step() {
+        let mut s = Session::new(7, Nation::Water, 64, 64);
+        assert!(s.world.complete_endeavor(&s.defs));
+        let steel = s.defs.item_id("steel").unwrap();
+        let step = missing_step(&s, steel).unwrap();
+        assert!(step.starts_with("Steel: needs a Steelworks, from Steelworks research"), "{step}");
+        assert!(step.contains("3 Fire residents"), "{step}");
+        // Every nation's Workshop makes tools, so Mechanisms' bill is within reach alone.
+        let tool = s.defs.item_id("tool").unwrap();
+        let step = missing_step(&s, tool).unwrap();
+        assert!(step.starts_with("Tool: "), "{step}");
+        assert!(step.contains("Workshop"), "{step}");
+        assert!(!step.contains("residents"), "{step}");
+        // A gathered good says where it comes from.
+        let ore = s.defs.item_id("gold_ore").unwrap();
+        assert!(missing_step(&s, ore).unwrap().contains("gather it from"), "gold ore");
+        // Mechanisms' card bills tools, and any step it shows is about tools.
+        let mechanisms = s.defs.tech_id("mechanisms").unwrap();
+        let card = screen_view(&s).columns.into_iter().flatten().find(|c| c.id == mechanisms);
+        let card = card.expect("Mechanisms is on a United City's tree");
+        assert_eq!(card.items, "8 Tool");
+        for line in &card.steps {
+            assert!(line.starts_with("Tool: "), "{line}");
+        }
     }
 }

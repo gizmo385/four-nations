@@ -666,6 +666,7 @@ impl Host {
                 // watching the screen couldn't).
                 pool: String::new(),
                 rate: String::new(),
+                notes: side.research.bill.iter().chain(&side.research.waiting).cloned().collect(),
             },
             stores: side.stores.into_iter().map(StoreView::from).collect(),
             stockpile: fn_ui::view::stockpile_capacity(session).into(),
@@ -2022,6 +2023,9 @@ fn tech_card_views(cards: Vec<fn_ui::research::TechCard>) -> Vec<TechCardView> {
             unlock: c.unlock,
             needs: c.needs,
             closed: c.closed,
+            items: c.items,
+            bill: c.bill,
+            steps: c.steps,
         })
         .collect()
 }
@@ -2264,6 +2268,12 @@ pub struct ResearchView {
     pub label: String,
     pub pool: String,
     pub rate: String,
+    /// The rows under the panel's Research row (`panel::research_notes`, #1098): the front
+    /// tech's bill while it is short ("Waiting for 6 Steel", "Tool 3/8 on the way"), then the
+    /// condition it waits on ("Waiting: 3 Fire residents (2 live here)"). Left out when the
+    /// panel shows none: a research bar stuck at 100% read as "nobody is studying" without it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2469,6 +2479,20 @@ pub struct TechCardView {
     /// (`fn_ui::research::closed_reason`); left out for every other tech.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub closed: String,
+    /// The items its bill asks for besides points, "8 Tool" (`TechCard::items`, the card's own
+    /// "+ 8 Tool" row); left out for a tech with none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub items: String,
+    /// Delivered against needed while the bill is started or the tech is queued, "Tool 3/8"
+    /// (`TechCard::bill`); left out otherwise.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub bill: String,
+    /// For each bill item stores hold none of, the first step still missing before the city
+    /// can make it, as the detail strip says it (`TechCard::steps`, #1098): "Steel: needs a
+    /// Steelworks, from Steelworks research, which needs 3 Fire residents (0 live here)". Left
+    /// out when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -4956,6 +4980,26 @@ mod tests {
             assert!(result.error.is_some(), "{steps:?}");
             assert!(result.keys.is_empty());
         }
+    }
+
+    /// #1098: a tech whose bill is short says so in `observe`, as the panel's rows under the
+    /// Research row do, not only in the rendered frame.
+    #[test]
+    fn observe_research_has_the_panel_s_bill_notes() {
+        let mut h = host(Nation::Water);
+        assert!(h.observe().research.notes.is_empty(), "nothing queued");
+        let session = &mut h.app_mut().session;
+        assert!(session.world.complete_endeavor(&session.defs));
+        let tech = session.defs.tech_id("mechanisms").unwrap();
+        session.apply(Command::SetResearch { tech }).unwrap();
+        let notes = h.observe().research.notes;
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("Tool"), "{notes:?}");
+        let research = h.screen("research").unwrap();
+        let ScreenView::Research(v) = research else { panic!("research") };
+        let card = v.columns.iter().flatten().find(|c| c.name == "Mechanisms").unwrap();
+        assert_eq!(card.items, "8 Tool");
+        assert!(card.bill.starts_with("Tool 0/8"), "{}", card.bill);
     }
 
     #[test]

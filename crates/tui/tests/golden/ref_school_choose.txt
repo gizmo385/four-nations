@@ -1,5 +1,5 @@
 ┏──────────────────────────────────────────────────── ◆ RESEARCH ◆ ────────────────────────────────────────────────────┓
-│◂TIER 3                       TIER 4                       TIER 5                       TIER 6                        │
+│◂TIER 3                       TIER 4                     ▼ TIER 5                       TIER 6                        │
 │  · Masonry                    · Cartography                · Earth Rail                 · Omashu Chutes              │
 │    Locked · 120 pts             Locked · 250 pts             Locked · 250 pts             Locked · 250 pts           │
 │    Needs Carpentry              Needs Writing                Needs Earthen Walls          Needs Earth Rail           │
@@ -27,14 +27,14 @@
 │    Needs Carpentry,             Needs Writing                Needs Calendar,                                         │
 │    Known on the road                                         Cartography                                             │
 │                                                                                                                      │
-│                               · Archives                                                                             │
-│                                 Locked · 500 pts                                                                     │
-│                                 Needs Writing,                                                                       │
-│                                 3 scrolls read                                                                       │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ Metal City                                                                               Locked · 1000 pts + 8 Metal │
 │ Lay metal rail, and hot spring mills give 50% more power.                                                            │
 │ Needs Metalbending                                                                                                   │
 │ School: Which city? Choosing one closes the other for the rest of the game.                                          │
+│ Metal: buy it from Fire caravans                                                                                     │
 ┗───────────────────────────────────────────────────────────────────────────────────────────────────── tiers 3-6 of 6 ─┛
  CHOOSE A SCHOOL  Enter choose · Esc back                                                                 PAUSED ? keys

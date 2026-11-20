@@ -1269,6 +1269,11 @@ buildings = ["tea_works"]
 # buildings in reach of the nation's own power source run themselves, as Fire's yard does with
 # `great_works`. Earth's run at the rock face, Water's along the water, Air's anywhere in the
 # turbine's wide reach but slowest.
+#
+# The bill is tools, which every nation's Workshop makes from wood (`carpentry`, shared tier). It
+# was 6 steel, but steel needs the Earth + Fire Steelworks fusion, so Water, Earth and Air sat
+# 500 to 1,500 turns waiting on Fire newcomers for the one tech their machines hang on (#1098).
+# Fire never needed it most: its yard runs machines before the gate (`great_works`).
 [[tech]]
 id = "mechanisms"
 name = "Mechanisms"
@@ -1277,8 +1282,8 @@ cost = 1000
 prereqs = []
 requires = { united = true }
 [[tech.cost_items]]
-item = "steel"
-count = 6
+item = "tool"
+count = 8
 [tech.unlocks]
 [[tech.unlocks.upgrades]]
 building = "hot_spring_mill"
