@@ -73,9 +73,9 @@ impl World {
         out
     }
 
-    /// Every running yard's load, by its anchor: the draw of the machines automated on it now,
-    /// its capacity with its crew, and that crew.
-    pub fn yard_loads(&self, defs: &Defs) -> BTreeMap<Pos, YardLoad> {
+    /// Every running yard's capacity with its crew, and that crew, by its anchor, with no draw
+    /// counted yet.
+    fn yard_capacities(&self, defs: &Defs) -> BTreeMap<Pos, YardLoad> {
         let mut out = BTreeMap::new();
         if !self.has_kind(Kind::Automates) {
             return out;
@@ -90,12 +90,71 @@ impl World {
             let capacity = (a.capacity > 0).then_some(a.capacity + crewed * a.per_crew);
             out.insert(s.anchor, YardLoad { draw: 0, capacity, crew: (crewed, a.crew) });
         }
-        let anchors: Vec<Pos> = self.buildings().map(|b| b.anchor).collect();
+        out
+    }
+
+    /// Which yard each machine on automation draws on, by the machine's anchor, with that yard's
+    /// rate (#1096). Machines are dealt out in anchor order. Each takes the fastest yard in reach
+    /// that still has room for its draw (of two as fast, the first by anchor), so a machine in
+    /// reach of one yard draws on it as before. With no yard in reach left with room, it takes
+    /// the one that would be least overloaded relative to its capacity. Before this, every
+    /// machine drew on the first yard in reach, so one turbine browned out while the next sat
+    /// idle.
+    pub fn yard_assignment(&self, defs: &Defs) -> BTreeMap<Pos, (Pos, f32)> {
+        let mut out = BTreeMap::new();
+        if !self.has_kind(Kind::Automates) {
+            return out;
+        }
+        let mut loads = self.yard_capacities(defs);
+        let mut anchors: Vec<Pos> = self.buildings().map(|b| b.anchor).collect();
+        anchors.sort();
         for pos in anchors {
             if self.anchored(pos).is_none_or(|b| b.manual) {
                 continue;
             }
-            let Some((yard, _)) = self.yard_of(pos, defs) else { continue };
+            let yards = self.yards_reaching(pos, defs);
+            if yards.is_empty() {
+                continue;
+            }
+            let draw = self.building_at(pos).map_or(1, |id| defs.building(id).draw);
+            let room = |y: &super::automate::YardReach| {
+                loads.get(&y.anchor).is_some_and(|l| l.capacity.is_none_or(|c| l.draw + draw <= c))
+            };
+            let fits: Vec<_> = yards.iter().copied().filter(room).collect();
+            let pick = super::automate::best_yard(&fits).or_else(|| {
+                // Everything in reach is full: the least overloaded, by (draw + d) / capacity,
+                // compared as cross-products to stay in integers; ties to the faster, then the
+                // first by anchor.
+                let ratio = |y: &super::automate::YardReach| {
+                    let l = loads.get(&y.anchor)?;
+                    Some((u64::from(l.draw + draw), u64::from(l.capacity?.max(1))))
+                };
+                yards
+                    .iter()
+                    .filter_map(|y| ratio(y).map(|r| (y, r)))
+                    .reduce(|best, next| {
+                        let (b, (bn, bd)) = best;
+                        let (n, (nn, nd)) = next;
+                        let less = nn * bd < bn * nd;
+                        let same = nn * bd == bn * nd;
+                        if less || (same && n.rate > b.rate) { next } else { best }
+                    })
+                    .map(|(y, _)| (y.anchor, y.rate))
+            });
+            let Some((yard, rate)) = pick else { continue };
+            if let Some(l) = loads.get_mut(&yard) {
+                l.draw += draw;
+            }
+            out.insert(pos, (yard, rate));
+        }
+        out
+    }
+
+    /// Every running yard's load, by its anchor: the draw of the machines automated on it now
+    /// (`yard_assignment`), its capacity with its crew, and that crew.
+    pub fn yard_loads(&self, defs: &Defs) -> BTreeMap<Pos, YardLoad> {
+        let mut out = self.yard_capacities(defs);
+        for (pos, (yard, _)) in self.yard_assignment(defs) {
             let draw = self.building_at(pos).map_or(1, |id| defs.building(id).draw);
             if let Some(load) = out.get_mut(&yard) {
                 load.draw += draw;
