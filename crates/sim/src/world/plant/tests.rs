@@ -83,3 +83,28 @@ fn each_nation_has_a_plant_and_a_big_work_after_mechanisms() {
         assert!(b.recipe.is_some(), "{work}");
     }
 }
+
+/// #1096: two Wind Turbines both in reach of six Smelters, whose draw (6) is more than one
+/// turbine gives (4) but not two. The load is shared, so nothing browns out, and each turbine's
+/// readout shows its own share rather than one carrying it all.
+#[test]
+fn two_turbines_in_reach_share_the_load_and_nothing_browns_out() {
+    let defs = Defs::bundled();
+    let mut w = World::with_map(1, field(40, 20), Nation::Air, &[at(30, 15)], &defs);
+    put(&mut w, &defs, "wind_turbine", at(2, 2));
+    put(&mut w, &defs, "wind_turbine", at(5, 2));
+    let smelters = [at(2, 5), at(5, 5), at(8, 5), at(2, 8), at(5, 8), at(8, 8)];
+    for p in smelters {
+        put(&mut w, &defs, "smelter", p);
+    }
+    w.research.grant(defs.tech_id("mechanisms").unwrap());
+    let loads = w.yard_loads(&defs);
+    let (a, b) = (loads[&at(2, 2)], loads[&at(5, 2)]);
+    assert_eq!((a.capacity, b.capacity), (Some(4), Some(4)));
+    assert_eq!(a.draw + b.draw, 6, "every smelter draws on one of them");
+    assert!(a.draw <= 4 && b.draw <= 4, "neither is over: {} and {}", a.draw, b.draw);
+    for p in smelters {
+        assert_eq!(w.brownout(p, &defs), 1.0, "{p:?}");
+        assert!(w.automated(p, &defs).is_some(), "{p:?}");
+    }
+}

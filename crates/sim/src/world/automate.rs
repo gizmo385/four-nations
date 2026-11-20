@@ -24,6 +24,23 @@ pub type CraftBatch = (Vec<(ItemId, u32, u32)>, f32);
 /// "Wear"): a tool, used up.
 pub(super) const TEND_ITEM: &str = "tool";
 
+/// One automating yard a machine stands in (`World::yards_reaching`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct YardReach {
+    pub anchor: Pos,
+    pub rate: f32,
+    /// Its base load limit (`AutomateDef::capacity`), before crews; `None` for no limit.
+    pub capacity: Option<u32>,
+}
+
+/// The fastest of `yards`, and of two as fast the first by anchor (they come sorted by anchor).
+pub(super) fn best_yard(yards: &[YardReach]) -> Option<(Pos, f32)> {
+    yards
+        .iter()
+        .map(|y| (y.anchor, y.rate))
+        .reduce(|best, next| if next.1 > best.1 { next } else { best })
+}
+
 /// Where a share of a machine's output goes (`Command::SetShare`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -82,17 +99,33 @@ impl World {
         self.yard_of(pos, defs).map(|(_, rate)| rate)
     }
 
-    /// The best automating yard the building anchored on `pos` stands in, as the yard's anchor
-    /// and rate: the fastest, and of two as fast the first by anchor. Its machines draw on that
-    /// yard's capacity (`World::yard_loads`).
+    /// The automating yard the building anchored on `pos` draws on, as the yard's anchor and
+    /// rate. A machine on automation in reach of one yard draws on it; in reach of several with
+    /// a load limit, the load is shared out (`World::yard_assignment`, #1096), so a second
+    /// turbine beside a browned-out one takes its share. Off automation (or with every yard in
+    /// reach unlimited), the fastest, and of two as fast the first by anchor.
     pub fn yard_of(&self, pos: Pos, defs: &Defs) -> Option<(Pos, f32)> {
-        if !self.has_kind(Kind::Automates) {
-            return None;
+        let yards = self.yards_reaching(pos, defs);
+        let best = best_yard(&yards)?;
+        let shared = yards.len() > 1
+            && yards.iter().any(|y| y.capacity.is_some())
+            && self.anchored(pos).is_some_and(|b| !b.manual);
+        if !shared {
+            return Some(best);
         }
-        let b = self.anchored(pos)?;
+        Some(self.yard_assignment(defs).get(&pos).copied().unwrap_or(best))
+    }
+
+    /// Every running automating yard whose reach the building anchored on `pos` stands in, by
+    /// anchor: empty for a building automation can't touch.
+    pub(super) fn yards_reaching(&self, pos: Pos, defs: &Defs) -> Vec<YardReach> {
+        if !self.has_kind(Kind::Automates) {
+            return Vec::new();
+        }
+        let Some(b) = self.anchored(pos) else { return Vec::new() };
         let def = defs.building(b.id);
         if def.recipe.is_none() || !def.uses_power {
-            return None;
+            return Vec::new();
         }
         let foot = b.footprint();
         let touches = |terrains: &[crate::defs::Terrain]| {
@@ -102,15 +135,22 @@ impl World {
                     .filter_map(|p| self.map.get(p))
                     .any(|t| terrains.contains(&t.terrain))
         };
-        self.of_kind(Kind::Automates)
+        let mut out: Vec<YardReach> = self
+            .of_kind(Kind::Automates)
             .filter_map(|s| {
                 let (tech, a) = defs.building(s.id).automate_upgrade.as_ref()?;
                 (self.research.is_known(*tech)
                     && s.footprint().gap(foot) <= a.radius as i32
                     && touches(&a.beside))
-                .then_some((s.anchor, a.rate))
+                .then_some(YardReach {
+                    anchor: s.anchor,
+                    rate: a.rate,
+                    capacity: (a.capacity > 0).then_some(a.capacity),
+                })
             })
-            .reduce(|best, next| if next.1 > best.1 { next } else { best })
+            .collect();
+        out.sort_by_key(|y| y.anchor);
+        out
     }
 
     /// `Command::SetAutomated`: puts the building anchored on `pos` on automation, or gives it
@@ -372,11 +412,12 @@ impl World {
         let anchors: Vec<Pos> = self.buildings().map(|b| b.anchor).collect();
         // The load at the tick's start: a batch finishing mid-loop doesn't change who browns out.
         let loads = self.yard_loads(defs);
+        let assigned = self.yard_assignment(defs);
         for pos in anchors {
             if self.anchored(pos).is_none_or(|b| b.manual) {
                 continue;
             }
-            let Some((yard, rate)) = self.yard_of(pos, defs) else { continue };
+            let Some(&(yard, rate)) = assigned.get(&pos) else { continue };
             let rate = rate * loads.get(&yard).map_or(1.0, super::plant::YardLoad::speed);
             // A spirit vine against its edge (F6b, docs/design/spirits.md) slows it.
             let rate = if self.choked(pos, defs) { rate * defs.spirits.vine_choke } else { rate };
@@ -411,7 +452,7 @@ impl World {
                 let left =
                     self.pass_across(pos, Stack { item: output.item, count: output.count }, defs);
                 if left.count > 0 {
-                    self.place_ground(pos, left);
+                    self.place_output(pos, left);
                 }
                 self.tallies.count_school("automated_batches", 1);
                 if self.united()

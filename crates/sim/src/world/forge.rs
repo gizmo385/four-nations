@@ -78,6 +78,46 @@ pub(super) struct CraftState {
 }
 
 impl World {
+    /// Drops a building's output (or anything else it lets go of) on the nearest free tile
+    /// that a unit walking out of its door can reach (#1094): beside a river bend or between
+    /// buildings, the nearest free tile can sit in a pocket nobody can get to, and the goods were
+    /// lost to the stores. Falls back to `place_ground`'s plain nearest tile when the door itself
+    /// is shut in or nothing reachable is near, so nothing vanishes that didn't before.
+    pub(super) fn place_output(&mut self, anchor: Pos, stack: Stack) {
+        let reach = self.door_reach(anchor);
+        if reach.is_empty() || !self.place_ground_where(anchor, stack, |p| reach.contains(&p)) {
+            self.place_ground(anchor, stack);
+        }
+    }
+
+    /// The tiles 4-connected to the door of the building on `anchor` over walkable ground,
+    /// within a window around it a little wider than `place_ground`'s search: where its output
+    /// may go. A diagonal step never cuts a corner (`path.rs`), so 4-connection is the same reach.
+    /// Empty without a footprint or with an unwalkable door.
+    pub(super) fn door_reach(&self, anchor: Pos) -> std::collections::BTreeSet<Pos> {
+        use super::work::GROUND_SEARCH_RADIUS;
+        let mut seen = std::collections::BTreeSet::new();
+        let Some(foot) = self.footprint_at(anchor) else { return seen };
+        let door = foot.entrance();
+        if !self.door_walkable(door) {
+            return seen;
+        }
+        let window = GROUND_SEARCH_RADIUS + 4;
+        let inside = |p: Pos| foot.distance(p) <= window;
+        let mut queue = vec![door];
+        seen.insert(door);
+        while let Some(q) = queue.pop() {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let n = Pos::new(q.x + dx, q.y + dy);
+                if inside(n) && !seen.contains(&n) && self.door_walkable(n) {
+                    seen.insert(n);
+                    queue.push(n);
+                }
+            }
+        }
+        seen
+    }
+
     /// The batch under way at the production building anchored on `pos`, if one has begun.
     pub(super) fn craft(&self, pos: Pos) -> Option<&CraftState> {
         self.anchored(pos)?.craft.as_ref()
@@ -326,7 +366,7 @@ impl World {
                 }
                 self.leave_building(i);
                 self.units[i].route = None;
-                self.place_ground(pos, Stack { item: output.item, count: output.count });
+                self.place_output(pos, Stack { item: output.item, count: output.count });
                 self.record_batch(recipe);
                 // The balance harness's `steel_made` tally (#764): what the Steelworks makes.
                 if def.id == STEELWORKS {

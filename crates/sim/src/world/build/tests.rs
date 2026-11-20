@@ -647,6 +647,37 @@ fn a_footprint_may_not_cover_another_doorway() {
     assert!(w.designate_build(at(3, 2), hall, &defs).is_ok());
 }
 
+/// #1092: the other order. A building whose own door would land inside a solid building's
+/// *site* is refused too, though a site's tiles are still walkable: once that building stands,
+/// the door is buried and no crafter can ever reach it (a Steelworks placed with its door on a
+/// Smelter site never got one). A walkable building's site, like a road's, doesn't count.
+#[test]
+fn a_door_may_not_land_inside_a_solid_site() {
+    let (mut w, mut defs) = setup(&GRID, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    // The first site: footprint (2..4, 2..4).
+    w.designate_build(at(2, 2), hall, &defs).unwrap();
+    // Anchored on (2, 0), the second hall's footprint (2..4, 0..2) is free and covers no door,
+    // but its own door at (2, 2) is the first site's top-left tile.
+    assert!(w.door_walkable(at(2, 2)), "the site's ground is still walkable");
+    assert_eq!(
+        w.check_build(at(2, 0), hall, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 2), why: Blocker::Entrance })
+    );
+    // Once finished, the same tile stays refused.
+    w.complete_site(at(2, 2), &defs);
+    assert_eq!(
+        w.check_build(at(2, 0), hall, &defs),
+        Err(BuildError::CannotBuild { at: at(2, 2), why: Blocker::Entrance })
+    );
+    // A walkable building's site leaves the door free.
+    let (mut w, mut defs) = setup(&GRID, &[at(0, 0)]);
+    let hall = hall_2x2(&mut defs);
+    defs.buildings[hall.0 as usize].passable = true;
+    w.designate_build(at(2, 2), hall, &defs).unwrap();
+    assert!(w.check_build(at(2, 0), hall, &defs).is_ok());
+}
+
 /// Only buildings that can be entered have doors: solid 1x1 buildings with no capacity stack in a
 /// column (a north-south wall) and sit with water right below them.
 #[test]
@@ -1141,4 +1172,49 @@ fn a_paved_road_is_its_own_track_and_refunds_nothing() {
     run_until(&mut w, &defs, 4000, |w| w.building_at(at(5, 2)).is_none());
     let stone = defs.item_id("stone").unwrap();
     assert!(w.ground.values().all(|s| s.item != stone), "no stone comes back");
+}
+
+/// #1095: a site across water from every settler is unreachable, and a reachable site whose
+/// only wood sits in a stockpile across that water names the wood as stranded. Wood on its own
+/// side clears both.
+#[test]
+fn a_site_across_water_is_unreachable_and_its_stranded_material_named() {
+    let rows = ["....~....", "....~....", "....~....", "....~....", "....~...."];
+    let (mut w, defs) = setup(&rows, &[at(1, 1)]);
+    let bed = defs.building_id("bed").unwrap();
+    let wood = defs.item_id("wood").unwrap();
+    assert!(defs.building(bed).cost.iter().any(|c| c.item == wood), "a bed takes wood");
+    w.designate_build(at(6, 2), bed, &defs).unwrap();
+    w.designate_build(at(2, 3), bed, &defs).unwrap();
+    w.ensure_regions();
+    assert_eq!(w.site_unreachable(at(6, 2), &defs), Some(true));
+    assert_eq!(w.site_unreachable(at(2, 3), &defs), Some(false));
+    // No wood anywhere: nothing is stranded (idle settlers already say it's missing).
+    assert_eq!(w.site_stranded_item(at(2, 3), &defs), None);
+    w.zones.insert(at(7, 4));
+    w.stored.insert(at(7, 4), Stack { item: wood, count: 10 });
+    assert_eq!(w.site_stranded_item(at(2, 3), &defs), Some(wood));
+    w.zones.insert(at(0, 4));
+    w.stored.insert(at(0, 4), Stack { item: wood, count: 1 });
+    assert_eq!(w.site_stranded_item(at(2, 3), &defs), None);
+}
+
+/// #1093: the #583 pocket with water beside it. Being able to drink isn't enough: the settler
+/// shut in east of the hall can reach no stockpile and not the heart, so it would starve with
+/// food in stores (three settlers did, `sonnet-air-full`, seed 7). It is moved out like any other.
+#[test]
+fn a_pocket_with_water_but_no_stores_still_counts_as_shut_in() {
+    let rows = ["^^^^^^^^^^", "^.......~^", "^.......~^", "^^^^.^^^^^"];
+    let (mut w, mut defs) = setup(&rows, &[at(1, 1), at(7, 1)]);
+    let hall = hall_2x2(&mut defs);
+    w.start = Some(at(1, 1));
+    w.zones.insert(at(1, 2));
+    w.units[1].claim_retry_at = u64::MAX;
+    w.units[1].idle_until = u64::MAX;
+    w.designate_build(at(4, 1), hall, &defs).unwrap();
+    nearly_done(&mut w, &defs, at(4, 1));
+    run_until(&mut w, &defs, 4000, |w| w.building_at(at(4, 1)).is_some());
+    let reach = w.reach(UnitId(1)).unwrap();
+    assert!(reach.anchor && reach.stockpile == Some(true), "moved to the stores' side");
+    assert!(w.units[1].pos.x <= 3, "{:?}", w.units[1].pos);
 }

@@ -170,6 +170,14 @@ fn describe_idle(world: &World, defs: &Defs, unit: &Unit) -> String {
     if world.walled_in(unit.id) {
         return "Idle: walled in".to_owned();
     }
+    // Hungry and shut away from every stockpile and the heart, with water at hand so not
+    // "walled in" (#1093: settlers starved in such a pocket with food in stores, reading only
+    // "no reachable job"). Asked only of a hungry settler, since `reach` floods the map.
+    if unit.needs.hunger <= defs.needs.hunger.low
+        && world.reach(unit.id).is_some_and(|r| r.stockpile == Some(false) && !r.anchor)
+    {
+        return "Idle: can't reach the stores to eat".to_owned();
+    }
     match world.idle_reason(unit.id, defs) {
         None | Some(IdleReason::NoWork) => "Idle".to_owned(),
         Some(IdleReason::Unreachable) => "Idle: no reachable job".to_owned(),

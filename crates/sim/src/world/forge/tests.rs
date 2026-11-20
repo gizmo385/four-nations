@@ -812,3 +812,27 @@ fn a_recipe_id_the_data_no_longer_has_falls_back_to_the_first_recipe() {
     let w2 = World::load(&saved, &defs).expect("loads");
     assert_eq!(w2.anchored(anchor).unwrap().recipe, None, "cleared on load");
 }
+
+/// #1094: a Smelter beside water whose nearest free tile is a pocket the water and the building
+/// cut off. Its output goes to the nearest tile its door can reach, not into the pocket.
+#[test]
+fn output_skips_a_pocket_the_door_cannot_reach() {
+    let (mut w, defs) = setup(&[".........."; 8], &[at(8, 7)]);
+    // (2, 2) is land walled in by water on every side and the Smelter's top-left corner below
+    // and right of it; it is the first tile `place_ground`'s ring search tries.
+    for p in [at(2, 1), at(1, 2), at(3, 2), at(2, 3)] {
+        w.map.get_mut(p).unwrap().terrain = Terrain::Water;
+    }
+    let smelter = defs.building_id("smelter").unwrap();
+    place_building(&mut w, &defs, smelter, at(3, 3));
+    let metal = defs.item_id("metal").unwrap();
+    let reach = w.door_reach(at(3, 3));
+    assert!(reach.contains(&at(3, 5)) && !reach.contains(&at(2, 2)));
+    w.place_output(at(3, 3), Stack { item: metal, count: 1 });
+    assert!(!w.ground.contains_key(&at(2, 2)), "not into the pocket");
+    let (&dropped, _) = w.ground.iter().find(|(_, s)| s.item == metal).expect("dropped");
+    assert!(reach.contains(&dropped), "{dropped:?} is reachable");
+    // The plain search would have used the pocket.
+    w.place_ground(at(3, 3), Stack { item: metal, count: 1 });
+    assert!(w.ground.contains_key(&at(2, 2)));
+}

@@ -295,6 +295,13 @@ impl World {
         // The loader allows a gate only with stages.
         let first = &defs.endeavor.stages[0];
         self.sites.insert(anchor, Site::gate(gate, [w, h]));
+        // Like any site (`designate_build`), queue a Clear on every footprint tile that holds a
+        // clearable resource: the gate's Build job waits on them (`site_ready`), and without
+        // them a tree on the footprint stalled the Foundation for good (#1106). A standing
+        // harvest mark there gives way to the Clear (`designate_clear`).
+        for p in self.to_clear(anchor, gate, defs) {
+            let _ = self.designate_clear(p, defs);
+        }
         self.endeavor = EndeavorState::Building(GateSite::new(anchor, tick, first));
         self.gate_progressed(defs);
         Ok(())
@@ -387,7 +394,11 @@ impl World {
         else {
             unreachable!("just matched")
         };
-        self.sites.remove(&g.anchor);
+        let site = self.sites.remove(&g.anchor).expect("the gate's site");
+        // The Clears it queued that nobody has started go too, as for `cancel_build`.
+        for p in self.to_clear(g.anchor, site.building, defs) {
+            self.jobs.retain(|j| !(j.kind == JobKind::Clear { pos: p } && j.progress == 0.0));
+        }
         self.drop_gate_jobs(g.anchor);
         for &stack in g.delivered.iter().chain(g.tasks.iter().flat_map(|t| &t.delivered)) {
             if stack.count > 0 {
@@ -405,6 +416,16 @@ impl World {
             JobKind::EndeavorTask { .. } | JobKind::Attend { .. } => false,
             _ => true,
         });
+    }
+
+    /// The gate site's tiles that still hold a resource to clear before its Build job can be
+    /// claimed (`World::to_clear`, `site_ready`), row-major. Empty with no site. The Endeavor
+    /// screen names them, so a stalled Foundation says why (#1106).
+    pub fn gate_to_clear(&self, defs: &Defs) -> Vec<Pos> {
+        match (self.gate_anchor(), defs.endeavor.building) {
+            (Some(anchor), Some(gate)) => self.to_clear(anchor, gate, defs),
+            _ => Vec::new(),
+        }
     }
 
     /// The task at `task` in the current stage (`JobKind::EndeavorTask`), with its data and the

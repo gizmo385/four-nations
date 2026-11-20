@@ -541,3 +541,35 @@ fn skip_to_gate_stage_starts_a_later_stage_and_nothing_else() {
     assert!(g.tasks.iter().all(|t| !t.done) && !g.tasks.is_empty());
     assert!(!w.skip_to_gate_stage("pillars", &defs), "already there");
 }
+
+/// #1106: a Fruit Tree under a standing harvest inside the gate's footprint. Placing the gate
+/// queues its Clear like any site's (and the Clear wins over the harvest mark), so the tree comes
+/// down and the first stage gets built, instead of the Build job waiting on it for good.
+#[test]
+fn a_tree_on_the_gate_footprint_is_cleared_and_the_first_stage_built() {
+    let defs = earth_only();
+    let mut w = world(Nation::Earth, 3, &defs);
+    let tree = at(ANCHOR.x + 1, ANCHOR.y + 1);
+    w.map.get_mut(tree).unwrap().resource = Some(defs.resource_id("fruit_tree").unwrap());
+    w.designate_repeating_harvest(tree, &defs).expect("ripe");
+    begin(&mut w, &defs);
+    assert_eq!(w.gate_to_clear(&defs), [tree]);
+    assert!(w.jobs().iter().any(|j| j.kind == JobKind::Clear { pos: tree }));
+    assert!(!w.standing_harvest.contains(&tree), "the Clear replaces the standing harvest");
+    run_until(&mut w, &defs, 6_000, |w| stages_done(w).iter().any(|s| s == "base"));
+    assert!(w.map.get(tree).unwrap().resource.is_none());
+    assert!(w.gate_to_clear(&defs).is_empty());
+}
+
+/// Withdrawing the gate also withdraws the Clears it queued that nobody has started (#1106).
+#[test]
+fn cancelling_the_gate_withdraws_its_unstarted_clears() {
+    let defs = earth_only();
+    let mut w = world(Nation::Earth, 1, &defs);
+    let tree = at(ANCHOR.x, ANCHOR.y);
+    w.map.get_mut(tree).unwrap().resource = Some(defs.resource_id("fruit_tree").unwrap());
+    begin(&mut w, &defs);
+    assert!(w.jobs().iter().any(|j| j.kind == JobKind::Clear { pos: tree }));
+    w.apply(Command::CancelEndeavor, &defs).expect("nothing started");
+    assert!(!w.jobs().iter().any(|j| j.kind == JobKind::Clear { pos: tree }));
+}
